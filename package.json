@@ -1,8 +1,15 @@
 {
+  "name": "agentic-board",
+  "private": true,
   "scripts": {
-    "dev": "npm --prefix Front run dev",
-    "build": "npm --prefix Front run build",
-    "lint": "npm --prefix Front run lint",
-    "preview": "npm --prefix Front run preview"
+    "dev:web": "npm --prefix web run dev",
+    "dev:api": "npm --prefix api run start:dev",
+    "dev:ai": "ai\\.venv\\Scripts\\python.exe -m uvicorn main:app --reload --host 0.0.0.0 --port 8000 --app-dir ai",
+    "build:web": "npm --prefix web run build",
+    "build:api": "npm --prefix api run build",
+    "lint:web": "npm --prefix web run lint",
+    "lint:api": "npm --prefix api run lint",
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down"
   }
 }

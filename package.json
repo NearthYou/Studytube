@@ -1,0 +1,8 @@
+{
+  "scripts": {
+    "dev": "npm --prefix Front run dev",
+    "build": "npm --prefix Front run build",
+    "lint": "npm --prefix Front run lint",
+    "preview": "npm --prefix Front run preview"
+  }
+}

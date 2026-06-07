@@ -1,25 +1,13 @@
-import { HttpService } from '@nestjs/axios';
-import { Injectable, OnModuleDestroy } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { Pool } from 'pg';
-import { firstValueFrom } from 'rxjs';
-
-type AiHealthResponse = Record<string, unknown>;
+import { Injectable } from '@nestjs/common';
+import { AiProxyService } from './ai-proxy.service';
+import { DatabaseService } from './database.service';
 
 @Injectable()
-export class AppService implements OnModuleDestroy {
-  private readonly pool: Pool;
-
+export class AppService {
   constructor(
-    private readonly configService: ConfigService,
-    private readonly httpService: HttpService,
-  ) {
-    this.pool = new Pool({
-      connectionString:
-        this.configService.get<string>('DATABASE_URL') ??
-        'postgresql://app:app@localhost:5432/app_dev',
-    });
-  }
+    private readonly databaseService: DatabaseService,
+    private readonly aiProxyService: AiProxyService,
+  ) {}
 
   getHealth() {
     return {
@@ -30,66 +18,14 @@ export class AppService implements OnModuleDestroy {
   }
 
   async getAiHealth() {
-    const aiServiceUrl =
-      this.configService.get<string>('AI_SERVICE_URL') ??
-      'http://localhost:8000';
-
-    try {
-      const response = await firstValueFrom(
-        this.httpService.get<AiHealthResponse>(`${aiServiceUrl}/health`, {
-          headers: this.getInternalHeaders(),
-          timeout: 3000,
-        }),
-      );
-
-      return {
-        service: 'api',
-        status: 'ok',
-        ai: response.data,
-      };
-    } catch (error) {
-      return {
-        service: 'api',
-        status: 'degraded',
-        ai: {
-          status: 'unreachable',
-          message: this.toErrorMessage(error),
-        },
-      };
-    }
+    return {
+      service: 'api',
+      status: 'ok',
+      ai: await this.aiProxyService.health(),
+    };
   }
 
   async getDbHealth() {
-    try {
-      const result = await this.pool.query<{ ok: number }>('SELECT 1 AS ok');
-
-      return {
-        service: 'api',
-        status: result.rows[0]?.ok === 1 ? 'ok' : 'unknown',
-        database: 'postgresql',
-        timestamp: new Date().toISOString(),
-      };
-    } catch (error) {
-      return {
-        service: 'api',
-        status: 'degraded',
-        database: 'postgresql',
-        message: this.toErrorMessage(error),
-      };
-    }
-  }
-
-  async onModuleDestroy() {
-    await this.pool.end();
-  }
-
-  private getInternalHeaders() {
-    const apiKey = this.configService.get<string>('INTERNAL_AI_API_KEY');
-
-    return apiKey ? { 'X-INTERNAL-API-KEY': apiKey } : undefined;
-  }
-
-  private toErrorMessage(error: unknown) {
-    return error instanceof Error ? error.message : 'Unknown error';
+    return this.databaseService.health();
   }
 }

@@ -1,8 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { HttpService } from '@nestjs/axios';
-import { ConfigService } from '@nestjs/config';
+import { AiProxyService } from './ai-proxy.service';
+import { DatabaseService } from './database.service';
 
 describe('AppController', () => {
   let appController: AppController;
@@ -13,15 +13,15 @@ describe('AppController', () => {
       providers: [
         AppService,
         {
-          provide: ConfigService,
+          provide: DatabaseService,
           useValue: {
-            get: jest.fn(),
+            health: jest.fn(),
           },
         },
         {
-          provide: HttpService,
+          provide: AiProxyService,
           useValue: {
-            get: jest.fn(),
+            health: jest.fn(),
           },
         },
       ],

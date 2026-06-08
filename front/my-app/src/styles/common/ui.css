@@ -1,0 +1,139 @@
+.primary-button,
+.secondary-button,
+.ghost-button,
+.toggle-button,
+.sort-group button,
+.pagination button,
+.post-card__stats button,
+.detail-card__actions button,
+.mypage-tabs button {
+  border: 1px solid #1b1b1b;
+  background: #1b1b1b;
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  padding: 0.85rem 1.1rem;
+  text-decoration: none;
+  transition:
+    background-color 160ms ease,
+    color 160ms ease,
+    transform 160ms ease;
+}
+
+.primary-button:hover,
+.secondary-button:hover,
+.ghost-button:hover,
+.toggle-button:hover,
+.sort-group button:hover,
+.pagination button:hover,
+.post-card__stats button:hover,
+.detail-card__actions button:hover,
+.mypage-tabs button:hover {
+  transform: translateY(-1px);
+}
+
+.secondary-button,
+.ghost-button,
+.toggle-button,
+.sort-group button,
+.pagination button,
+.post-card__stats button,
+.detail-card__actions button,
+.mypage-tabs button {
+  background: transparent;
+  color: #1b1b1b;
+}
+
+.toggle-button.active,
+.sort-group button.active,
+.pagination button.active,
+.mypage-tabs button.active {
+  background: #1b1b1b;
+  color: #fff;
+}
+
+.auth-form,
+.signup-form,
+.write-form,
+.comment-form,
+.reply-form,
+.profile-edit-form {
+  display: grid;
+  gap: 1rem;
+}
+
+.auth-form label,
+.signup-form label,
+.write-form label,
+.profile-edit-form label,
+.filter-field {
+  display: grid;
+  gap: 0.5rem;
+  color: #2f2c28;
+  font-size: 0.92rem;
+}
+
+.auth-form input,
+.signup-form input,
+.write-form input,
+.write-form textarea,
+.profile-edit-form input,
+.comment-form textarea,
+.reply-form input,
+.chat-form textarea,
+.filter-field select,
+.search-input {
+  width: 100%;
+  border: 1px solid #cfc8bc;
+  background: #fffdfa;
+  color: #1a1a1a;
+  font: inherit;
+  padding: 0.95rem 1rem;
+}
+
+.write-form textarea,
+.comment-form textarea,
+.chat-form textarea {
+  min-height: 160px;
+  resize: vertical;
+}
+
+.auth-form input:focus,
+.signup-form input:focus,
+.write-form input:focus,
+.write-form textarea:focus,
+.profile-edit-form input:focus,
+.comment-form textarea:focus,
+.reply-form input:focus,
+.chat-form textarea:focus,
+.filter-field select:focus,
+.search-input:focus {
+  outline: 2px solid rgba(101, 90, 67, 0.18);
+  border-color: #9a8e7a;
+}
+
+.filter-grid,
+.form-filter-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.pagination {
+  display: flex;
+  justify-content: center;
+  gap: 0.65rem;
+}
+
+.pagination button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+@media (max-width: 760px) {
+  .comment-form,
+  .chat-form {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

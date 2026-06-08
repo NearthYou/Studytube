@@ -1,0 +1,47 @@
+.profile-page {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.profile-hero {
+  display: grid;
+  gap: 1rem;
+  padding: 2rem;
+  border: 1px solid #cfc8bc;
+  background: rgba(255, 255, 255, 0.92);
+  text-align: center;
+}
+
+.profile-hero__eyebrow {
+  color: #7a6d59;
+  font-size: 0.74rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+
+.profile-hero h1 {
+  margin: 0;
+  color: #121212;
+  font-family: "Bodoni MT", "Didot", "Times New Roman", serif;
+  font-size: clamp(2.1rem, 5vw, 4.1rem);
+  font-weight: 400;
+}
+
+.profile-hero p {
+  color: #5f5a53;
+  line-height: 1.75;
+}
+
+.profile-hero__meta {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 760px) {
+  .profile-hero {
+    padding: 1.25rem;
+  }
+}

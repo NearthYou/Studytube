@@ -1,0 +1,27 @@
+.app-shell {
+  min-height: 100vh;
+}
+
+.page {
+  width: min(1280px, calc(100% - 2rem));
+  margin: 0 auto;
+  padding: 2rem 0 4rem;
+}
+
+.empty-state {
+  padding: 4rem 1rem;
+  border: 1px solid #cfc8bc;
+  background: #fff;
+  text-align: center;
+}
+
+.muted-copy {
+  color: #5f5a53;
+  line-height: 1.75;
+}
+
+@media (max-width: 760px) {
+  .page {
+    width: min(100% - 1rem, 1280px);
+  }
+}

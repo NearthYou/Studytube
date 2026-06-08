@@ -1,0 +1,136 @@
+.detail-page {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.detail-card,
+.detail-section {
+  border: 1px solid #cfc8bc;
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.detail-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+}
+
+.detail-card__media img {
+  width: 100%;
+  height: 100%;
+  min-height: 520px;
+  object-fit: cover;
+}
+
+.detail-card__content {
+  display: grid;
+  align-content: start;
+  gap: 1rem;
+  padding: 2rem;
+}
+
+.detail-card h1,
+.detail-section__heading h2 {
+  margin: 0;
+  color: #121212;
+  font-family: "Bodoni MT", "Didot", "Times New Roman", serif;
+  font-weight: 400;
+}
+
+.detail-card h1 {
+  font-size: clamp(2.1rem, 4vw, 3.2rem);
+}
+
+.detail-card__meta,
+.detail-card__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.detail-card__meta,
+.detail-card__author {
+  color: #7a6d59;
+  font-size: 0.92rem;
+}
+
+.detail-card__author {
+  margin: 0;
+}
+
+.detail-card__author a,
+.related-post {
+  color: inherit;
+  text-decoration: none;
+}
+
+.detail-card__tags span {
+  border: 1px solid #d9d1c4;
+  padding: 0.28rem 0.55rem;
+  color: #5f5a53;
+  font-size: 0.78rem;
+}
+
+.detail-card__body,
+.detail-section__heading span {
+  color: #5f5a53;
+  line-height: 1.75;
+}
+
+.detail-card__actions,
+.comment-card__head {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.detail-section {
+  padding: 1.5rem;
+}
+
+.detail-section__heading,
+.comment-list,
+.reply-list,
+.related-posts {
+  display: grid;
+  gap: 1rem;
+}
+
+.comment-card,
+.reply-card,
+.related-post {
+  display: grid;
+  gap: 0.6rem;
+  padding: 1rem;
+  border: 1px solid #d9d1c4;
+  background: #fffdfa;
+}
+
+.reply-card {
+  margin-left: 1rem;
+}
+
+.comment-card__head span,
+.reply-card span,
+.related-post span {
+  color: #7a6d59;
+  font-size: 0.88rem;
+}
+
+@media (max-width: 1180px) {
+  .detail-card {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .detail-card__content,
+  .detail-section {
+    padding: 1.25rem;
+  }
+
+  .comment-card__head,
+  .detail-card__actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

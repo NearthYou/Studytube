@@ -1,0 +1,63 @@
+.form-page {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.form-card {
+  padding: 2.5rem;
+  border: 1px solid #cfc8bc;
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.form-card__header {
+  display: grid;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.form-card__header span {
+  color: #7a6d59;
+  font-size: 0.74rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+
+.form-card__header h1 {
+  margin: 0;
+  color: #121212;
+  font-family: "Bodoni MT", "Didot", "Times New Roman", serif;
+  font-size: clamp(2.1rem, 5vw, 4.1rem);
+  font-weight: 400;
+}
+
+.form-card__header p {
+  color: #5f5a53;
+  line-height: 1.75;
+}
+
+.form-filter-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.image-preview img {
+  width: 100%;
+  max-height: 360px;
+  object-fit: cover;
+  border: 1px solid #d9d1c4;
+}
+
+@media (max-width: 1180px) {
+  .form-filter-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .form-card {
+    padding: 1.25rem;
+  }
+
+  .form-filter-grid {
+    grid-template-columns: 1fr;
+  }
+}

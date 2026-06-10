@@ -2,14 +2,21 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import html as html_lib
 import hashlib
+import importlib.util
 import json
 import math
 import os
 from pathlib import Path
 import re
+import shutil
+import subprocess
+import sys
+import tempfile
 from typing import Any
-from urllib.parse import quote_plus
+from urllib.parse import parse_qsl, quote_plus, urlencode, urlparse, urlunparse
+from xml.etree import ElementTree
 
 try:
     from dotenv import load_dotenv
@@ -42,6 +49,11 @@ except ModuleNotFoundError:  # pragma: no cover - local test fallback
     httpx = None
 
 try:
+    import imageio_ffmpeg
+except ModuleNotFoundError:  # pragma: no cover - optional ffmpeg fallback
+    imageio_ffmpeg = None
+
+try:
     import psycopg
 except ModuleNotFoundError:  # pragma: no cover - local test fallback
     psycopg = None
@@ -50,6 +62,11 @@ try:
     from openai import OpenAI
 except ModuleNotFoundError:  # pragma: no cover - local test fallback
     OpenAI = None
+
+try:
+    from youtube_transcript_api import YouTubeTranscriptApi
+except ModuleNotFoundError:  # pragma: no cover - optional transcript fallback
+    YouTubeTranscriptApi = None
 
 
 AI_DIR = Path(__file__).resolve().parent
@@ -60,6 +77,8 @@ load_dotenv(AI_DIR / ".env", override=True)
 
 DEFAULT_DATABASE_URL = "postgresql://app:app@localhost:5432/app_dev"
 EMBEDDING_DIMENSIONS = 64
+DEFAULT_FALLBACK_CAPTION_DURATION_SECONDS = 600
+CAPTION_TRANSLATION_BATCH_SIZE = 25
 
 app = FastAPI(title="StudyTube AI Service")
 
@@ -235,6 +254,16 @@ def mcp_endpoint(payload: dict[str, Any]):
     return handle_mcp_request(payload)
 
 
+@app.post("/youtube/captions")
+def youtube_captions_endpoint(payload: dict[str, Any]):
+    return load_translated_captions(payload)
+
+
+@app.post("/youtube/summary")
+def youtube_summary_endpoint(payload: dict[str, Any]):
+    return build_youtube_summary(payload)
+
+
 @app.post("/agent/study-plan")
 def study_plan_endpoint(payload: dict[str, Any]):
     return build_study_plan(payload)
@@ -390,27 +419,40 @@ def rank_posts(query: str, posts: list[BoardPost]) -> list[tuple[BoardPost, floa
     scored: list[tuple[BoardPost, float]] = []
 
     for post in posts:
-        content = " ".join(
+        transcript_document = " ".join(
             [
-                post.title,
                 post.summary,
                 post.translated_notes,
-                post.channel_name,
-                " ".join(post.tags),
             ]
         )
-        semantic_score = cosine_similarity(query_vector, deterministic_embedding(content))
-        token_score = token_overlap(query_tokens, tokenize(content))
-        phrase_score = 1.0 if query.lower() in content.lower() else 0.0
+        metadata = " ".join([post.title, post.channel_name, " ".join(post.tags)])
+        semantic_score = cosine_similarity(
+            query_vector,
+            deterministic_embedding(f"{post.title} {transcript_document}"),
+        )
+        transcript_token_score = token_overlap(
+            query_tokens,
+            tokenize(transcript_document),
+        )
+        metadata_token_score = token_overlap(query_tokens, tokenize(metadata))
+        phrase_score = (
+            1.0 if query.lower() in transcript_document.lower() else 0.0
+        )
 
-        if token_score == 0 and phrase_score == 0:
+        if transcript_token_score == 0 and metadata_token_score == 0 and phrase_score == 0:
             scored.append((post, 0.0))
             continue
 
         scored.append(
             (
                 post,
-                round((semantic_score * 0.15) + (token_score * 0.7) + (phrase_score * 0.15), 4),
+                round(
+                    (semantic_score * 0.15)
+                    + (transcript_token_score * 0.62)
+                    + (metadata_token_score * 0.08)
+                    + (phrase_score * 0.15),
+                    4,
+                ),
             )
         )
 
@@ -459,6 +501,1759 @@ def lookup_youtube(params: dict[str, Any]) -> dict[str, Any]:
         ),
         "videos": [],
     }
+
+
+def load_translated_captions(payload: dict[str, Any]) -> dict[str, Any]:
+    video_id = (
+        str(payload.get("videoId") or "").strip()
+        or extract_video_hint(
+            str(
+                payload.get("url")
+                or payload.get("videoUrl")
+                or payload.get("sourceUrl")
+                or ""
+            )
+        )
+        or ""
+    )
+    target_language = normalize_language(payload.get("targetLanguage") or "ko")
+    fallback_text = str(payload.get("fallbackText") or "").strip()
+    allow_fallback = bool(payload.get("allowFallback", True))
+    translate_fallback = bool(payload.get("translateFallback", False))
+    duration_seconds = normalize_caption_duration(
+        payload.get("durationSeconds") or payload.get("duration")
+    )
+
+    if not video_id:
+        return fallback_caption_response(
+            video_id="",
+            target_language=target_language,
+            reason="missing-video-id",
+            fallback_text=fallback_text,
+            allow_fallback=allow_fallback,
+            translate_fallback=translate_fallback,
+            duration_seconds=duration_seconds,
+        )
+
+    if httpx is None:
+        transcript_segments, transcript_source_language, transcript_translated = (
+            fetch_transcript_api_segments(video_id, target_language)
+        )
+
+        if transcript_segments:
+            return transcript_api_caption_response(
+                video_id,
+                target_language,
+                transcript_source_language,
+                transcript_translated,
+                transcript_segments,
+            )
+
+        return fallback_caption_response(
+            video_id=video_id,
+            target_language=target_language,
+            reason="http-client-unavailable",
+            fallback_text=fallback_text,
+            allow_fallback=allow_fallback,
+            translate_fallback=translate_fallback,
+            duration_seconds=duration_seconds,
+        )
+
+    try:
+        tracks = fetch_youtube_caption_tracks(video_id)
+        track = choose_caption_track(tracks, target_language)
+
+        if not track:
+            transcript_segments, transcript_source_language, transcript_translated = (
+                fetch_transcript_api_segments(video_id, target_language)
+            )
+
+            if transcript_segments:
+                return transcript_api_caption_response(
+                    video_id,
+                    target_language,
+                    transcript_source_language or "youtube",
+                    transcript_translated,
+                    transcript_segments,
+                )
+
+            yt_dlp_segments, yt_dlp_source_language, yt_dlp_translated, _yt_dlp_error = (
+                fetch_yt_dlp_caption_segments(video_id, target_language)
+            )
+
+            if yt_dlp_segments:
+                return yt_dlp_caption_response(
+                    video_id,
+                    target_language,
+                    yt_dlp_source_language,
+                    yt_dlp_translated,
+                    yt_dlp_segments,
+                )
+
+            return fallback_caption_response(
+                video_id=video_id,
+                target_language=target_language,
+                reason="youtube-caption-track-unavailable",
+                fallback_text=fallback_text,
+                allow_fallback=allow_fallback,
+                translate_fallback=translate_fallback,
+                duration_seconds=duration_seconds,
+            )
+
+        source_language = normalize_language(track.get("languageCode") or "")
+        segments, last_error = fetch_caption_segments_from_urls(
+            caption_candidate_urls(track, video_id, target_language),
+            video_id,
+        )
+
+        if not segments:
+            transcript_segments, transcript_source_language, transcript_translated = (
+                fetch_transcript_api_segments(video_id, target_language)
+            )
+
+            if transcript_segments:
+                return transcript_api_caption_response(
+                    video_id,
+                    target_language,
+                    transcript_source_language or source_language,
+                    transcript_translated,
+                    transcript_segments,
+                )
+
+            source_segments, source_error = fetch_caption_segments_from_urls(
+                source_caption_candidate_urls(track, video_id),
+                video_id,
+            )
+
+            if source_segments and source_language == target_language:
+                return {
+                    "mode": "youtube-captions",
+                    "provider": "youtube-timedtext",
+                    "videoId": video_id,
+                    "language": target_language,
+                    "sourceLanguage": source_language,
+                    "translated": False,
+                    "segments": source_segments,
+                    "message": "YouTube source timed-text captions loaded.",
+                }
+
+            translated_segments = translate_caption_segments(
+                source_segments,
+                target_language,
+            )
+
+            if translated_segments:
+                return {
+                    "mode": "youtube-captions",
+                    "provider": "openai-caption-translation",
+                    "videoId": video_id,
+                    "language": target_language,
+                    "sourceLanguage": source_language,
+                    "translated": True,
+                    "segments": translated_segments,
+                    "message": "YouTube source captions translated for live playback.",
+                }
+
+            if source_segments:
+                return {
+                    "mode": "youtube-captions",
+                    "provider": "caption-translation-unavailable",
+                    "videoId": video_id,
+                    "language": target_language,
+                    "sourceLanguage": source_language,
+                    "translated": False,
+                    "segments": [],
+                    "message": caption_translation_unavailable_reason(),
+                }
+
+            last_error = source_error or last_error
+
+        if not segments:
+            yt_dlp_segments, yt_dlp_source_language, yt_dlp_translated, yt_dlp_error = (
+                fetch_yt_dlp_caption_segments(video_id, target_language)
+            )
+
+            if yt_dlp_segments:
+                return yt_dlp_caption_response(
+                    video_id,
+                    target_language,
+                    yt_dlp_source_language,
+                    yt_dlp_translated,
+                    yt_dlp_segments,
+                )
+
+            last_error = yt_dlp_error or last_error
+
+        if not segments:
+            return fallback_caption_response(
+                video_id=video_id,
+                target_language=target_language,
+                reason=(
+                    f"youtube-caption-segments-empty: {last_error}"
+                    if last_error
+                    else "youtube-caption-segments-empty"
+                ),
+                fallback_text=fallback_text,
+                allow_fallback=allow_fallback,
+                translate_fallback=translate_fallback,
+                duration_seconds=duration_seconds,
+            )
+
+        normalized_segments = normalize_caption_segments(segments)
+
+        if normalized_segments and not caption_segments_match_language(
+            normalized_segments,
+            target_language,
+        ):
+            translated_segments = translate_caption_segments(
+                normalized_segments,
+                target_language,
+            )
+
+            if translated_segments:
+                return {
+                    "mode": "youtube-captions",
+                    "provider": "openai-caption-translation",
+                    "videoId": video_id,
+                    "language": target_language,
+                    "sourceLanguage": source_language or "youtube",
+                    "translated": True,
+                    "segments": translated_segments,
+                    "message": "YouTube timed-text captions translated for live playback.",
+                }
+
+        return {
+            "mode": "youtube-captions",
+            "provider": "youtube-timedtext",
+            "videoId": video_id,
+            "language": target_language,
+            "sourceLanguage": source_language,
+            "translated": source_language != target_language,
+            "segments": normalized_segments,
+            "message": "YouTube timed-text captions loaded for live playback.",
+        }
+    except Exception as exc:
+        return fallback_caption_response(
+            video_id=video_id,
+            target_language=target_language,
+            reason=f"youtube-caption-fetch-failed: {exc}",
+            fallback_text=fallback_text,
+            allow_fallback=allow_fallback,
+            translate_fallback=translate_fallback,
+            duration_seconds=duration_seconds,
+        )
+
+
+def build_youtube_summary(payload: dict[str, Any]) -> dict[str, Any]:
+    video_id = str(payload.get("videoId") or "").strip()
+    title = clean_text(str(payload.get("title") or "")).strip()
+    channel_name = clean_text(str(payload.get("channelName") or "")).strip()
+    target_language = normalize_language(payload.get("language") or "ko")
+    stored_summary = clean_text(str(payload.get("summary") or "")).strip()
+    stored_notes = clean_text(str(payload.get("translatedNotes") or "")).strip()
+    raw_segments = payload.get("segments")
+    segments = normalize_caption_segments(
+        raw_segments if isinstance(raw_segments, list) else []
+    )
+    transcript = transcript_text_from_segments(segments)
+
+    if OpenAI is not None and os.getenv("OPENAI_API_KEY") and transcript:
+        sections = summarize_video_with_openai(
+            title=title,
+            channel_name=channel_name,
+            transcript=transcript,
+            target_language=target_language,
+        )
+
+        if sections:
+            return {
+                "mode": "youtube-summary",
+                "provider": "openai-transcript-summary",
+                "videoId": video_id,
+                "language": target_language,
+                "sections": sections,
+                "message": "Caption transcript summarized into detailed study notes.",
+            }
+
+    return {
+        "mode": "youtube-summary",
+        "provider": "local-transcript-summary",
+        "videoId": video_id,
+        "language": target_language,
+        "sections": fallback_video_summary_sections(
+            title=title,
+            channel_name=channel_name,
+            stored_summary=stored_summary,
+            stored_notes=stored_notes,
+            segments=segments,
+        ),
+        "message": "Detailed AI summary unavailable; generated structured notes locally.",
+    }
+
+
+def summarize_video_with_openai(
+    title: str,
+    channel_name: str,
+    transcript: str,
+    target_language: str,
+) -> list[dict[str, str]]:
+    try:  # pragma: no cover - live credentials are optional in local tests
+        client = OpenAI()
+        response = client.chat.completions.create(
+            model=os.getenv("LLM_MODEL", "gpt-4o-mini"),
+            temperature=0.2,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You create detailed study notes from YouTube transcripts. "
+                        "Write in the requested language. Be specific, practical, and useful "
+                        "for someone studying while watching the video. If the transcript is noisy, "
+                        "infer cautiously from repeated context and avoid pretending uncertain details are exact. "
+                        "Return only JSON with a sections array. Each section must have label and body."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        {
+                            "targetLanguage": target_language,
+                            "title": title,
+                            "channelName": channel_name,
+                            "requiredSections": [
+                                "핵심 요약",
+                                "구간별 흐름",
+                                "중요 표현/개념",
+                                "학습 포인트",
+                                "복습 질문",
+                            ],
+                            "style": (
+                                "각 섹션은 2~5문장으로 자세히 작성하고, "
+                                "단순 홍보문이나 한 줄 설명이 아니라 영상 내용을 학습 노트처럼 정리하세요."
+                            ),
+                            "transcript": transcript,
+                        },
+                        ensure_ascii=False,
+                    ),
+                },
+            ],
+        )
+        content = getattr(response.choices[0].message, "content", "") or ""
+
+        return parse_summary_sections(content)
+    except Exception:
+        return []
+
+
+def parse_summary_sections(content: str) -> list[dict[str, str]]:
+    normalized = content.strip()
+    match = re.search(r"(\{.*\}|\[.*\])", normalized, re.S)
+
+    if match:
+        normalized = match.group(1)
+
+    try:
+        data = json.loads(normalized)
+    except json.JSONDecodeError:
+        return []
+
+    sections = data.get("sections") if isinstance(data, dict) else data
+
+    if not isinstance(sections, list):
+        return []
+
+    parsed: list[dict[str, str]] = []
+
+    for section in sections:
+        if not isinstance(section, dict):
+            continue
+
+        label = clean_text(str(section.get("label") or "")).strip()
+        body = clean_text(str(section.get("body") or "")).strip()
+
+        if label and body:
+            parsed.append({"label": label[:40], "body": body})
+
+    return parsed[:8]
+
+
+def transcript_text_from_segments(
+    segments: list[dict[str, Any]],
+    max_chars: int = 14000,
+) -> str:
+    lines: list[str] = []
+    total_length = 0
+
+    for segment in segments:
+        text = clean_text(str(segment.get("text") or "")).strip()
+
+        if not text:
+            continue
+
+        start = format_caption_time(float(segment.get("start") or 0))
+        line = f"{start} {text}"
+        total_length += len(line)
+
+        if total_length > max_chars:
+            break
+
+        lines.append(line)
+
+    return "\n".join(lines)
+
+
+def fallback_video_summary_sections(
+    title: str,
+    channel_name: str,
+    stored_summary: str,
+    stored_notes: str,
+    segments: list[dict[str, Any]],
+) -> list[dict[str, str]]:
+    sections: list[dict[str, str]] = []
+    context = " ".join(
+        part for part in [title, channel_name, stored_summary] if part
+    ).strip()
+
+    if context:
+        sections.append(
+            {
+                "label": "핵심 요약",
+                "body": (
+                    f"{context} 이 영상은 위 주제를 학습하기 위한 자료입니다. "
+                    "자동 상세 요약을 만들 수 없는 경우라 저장된 설명과 전사문 일부를 기준으로 정리했습니다."
+                ),
+            }
+        )
+
+    if segments:
+        sections.append(
+            {
+                "label": "구간별 흐름",
+                "body": " ".join(
+                    f"{format_caption_time(float(segment['start']))} {segment['text']}"
+                    for segment in sample_summary_segments(segments)
+                ),
+            }
+        )
+
+        sections.append(
+            {
+                "label": "학습 포인트",
+                "body": (
+                    "자막에서 반복되는 표현과 예시를 중심으로 들으며, 이해가 안 되는 구간은 "
+                    "마킹 기능으로 저장해 다시 확인하세요. 특히 영상 초반의 문제 제기, 중반의 예시, "
+                    "후반의 정리 문장을 나누어 복습하면 흐름을 잡기 쉽습니다."
+                ),
+            }
+        )
+
+    if stored_notes and stored_notes != stored_summary:
+        sections.append({"label": "저장된 노트", "body": stored_notes[:900]})
+
+    sections.append(
+        {
+            "label": "복습 질문",
+            "body": (
+                "영상의 핵심 주제는 무엇이었는지, 새롭게 배운 표현이나 개념은 무엇인지, "
+                "바로 적용해볼 수 있는 예시는 무엇인지 스스로 답해보세요."
+            ),
+        }
+    )
+
+    return sections[:6] or [
+        {
+            "label": "요약 준비 중",
+            "body": "자막이나 전사문을 불러오면 이 영역에 자세한 학습 정리가 표시됩니다.",
+        }
+    ]
+
+
+def sample_summary_segments(segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if len(segments) <= 8:
+        return segments
+
+    step = max(1, len(segments) // 8)
+    sampled = [segments[index] for index in range(0, len(segments), step)]
+
+    return sampled[:8]
+
+
+def format_caption_time(total_seconds: float) -> str:
+    minutes = int(max(0, total_seconds) // 60)
+    seconds = int(max(0, total_seconds) % 60)
+
+    return f"{minutes:02d}:{seconds:02d}"
+
+
+def fetch_youtube_caption_tracks(video_id: str) -> list[dict[str, Any]]:
+    if httpx is None:
+        return []
+
+    response = httpx.get(
+        "https://www.youtube.com/watch",
+        params={"v": video_id, "hl": "en"},
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 StudyTubeBoard/1.0 "
+                "(educational caption retrieval)"
+            )
+        },
+        timeout=8.0,
+        follow_redirects=True,
+    )
+    response.raise_for_status()
+    player_response = parse_yt_initial_player_response(response.text)
+    track_list = (
+        ((player_response.get("captions") or {}).get("playerCaptionsTracklistRenderer"))
+        or {}
+    ).get("captionTracks")
+
+    return [track for track in track_list or [] if isinstance(track, dict)]
+
+
+def parse_yt_initial_player_response(html: str) -> dict[str, Any]:
+    return parse_json_assignment(
+        html,
+        ["ytInitialPlayerResponse", "var ytInitialPlayerResponse"],
+    )
+
+
+def parse_json_assignment(source: str, names: list[str]) -> dict[str, Any]:
+    decoder = json.JSONDecoder()
+
+    for name in names:
+        start = source.find(name)
+
+        if start < 0:
+            continue
+
+        equals = source.find("=", start)
+        brace = source.find("{", equals)
+
+        if equals < 0 or brace < 0:
+            continue
+
+        try:
+            parsed, _end = decoder.raw_decode(source[brace:])
+        except json.JSONDecodeError:
+            continue
+
+        if isinstance(parsed, dict):
+            return parsed
+
+    return {}
+
+
+def choose_caption_track(
+    tracks: list[dict[str, Any]],
+    target_language: str,
+) -> dict[str, Any] | None:
+    if not tracks:
+        return None
+
+    for track in tracks:
+        if normalize_language(track.get("languageCode")) == target_language:
+            return track
+
+    for track in tracks:
+        if track.get("isTranslatable"):
+            return track
+
+    return tracks[0]
+
+
+def build_caption_url(track: dict[str, Any], target_language: str) -> str:
+    base_url = html_lib.unescape(str(track.get("baseUrl") or ""))
+    source_language = normalize_language(track.get("languageCode"))
+    params = {"fmt": "json3"}
+
+    if target_language and source_language != target_language:
+        params["tlang"] = target_language
+
+    return append_query_params(base_url, params)
+
+
+def caption_candidate_urls(
+    track: dict[str, Any],
+    video_id: str,
+    target_language: str,
+) -> list[str]:
+    source_language = normalize_language(track.get("languageCode")) or "en"
+    candidates = [
+        build_caption_url(track, target_language),
+        simple_timedtext_url(video_id, source_language, target_language),
+    ]
+    unique: list[str] = []
+
+    for candidate in candidates:
+        if candidate and candidate not in unique:
+            unique.append(candidate)
+
+    return unique
+
+
+def source_caption_candidate_urls(
+    track: dict[str, Any],
+    video_id: str,
+) -> list[str]:
+    source_language = normalize_language(track.get("languageCode")) or "en"
+    candidates = [
+        build_caption_url(track, source_language),
+        simple_timedtext_url(video_id, source_language, source_language),
+    ]
+    unique: list[str] = []
+
+    for candidate in candidates:
+        if candidate and candidate not in unique:
+            unique.append(candidate)
+
+    return unique
+
+
+def fetch_caption_segments_from_urls(
+    urls: list[str],
+    video_id: str,
+) -> tuple[list[dict[str, Any]], Exception | None]:
+    if httpx is None:
+        return [], None
+
+    last_error: Exception | None = None
+
+    for caption_url in urls:
+        try:
+            response = httpx.get(
+                caption_url,
+                headers=caption_request_headers(video_id),
+                timeout=8.0,
+                follow_redirects=True,
+            )
+            response.raise_for_status()
+            segments = parse_timedtext_response(response)
+
+            if segments:
+                return segments, None
+        except Exception as exc:
+            last_error = exc
+
+    return [], last_error
+
+
+def caption_request_headers(video_id: str) -> dict[str, str]:
+    return {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/125.0.0.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Referer": f"https://www.youtube.com/watch?v={video_id}",
+        "Origin": "https://www.youtube.com",
+    }
+
+
+def simple_timedtext_url(
+    video_id: str,
+    source_language: str,
+    target_language: str,
+) -> str:
+    params = {
+        "v": video_id,
+        "lang": source_language or "en",
+        "fmt": "json3",
+    }
+
+    if target_language and target_language != source_language:
+        params["tlang"] = target_language
+
+    return f"https://www.youtube.com/api/timedtext?{urlencode(params)}"
+
+
+def fetch_yt_dlp_caption_segments(
+    video_id: str,
+    target_language: str,
+) -> tuple[list[dict[str, Any]], str, bool, Exception | None]:
+    if httpx is None:
+        return [], "", False, RuntimeError("http-client-unavailable")
+
+    metadata, metadata_error = fetch_yt_dlp_metadata(video_id)
+
+    if not metadata:
+        return [], "", False, metadata_error
+
+    candidate = choose_yt_dlp_caption_candidate(metadata, target_language)
+
+    if not candidate:
+        return [], "", False, RuntimeError("yt-dlp-caption-track-unavailable")
+
+    segments, segment_error = fetch_caption_segments_from_urls(
+        [candidate["url"]],
+        video_id,
+    )
+
+    if not segments:
+        file_segments, file_language, file_translated, file_error = (
+            fetch_yt_dlp_caption_file_segments(video_id, target_language)
+        )
+
+        if file_segments:
+            return file_segments, file_language, file_translated, None
+
+        segment_error = file_error or segment_error
+
+    return (
+        segments,
+        candidate["sourceLanguage"],
+        bool(candidate["translated"]),
+        segment_error,
+    )
+
+
+def fetch_yt_dlp_metadata(video_id: str) -> tuple[dict[str, Any] | None, Exception | None]:
+    last_error: Exception | None = None
+    url = f"https://www.youtube.com/watch?v={video_id}"
+
+    for command in yt_dlp_commands():
+        try:
+            result = subprocess.run(
+                [
+                    *command,
+                    *ffmpeg_location_args(),
+                    "--dump-json",
+                    "--skip-download",
+                    "--no-warnings",
+                    "--no-playlist",
+                    url,
+                ],
+                capture_output=True,
+                check=False,
+                text=True,
+                timeout=25,
+            )
+
+            if result.returncode != 0:
+                last_error = RuntimeError(result.stderr.strip() or "yt-dlp failed")
+                continue
+
+            data = json.loads(result.stdout)
+
+            if isinstance(data, dict):
+                return data, None
+        except Exception as exc:
+            last_error = exc
+
+    return None, last_error or RuntimeError("yt-dlp is not installed")
+
+
+def fetch_yt_dlp_caption_file_segments(
+    video_id: str,
+    target_language: str,
+) -> tuple[list[dict[str, Any]], str, bool, Exception | None]:
+    last_error: Exception | None = None
+    url = f"https://www.youtube.com/watch?v={video_id}"
+
+    with tempfile.TemporaryDirectory(prefix="studytube-captions-") as temp_dir:
+        temp_path = Path(temp_dir)
+        output_template = str(temp_path / "%(id)s.%(ext)s")
+
+        for command in yt_dlp_commands():
+            for languages in yt_dlp_subtitle_language_attempts(target_language):
+                try:
+                    cleanup_temp_caption_files(temp_path)
+                    result = subprocess.run(
+                        [
+                            *command,
+                            *ffmpeg_location_args(),
+                            "--skip-download",
+                            "--write-subs",
+                            "--write-auto-subs",
+                            "--sub-langs",
+                            languages,
+                            "--sub-format",
+                            "json3/vtt/srv3/best",
+                            "--no-warnings",
+                            "--no-playlist",
+                            "-o",
+                            output_template,
+                            url,
+                        ],
+                        capture_output=True,
+                        check=False,
+                        text=True,
+                        timeout=45,
+                    )
+
+                    if result.returncode != 0:
+                        last_error = RuntimeError(
+                            result.stderr.strip()
+                            or "yt-dlp subtitle download failed"
+                        )
+                        continue
+
+                    parsed = parse_best_yt_dlp_subtitle_file(temp_path, target_language)
+
+                    if parsed:
+                        segments, language = parsed
+
+                        return (
+                            segments,
+                            language,
+                            normalize_language(language) != target_language,
+                            None,
+                        )
+                except Exception as exc:
+                    last_error = exc
+
+    return [], "", False, last_error or RuntimeError("yt-dlp subtitle download failed")
+
+
+def yt_dlp_subtitle_language_attempts(target_language: str) -> list[str]:
+    attempts = [
+        ",".join(dict.fromkeys([target_language, "en", "ko"])),
+    ]
+    source_languages = ["en", "ko"]
+
+    for language in source_languages:
+        if language != target_language and language not in attempts:
+            attempts.append(language)
+
+    return attempts
+
+
+def cleanup_temp_caption_files(directory: Path) -> None:
+    for path in directory.iterdir():
+        if path.is_file():
+            try:
+                path.unlink()
+            except OSError:
+                pass
+
+
+def parse_best_yt_dlp_subtitle_file(
+    directory: Path,
+    target_language: str,
+) -> tuple[list[dict[str, Any]], str] | None:
+    files = [
+        path
+        for path in directory.iterdir()
+        if path.is_file() and path.suffix.lower() in {".json3", ".vtt", ".srv3", ".ttml"}
+    ]
+
+    def rank(path: Path) -> tuple[int, int]:
+        language = infer_yt_dlp_subtitle_language(path)
+        extension_rank = {".json3": 0, ".srv3": 1, ".ttml": 2, ".vtt": 3}.get(
+            path.suffix.lower(),
+            9,
+        )
+
+        return (0 if language == target_language else 1, extension_rank)
+
+    for path in sorted(files, key=rank):
+        segments = parse_yt_dlp_subtitle_file(path)
+
+        if segments:
+            return segments, infer_yt_dlp_subtitle_language(path) or target_language
+
+    return None
+
+
+def infer_yt_dlp_subtitle_language(path: Path) -> str:
+    parts = path.name.split(".")
+
+    if len(parts) >= 3:
+        return normalize_language(parts[-2])
+
+    return ""
+
+
+def parse_yt_dlp_subtitle_file(path: Path) -> list[dict[str, Any]]:
+    raw_text = path.read_text(encoding="utf-8", errors="ignore")
+    suffix = path.suffix.lower()
+
+    if suffix == ".json3":
+        try:
+            data = json.loads(raw_text)
+        except json.JSONDecodeError:
+            return []
+
+        return parse_json3_timedtext(data) if isinstance(data, dict) else []
+
+    if suffix == ".vtt":
+        return parse_webvtt_timedtext(raw_text)
+
+    return parse_xml_timedtext(raw_text)
+
+
+def yt_dlp_commands() -> list[list[str]]:
+    configured = os.getenv("YT_DLP_PATH")
+    commands: list[list[str]] = []
+
+    if configured:
+        commands.append([configured])
+
+    executable = shutil.which("yt-dlp")
+
+    if executable:
+        commands.append([executable])
+
+    if importlib.util.find_spec("yt_dlp") is not None:
+        commands.append([sys.executable, "-m", "yt_dlp"])
+
+    return commands
+
+
+def ffmpeg_location_args() -> list[str]:
+    configured = os.getenv("FFMPEG_PATH")
+
+    if configured:
+        return ["--ffmpeg-location", configured]
+
+    executable = shutil.which("ffmpeg")
+
+    if executable:
+        return ["--ffmpeg-location", executable]
+
+    if imageio_ffmpeg is not None:
+        try:
+            return ["--ffmpeg-location", imageio_ffmpeg.get_ffmpeg_exe()]
+        except Exception:
+            return []
+
+    return []
+
+
+def choose_yt_dlp_caption_candidate(
+    metadata: dict[str, Any],
+    target_language: str,
+) -> dict[str, Any] | None:
+    exact = find_yt_dlp_caption_candidate(
+        metadata,
+        target_language,
+        allow_any_language=False,
+    )
+
+    if exact:
+        return exact
+
+    return find_yt_dlp_caption_candidate(
+        metadata,
+        target_language,
+        allow_any_language=True,
+    )
+
+
+def find_yt_dlp_caption_candidate(
+    metadata: dict[str, Any],
+    target_language: str,
+    *,
+    allow_any_language: bool,
+) -> dict[str, Any] | None:
+    groups = [
+        metadata.get("subtitles") if isinstance(metadata.get("subtitles"), dict) else {},
+        (
+            metadata.get("automatic_captions")
+            if isinstance(metadata.get("automatic_captions"), dict)
+            else {}
+        ),
+    ]
+    preferred_sources = [target_language, "en", "ko", "ja", "zh"]
+
+    for tracks in groups:
+        languages = list(tracks.keys())
+
+        if allow_any_language:
+            ordered_languages = [
+                *[
+                    language
+                    for preferred in preferred_sources
+                    for language in languages
+                    if normalize_language(language) == preferred
+                ],
+                *languages,
+            ]
+        else:
+            ordered_languages = [
+                language
+                for language in languages
+                if normalize_language(language) == target_language
+            ]
+
+        for language in dict.fromkeys(ordered_languages):
+            entries = tracks.get(language)
+
+            if not isinstance(entries, list):
+                continue
+
+            entry = choose_yt_dlp_caption_entry(entries)
+
+            if entry:
+                source_language = normalize_language(language) or target_language
+
+                return {
+                    "url": entry["url"],
+                    "sourceLanguage": source_language,
+                    "translated": source_language != target_language,
+                }
+
+    return None
+
+
+def choose_yt_dlp_caption_entry(entries: list[Any]) -> dict[str, str] | None:
+    valid_entries = [
+        entry
+        for entry in entries
+        if isinstance(entry, dict) and isinstance(entry.get("url"), str)
+    ]
+    preferred_extensions = ["json3", "srv3", "ttml", "vtt"]
+
+    for extension in preferred_extensions:
+        for entry in valid_entries:
+            if str(entry.get("ext") or "").lower() == extension:
+                return {"url": str(entry["url"])}
+
+    if valid_entries:
+        return {"url": str(valid_entries[0]["url"])}
+
+    return None
+
+
+def append_query_params(url: str, params: dict[str, str]) -> str:
+    parsed = urlparse(url)
+    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    query.update(params)
+
+    return urlunparse(parsed._replace(query=urlencode(query)))
+
+
+def translate_caption_segments(
+    segments: list[dict[str, Any]],
+    target_language: str,
+) -> list[dict[str, Any]]:
+    if not segments or OpenAI is None or not os.getenv("OPENAI_API_KEY"):
+        return []
+
+    normalized_segments = normalize_caption_segments(segments)
+    batches = [
+        normalized_segments[index : index + CAPTION_TRANSLATION_BATCH_SIZE]
+        for index in range(0, len(normalized_segments), CAPTION_TRANSLATION_BATCH_SIZE)
+    ]
+    translated_segments: list[dict[str, Any]] = []
+
+    try:  # pragma: no cover - live credentials are optional in local tests
+        client = OpenAI()
+
+        for batch in batches:
+            translations = translate_caption_batch(
+                client,
+                batch,
+                target_language,
+            )
+
+            if len(translations) != len(batch):
+                return []
+
+            for segment, text in zip(batch, translations):
+                translated_segments.append(
+                    {
+                        "start": segment["start"],
+                        "end": segment["end"],
+                        "text": clean_caption_text(text) or segment["text"],
+                    }
+                )
+
+        return translated_segments
+    except Exception:
+        return []
+
+
+def translate_caption_batch(
+    client: Any,
+    batch: list[dict[str, Any]],
+    target_language: str,
+) -> list[str]:
+    texts = [str(segment.get("text") or "") for segment in batch]
+    translations = request_caption_translations(client, texts, target_language)
+
+    if len(translations) == len(texts):
+        return translations
+
+    if len(batch) <= 1:
+        return []
+
+    midpoint = max(1, len(batch) // 2)
+    left = translate_caption_batch(client, batch[:midpoint], target_language)
+    right = translate_caption_batch(client, batch[midpoint:], target_language)
+
+    if len(left) + len(right) == len(batch):
+        return [*left, *right]
+
+    return []
+
+
+def request_caption_translations(
+    client: Any,
+    texts: list[str],
+    target_language: str,
+) -> list[str]:
+    try:
+        response = client.chat.completions.create(
+            model=os.getenv("LLM_MODEL", "gpt-4o-mini"),
+            temperature=0,
+            response_format={"type": "json_object"},
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Translate YouTube caption segments into the requested target language. "
+                        "Keep the number and order of segments exactly the same. "
+                        "Return only a JSON object with a translations array of strings. "
+                        f"The translations array must contain exactly {len(texts)} strings."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        {
+                            "targetLanguage": target_language,
+                            "requiredCount": len(texts),
+                            "segments": texts,
+                        },
+                        ensure_ascii=False,
+                    ),
+                },
+            ],
+        )
+        content = getattr(response.choices[0].message, "content", "") or ""
+
+        return parse_caption_translations(content)
+    except Exception:
+        return []
+
+
+def translate_fallback_text(text: str, target_language: str) -> str:
+    source_text = clean_caption_text(text)
+
+    if not source_text or OpenAI is None or not os.getenv("OPENAI_API_KEY"):
+        return ""
+
+    try:  # pragma: no cover - live credentials are optional in local tests
+        client = OpenAI()
+        response = client.chat.completions.create(
+            model=os.getenv("LLM_MODEL", "gpt-4o-mini"),
+            temperature=0,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Translate the provided YouTube study caption text into "
+                        "the requested target language. Preserve meaning and useful "
+                        "technical terms. Return only the translated text."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        {
+                            "targetLanguage": target_language,
+                            "text": source_text,
+                        },
+                        ensure_ascii=False,
+                    ),
+                },
+            ],
+        )
+        content = getattr(response.choices[0].message, "content", "") or ""
+        translated = clean_caption_text(content).strip()
+
+        if (
+            len(translated) >= 3
+            and translated.startswith('"')
+            and translated.endswith('"')
+        ):
+            translated = translated[1:-1].strip()
+
+        return translated
+    except Exception:
+        return ""
+
+
+def fetch_transcript_api_segments(
+    video_id: str,
+    target_language: str,
+) -> tuple[list[dict[str, Any]], str, bool]:
+    if YouTubeTranscriptApi is None:
+        return [], "", False
+
+    try:  # pragma: no cover - live YouTube transcript access varies by network
+        transcript_list = list_youtube_transcripts(video_id)
+        translated = False
+        source_language = target_language
+
+        try:
+            transcript = transcript_list.find_transcript([target_language])
+        except Exception:
+            transcript = transcript_list.find_transcript(
+                ["en", "en-US", "en-GB", "ko"]
+            )
+            source_language = normalize_language(
+                getattr(transcript, "language_code", "")
+            )
+
+            if source_language != target_language and hasattr(transcript, "translate"):
+                transcript = transcript.translate(target_language)
+                translated = True
+
+        segments = parse_transcript_api_rows(transcript.fetch())
+
+        return segments, source_language or target_language, translated
+    except Exception:
+        return [], "", False
+
+
+def list_youtube_transcripts(video_id: str) -> Any:
+    if hasattr(YouTubeTranscriptApi, "list_transcripts"):
+        return YouTubeTranscriptApi.list_transcripts(video_id)
+
+    transcript_api = YouTubeTranscriptApi()
+
+    if hasattr(transcript_api, "list"):
+        return transcript_api.list(video_id)
+
+    raise RuntimeError("youtube-transcript-api has no transcript listing method")
+
+
+def transcript_api_caption_response(
+    video_id: str,
+    target_language: str,
+    source_language: str,
+    translated: bool,
+    segments: list[dict[str, Any]],
+) -> dict[str, Any]:
+    normalized_segments = normalize_caption_segments(segments)
+
+    if normalized_segments and not caption_segments_match_language(
+        normalized_segments,
+        target_language,
+    ):
+        translated_segments = translate_caption_segments(
+            normalized_segments,
+            target_language,
+        )
+
+        if translated_segments:
+            return {
+                "mode": "youtube-captions",
+                "provider": "openai-caption-translation",
+                "videoId": video_id,
+                "language": target_language,
+                "sourceLanguage": source_language or "youtube",
+                "translated": True,
+                "segments": translated_segments,
+                "message": "YouTube transcript captions translated for live playback.",
+            }
+
+    return {
+        "mode": "youtube-captions",
+        "provider": "youtube-transcript-api",
+        "videoId": video_id,
+        "language": target_language,
+        "sourceLanguage": source_language or "youtube",
+        "translated": translated,
+        "segments": normalized_segments,
+        "message": "YouTube transcript API captions loaded for live playback.",
+    }
+
+
+def yt_dlp_caption_response(
+    video_id: str,
+    target_language: str,
+    source_language: str,
+    translated: bool,
+    segments: list[dict[str, Any]],
+) -> dict[str, Any]:
+    normalized_segments = normalize_caption_segments(segments)
+    normalized_source_language = normalize_language(source_language) or "youtube"
+
+    if normalized_segments and not caption_segments_match_language(
+        normalized_segments,
+        target_language,
+    ):
+        translated_segments = translate_caption_segments(
+            normalized_segments,
+            target_language,
+        )
+
+        if translated_segments:
+            return {
+                "mode": "youtube-captions",
+                "provider": "openai-caption-translation",
+                "videoId": video_id,
+                "language": target_language,
+                "sourceLanguage": normalized_source_language,
+                "translated": True,
+                "segments": translated_segments,
+                "message": "yt-dlp source captions translated for live playback.",
+            }
+
+        return {
+            "mode": "youtube-captions",
+            "provider": "caption-translation-unavailable",
+            "videoId": video_id,
+            "language": target_language,
+            "sourceLanguage": normalized_source_language,
+            "translated": False,
+            "segments": [],
+            "message": caption_translation_unavailable_reason(),
+        }
+
+    return {
+        "mode": "youtube-captions",
+        "provider": "yt-dlp-captions",
+        "videoId": video_id,
+        "language": target_language,
+        "sourceLanguage": normalized_source_language,
+        "translated": translated,
+        "segments": normalized_segments,
+        "message": "yt-dlp captions loaded for live playback.",
+    }
+
+
+def parse_transcript_api_rows(rows: Any) -> list[dict[str, Any]]:
+    segments: list[dict[str, Any]] = []
+
+    for row in rows or []:
+        text = clean_caption_text(
+            str(read_transcript_field(row, "text") or "")
+        )
+
+        if not text:
+            continue
+
+        try:
+            start = float(read_transcript_field(row, "start") or 0)
+            duration = float(read_transcript_field(row, "duration") or 3)
+        except (TypeError, ValueError):
+            continue
+
+        segments.append(
+            {
+                "start": round(start, 3),
+                "end": round(max(start + duration, start + 0.5), 3),
+                "text": text,
+            }
+        )
+
+    return normalize_caption_segments(segments)
+
+
+def read_transcript_field(row: Any, field: str) -> Any:
+    if isinstance(row, dict):
+        return row.get(field)
+
+    return getattr(row, field, None)
+
+
+def caption_translation_unavailable_reason() -> str:
+    if OpenAI is None:
+        return "caption-translation-unavailable: OpenAI package is not installed"
+
+    if not os.getenv("OPENAI_API_KEY"):
+        return "caption-translation-unavailable: OPENAI_API_KEY is not set"
+
+    return "caption-translation-unavailable: model response did not preserve segments"
+
+
+def parse_caption_translations(content: str) -> list[str]:
+    normalized = content.strip()
+    match = re.search(r"(\{.*\}|\[.*\])", normalized, re.S)
+
+    if match:
+        normalized = match.group(1)
+
+    try:
+        data = json.loads(normalized)
+    except json.JSONDecodeError:
+        return []
+
+    if isinstance(data, dict):
+        translations = data.get("translations") or data.get("segments")
+    else:
+        translations = data
+
+    if not isinstance(translations, list):
+        return []
+
+    return [str(item) for item in translations]
+
+
+def parse_timedtext_response(response: Any) -> list[dict[str, Any]]:
+    try:
+        data = response.json()
+    except Exception:
+        data = None
+
+    if isinstance(data, dict):
+        return parse_json3_timedtext(data)
+
+    raw_text = getattr(response, "text", "")
+
+    if "WEBVTT" in raw_text or "-->" in raw_text:
+        return parse_webvtt_timedtext(raw_text)
+
+    return parse_xml_timedtext(raw_text)
+
+
+def parse_webvtt_timedtext(raw_text: str) -> list[dict[str, Any]]:
+    segments: list[dict[str, Any]] = []
+    lines = raw_text.replace("\ufeff", "").splitlines()
+    index = 0
+
+    while index < len(lines):
+        line = lines[index].strip()
+
+        if not line or line == "WEBVTT" or line.startswith(("NOTE", "STYLE", "REGION")):
+            index += 1
+            continue
+
+        if "-->" not in line and index + 1 < len(lines) and "-->" in lines[index + 1]:
+            index += 1
+            line = lines[index].strip()
+
+        if "-->" not in line:
+            index += 1
+            continue
+
+        start_raw, end_raw = [part.strip() for part in line.split("-->", 1)]
+        text_lines: list[str] = []
+        index += 1
+
+        while index < len(lines) and lines[index].strip():
+            text_lines.append(lines[index].strip())
+            index += 1
+
+        text = clean_caption_text(
+            re.sub(r"<[^>]+>", "", " ".join(text_lines))
+        )
+
+        if text:
+            segments.append(
+                {
+                    "start": round(parse_vtt_timestamp(start_raw), 3),
+                    "end": round(parse_vtt_timestamp(end_raw), 3),
+                    "text": text,
+                }
+            )
+
+        index += 1
+
+    return normalize_caption_segments(segments)
+
+
+def parse_vtt_timestamp(value: str) -> float:
+    timestamp = value.split()[0].replace(",", ".")
+    parts = timestamp.split(":")
+
+    try:
+        if len(parts) == 3:
+            hours = float(parts[0])
+            minutes = float(parts[1])
+            seconds = float(parts[2])
+
+            return hours * 3600 + minutes * 60 + seconds
+
+        if len(parts) == 2:
+            minutes = float(parts[0])
+            seconds = float(parts[1])
+
+            return minutes * 60 + seconds
+    except ValueError:
+        return 0
+
+    return 0
+
+
+def parse_json3_timedtext(data: dict[str, Any]) -> list[dict[str, Any]]:
+    segments: list[dict[str, Any]] = []
+
+    for event in data.get("events") or []:
+        if not isinstance(event, dict):
+            continue
+
+        text = clean_caption_text(
+            "".join(
+                str(segment.get("utf8") or "")
+                for segment in event.get("segs") or []
+                if isinstance(segment, dict)
+            )
+        )
+
+        if not text:
+            continue
+
+        start = round(float(event.get("tStartMs") or 0) / 1000, 3)
+        duration = float(event.get("dDurationMs") or 3000) / 1000
+        end = round(max(start + duration, start + 0.5), 3)
+        segments.append({"start": start, "end": end, "text": text})
+
+    return normalize_caption_segments(segments)
+
+
+def parse_xml_timedtext(raw_xml: str) -> list[dict[str, Any]]:
+    if not raw_xml.strip():
+        return []
+
+    try:
+        root = ElementTree.fromstring(raw_xml)
+    except ElementTree.ParseError:
+        return []
+
+    segments: list[dict[str, Any]] = []
+
+    for node in root.findall(".//text"):
+        text = clean_caption_text("".join(node.itertext()))
+
+        if not text:
+            continue
+
+        try:
+            start = float(node.attrib.get("start") or 0)
+            duration = float(node.attrib.get("dur") or 3)
+        except ValueError:
+            continue
+
+        segments.append(
+            {
+                "start": round(start, 3),
+                "end": round(max(start + duration, start + 0.5), 3),
+                "text": text,
+            }
+        )
+
+    return normalize_caption_segments(segments)
+
+
+def normalize_caption_segments(
+    segments: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+
+    for segment in segments:
+        text = clean_caption_text(str(segment.get("text") or ""))
+
+        if not text:
+            continue
+
+        try:
+            start = float(segment.get("start") or 0)
+            end = float(segment.get("end") or start + 3)
+        except (TypeError, ValueError):
+            continue
+
+        if not math.isfinite(start) or not math.isfinite(end):
+            continue
+
+        start = max(0.0, start)
+        end = max(end, start + 0.5)
+        normalized.append(
+            {
+                "start": round(start, 3),
+                "end": round(end, 3),
+                "text": text,
+            }
+        )
+
+    normalized.sort(key=lambda item: (item["start"], item["end"]))
+
+    for index, segment in enumerate(normalized[:-1]):
+        next_start = normalized[index + 1]["start"]
+
+        if next_start > segment["start"] and segment["end"] > next_start:
+            segment["end"] = round(next_start, 3)
+
+        if segment["end"] <= segment["start"]:
+            segment["end"] = round(segment["start"] + 0.5, 3)
+
+    return normalized
+
+
+def caption_segments_match_language(
+    segments: list[dict[str, Any]],
+    target_language: str,
+) -> bool:
+    language = normalize_language(target_language)
+
+    if language not in {"ko", "en"}:
+        return True
+
+    sample = " ".join(str(segment.get("text") or "") for segment in segments[:30])
+    hangul_count = len(re.findall(r"[\uac00-\ud7a3]", sample))
+    latin_count = len(re.findall(r"[A-Za-z]", sample))
+    letter_count = hangul_count + latin_count
+
+    if letter_count == 0:
+        return False
+
+    if language == "ko":
+        return hangul_count >= 5 and hangul_count / letter_count >= 0.2
+
+    return latin_count >= 10 and hangul_count / letter_count <= 0.2
+
+
+def fallback_caption_response(
+    video_id: str,
+    target_language: str,
+    reason: str,
+    fallback_text: str,
+    allow_fallback: bool = True,
+    translate_fallback: bool = False,
+    duration_seconds: float | None = None,
+) -> dict[str, Any]:
+    return {
+        "mode": "youtube-captions",
+        "provider": "caption-source-unavailable",
+        "videoId": video_id,
+        "language": target_language,
+        "sourceLanguage": "unavailable",
+        "translated": False,
+        "segments": [],
+        "message": reason,
+    }
+
+
+def fallback_caption_segments(
+    text: str,
+    duration_seconds: float | None = None,
+) -> list[dict[str, Any]]:
+    chunks = chunk_text_for_captions(
+        text
+        or "YouTube caption data is unavailable, so saved study notes are shown instead."
+        or "이 영상에서 사용할 수 있는 YouTube 자막 트랙을 찾지 못했습니다. 저장된 전사문 지식을 표시합니다."
+    )
+
+    caption_duration = duration_seconds or DEFAULT_FALLBACK_CAPTION_DURATION_SECONDS
+    slot_duration = max(caption_duration / max(len(chunks), 1), 2)
+    segments: list[dict[str, Any]] = []
+
+    for index, chunk in enumerate(chunks):
+        start = round(index * slot_duration, 3)
+        end = (
+            round(caption_duration, 3)
+            if index == len(chunks) - 1
+            else round(max((index + 1) * slot_duration, start + 0.5), 3)
+        )
+        segments.append({"start": start, "end": end, "text": chunk})
+
+    return segments
+
+
+def align_caption_text_to_timing(
+    text: str,
+    timing_segments: list[dict[str, Any]],
+    allow_fallback: bool = True,
+) -> list[dict[str, Any]]:
+    if not allow_fallback:
+        return []
+
+    if not timing_segments:
+        return fallback_caption_segments(text)
+
+    chunks = chunk_text_for_captions(
+        text
+        or "원문 자막 타이밍은 확인했지만 전사문 지식이 비어 있습니다. 영상 등록에서 전사문을 저장해 주세요."
+    )
+    count = min(len(chunks), len(timing_segments), 80)
+
+    if count <= 0:
+        return fallback_caption_segments(text)
+
+    aligned: list[dict[str, Any]] = []
+
+    for index in range(count):
+        start_index = math.floor(index * len(timing_segments) / count)
+        end_index = max(
+            start_index,
+            math.ceil((index + 1) * len(timing_segments) / count) - 1,
+        )
+        timing = timing_segments[start_index]
+        end_timing = timing_segments[min(end_index, len(timing_segments) - 1)]
+        start = float(timing.get("start") or 0)
+        end = float(end_timing.get("end") or start + 3)
+
+        aligned.append(
+            {
+                "start": round(start, 3),
+                "end": round(max(end, start + 0.5), 3),
+                "text": chunks[index],
+            }
+        )
+
+    return aligned
+
+
+def chunk_text_for_captions(text: str) -> list[str]:
+    sentences = split_caption_sentences(clean_caption_text(text))
+    chunks: list[str] = []
+
+    for sentence in sentences:
+        words = sentence.split()
+
+        if len(words) >= 4:
+            for index in range(0, len(words), 8):
+                chunks.append(" ".join(words[index : index + 8]))
+        elif len(sentence) <= 38:
+            chunks.append(sentence)
+        else:
+            for index in range(0, len(sentence), 34):
+                chunks.append(sentence[index : index + 34])
+
+    return chunks[:20] or [clean_caption_text(text)[:34]]
+
+
+def split_caption_sentences(text: str) -> list[str]:
+    parts = re.split(r"([.!?。]|다\.)\s*", text)
+    sentences: list[str] = []
+    current = ""
+
+    for part in parts:
+        if not part:
+            continue
+
+        current += part
+
+        if re.fullmatch(r"[.!?。]|다\.", part):
+            sentence = current.strip()
+
+            if sentence:
+                sentences.append(sentence)
+
+            current = ""
+
+    tail = current.strip()
+
+    if tail:
+        sentences.append(tail)
+
+    return sentences or ([text] if text else [])
+
+
+def clean_caption_text(text: str) -> str:
+    return re.sub(r"\s+", " ", html_lib.unescape(text).replace("\n", " ")).strip()
+
+
+def normalize_language(value: Any) -> str:
+    return str(value or "").strip().lower().split("-")[0]
+
+
+def normalize_caption_duration(value: Any) -> float | None:
+    try:
+        duration = float(value)
+    except (TypeError, ValueError):
+        return None
+
+    if not math.isfinite(duration) or duration < 10:
+        return None
+
+    return min(round(duration, 3), 14400)
 
 
 def fetch_youtube_oembed(url: str) -> dict[str, Any] | None:
@@ -807,7 +2602,7 @@ def create_playlist_recommendations(state: dict[str, Any]) -> list[dict[str, Any
                 "url": item["videoUrl"],
                 "thumbnailUrl": item["thumbnailUrl"],
                 "source": "board-rag",
-                "why": f"게시판 유사도 {item['score']}점으로 목표와 연결됩니다.",
+                "why": f"전사문 RAG 점수 {item['score']}점으로 목표와 연결됩니다. 근거: {item.get('evidenceSnippet', item['summary'])}",
             }
         )
 
@@ -828,6 +2623,8 @@ def create_playlist_recommendations(state: dict[str, Any]) -> list[dict[str, Any
 
 
 def post_to_response(post: BoardPost, score: float) -> dict[str, Any]:
+    evidence = best_evidence_snippet(post)
+
     return {
         "id": post.id,
         "title": post.title,
@@ -836,6 +2633,8 @@ def post_to_response(post: BoardPost, score: float) -> dict[str, Any]:
         "channelName": post.channel_name,
         "summary": post.summary,
         "translatedNotes": post.translated_notes,
+        "evidenceSource": "video_transcript",
+        "evidenceSnippet": evidence,
         "tags": post.tags,
         "score": score,
     }
@@ -843,18 +2642,28 @@ def post_to_response(post: BoardPost, score: float) -> dict[str, Any]:
 
 def summarize_related_posts(query: str, related: list[dict[str, Any]]) -> str:
     if not related:
-        return "관련 게시글을 찾지 못했습니다. 다른 키워드로 검색해 보세요."
+        return "관련 영상 전사문을 찾지 못했습니다. 다른 키워드로 검색해 보세요."
 
     top = related[0]
     return (
-        f"'{query or top['title']}' 질문에는 {top['title']}가 가장 가깝습니다. "
-        f"{top['summary']} 관련 태그는 {', '.join(top['tags'][:3])}입니다."
+        f"'{query or top['title']}' 질문에는 {top['title']}의 전사문 근거가 가장 가깝습니다. "
+        f"근거: {top.get('evidenceSnippet') or top['summary']} "
+        f"관련 태그는 {', '.join(top['tags'][:3])}입니다."
     )
+
+
+def best_evidence_snippet(post: BoardPost) -> str:
+    transcript = clean_text(post.translated_notes or post.summary)
+
+    if len(transcript) <= 180:
+        return transcript
+
+    return f"{transcript[:177]}..."
 
 
 def create_playlist_title(goal: str, language: str) -> str:
     if language.lower().startswith("ko"):
-        return f"{goal} 맞춤 학습 플레이리스트"
+        return f"{goal} 맞춤 학습 코스"
 
     return f"Study playlist for {goal}"
 
@@ -866,12 +2675,12 @@ def create_agent_rationale(
 
     if language.lower().startswith("ko"):
         return (
-            f"목표 '{goal}'에 대해 게시판 RAG 결과와 MCP 영상 메타데이터를 함께 사용해 "
-            f"{count}개의 학습 순서를 만들었습니다."
+            f"목표 '{goal}'에 대해 영상 전사문 RAG 근거와 MCP 영상 메타데이터를 함께 사용해 "
+            f"{count}개의 학습 코스 단계를 만들었습니다."
         )
 
     return (
-        f"The agent combined board RAG context and MCP video metadata to create "
+        f"The agent combined video transcript RAG context and MCP video metadata to create "
         f"{count} learning steps for '{goal}'."
     )
 
@@ -941,9 +2750,9 @@ def embedding_provider() -> str:
 
 def tool_reason(tool_name: str) -> str:
     return {
-        "retrieve_posts": "게시판 내부 지식을 먼저 검색합니다.",
+        "retrieve_posts": "영상별 요약과 전사문 지식을 먼저 검색합니다.",
         "search_video": "외부 YouTube 메타데이터로 추천 후보를 보강합니다.",
-        "create_playlist_draft": "수집한 근거를 플레이리스트 초안으로 정리합니다.",
+        "create_playlist_draft": "수집한 근거를 학습 코스 초안으로 정리합니다.",
     }[tool_name]
 
 

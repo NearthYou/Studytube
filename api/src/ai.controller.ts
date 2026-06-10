@@ -15,6 +15,16 @@ export class AiController {
     return this.aiProxyService.lookupYoutube(body);
   }
 
+  @Post('youtube/captions')
+  captions(@Body() body: unknown) {
+    return this.aiProxyService.captions(body);
+  }
+
+  @Post('youtube/summary')
+  summary(@Body() body: unknown) {
+    return this.aiProxyService.summary(body);
+  }
+
   @Post('agent/study-plan')
   plan(@Body() body: unknown) {
     return this.aiProxyService.plan(body);

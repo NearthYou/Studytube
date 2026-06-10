@@ -1,10 +1,294 @@
+import json
+import os
 import unittest
 
 import main
-from main import build_study_plan, handle_mcp_request, rag_recommend
+from main import (
+    build_study_plan,
+    handle_mcp_request,
+    load_translated_captions,
+    rag_recommend,
+)
 
 
 class AiServiceTest(unittest.TestCase):
+    def test_transcript_rows_are_normalized_to_latest_start_timing(self):
+        segments = main.parse_transcript_api_rows(
+            [
+                {"start": 0, "duration": 6.72, "text": "첫 번째 문장"},
+                {"start": 5.31, "duration": 5.67, "text": "두 번째 문장"},
+                {"start": 6.72, "duration": 9, "text": "세 번째 문장"},
+            ]
+        )
+
+        self.assertEqual(segments[0]["end"], 5.31)
+        self.assertEqual(segments[1]["end"], 6.72)
+        self.assertEqual(segments[2]["end"], 15.72)
+
+    def test_caption_response_translates_when_target_language_text_mismatches(self):
+        class FakeOpenAI:
+            def __init__(self):
+                self.chat = self.Chat()
+
+            class Chat:
+                def __init__(self):
+                    self.completions = self.Completions()
+
+                class Completions:
+                    @staticmethod
+                    def create(**_kwargs):
+                        message = type(
+                            "Message",
+                            (),
+                            {"content": json.dumps({"translations": ["안녕하세요 세계"]})},
+                        )()
+                        choice = type("Choice", (), {"message": message})()
+                        return type("Response", (), {"choices": [choice]})()
+
+        original_openai = main.OpenAI
+        original_key = os.environ.get("OPENAI_API_KEY")
+        main.OpenAI = FakeOpenAI
+        os.environ["OPENAI_API_KEY"] = "test-key"
+
+        try:
+            response = main.transcript_api_caption_response(
+                "abc123",
+                "ko",
+                "ko",
+                False,
+                [{"start": 0, "end": 4, "text": "Hello world"}],
+            )
+        finally:
+            main.OpenAI = original_openai
+            if original_key is None:
+                os.environ.pop("OPENAI_API_KEY", None)
+            else:
+                os.environ["OPENAI_API_KEY"] = original_key
+
+        self.assertEqual(response["provider"], "openai-caption-translation")
+        self.assertTrue(response["translated"])
+        self.assertEqual(response["segments"][0]["text"], "안녕하세요 세계")
+
+    def test_caption_segment_translation_batches_all_segments(self):
+        class FakeOpenAI:
+            calls = 0
+
+            def __init__(self):
+                self.chat = self.Chat()
+
+            class Chat:
+                def __init__(self):
+                    self.completions = self.Completions()
+
+                class Completions:
+                    @staticmethod
+                    def create(**kwargs):
+                        FakeOpenAI.calls += 1
+                        content = kwargs["messages"][1]["content"]
+                        payload = json.loads(content)
+                        translations = [
+                            f"번역 {index}" for index, _text in enumerate(payload["segments"])
+                        ]
+                        message = type(
+                            "Message",
+                            (),
+                            {
+                                "content": json.dumps(
+                                    {"translations": translations},
+                                    ensure_ascii=False,
+                                )
+                            },
+                        )()
+                        choice = type("Choice", (), {"message": message})()
+                        return type("Response", (), {"choices": [choice]})()
+
+        original_openai = main.OpenAI
+        original_key = os.environ.get("OPENAI_API_KEY")
+        main.OpenAI = FakeOpenAI
+        os.environ["OPENAI_API_KEY"] = "test-key"
+        source_segments = [
+            {"start": index * 2, "end": index * 2 + 2, "text": f"caption {index}"}
+            for index in range(185)
+        ]
+
+        try:
+            translated = main.translate_caption_segments(source_segments, "ko")
+        finally:
+            main.OpenAI = original_openai
+            if original_key is None:
+                os.environ.pop("OPENAI_API_KEY", None)
+            else:
+                os.environ["OPENAI_API_KEY"] = original_key
+
+        self.assertEqual(len(translated), 185)
+        self.assertGreater(FakeOpenAI.calls, 1)
+        self.assertEqual(translated[-1]["start"], 368)
+
+    def test_caption_segment_translation_splits_batch_when_model_drops_segments(self):
+        class FakeOpenAI:
+            calls = 0
+
+            def __init__(self):
+                self.chat = self.Chat()
+
+            class Chat:
+                def __init__(self):
+                    self.completions = self.Completions()
+
+                class Completions:
+                    @staticmethod
+                    def create(**kwargs):
+                        FakeOpenAI.calls += 1
+                        payload = json.loads(kwargs["messages"][1]["content"])
+                        source = payload["segments"]
+                        translations = (
+                            ["too few"]
+                            if len(source) > 1
+                            else [f"{source[0]} translated"]
+                        )
+                        message = type(
+                            "Message",
+                            (),
+                            {
+                                "content": json.dumps(
+                                    {"translations": translations},
+                                    ensure_ascii=False,
+                                )
+                            },
+                        )()
+                        choice = type("Choice", (), {"message": message})()
+                        return type("Response", (), {"choices": [choice]})()
+
+        original_openai = main.OpenAI
+        original_key = os.environ.get("OPENAI_API_KEY")
+        main.OpenAI = FakeOpenAI
+        os.environ["OPENAI_API_KEY"] = "test-key"
+
+        try:
+            translated = main.translate_caption_segments(
+                [
+                    {"start": 0, "end": 1, "text": "first"},
+                    {"start": 1, "end": 2, "text": "second"},
+                    {"start": 2, "end": 3, "text": "third"},
+                ],
+                "ko",
+            )
+        finally:
+            main.OpenAI = original_openai
+            if original_key is None:
+                os.environ.pop("OPENAI_API_KEY", None)
+            else:
+                os.environ["OPENAI_API_KEY"] = original_key
+
+        self.assertEqual(
+            [segment["text"] for segment in translated],
+            ["first translated", "second translated", "third translated"],
+        )
+        self.assertGreater(FakeOpenAI.calls, 1)
+
+    def test_youtube_summary_uses_openai_sections_from_transcript(self):
+        class FakeOpenAI:
+            def __init__(self):
+                self.chat = self.Chat()
+
+            class Chat:
+                def __init__(self):
+                    self.completions = self.Completions()
+
+                class Completions:
+                    @staticmethod
+                    def create(**_kwargs):
+                        message = type(
+                            "Message",
+                            (),
+                            {
+                                "content": json.dumps(
+                                    {
+                                        "sections": [
+                                            {
+                                                "label": "핵심 요약",
+                                                "body": "이 영상은 표현을 실제 맥락에서 익히는 방법을 자세히 설명합니다.",
+                                            },
+                                            {
+                                                "label": "복습 질문",
+                                                "body": "영상에서 반복된 표현을 어떤 상황에 적용할 수 있나요?",
+                                            },
+                                        ]
+                                    },
+                                    ensure_ascii=False,
+                                )
+                            },
+                        )()
+                        choice = type("Choice", (), {"message": message})()
+                        return type("Response", (), {"choices": [choice]})()
+
+        original_openai = main.OpenAI
+        original_key = os.environ.get("OPENAI_API_KEY")
+        main.OpenAI = FakeOpenAI
+        os.environ["OPENAI_API_KEY"] = "test-key"
+
+        try:
+            response = main.build_youtube_summary(
+                {
+                    "videoId": "study123",
+                    "title": "English Expressions",
+                    "channelName": "Study Channel",
+                    "language": "ko",
+                    "segments": [
+                        {
+                            "start": 0,
+                            "end": 4,
+                            "text": "Today we learn expressions from a sitcom.",
+                        },
+                        {
+                            "start": 4,
+                            "end": 9,
+                            "text": "Focus on when native speakers use them.",
+                        },
+                    ],
+                }
+            )
+        finally:
+            main.OpenAI = original_openai
+            if original_key is None:
+                os.environ.pop("OPENAI_API_KEY", None)
+            else:
+                os.environ["OPENAI_API_KEY"] = original_key
+
+        self.assertEqual(response["provider"], "openai-transcript-summary")
+        self.assertEqual(response["sections"][0]["label"], "핵심 요약")
+        self.assertIn("표현", response["sections"][0]["body"])
+
+    def test_youtube_summary_falls_back_to_timed_transcript_notes(self):
+        original_openai = main.OpenAI
+        original_key = os.environ.get("OPENAI_API_KEY")
+        main.OpenAI = None
+        os.environ.pop("OPENAI_API_KEY", None)
+
+        try:
+            response = main.build_youtube_summary(
+                {
+                    "videoId": "fallback123",
+                    "title": "Fallback lesson",
+                    "channelName": "Study Channel",
+                    "summary": "Short stored summary.",
+                    "segments": [
+                        {"start": 0, "end": 3, "text": "First point"},
+                        {"start": 60, "end": 63, "text": "Second point"},
+                    ],
+                }
+            )
+        finally:
+            main.OpenAI = original_openai
+            if original_key is None:
+                os.environ.pop("OPENAI_API_KEY", None)
+            else:
+                os.environ["OPENAI_API_KEY"] = original_key
+
+        self.assertEqual(response["provider"], "local-transcript-summary")
+        self.assertGreaterEqual(len(response["sections"]), 3)
+        self.assertIn("00:00", response["sections"][1]["body"])
+
     def test_mcp_youtube_lookup_returns_json_rpc_result(self):
         response = handle_mcp_request(
             {
@@ -62,14 +346,934 @@ class AiServiceTest(unittest.TestCase):
         self.assertEqual(result["videos"][0]["videoId"], "abc123")
         self.assertEqual(result["videos"][0]["title"], "Real React Hooks Lesson")
 
+    def test_youtube_captions_fetches_translated_timed_segments(self):
+        calls = []
+        player_response = {
+            "captions": {
+                "playerCaptionsTracklistRenderer": {
+                    "captionTracks": [
+                        {
+                            "baseUrl": "https://www.youtube.com/api/timedtext?v=abc123&lang=en",
+                            "languageCode": "en",
+                            "name": {"simpleText": "English"},
+                            "isTranslatable": True,
+                        }
+                    ]
+                }
+            }
+        }
+
+        class FakeResponse:
+            def __init__(self, *, text="", data=None):
+                self.text = text
+                self._data = data
+
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return self._data
+
+        class FakeHttpx:
+            @staticmethod
+            def get(url, **kwargs):
+                calls.append((url, kwargs))
+
+                if "watch" in url:
+                    return FakeResponse(
+                        text=(
+                            "<script>var ytInitialPlayerResponse = "
+                            + json.dumps(player_response)
+                            + ";</script>"
+                        )
+                    )
+
+                return FakeResponse(
+                    data={
+                        "events": [
+                            {
+                                "tStartMs": 0,
+                                "dDurationMs": 2200,
+                                "segs": [{"utf8": "안녕하세요 "}, {"utf8": "리액트"}],
+                            },
+                            {
+                                "tStartMs": 2200,
+                                "dDurationMs": 1800,
+                                "segs": [{"utf8": "훅을 배웁니다"}],
+                            },
+                        ]
+                    }
+                )
+
+        original_httpx = main.httpx
+        main.httpx = FakeHttpx
+
+        try:
+            response = load_translated_captions(
+                {
+                    "videoId": "abc123",
+                    "targetLanguage": "ko",
+                    "fallbackText": "fallback should not be used",
+                }
+            )
+        finally:
+            main.httpx = original_httpx
+
+        self.assertEqual(response["provider"], "youtube-timedtext")
+        self.assertEqual(response["language"], "ko")
+        self.assertEqual(response["sourceLanguage"], "en")
+        self.assertEqual(response["segments"][0]["text"], "안녕하세요 리액트")
+        self.assertEqual(response["segments"][0]["start"], 0)
+        self.assertEqual(response["segments"][0]["end"], 2.2)
+        self.assertEqual(calls[0][1]["params"]["v"], "abc123")
+        self.assertEqual(calls[0][1]["params"]["hl"], "en")
+        self.assertIn("tlang=ko", calls[-1][0])
+        self.assertIn("fmt=json3", calls[-1][0])
+
+    @unittest.skip("Stored summaries are no longer used as live translated captions.")
+    def test_youtube_captions_fallback_chunks_saved_notes(self):
+        original_httpx = main.httpx
+        main.httpx = None
+
+        try:
+            response = load_translated_captions(
+                {
+                    "videoId": "abc123",
+                    "targetLanguage": "ko",
+                    "fallbackText": (
+                        "첫 번째 문장입니다. 두 번째 문장입니다. "
+                        "세 번째 문장도 자막으로 보여야 합니다."
+                    ),
+                }
+            )
+        finally:
+            main.httpx = original_httpx
+
+        self.assertEqual(response["provider"], "local-fallback")
+        self.assertGreaterEqual(len(response["segments"]), 2)
+        self.assertIn("첫 번째", response["segments"][0]["text"])
+
+    @unittest.skip("Stored summaries are no longer used as live translated captions.")
+    def test_youtube_captions_can_disable_local_fallback_segments(self):
+        original_httpx = main.httpx
+        main.httpx = None
+
+        try:
+            response = load_translated_captions(
+                {
+                    "videoId": "abc123",
+                    "targetLanguage": "ko",
+                    "fallbackText": "Linus private note should not become live captions",
+                    "allowFallback": False,
+                }
+            )
+        finally:
+            main.httpx = original_httpx
+
+        self.assertEqual(response["provider"], "local-fallback")
+        self.assertEqual(response["segments"], [])
+
+    @unittest.skip("Stored summaries are no longer used as live translated captions.")
+    def test_youtube_captions_translates_fallback_text_when_requested(self):
+        class FakeOpenAI:
+            def __init__(self):
+                self.chat = self.Chat()
+
+            class Chat:
+                def __init__(self):
+                    self.completions = self.Completions()
+
+                class Completions:
+                    @staticmethod
+                    def create(**_kwargs):
+                        message = type(
+                            "Message",
+                            (),
+                            {"content": "런타임 계정 격리를 확인합니다."},
+                        )()
+                        choice = type("Choice", (), {"message": message})()
+                        return type("Response", (), {"choices": [choice]})()
+
+        original_httpx = main.httpx
+        original_openai = main.OpenAI
+        original_key = os.environ.get("OPENAI_API_KEY")
+        main.httpx = None
+        main.OpenAI = FakeOpenAI
+        os.environ["OPENAI_API_KEY"] = "test-key"
+
+        try:
+            response = load_translated_captions(
+                {
+                    "videoId": "abc123",
+                    "targetLanguage": "ko",
+                    "fallbackText": "Runtime account isolation check.",
+                    "allowFallback": True,
+                    "translateFallback": True,
+                }
+            )
+        finally:
+            main.httpx = original_httpx
+            main.OpenAI = original_openai
+            if original_key is None:
+                os.environ.pop("OPENAI_API_KEY", None)
+            else:
+                os.environ["OPENAI_API_KEY"] = original_key
+
+        self.assertEqual(response["provider"], "openai-fallback-translation")
+        self.assertEqual(response["language"], "ko")
+        self.assertEqual(response["sourceLanguage"], "local-note")
+        self.assertTrue(response["translated"])
+        self.assertIn("런타임", response["segments"][0]["text"])
+
+    @unittest.skip("Stored summaries are no longer used as live translated captions.")
+    def test_youtube_captions_translates_korean_fallback_text_to_english(self):
+        class FakeOpenAI:
+            def __init__(self):
+                self.chat = self.Chat()
+
+            class Chat:
+                def __init__(self):
+                    self.completions = self.Completions()
+
+                class Completions:
+                    @staticmethod
+                    def create(**_kwargs):
+                        message = type(
+                            "Message",
+                            (),
+                            {"content": "Runtime account isolation is checked."},
+                        )()
+                        choice = type("Choice", (), {"message": message})()
+                        return type("Response", (), {"choices": [choice]})()
+
+        original_httpx = main.httpx
+        original_openai = main.OpenAI
+        original_key = os.environ.get("OPENAI_API_KEY")
+        main.httpx = None
+        main.OpenAI = FakeOpenAI
+        os.environ["OPENAI_API_KEY"] = "test-key"
+
+        try:
+            response = load_translated_captions(
+                {
+                    "videoId": "abc123",
+                    "targetLanguage": "en",
+                    "fallbackText": "런타임 계정 격리를 확인합니다.",
+                    "allowFallback": True,
+                    "translateFallback": True,
+                }
+            )
+        finally:
+            main.httpx = original_httpx
+            main.OpenAI = original_openai
+            if original_key is None:
+                os.environ.pop("OPENAI_API_KEY", None)
+            else:
+                os.environ["OPENAI_API_KEY"] = original_key
+
+        self.assertEqual(response["provider"], "openai-fallback-translation")
+        self.assertEqual(response["language"], "en")
+        self.assertTrue(response["translated"])
+        self.assertIn("Runtime account", response["segments"][0]["text"])
+
+    @unittest.skip("Stored summaries are no longer used as live translated captions.")
+    def test_youtube_captions_spreads_translated_fallback_across_duration(self):
+        class FakeOpenAI:
+            def __init__(self):
+                self.chat = self.Chat()
+
+            class Chat:
+                def __init__(self):
+                    self.completions = self.Completions()
+
+                class Completions:
+                    @staticmethod
+                    def create(**_kwargs):
+                        message = type(
+                            "Message",
+                            (),
+                            {
+                                "content": (
+                                    "React hooks manage component state. "
+                                    "Effects synchronize external systems."
+                                )
+                            },
+                        )()
+                        choice = type("Choice", (), {"message": message})()
+                        return type("Response", (), {"choices": [choice]})()
+
+        original_httpx = main.httpx
+        original_openai = main.OpenAI
+        original_key = os.environ.get("OPENAI_API_KEY")
+        main.httpx = None
+        main.OpenAI = FakeOpenAI
+        os.environ["OPENAI_API_KEY"] = "test-key"
+
+        try:
+            response = load_translated_captions(
+                {
+                    "videoId": "abc123",
+                    "targetLanguage": "en",
+                    "fallbackText": "React hooks study note.",
+                    "allowFallback": True,
+                    "translateFallback": True,
+                    "durationSeconds": 120,
+                }
+            )
+        finally:
+            main.httpx = original_httpx
+            main.OpenAI = original_openai
+            if original_key is None:
+                os.environ.pop("OPENAI_API_KEY", None)
+            else:
+                os.environ["OPENAI_API_KEY"] = original_key
+
+        self.assertEqual(response["provider"], "openai-fallback-translation")
+        self.assertEqual(response["segments"][0]["start"], 0)
+        self.assertEqual(response["segments"][-1]["end"], 120)
+        self.assertGreaterEqual(len(response["segments"]), 2)
+
+    def test_youtube_captions_do_not_use_summary_as_live_caption_fallback(self):
+        original_httpx = main.httpx
+        original_openai = main.OpenAI
+        original_key = os.environ.get("OPENAI_API_KEY")
+        main.httpx = None
+        main.OpenAI = None
+        os.environ.pop("OPENAI_API_KEY", None)
+
+        try:
+            response = load_translated_captions(
+                {
+                    "videoId": "abc123",
+                    "targetLanguage": "ko",
+                    "fallbackText": "This stored summary must not become captions.",
+                    "allowFallback": True,
+                    "translateFallback": True,
+                    "durationSeconds": 120,
+                }
+            )
+        finally:
+            main.httpx = original_httpx
+            main.OpenAI = original_openai
+            if original_key is None:
+                os.environ.pop("OPENAI_API_KEY", None)
+            else:
+                os.environ["OPENAI_API_KEY"] = original_key
+
+        self.assertEqual(response["provider"], "caption-source-unavailable")
+        self.assertEqual(response["sourceLanguage"], "unavailable")
+        self.assertFalse(response["translated"])
+        self.assertEqual(response["segments"], [])
+
+    def test_youtube_captions_do_not_align_summary_when_translation_fails(self):
+        class FakeResponse:
+            def __init__(self, text="", data=None):
+                self.text = text
+                self._data = data
+
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                if self._data is None:
+                    raise ValueError("not json")
+                return self._data
+
+        class FakeHttpx:
+            @staticmethod
+            def get(url, **_kwargs):
+                if "watch" in url:
+                    return FakeResponse(
+                        """
+                        <script>
+                        var ytInitialPlayerResponse = {"captions":{"playerCaptionsTracklistRenderer":{"captionTracks":[{
+                          "baseUrl":"https://www.youtube.com/api/timedtext?v=abc123&lang=en",
+                          "languageCode":"en",
+                          "isTranslatable":true
+                        }]}}};
+                        </script>
+                        """
+                    )
+
+                if "tlang=ko" in url:
+                    return FakeResponse("", {"events": []})
+
+                return FakeResponse(
+                    "",
+                    {
+                        "events": [
+                            {
+                                "tStartMs": 0,
+                                "dDurationMs": 4000,
+                                "segs": [{"utf8": "Server state changes often"}],
+                            }
+                        ]
+                    },
+                )
+
+        original_httpx = main.httpx
+        original_openai = main.OpenAI
+        original_key = os.environ.get("OPENAI_API_KEY")
+        main.httpx = FakeHttpx
+        main.OpenAI = None
+        os.environ.pop("OPENAI_API_KEY", None)
+
+        try:
+            response = load_translated_captions(
+                {
+                    "videoId": "abc123",
+                    "targetLanguage": "ko",
+                    "fallbackText": "Stored summary must not be aligned to timing.",
+                    "allowFallback": True,
+                    "translateFallback": True,
+                }
+            )
+        finally:
+            main.httpx = original_httpx
+            main.OpenAI = original_openai
+            if original_key is None:
+                os.environ.pop("OPENAI_API_KEY", None)
+            else:
+                os.environ["OPENAI_API_KEY"] = original_key
+
+        self.assertEqual(response["provider"], "caption-translation-unavailable")
+        self.assertEqual(response["sourceLanguage"], "en")
+        self.assertEqual(response["segments"], [])
+
+    def test_youtube_captions_retries_simple_timedtext_url(self):
+        calls = []
+        player_response = {
+            "captions": {
+                "playerCaptionsTracklistRenderer": {
+                    "captionTracks": [
+                        {
+                            "baseUrl": "https://signed.example/timedtext?lang=en",
+                            "languageCode": "en",
+                            "isTranslatable": True,
+                        }
+                    ]
+                }
+            }
+        }
+
+        class FakeResponse:
+            def __init__(self, *, text="", data=None):
+                self.text = text
+                self._data = data
+
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return self._data
+
+        class FakeHttpx:
+            @staticmethod
+            def get(url, **kwargs):
+                calls.append(url)
+
+                if "watch" in url:
+                    return FakeResponse(
+                        text=(
+                            "<script>var ytInitialPlayerResponse = "
+                            + json.dumps(player_response)
+                            + ";</script>"
+                        )
+                    )
+
+                if "signed.example" in url:
+                    raise RuntimeError("rate limited")
+
+                return FakeResponse(
+                    data={
+                        "events": [
+                            {
+                                "tStartMs": 1000,
+                                "dDurationMs": 1000,
+                                "segs": [{"utf8": "대체 URL 성공"}],
+                            }
+                        ]
+                    }
+                )
+
+        original_httpx = main.httpx
+        main.httpx = FakeHttpx
+
+        try:
+            response = load_translated_captions(
+                {"videoId": "retry123", "targetLanguage": "ko"}
+            )
+        finally:
+            main.httpx = original_httpx
+
+        self.assertEqual(response["provider"], "youtube-timedtext")
+        self.assertEqual(response["segments"][0]["text"], "대체 URL 성공")
+        self.assertTrue(any("www.youtube.com/api/timedtext" in url for url in calls))
+
+    def test_youtube_captions_uses_yt_dlp_when_youtube_caption_apis_fail(self):
+        original_fetch_tracks = main.fetch_youtube_caption_tracks
+        original_transcript = main.fetch_transcript_api_segments
+        original_yt_dlp = main.fetch_yt_dlp_caption_segments
+
+        main.fetch_youtube_caption_tracks = lambda _video_id: []
+        main.fetch_transcript_api_segments = lambda *_args: ([], "", False)
+        main.fetch_yt_dlp_caption_segments = lambda *_args: (
+            [
+                {"start": 0, "end": 2.5, "text": "Hello from yt-dlp"},
+                {"start": 2.5, "end": 5, "text": "Caption fallback works"},
+            ],
+            "en",
+            False,
+            None,
+        )
+
+        try:
+            response = load_translated_captions(
+                {
+                    "videoId": "abc123",
+                    "targetLanguage": "en",
+                    "allowFallback": False,
+                }
+            )
+        finally:
+            main.fetch_youtube_caption_tracks = original_fetch_tracks
+            main.fetch_transcript_api_segments = original_transcript
+            main.fetch_yt_dlp_caption_segments = original_yt_dlp
+
+        self.assertEqual(response["provider"], "yt-dlp-captions")
+        self.assertEqual(response["segments"][0]["text"], "Hello from yt-dlp")
+        self.assertEqual(response["sourceLanguage"], "en")
+
+    def test_yt_dlp_caption_segments_falls_back_to_subtitle_file_download(self):
+        original_metadata = main.fetch_yt_dlp_metadata
+        original_url_fetch = main.fetch_caption_segments_from_urls
+        original_file_fetch = main.fetch_yt_dlp_caption_file_segments
+
+        main.fetch_yt_dlp_metadata = lambda _video_id: (
+            {
+                "automatic_captions": {
+                    "en": [
+                        {
+                            "ext": "json3",
+                            "url": "https://example.test/timedtext",
+                        }
+                    ]
+                },
+                "subtitles": {},
+            },
+            None,
+        )
+        main.fetch_caption_segments_from_urls = lambda *_args: (
+            [],
+            RuntimeError("429 Too Many Requests"),
+        )
+        main.fetch_yt_dlp_caption_file_segments = lambda *_args: (
+            [{"start": 1, "end": 3, "text": "Downloaded by yt-dlp"}],
+            "en",
+            False,
+            None,
+        )
+
+        try:
+            segments, language, translated, error = main.fetch_yt_dlp_caption_segments(
+                "abc123",
+                "en",
+            )
+        finally:
+            main.fetch_yt_dlp_metadata = original_metadata
+            main.fetch_caption_segments_from_urls = original_url_fetch
+            main.fetch_yt_dlp_caption_file_segments = original_file_fetch
+
+        self.assertIsNone(error)
+        self.assertEqual(language, "en")
+        self.assertFalse(translated)
+        self.assertEqual(segments[0]["text"], "Downloaded by yt-dlp")
+
+    def test_parse_timedtext_response_accepts_webvtt_from_yt_dlp(self):
+        class FakeResponse:
+            text = """WEBVTT
+
+00:00:01.000 --> 00:00:03.500
+First subtitle line
+
+00:00:03.500 --> 00:00:05.000
+Second subtitle line
+"""
+
+            @staticmethod
+            def json():
+                raise ValueError("not json")
+
+        segments = main.parse_timedtext_response(FakeResponse())
+
+        self.assertEqual(
+            segments,
+            [
+                {"start": 1.0, "end": 3.5, "text": "First subtitle line"},
+                {"start": 3.5, "end": 5.0, "text": "Second subtitle line"},
+            ],
+        )
+
+    def test_youtube_captions_translates_source_segments_when_tlang_fails(self):
+        calls = []
+        player_response = {
+            "captions": {
+                "playerCaptionsTracklistRenderer": {
+                    "captionTracks": [
+                        {
+                            "baseUrl": "https://signed.example/timedtext?v=abc123&lang=en",
+                            "languageCode": "en",
+                            "isTranslatable": True,
+                        }
+                    ]
+                }
+            }
+        }
+
+        class FakeResponse:
+            def __init__(self, *, text="", data=None):
+                self.text = text
+                self._data = data
+
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return self._data
+
+        class FakeHttpx:
+            @staticmethod
+            def get(url, **kwargs):
+                calls.append(url)
+
+                if "watch" in url:
+                    return FakeResponse(
+                        text=(
+                            "<script>var ytInitialPlayerResponse = "
+                            + json.dumps(player_response)
+                            + ";</script>"
+                        )
+                    )
+
+                if "tlang=ko" in url:
+                    raise RuntimeError("translated track rate limited")
+
+                return FakeResponse(
+                    data={
+                        "events": [
+                            {
+                                "tStartMs": 0,
+                                "dDurationMs": 1500,
+                                "segs": [{"utf8": "Hello React learners"}],
+                            },
+                            {
+                                "tStartMs": 1500,
+                                "dDurationMs": 1500,
+                                "segs": [{"utf8": "Server state changes often"}],
+                            },
+                        ]
+                    }
+                )
+
+        class FakeOpenAI:
+            def __init__(self):
+                self.chat = self.Chat()
+
+            class Chat:
+                def __init__(self):
+                    self.completions = self.Completions()
+
+                class Completions:
+                    @staticmethod
+                    def create(**_kwargs):
+                        message = type(
+                            "Message",
+                            (),
+                            {
+                                "content": json.dumps(
+                                    {
+                                        "translations": [
+                                            "리액트 학습자 여러분 안녕하세요",
+                                            "서버 상태는 자주 바뀝니다",
+                                        ]
+                                    },
+                                    ensure_ascii=False,
+                                )
+                            },
+                        )()
+                        choice = type("Choice", (), {"message": message})()
+                        return type("Response", (), {"choices": [choice]})()
+
+        original_httpx = main.httpx
+        original_openai = main.OpenAI
+        original_key = os.environ.get("OPENAI_API_KEY")
+        main.httpx = FakeHttpx
+        main.OpenAI = FakeOpenAI
+        os.environ["OPENAI_API_KEY"] = "test-key"
+
+        try:
+            response = load_translated_captions(
+                {
+                    "videoId": "abc123",
+                    "targetLanguage": "ko",
+                    "fallbackText": "fallback should not be used",
+                }
+            )
+        finally:
+            main.httpx = original_httpx
+            main.OpenAI = original_openai
+            if original_key is None:
+                os.environ.pop("OPENAI_API_KEY", None)
+            else:
+                os.environ["OPENAI_API_KEY"] = original_key
+
+        self.assertEqual(response["provider"], "openai-caption-translation")
+        self.assertEqual(response["segments"][0]["text"], "리액트 학습자 여러분 안녕하세요")
+        self.assertEqual(response["segments"][0]["start"], 0)
+        self.assertEqual(response["segments"][1]["end"], 3.0)
+        self.assertTrue(any("tlang=ko" in url for url in calls))
+
+    def test_youtube_captions_uses_transcript_api_when_timedtext_is_limited(self):
+        player_response = {
+            "captions": {
+                "playerCaptionsTracklistRenderer": {
+                    "captionTracks": [
+                        {
+                            "baseUrl": "https://signed.example/timedtext?v=abc123&lang=en",
+                            "languageCode": "en",
+                            "isTranslatable": True,
+                        }
+                    ]
+                }
+            }
+        }
+
+        class FakeResponse:
+            text = (
+                "<script>var ytInitialPlayerResponse = "
+                + json.dumps(player_response)
+                + ";</script>"
+            )
+
+            def raise_for_status(self):
+                return None
+
+        class FakeHttpx:
+            @staticmethod
+            def get(url, **_kwargs):
+                if "watch" in url:
+                    return FakeResponse()
+
+                raise RuntimeError("timedtext rate limited")
+
+        class FakeTranscript:
+            language_code = "en"
+
+            def translate(self, language):
+                self.language_code = language
+                return self
+
+            def fetch(self):
+                return [
+                    {
+                        "text": "리액트 학습자 여러분 안녕하세요",
+                        "start": 1.0,
+                        "duration": 2.5,
+                    }
+                ]
+
+        class FakeTranscriptList:
+            @staticmethod
+            def find_transcript(languages):
+                if languages == ["ko"]:
+                    raise RuntimeError("no Korean transcript")
+
+                return FakeTranscript()
+
+        class FakeTranscriptApi:
+            @staticmethod
+            def list_transcripts(video_id):
+                self = FakeTranscriptApi()
+                self.video_id = video_id
+                return FakeTranscriptList()
+
+        original_httpx = main.httpx
+        original_transcript_api = main.YouTubeTranscriptApi
+        main.httpx = FakeHttpx
+        main.YouTubeTranscriptApi = FakeTranscriptApi
+
+        try:
+            response = load_translated_captions(
+                {
+                    "videoId": "abc123",
+                    "targetLanguage": "ko",
+                    "fallbackText": "fallback should not be used",
+                }
+            )
+        finally:
+            main.httpx = original_httpx
+            main.YouTubeTranscriptApi = original_transcript_api
+
+        self.assertEqual(response["provider"], "youtube-transcript-api")
+        self.assertEqual(response["sourceLanguage"], "en")
+        self.assertTrue(response["translated"])
+        self.assertEqual(response["segments"][0]["start"], 1.0)
+        self.assertEqual(response["segments"][0]["end"], 3.5)
+        self.assertEqual(response["segments"][0]["text"], "리액트 학습자 여러분 안녕하세요")
+
+    def test_youtube_captions_supports_modern_transcript_api_instance(self):
+        class FakeTranscript:
+            language_code = "ko"
+
+            @staticmethod
+            def fetch():
+                return [{"text": "이미 한국어 자막입니다", "start": 2, "duration": 1}]
+
+        class FakeTranscriptList:
+            @staticmethod
+            def find_transcript(languages):
+                self = FakeTranscriptList()
+                self.languages = languages
+                return FakeTranscript()
+
+        class FakeTranscriptApi:
+            def list(self, video_id):
+                self.video_id = video_id
+                return FakeTranscriptList()
+
+        original_httpx = main.httpx
+        original_transcript_api = main.YouTubeTranscriptApi
+        main.httpx = None
+        main.YouTubeTranscriptApi = FakeTranscriptApi
+
+        try:
+            response = load_translated_captions(
+                {
+                    "videoId": "modern123",
+                    "targetLanguage": "ko",
+                    "fallbackText": "fallback should not be used",
+                }
+            )
+        finally:
+            main.httpx = original_httpx
+            main.YouTubeTranscriptApi = original_transcript_api
+
+        self.assertEqual(response["provider"], "youtube-transcript-api")
+        self.assertEqual(response["sourceLanguage"], "ko")
+        self.assertFalse(response["translated"])
+        self.assertEqual(response["segments"][0]["text"], "이미 한국어 자막입니다")
+
+    @unittest.skip("Stored summaries are no longer aligned to source timing as captions.")
+    def test_youtube_captions_uses_source_timing_for_saved_notes_without_openai_key(self):
+        player_response = {
+            "captions": {
+                "playerCaptionsTracklistRenderer": {
+                    "captionTracks": [
+                        {
+                            "baseUrl": "https://signed.example/timedtext?v=abc123&lang=en",
+                            "languageCode": "en",
+                            "isTranslatable": True,
+                        }
+                    ]
+                }
+            }
+        }
+
+        class FakeResponse:
+            def __init__(self, *, text="", data=None):
+                self.text = text
+                self._data = data
+
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return self._data
+
+        class FakeHttpx:
+            @staticmethod
+            def get(url, **_kwargs):
+                if "watch" in url:
+                    return FakeResponse(
+                        text=(
+                            "<script>var ytInitialPlayerResponse = "
+                            + json.dumps(player_response)
+                            + ";</script>"
+                        )
+                    )
+
+                if "tlang=ko" in url:
+                    raise RuntimeError("translated track rate limited")
+
+                return FakeResponse(
+                    data={
+                        "events": [
+                            {
+                                "tStartMs": 5000,
+                                "dDurationMs": 2000,
+                                "segs": [{"utf8": "Hello React learners"}],
+                            },
+                            {
+                                "tStartMs": 7000,
+                                "dDurationMs": 3000,
+                                "segs": [{"utf8": "Server state changes often"}],
+                            },
+                        ]
+                    }
+                )
+
+        original_httpx = main.httpx
+        original_openai = main.OpenAI
+        original_key = os.environ.get("OPENAI_API_KEY")
+        main.httpx = FakeHttpx
+        main.OpenAI = None
+        os.environ.pop("OPENAI_API_KEY", None)
+
+        try:
+            response = load_translated_captions(
+                {
+                    "videoId": "abc123",
+                    "targetLanguage": "ko",
+                    "fallbackText": "리액트 서버 상태를 학습합니다. 캐시와 무효화를 함께 봅니다.",
+                }
+            )
+        finally:
+            main.httpx = original_httpx
+            main.OpenAI = original_openai
+            if original_key is not None:
+                os.environ["OPENAI_API_KEY"] = original_key
+
+        self.assertEqual(response["provider"], "timed-local-fallback")
+        self.assertEqual(response["sourceLanguage"], "en")
+        self.assertEqual(response["segments"][0]["start"], 5.0)
+        self.assertEqual(response["segments"][1]["end"], 10.0)
+        self.assertIn("리액트", response["segments"][0]["text"])
+
     def test_rag_recommend_returns_related_posts_and_summary(self):
-        response = rag_recommend({"query": "react hooks for beginners", "limit": 2})
+        original_load_board_posts = main.load_board_posts
+        main.load_board_posts = lambda: main.DEMO_POSTS
+
+        try:
+            response = rag_recommend({"query": "react hooks for beginners", "limit": 2})
+        finally:
+            main.load_board_posts = original_load_board_posts
 
         self.assertEqual(len(response["relatedPosts"]), 2)
         self.assertIn("react", response["answer"].lower())
+        self.assertEqual(
+            response["relatedPosts"][0]["evidenceSource"],
+            "video_transcript",
+        )
+        self.assertTrue(response["relatedPosts"][0]["evidenceSnippet"])
 
     def test_rag_recommend_returns_empty_when_query_has_no_overlap(self):
-        response = rag_recommend({"query": "zzzz-no-board-topic", "limit": 2})
+        original_load_board_posts = main.load_board_posts
+        main.load_board_posts = lambda: main.DEMO_POSTS
+
+        try:
+            response = rag_recommend({"query": "zzzz-no-board-topic", "limit": 2})
+        finally:
+            main.load_board_posts = original_load_board_posts
 
         self.assertEqual(response["relatedPosts"], [])
         self.assertIn("찾지 못했", response["answer"])

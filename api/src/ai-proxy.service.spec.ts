@@ -1,0 +1,47 @@
+import { of } from 'rxjs';
+import { AiProxyService } from './ai-proxy.service';
+
+describe('AiProxyService', () => {
+  it('allows caption generation to run longer than the generic AI timeout', async () => {
+    const post = jest.fn().mockReturnValue(of({ data: { provider: 'ok' } }));
+    const service = new AiProxyService(
+      {
+        get: jest.fn((key: string) =>
+          key === 'AI_SERVICE_URL' ? 'http://ai.local' : undefined,
+        ),
+      } as never,
+      { post } as never,
+    );
+
+    await service.captions({ videoId: 'abc123' });
+
+    expect(post).toHaveBeenCalledWith(
+      'http://ai.local/youtube/captions',
+      { videoId: 'abc123' },
+      expect.objectContaining({ timeout: 300000 }),
+    );
+  });
+
+  it('keeps the requested caption language in the timeout fallback', async () => {
+    const post = jest.fn().mockImplementation((_url, _body, _options) => {
+      throw new Error('timeout');
+    });
+    const service = new AiProxyService(
+      {
+        get: jest.fn((key: string) =>
+          key === 'AI_SERVICE_URL' ? 'http://ai.local' : undefined,
+        ),
+      } as never,
+      { post } as never,
+    );
+
+    await expect(
+      service.captions({ videoId: 'abc123', targetLanguage: 'en' }),
+    ).resolves.toMatchObject({
+      provider: 'ai-service-unavailable',
+      videoId: 'abc123',
+      language: 'en',
+      segments: [],
+    });
+  });
+});

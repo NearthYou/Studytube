@@ -59,6 +59,24 @@ export class AiProxyService {
     );
   }
 
+  captions(body: unknown): Promise<unknown> {
+    return this.post(
+      '/youtube/captions',
+      body,
+      this.captionFallback(body),
+      Number(this.configService.get<string>('AI_CAPTION_TIMEOUT_MS')) || 300000,
+    );
+  }
+
+  summary(body: unknown): Promise<unknown> {
+    return this.post(
+      '/youtube/summary',
+      body,
+      this.summaryFallback(body),
+      90000,
+    );
+  }
+
   plan(body: unknown): Promise<unknown> {
     return this.post('/agent/study-plan', body, {
       mode: 'ai-service-unavailable',
@@ -90,12 +108,13 @@ export class AiProxyService {
     path: string,
     body: unknown,
     fallback: unknown,
+    timeout = 7000,
   ): Promise<unknown> {
     try {
       const response = await firstValueFrom(
         this.httpService.post<unknown>(`${this.aiServiceUrl}${path}`, body, {
           headers: this.internalHeaders(),
-          timeout: 7000,
+          timeout,
         }),
       );
       const data: unknown = response.data;
@@ -110,5 +129,56 @@ export class AiProxyService {
     const apiKey = this.configService.get<string>('INTERNAL_AI_API_KEY');
 
     return apiKey ? { 'X-INTERNAL-API-KEY': apiKey } : undefined;
+  }
+
+  private captionFallback(body: unknown) {
+    const input = body && typeof body === 'object' ? body : {};
+    const targetLanguage =
+      'targetLanguage' in input && typeof input.targetLanguage === 'string'
+        ? input.targetLanguage
+        : 'ko';
+    const videoId =
+      'videoId' in input && typeof input.videoId === 'string'
+        ? input.videoId
+        : '';
+
+    return {
+      mode: 'youtube-captions',
+      provider: 'ai-service-unavailable',
+      videoId,
+      language: targetLanguage,
+      sourceLanguage: 'unavailable',
+      translated: false,
+      segments: [],
+      message:
+        'FastAPI caption service did not respond before the proxy timeout.',
+    };
+  }
+
+  private summaryFallback(body: unknown) {
+    const input = body && typeof body === 'object' ? body : {};
+    const videoId =
+      'videoId' in input && typeof input.videoId === 'string'
+        ? input.videoId
+        : '';
+    const language =
+      'language' in input && typeof input.language === 'string'
+        ? input.language
+        : 'ko';
+
+    return {
+      mode: 'youtube-summary',
+      provider: 'ai-service-unavailable',
+      videoId,
+      language,
+      sections: [
+        {
+          label: '요약 생성 실패',
+          body: 'AI 요약 서비스 응답을 받지 못했습니다. 자막을 다시 불러온 뒤 시도해 주세요.',
+        },
+      ],
+      message:
+        'FastAPI summary service did not respond before the proxy timeout.',
+    };
   }
 }

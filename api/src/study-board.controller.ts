@@ -43,13 +43,45 @@ export class StudyBoardController {
     return this.studyBoardService.demoSession();
   }
 
+  @Get('me')
+  getMe(@Headers('authorization') authorization: string | undefined) {
+    return this.studyBoardService.getMe(authorization);
+  }
+
+  @Put('me')
+  updateMe(
+    @Headers('authorization') authorization: string | undefined,
+    @Body()
+    body: {
+      name?: string;
+      password?: string;
+    },
+  ) {
+    return this.studyBoardService.updateMe(authorization, body);
+  }
+
   @Get('posts')
   listPosts(
+    @Headers('authorization') authorization: string | undefined,
     @Query('search') search?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
     return this.studyBoardService.listPosts({
+      token: authorization,
+      search,
+      page: page ? Number(page) : undefined,
+      pageSize: pageSize ? Number(pageSize) : undefined,
+    });
+  }
+
+  @Get('explore/posts')
+  listPublicPosts(
+    @Query('search') search?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.studyBoardService.listPublicPosts({
       search,
       page: page ? Number(page) : undefined,
       pageSize: pageSize ? Number(pageSize) : undefined,
@@ -57,8 +89,11 @@ export class StudyBoardController {
   }
 
   @Get('posts/:id')
-  getPost(@Param('id') id: string) {
-    return this.studyBoardService.getPost(Number(id));
+  getPost(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+  ) {
+    return this.studyBoardService.getPost(authorization, Number(id));
   }
 
   @Post('posts')

@@ -83,9 +83,17 @@ export type BoardRepository = {
   findUserByEmail(
     email: string,
   ): Promise<(User & { passwordHash: string }) | null>;
+  updateUser(
+    id: number,
+    input: {
+      name?: string;
+      passwordHash?: string;
+    },
+  ): Promise<User | null>;
   createSession(userId: number, token: string): Promise<Session>;
   findSession(token: string): Promise<Session | null>;
   listPosts(input: {
+    authorId?: number;
     search?: string;
     page: number;
     pageSize: number;

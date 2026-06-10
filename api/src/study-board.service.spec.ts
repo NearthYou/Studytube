@@ -1,5 +1,6 @@
 import { StudyBoardService } from './study-board.service';
 import { MemoryBoardRepository } from './memory-board.repository';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 
 describe('StudyBoardService', () => {
   let service: StudyBoardService;
@@ -30,8 +31,51 @@ describe('StudyBoardService', () => {
     expect(login.token).toHaveLength(48);
   });
 
+  it('returns a clear validation error when signing up with an existing email', async () => {
+    await service.signUp({
+      name: 'Ada',
+      email: 'ada@example.com',
+      password: 'learn-fast',
+    });
+
+    await expect(
+      service.signUp({
+        name: 'Another Ada',
+        email: 'ada@example.com',
+        password: 'learn-fast',
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('updates the signed-in user profile and password', async () => {
+    const session = await service.signUp({
+      name: 'Grace',
+      email: 'grace@example.com',
+      password: 'learn-fast',
+    });
+
+    const updated = await service.updateMe(session.token, {
+      name: 'Grace Hopper',
+      password: 'new-pass',
+    });
+
+    expect(updated).toMatchObject({
+      id: session.user.id,
+      name: 'Grace Hopper',
+      email: 'grace@example.com',
+    });
+
+    const login = await service.login({
+      email: 'grace@example.com',
+      password: 'new-pass',
+    });
+
+    expect(login.user.name).toBe('Grace Hopper');
+  });
+
   it('paginates and searches posts by title, summary, channel, and tags', async () => {
     const result = await service.listPosts({
+      token: (await service.demoSession()).token,
       search: 'react',
       page: 1,
       pageSize: 2,
@@ -40,6 +84,104 @@ describe('StudyBoardService', () => {
     expect(result.total).toBeGreaterThanOrEqual(1);
     expect(result.items).toHaveLength(2);
     expect(result.items[0].tags).toContain('react');
+  });
+
+  it('shows each account only its own board posts', async () => {
+    const ada = await service.signUp({
+      name: 'Ada',
+      email: 'ada-private@example.com',
+      password: 'learn-fast',
+    });
+    const linus = await service.signUp({
+      name: 'Linus',
+      email: 'linus-private@example.com',
+      password: 'learn-fast',
+    });
+
+    const adaPost = await service.createPost(ada.token, {
+      title: 'Account scoped React lesson',
+      videoUrl: 'https://www.youtube.com/watch?v=ada-react',
+      channelName: 'Ada Channel',
+      summary: 'A private React board note for Ada.',
+      translatedNotes: 'Ada 계정에서만 보여야 하는 React 학습 노트입니다.',
+      tags: ['react', 'private'],
+    });
+    await service.createPost(linus.token, {
+      title: 'Account scoped FastAPI lesson',
+      videoUrl: 'https://www.youtube.com/watch?v=linus-fastapi',
+      channelName: 'Linus Channel',
+      summary: 'A private FastAPI board note for Linus.',
+      translatedNotes: 'Linus 계정에서만 보여야 하는 FastAPI 학습 노트입니다.',
+      tags: ['fastapi', 'private'],
+    });
+
+    const adaPosts = await service.listPosts({
+      token: ada.token,
+      search: 'Account scoped',
+      page: 1,
+      pageSize: 10,
+    });
+    const linusPosts = await service.listPosts({
+      token: linus.token,
+      search: 'Account scoped',
+      page: 1,
+      pageSize: 10,
+    });
+
+    expect(adaPosts.items.map((post) => post.title)).toEqual([
+      'Account scoped React lesson',
+    ]);
+    expect(linusPosts.items.map((post) => post.title)).toEqual([
+      'Account scoped FastAPI lesson',
+    ]);
+    await expect(
+      service.updatePost(linus.token, adaPost.id, {
+        title: 'Cross account edit',
+      }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('lets the explore board show public video cards across accounts', async () => {
+    const ada = await service.signUp({
+      name: 'Ada',
+      email: 'ada-explore@example.com',
+      password: 'learn-fast',
+    });
+    const linus = await service.signUp({
+      name: 'Linus',
+      email: 'linus-explore@example.com',
+      password: 'learn-fast',
+    });
+
+    await service.createPost(ada.token, {
+      title: 'Public React transcript card',
+      videoUrl: 'https://www.youtube.com/watch?v=public-react',
+      channelName: 'Ada Channel',
+      summary: 'React hooks course summary.',
+      translatedNotes: 'React hooks transcript evidence for public search.',
+      tags: ['react', 'public'],
+    });
+    await service.createPost(linus.token, {
+      title: 'Public FastAPI transcript card',
+      videoUrl: 'https://www.youtube.com/watch?v=public-fastapi',
+      channelName: 'Linus Channel',
+      summary: 'FastAPI course summary.',
+      translatedNotes: 'FastAPI transcript evidence for public search.',
+      tags: ['fastapi', 'public'],
+    });
+
+    const result = await service.listPublicPosts({
+      search: 'public',
+      page: 1,
+      pageSize: 20,
+    });
+
+    expect(result.items.map((post) => post.title)).toEqual(
+      expect.arrayContaining([
+        'Public React transcript card',
+        'Public FastAPI transcript card',
+      ]),
+    );
   });
 
   it('creates a video post and lets users discuss it in comments', async () => {
@@ -57,7 +199,7 @@ describe('StudyBoardService', () => {
       body: 'Mapped type examples helped a lot.',
     });
 
-    const detail = await service.getPost(post.id);
+    const detail = await service.getPost(session.token, post.id);
 
     expect(comment.body).toContain('Mapped type');
     expect(detail.comments).toContainEqual(

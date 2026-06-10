@@ -166,6 +166,44 @@ export class MemoryBoardRepository implements BoardRepository {
     );
   }
 
+  async updateUser(
+    id: number,
+    input: {
+      name?: string;
+      passwordHash?: string;
+    },
+  ): Promise<User | null> {
+    await this.idle();
+
+    const index = this.users.findIndex((candidate) => candidate.id === id);
+
+    if (index === -1) {
+      return null;
+    }
+
+    const current = this.users[index];
+    const next: StoredUser = {
+      ...current,
+      name: input.name ?? current.name,
+      passwordHash: input.passwordHash ?? current.passwordHash,
+    };
+    this.users[index] = next;
+
+    if (input.name) {
+      this.posts = this.posts.map((post) => ({
+        ...post,
+        authorName: post.authorId === id ? input.name! : post.authorName,
+        comments: post.comments.map((comment) => ({
+          ...comment,
+          authorName:
+            comment.authorId === id ? input.name! : comment.authorName,
+        })),
+      }));
+    }
+
+    return this.toPublicUser(next);
+  }
+
   async createSession(userId: number, token: string): Promise<Session> {
     await this.idle();
 
@@ -202,6 +240,7 @@ export class MemoryBoardRepository implements BoardRepository {
   }
 
   async listPosts(input: {
+    authorId?: number;
     search?: string;
     page: number;
     pageSize: number;
@@ -209,8 +248,12 @@ export class MemoryBoardRepository implements BoardRepository {
     await this.idle();
 
     const normalized = input.search?.trim().toLowerCase();
+    const owned =
+      typeof input.authorId === 'number'
+        ? this.posts.filter((post) => post.authorId === input.authorId)
+        : [...this.posts];
     const filtered = normalized
-      ? this.posts.filter((post) =>
+      ? owned.filter((post) =>
           [
             post.title,
             post.summary,
@@ -222,7 +265,7 @@ export class MemoryBoardRepository implements BoardRepository {
             .toLowerCase()
             .includes(normalized),
         )
-      : [...this.posts];
+      : owned;
     const start = (input.page - 1) * input.pageSize;
 
     return {

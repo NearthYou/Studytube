@@ -166,6 +166,36 @@ export class DatabaseService
     }
   }
 
+  override async updateUser(
+    id: number,
+    input: {
+      name?: string;
+      passwordHash?: string;
+    },
+  ): Promise<User | null> {
+    if (!this.databaseAvailable) {
+      return super.updateUser(id, input);
+    }
+
+    try {
+      const result = await this.pool.query<UserRow>(
+        `
+          UPDATE users
+          SET name = COALESCE($2, name),
+              password_hash = COALESCE($3, password_hash)
+          WHERE id = $1
+          RETURNING id, name, email, password_hash AS "passwordHash", created_at AS "createdAt"
+        `,
+        [id, input.name ?? null, input.passwordHash ?? null],
+      );
+
+      return result.rows[0] ? this.publicUser(result.rows[0]) : null;
+    } catch (error) {
+      this.fallback(error);
+      return super.updateUser(id, input);
+    }
+  }
+
   override async createSession(
     userId: number,
     token: string,
@@ -221,6 +251,7 @@ export class DatabaseService
   }
 
   override async listPosts(input: {
+    authorId?: number;
     search?: string;
     page: number;
     pageSize: number;
@@ -232,23 +263,25 @@ export class DatabaseService
     try {
       const search = input.search?.trim() || null;
       const offset = (input.page - 1) * input.pageSize;
+      const authorId = input.authorId ?? null;
       const where = `
-        ($1::text IS NULL
-          OR p.title ILIKE '%' || $1 || '%'
-          OR p.summary ILIKE '%' || $1 || '%'
-          OR p.channel_name ILIKE '%' || $1 || '%'
-          OR p.translated_notes ILIKE '%' || $1 || '%'
+        ($1::integer IS NULL OR p.author_id = $1)
+        AND ($2::text IS NULL
+          OR p.title ILIKE '%' || $2 || '%'
+          OR p.summary ILIKE '%' || $2 || '%'
+          OR p.channel_name ILIKE '%' || $2 || '%'
+          OR p.translated_notes ILIKE '%' || $2 || '%'
           OR EXISTS (
             SELECT 1 FROM post_tags pt
             JOIN tags t ON t.id = pt.tag_id
-            WHERE pt.post_id = p.id AND t.name ILIKE '%' || $1 || '%'
+            WHERE pt.post_id = p.id AND t.name ILIKE '%' || $2 || '%'
           )
         )
       `;
       const [countResult, postsResult] = await Promise.all([
         this.pool.query<{ count: string }>(
           `SELECT COUNT(*)::text AS count FROM posts p WHERE ${where}`,
-          [search],
+          [authorId, search],
         ),
         this.pool.query<PostRow>(
           `
@@ -261,9 +294,9 @@ export class DatabaseService
             JOIN users u ON u.id = p.author_id
             WHERE ${where}
             ORDER BY p.updated_at DESC
-            LIMIT $2 OFFSET $3
+            LIMIT $3 OFFSET $4
           `,
-          [search, input.pageSize, offset],
+          [authorId, search, input.pageSize, offset],
         ),
       ]);
       const items = await Promise.all(

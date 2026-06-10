@@ -14,6 +14,7 @@ import type {
   Session,
   StudyPost,
   UpdatePostInput,
+  User,
 } from './study-board.types';
 
 type Credentials = {
@@ -34,9 +35,16 @@ export class StudyBoardService {
     this.assertEmail(input.email);
     this.assertPassword(input.password);
 
+    const email = input.email.trim().toLowerCase();
+    const existing = await this.repository.findUserByEmail(email);
+
+    if (existing) {
+      throw new BadRequestException('Email already exists');
+    }
+
     const user = await this.repository.createUser({
       name: input.name.trim(),
-      email: input.email.trim().toLowerCase(),
+      email,
       passwordHash: this.hashPassword(input.password),
     });
 
@@ -76,13 +84,74 @@ export class StudyBoardService {
     return this.repository.createSession(demoUser.id, this.createToken());
   }
 
-  listPosts(input: {
+  async getMe(token: string | undefined): Promise<User> {
+    const session = await this.requireSession(token);
+
+    return session.user;
+  }
+
+  async updateMe(
+    token: string | undefined,
+    input: {
+      name?: string;
+      password?: string;
+    },
+  ): Promise<User> {
+    const session = await this.requireSession(token);
+    const nextName = input.name?.trim();
+    const nextPassword = input.password?.trim();
+
+    if (!nextName && !nextPassword) {
+      throw new BadRequestException('name or password is required');
+    }
+
+    if (nextName !== undefined) {
+      this.assertText(nextName, 'name');
+    }
+
+    if (nextPassword) {
+      this.assertPassword(nextPassword);
+    }
+
+    const user = await this.repository.updateUser(session.user.id, {
+      name: nextName || undefined,
+      passwordHash: nextPassword
+        ? this.hashPassword(nextPassword)
+        : undefined,
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    return user;
+  }
+
+  async listPosts(input: {
+    token?: string;
+    search?: string;
+    page?: number;
+    pageSize?: number;
+  }): Promise<PaginatedPosts> {
+    const session = await this.requireSession(input.token);
+    const page = this.toPositiveInteger(input.page, 1);
+    const pageSize = Math.min(this.toPositiveInteger(input.pageSize, 6), 24);
+
+    return this.repository.listPosts({
+      authorId: session.user.id,
+      search: input.search,
+      page,
+      pageSize,
+    });
+  }
+
+  async listPublicPosts(input: {
     search?: string;
     page?: number;
     pageSize?: number;
   }): Promise<PaginatedPosts> {
     const page = this.toPositiveInteger(input.page, 1);
-    const pageSize = Math.min(this.toPositiveInteger(input.pageSize, 6), 24);
+    const pageSize = Math.min(this.toPositiveInteger(input.pageSize, 12), 48);
 
     return this.repository.listPosts({
       search: input.search,
@@ -91,10 +160,11 @@ export class StudyBoardService {
     });
   }
 
-  async getPost(id: number): Promise<StudyPost> {
+  async getPost(token: string | undefined, id: number): Promise<StudyPost> {
+    const session = await this.requireSession(token);
     const post = await this.repository.findPost(id);
 
-    if (!post) {
+    if (!post || post.authorId !== session.user.id) {
       throw new NotFoundException('Post not found');
     }
 
@@ -120,7 +190,8 @@ export class StudyBoardService {
     id: number,
     input: UpdatePostInput,
   ): Promise<StudyPost> {
-    await this.requireSession(token);
+    const session = await this.requireSession(token);
+    await this.requireOwnedPost(id, session.user.id);
 
     const post = await this.repository.updatePost(id, input);
 
@@ -137,7 +208,8 @@ export class StudyBoardService {
   ): Promise<{
     deleted: boolean;
   }> {
-    await this.requireSession(token);
+    const session = await this.requireSession(token);
+    await this.requireOwnedPost(id, session.user.id);
 
     return {
       deleted: await this.repository.deletePost(id),
@@ -150,6 +222,7 @@ export class StudyBoardService {
     input: { body: string },
   ) {
     const session = await this.requireSession(token);
+    await this.requireOwnedPost(postId, session.user.id);
     this.assertText(input.body, 'body');
 
     return this.repository.addComment({
@@ -235,6 +308,19 @@ export class StudyBoardService {
     }
 
     return session;
+  }
+
+  private async requireOwnedPost(
+    postId: number,
+    userId: number,
+  ): Promise<StudyPost> {
+    const post = await this.repository.findPost(postId);
+
+    if (!post || post.authorId !== userId) {
+      throw new NotFoundException('Post not found');
+    }
+
+    return post;
   }
 
   private normalizeToken(token?: string): string | undefined {

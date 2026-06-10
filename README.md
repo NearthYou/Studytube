@@ -26,7 +26,7 @@ StudyTube Courses는 YouTube로 공부하는 사람이 “무엇을 어떤 순�
 - 데모 계정: `demo@studytube.local` / `demo1234`
 - 취향 분석: 사용자별 관심사, 학습 속도, 목표를 브라우저 저장소에 보관하고 코스 추천 기본값에 반영
 - 게시물 CRUD: `GET/POST/PUT/DELETE /posts`
-- 영상 지식 카드 작성: YouTube URL 입력 시 MCP로 제목, 채널명, 태그, 요약, 썸네일 자동 입력
+- 영상 재료 작성: YouTube URL 입력 시 MCP와 AI 분석으로 제목, 채널명, 태그, 요약, 썸네일 자동 입력
 - 공개 플레이리스트 보드: `GET /playlists`, `GET /explore/posts`
 - 댓글: `POST /posts/:id/comments`
 - 태그: 게시글 생성/수정 시 자동 정규화
@@ -86,7 +86,7 @@ ai/ FastAPI
 5. `OPENAI_API_KEY`가 있으면 상용 embedding 모델을 사용할 수 있도록 설정값을 둡니다.
 6. 키가 없거나 로컬 데모일 때는 deterministic hash embedding으로 동작합니다.
 7. PostgreSQL의 `post_embeddings` 테이블은 `vector(64)` 타입으로 설계했습니다.
-8. 이미 게시판에 올라온 코스/영상이 있으면 먼저 `evidenceSnippet` 근거 조각과 함께 보여줍니다.
+8. 이미 게시판에 올라온 코스/영상이 있으면 저장된 AI 영상 분석 요약 중 질문과 맞는 부분을 먼저 보여줍니다.
 9. 기존 자료가 없거나 사용자가 새 코스를 원하면 같은 화면에서 Agent가 MCP YouTube 탐색까지 이어받습니다.
 
 관련 파일:
@@ -140,7 +140,7 @@ Agent는 학습 목표를 받아 도구를 선택하고 새 학습 코스 초안
 - goal
 - language
 - interests
-- retrieved transcript evidence
+- retrieved AI video analysis notes
 - external video metadata
 - trace
 
@@ -229,11 +229,11 @@ Agent + MCP 실제 YouTube 추천 결과:
 - 로그인하지 않으면 `/explore`, `/board`, `/search`, `/playlists`, `/watch` 접근 시 로그인 페이지로 이동
 - 데모 계정 버튼으로 별도 회원가입 없이 바로 로그인
 - 첫 화면에서 관심사와 학습 속도를 저장해 개인화된 코스 추천 기본값 확인
-- `/explore`에서 다른 사람이 등록한 영상 지식 카드를 보드형으로 탐색
-- `/board`에서 URL 붙여넣기 → MCP 자동 입력 → AI 분석 요약 저장 → 플레이리스트 코스 발행 과정을 확인
-- 중앙 영상 요약, 추천 난이도, 대상 사용자, AI 영상 분석 요약, 댓글
-- 하단 영상 지식 카드 작성/수정/삭제
-- 영상 상세에서 영상을 바로 학습 코스 재료로 담고 내부 플레이어로 이동
+- `/explore`에서 다른 사람이 등록한 공개 플레이리스트 코스를 보드형으로 탐색
+- `/board`에서 URL 붙여넣기 → MCP 자동 입력 → AI 영상 분석 요약 생성 → 영상 재료 저장 → 여러 영상을 묶은 플레이리스트 코스 발행 과정을 확인
+- 플레이리스트 초안에서 포함 영상, 예상 학습 시간, 발행 가능 영상 수, 코스 제목/설명을 확인
+- 영상 재료 보관함에서 작성/수정/삭제하고, 선택한 영상 재료를 플레이리스트 초안에 추가
+- 플레이리스트 코스를 담으면 내부 플레이어에서 순서대로 학습
 - `/playlists`의 코스 찾기 화면에서 RAG가 기존 플레이리스트와 영상 분석 요약을 먼저 검색
 - 원하는 코스가 이미 있으면 기존 코스와 AI 분석 기반 영상을 먼저 안내
 - 새로 만들어 달라고 하면 Agent 추천과 MCP 실제 YouTube 검색 결과가 하나의 학습 코스 초안으로 합쳐짐
@@ -281,7 +281,7 @@ C:\Users\cad87\AppData\Local\Programs\Python\Python313\python.exe -m unittest di
 
 ### 개선 아이디어
 
-- 영상 지식 카드 저장 시 FastAPI background task로 embedding을 갱신합니다.
+- 영상 재료 저장 시 FastAPI background task로 embedding을 갱신합니다.
 - YouTube 자막 수집과 번역을 더 안정적으로 연동해 실제 영상 분석 요약을 자동 생성합니다.
 - LangGraph로 Agent 상태 그래프를 명시적으로 모델링합니다.
 - 관리자 화면에서 Agent 추천 이벤트나 캠페인을 승인하도록 만듭니다.

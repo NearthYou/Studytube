@@ -602,8 +602,8 @@ function MyPage({
           <p className="eyebrow">My page</p>
           <h1>내 정보</h1>
           <p>
-            계정 이름과 비밀번호를 관리하고, 지금까지 만든 학습 데이터를 한눈에
-            확인합니다.
+            현재 비밀번호로 본인 확인을 마친 뒤 계정 정보와 학습 취향을 변경합니다.
+            이 취향은 코스 추천과 플레이리스트 탐색에 반영됩니다.
           </p>
         </div>
         <div className="profile-stats" aria-label="내 학습 데이터">
@@ -624,62 +624,82 @@ function MyPage({
             <h2>계정 설정</h2>
             <span>{status}</span>
           </div>
-          <label>
-            이름
-            <input
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              placeholder="표시할 이름"
-            />
-          </label>
-          <label>
-            이메일
-            <input value={user.email} readOnly />
-          </label>
-          <label>
-            현재 비밀번호
-            <input
-              minLength={6}
-              type="password"
-              value={currentPassword}
-              onChange={(event) => setCurrentPassword(event.target.value)}
-              placeholder="변경 저장 전 본인 확인"
-            />
-          </label>
-          <label>
-            새 비밀번호
-            <input
-              minLength={6}
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              placeholder="변경할 때만 입력"
-            />
-          </label>
-          <label>
-            관심사
-            <input
-              value={interests}
-              onChange={(event) => setInterests(event.target.value)}
-              placeholder="React, 영어 회화, 홈트"
-            />
-          </label>
-          <label>
-            학습 속도
-            <input
-              value={pace}
-              onChange={(event) => setPace(event.target.value)}
-              placeholder="하루 20분"
-            />
-          </label>
-          <label>
-            목표
-            <textarea
-              value={goal}
-              onChange={(event) => setGoal(event.target.value)}
-              placeholder="어떤 목표로 영상을 공부하고 싶은지"
-            />
-          </label>
+          <section className="profile-form-section identity-section">
+            <div>
+              <strong>본인 확인</strong>
+              <p>이름, 비밀번호, 취향 중 하나라도 바꾸려면 현재 비밀번호가 필요합니다.</p>
+            </div>
+            <label>
+              현재 비밀번호
+              <input
+                minLength={6}
+                type="password"
+                value={currentPassword}
+                onChange={(event) => setCurrentPassword(event.target.value)}
+                placeholder="변경 저장 전 본인 확인"
+              />
+            </label>
+          </section>
+
+          <section className="profile-form-section">
+            <div>
+              <strong>계정 정보</strong>
+              <p>서비스 안에서 표시될 이름과 로그인 비밀번호를 관리합니다.</p>
+            </div>
+            <label>
+              이름
+              <input
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                placeholder="표시할 이름"
+              />
+            </label>
+            <label>
+              이메일
+              <input value={user.email} readOnly />
+            </label>
+            <label>
+              새 비밀번호
+              <input
+                minLength={6}
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                placeholder="변경할 때만 입력"
+              />
+            </label>
+          </section>
+
+          <section className="profile-form-section preference-section">
+            <div>
+              <strong>학습 취향</strong>
+              <p>AI Agent가 코스를 추천할 때 사용할 관심사, 속도, 목표입니다.</p>
+            </div>
+            <label>
+              관심사
+              <input
+                value={interests}
+                onChange={(event) => setInterests(event.target.value)}
+                placeholder="React, 영어 회화, 홈트"
+              />
+            </label>
+            <label>
+              학습 속도
+              <input
+                value={pace}
+                onChange={(event) => setPace(event.target.value)}
+                placeholder="하루 20분"
+              />
+            </label>
+            <label>
+              목표
+              <textarea
+                value={goal}
+                onChange={(event) => setGoal(event.target.value)}
+                placeholder="어떤 목표로 영상을 공부하고 싶은지"
+              />
+            </label>
+          </section>
           <button type="submit" disabled={isSaving}>
             {isSaving ? '저장 중' : '변경 저장'}
           </button>
@@ -688,6 +708,7 @@ function MyPage({
         <aside className="profile-note">
           <strong>{user.name}</strong>
           <p>{user.email}</p>
+          <small>현재 학습 취향</small>
           <p>{user.preferences.interests.join(', ')}</p>
           <span>{user.preferences.pace} · {user.preferences.goal}</span>
           <span>가입일 {formatDate(user.createdAt)}</span>
@@ -1007,7 +1028,7 @@ function ExplorePage() {
                 <span>{selectedPosts.length}개 영상</span>
                 <span>후기 {selectedPlaylist.feedback.length}개</span>
               </div>
-              <div className="transcript-snippet">
+              <div className="analysis-snippet">
                 <span>AI 영상 분석 요약</span>
                 <p>{courseAnalysisFromPosts(selectedPosts)}</p>
               </div>
@@ -1102,6 +1123,8 @@ function BoardPage({ session }: { session: Session }) {
   const selectedAlreadyInPlaylist = selectedVideo
     ? isVideoInQueue(playlistQueue, selectedVideo)
     : false;
+  const playlistPostIds = extractPostIds(playlistQueue);
+  const playlistMinutes = estimateQueueMinutes(playlistQueue);
   const totalPages = Math.max(1, Math.ceil(total / 6));
   const draftVideoId = extractYouTubeId(editor.videoUrl);
   const draftThumbnailUrl =
@@ -1253,24 +1276,73 @@ function BoardPage({ session }: { session: Session }) {
         return;
       }
 
-      const summary =
+      const title = metadata.title;
+      const channelName = metadata.channel || 'YouTube';
+      const sourceUrl = metadata.sourceUrl || videoUrl;
+      const metadataVideoId =
+        'videoId' in metadata && typeof metadata.videoId === 'string'
+          ? metadata.videoId
+          : undefined;
+      const sourceVideoId =
+        metadataVideoId || extractYouTubeId(sourceUrl) || extractYouTubeId(videoUrl);
+      let summary =
         metadata.summary && metadata.summary !== 'YouTube oEmbed metadata fetched through the MCP server.'
           ? metadata.summary
-          : `${metadata.channel} 채널의 YouTube 학습 영상입니다. 제목과 채널 정보를 기준으로 게시글 요약을 자동 생성했습니다.`;
+          : `${channelName} 채널의 YouTube 학습 영상입니다. 제목과 채널 정보를 기준으로 게시글 요약을 자동 생성했습니다.`;
+      let translatedNotes = `${summary}\n\nAI 분석 요약: 핵심 개념, 구간별 학습 포인트, 복습 질문을 정리하세요.`;
+      let nextMetadataStatus = '분석 완료. 미리보기를 확인하고 바로 등록할 수 있어요.';
+
+      if (sourceVideoId) {
+        setMetadataStatus('자막을 불러와 AI가 영상 요약을 만드는 중입니다.');
+
+        try {
+          const captions = await fetchTranslatedCaptions({
+            videoId: sourceVideoId,
+            videoUrl: sourceUrl,
+            targetLanguage: 'ko',
+            fallbackText: summary,
+            translateFallback: true,
+          });
+          const detailedSummary = await fetchVideoSummary({
+            videoId: sourceVideoId,
+            title,
+            channelName,
+            language: 'ko',
+            summary,
+            translatedNotes,
+            segments: captions.segments,
+          });
+          const formattedNotes = formatVideoSummarySections(detailedSummary.sections);
+          const firstSummary = detailedSummary.sections.find((section) =>
+            section.body.trim(),
+          )?.body;
+
+          if (formattedNotes) {
+            translatedNotes = formattedNotes;
+          }
+
+          if (firstSummary) {
+            summary = clipText(firstSummary, 280);
+          }
+
+          nextMetadataStatus = `AI 영상 분석 완료. ${detailedSummary.sections.length}개 학습 포인트를 채웠어요.`;
+        } catch {
+          nextMetadataStatus =
+            '영상 기본 정보는 가져왔지만 AI 상세 요약은 만들지 못했어요. 세부 정보에서 직접 보강할 수 있습니다.';
+        }
+      }
 
       setEditor((current) => ({
         ...current,
-        title: metadata.title,
-        channelName: metadata.channel,
+        title,
+        channelName,
         thumbnailUrl: metadata.thumbnailUrl,
         summary,
-        translatedNotes:
-          current.translatedNotes ||
-          `${summary}\n\nAI 분석 요약: 핵심 개념, 구간별 학습 포인트, 복습 질문을 정리하세요.`,
-        tags: deriveTags(`${metadata.title} ${metadata.channel} ${summary}`).join(', '),
+        translatedNotes: current.translatedNotes || translatedNotes,
+        tags: deriveTags(`${title} ${channelName} ${summary}`).join(', '),
       }));
       setIsEditingDetails(false);
-      setMetadataStatus('분석 완료. 미리보기를 확인하고 바로 등록할 수 있어요.');
+      setMetadataStatus(nextMetadataStatus);
     } catch {
       setMetadataStatus('영상 정보 조회에 실패했어요.');
     } finally {
@@ -1297,7 +1369,7 @@ function BoardPage({ session }: { session: Session }) {
     const video = queueVideoFromPost(post);
 
     if (isVideoInQueue(playlistQueue, video)) {
-      setStatus(`"${post.title}" 영상은 이미 내 플레이리스트에 있어요.`);
+      setStatus(`"${post.title}" 영상은 이미 플레이리스트 초안에 있어요.`);
 
       if (watchAfterAdd) {
         navigate(`/watch?videoId=${video.videoId}`);
@@ -1308,7 +1380,7 @@ function BoardPage({ session }: { session: Session }) {
 
     const nextQueue = addVideosToQueue([video], video);
     setPlaylistQueue(nextQueue);
-    setStatus(`"${post.title}" 영상을 내 플레이리스트에 담았어요.`);
+    setStatus(`"${post.title}" 영상을 플레이리스트 초안에 담았어요.`);
 
     if (watchAfterAdd) {
       navigate(`/watch?videoId=${video.videoId}`);
@@ -1347,12 +1419,31 @@ function BoardPage({ session }: { session: Session }) {
           `${postIds.length}개 영상으로 구성한 학습 플레이리스트입니다.`,
         postIds,
       });
+      setPlaylistQueue([]);
+      saveQueue([]);
+      setCourseTitle('나만의 학습 코스');
+      setCourseDescription('');
       setStatus(`"${saved.title}" 플레이리스트를 보드에 올렸어요.`);
     } catch {
       setStatus('플레이리스트 저장에 실패했어요.');
     } finally {
       setIsPublishingCourse(false);
     }
+  }
+
+  function removeVideoFromDraft(video: QueueVideo) {
+    const nextQueue = playlistQueue.filter(
+      (item) => queueVideoKey(item) !== queueVideoKey(video),
+    );
+    setPlaylistQueue(nextQueue);
+    saveQueue(nextQueue);
+    setStatus(`"${video.title}" 영상을 플레이리스트 초안에서 뺐어요.`);
+  }
+
+  function clearDraftPlaylist() {
+    setPlaylistQueue([]);
+    saveQueue([]);
+    setStatus('플레이리스트 초안을 비웠어요.');
   }
 
   async function changeSearch(value: string) {
@@ -1389,7 +1480,7 @@ function BoardPage({ session }: { session: Session }) {
       <section className="board-grid">
         <aside className="board-panel post-browser">
           <div className="section-title">
-            <h2>내 영상 재료</h2>
+            <h2>영상 재료 보관함</h2>
             <span>{total}개</span>
           </div>
           <input
@@ -1428,7 +1519,41 @@ function BoardPage({ session }: { session: Session }) {
               다음
             </button>
           </div>
-          <PlaylistPreview videos={playlistQueue} onOpen={openPlaylist} compact />
+        </aside>
+
+        <section className="board-panel playlist-builder-panel">
+          <div className="section-title">
+            <div>
+              <small>보드에 공개될 단위</small>
+              <h2>플레이리스트 초안</h2>
+            </div>
+            <span>{playlistQueue.length}개 영상</span>
+          </div>
+          <p className="builder-copy">
+            보드는 영상 하나가 아니라 여러 영상이 순서대로 묶인 학습 코스입니다.
+            왼쪽 보관함에서 영상을 담고, 아래 코스 정보를 채운 뒤 보드에 올리세요.
+          </p>
+          <div className="playlist-builder-stats">
+            <span>
+              <b>{playlistQueue.length}</b>
+              담긴 영상
+            </span>
+            <span>
+              <b>{playlistMinutes}분</b>
+              예상 학습
+            </span>
+            <span>
+              <b>{playlistPostIds.length}</b>
+              발행 가능
+            </span>
+          </div>
+          <PlaylistPreview
+            videos={playlistQueue}
+            onOpen={openPlaylist}
+            onRemove={removeVideoFromDraft}
+            title="초안 영상 순서"
+            emptyText="아직 초안에 담긴 영상이 없어요. 오른쪽 선택 영상이나 왼쪽 보관함에서 영상을 추가하세요."
+          />
           <form className="playlist-publish-form" onSubmit={publishCurrentPlaylist}>
             <strong>플레이리스트로 보드에 올리기</strong>
             <input
@@ -1443,12 +1568,20 @@ function BoardPage({ session }: { session: Session }) {
             />
             <button
               type="submit"
-              disabled={isPublishingCourse || extractPostIds(playlistQueue).length === 0}
+              disabled={isPublishingCourse || playlistPostIds.length === 0}
             >
               {isPublishingCourse ? '올리는 중' : '플레이리스트 올리기'}
             </button>
           </form>
-        </aside>
+          <button
+            className="wide-button subtle"
+            type="button"
+            disabled={playlistQueue.length === 0}
+            onClick={clearDraftPlaylist}
+          >
+            초안 비우기
+          </button>
+        </section>
 
         <section className="board-panel post-detail">
           {selectedPost ? (
@@ -1456,7 +1589,7 @@ function BoardPage({ session }: { session: Session }) {
               <img src={selectedPost.thumbnailUrl} alt="" />
               <div className="section-title">
                 <div>
-                  <small>{selectedPost.channelName}</small>
+                  <small>선택한 영상 재료 · {selectedPost.channelName}</small>
                   <h2>{selectedPost.title}</h2>
                 </div>
                 <TagLine tags={selectedPost.tags} />
@@ -1487,7 +1620,7 @@ function BoardPage({ session }: { session: Session }) {
                   disabled={selectedAlreadyInPlaylist}
                   onClick={() => addSelectedPostToQueue(selectedPost)}
                 >
-                  {selectedAlreadyInPlaylist ? '이미 담김' : '내 플레이리스트에 담기'}
+                  {selectedAlreadyInPlaylist ? '이미 담김' : '초안에 담기'}
                 </button>
                 <button
                   type="button"
@@ -1512,7 +1645,7 @@ function BoardPage({ session }: { session: Session }) {
                 }
               >
                 {selectedAlreadyInPlaylist
-                  ? '이미 내 플레이리스트에 담긴 영상입니다.'
+                  ? '이미 플레이리스트 초안에 담긴 영상입니다.'
                   : '이 영상 재료를 초안에 담고, 여러 영상을 묶어 플레이리스트로 보드에 올릴 수 있습니다.'}
               </p>
             </>
@@ -1983,7 +2116,7 @@ function CoursePage({ session }: { session: Session }) {
                 <strong>{video.title}</strong>
                 <small>{video.channelName}</small>
                 {video.evidenceSnippet && (
-                  <p className="evidence-copy">{video.evidenceSnippet}</p>
+                  <p className="analysis-copy">{video.evidenceSnippet}</p>
                 )}
                 <em>AI 분석 기반 영상 보기</em>
               </span>
@@ -2882,10 +3015,16 @@ function TagLine({ tags }: { tags: string[] }) {
 function PlaylistPreview({
   videos,
   onOpen,
+  onRemove,
+  title = '내 플레이리스트',
+  emptyText = '아직 담긴 영상이 없어요.',
   compact = false,
 }: {
   videos: QueueVideo[];
   onOpen: () => void;
+  onRemove?: (video: QueueVideo) => void;
+  title?: string;
+  emptyText?: string;
   compact?: boolean;
 }) {
   return (
@@ -2893,7 +3032,7 @@ function PlaylistPreview({
       className={compact ? 'playlist-preview-panel compact' : 'playlist-preview-panel'}
     >
       <div className="section-title">
-        <h2>내 플레이리스트</h2>
+        <h2>{title}</h2>
         <span>{videos.length}개</span>
       </div>
       {videos.length > 0 ? (
@@ -2905,11 +3044,20 @@ function PlaylistPreview({
                 <strong>{video.title}</strong>
                 <small>{video.channelName}</small>
               </span>
+              {onRemove && (
+                <button
+                  className="playlist-item-remove"
+                  type="button"
+                  onClick={() => onRemove(video)}
+                >
+                  삭제
+                </button>
+              )}
             </li>
           ))}
         </ol>
       ) : (
-        <p className="empty-copy">아직 담긴 영상이 없어요.</p>
+        <p className="empty-copy">{emptyText}</p>
       )}
       {videos.length > 0 && videos.length > (compact ? 3 : 5) && (
         <small className="playlist-overflow">외 {videos.length - (compact ? 3 : 5)}개</small>
@@ -3048,6 +3196,18 @@ function estimateRouteMinutes(posts: StudyPost[], fallbackCount: number) {
   }
 
   return Math.max(1, fallbackCount) * 14;
+}
+
+function estimateQueueMinutes(videos: QueueVideo[]) {
+  const total = videos.reduce((sum, video) => {
+    const textWeight = Math.ceil(
+      `${video.summary} ${video.translatedNotes}`.length / 180,
+    );
+
+    return sum + Math.min(28, Math.max(8, 8 + textWeight * 3));
+  }, 0);
+
+  return total > 0 ? total : Math.max(1, videos.length) * 14;
 }
 
 function estimateVideoMinutes(post: StudyPost) {
@@ -3432,6 +3592,22 @@ function extractYouTubeId(url: string): string | null {
 
 function youtubeThumbnailUrl(videoId: string) {
   return `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+}
+
+function formatVideoSummarySections(sections: VideoSummaryResponse['sections']) {
+  return sections
+    .map((section) => {
+      const label = section.label.trim();
+      const body = section.body.trim();
+
+      if (!label || !body) {
+        return '';
+      }
+
+      return `${label}\n${body}`;
+    })
+    .filter(Boolean)
+    .join('\n\n');
 }
 
 function buildVideoSummaryDetails(video: QueueVideo) {

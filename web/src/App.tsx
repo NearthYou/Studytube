@@ -12,7 +12,6 @@ import {
 } from 'react-router';
 import './App.css';
 import {
-  addComment,
   addPlaylistFeedback,
   askAgent,
   askMcp,
@@ -1085,7 +1084,6 @@ function BoardPage({ session }: { session: Session }) {
   const [total, setTotal] = useState(0);
   const [editor, setEditor] = useState<PostEditor>(emptyEditor);
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [comment, setComment] = useState('');
   const [status, setStatus] = useState(`${session.user.email} 계정으로 작업 중`);
   const [playlistQueue, setPlaylistQueue] = useState<QueueVideo[]>(() => readQueue());
   const [metadataStatus, setMetadataStatus] = useState('');
@@ -1357,23 +1355,6 @@ function BoardPage({ session }: { session: Session }) {
     }
   }
 
-  async function submitComment(event: FormEvent) {
-    event.preventDefault();
-
-    if (!session || !selectedPost || !comment.trim()) {
-      return;
-    }
-
-    try {
-      await addComment(session.token, selectedPost.id, comment);
-      await loadPosts(search, page);
-      setComment('');
-      setStatus('댓글을 등록했어요');
-    } catch {
-      setStatus('댓글 등록에 실패했어요');
-    }
-  }
-
   async function changeSearch(value: string) {
     setSearch(value);
     setPage(1);
@@ -1534,23 +1515,6 @@ function BoardPage({ session }: { session: Session }) {
                   ? '이미 내 플레이리스트에 담긴 영상입니다.'
                   : '이 영상 재료를 초안에 담고, 여러 영상을 묶어 플레이리스트로 보드에 올릴 수 있습니다.'}
               </p>
-              <div className="comments-box">
-                <h3>댓글 {selectedPost.comments.length}개</h3>
-                {selectedPost.comments.map((item) => (
-                  <p key={item.id}>
-                    <strong>{item.authorName}</strong>
-                    {item.body}
-                  </p>
-                ))}
-                <form className="inline-form" onSubmit={submitComment}>
-                  <input
-                    value={comment}
-                    onChange={(event) => setComment(event.target.value)}
-                    placeholder="댓글 작성"
-                  />
-                  <button type="submit">등록</button>
-                </form>
-              </div>
             </>
           ) : (
             <div className="empty-product">

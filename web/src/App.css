@@ -1440,8 +1440,7 @@ footer {
 }
 
 .pagination,
-.row-actions,
-.inline-form {
+.row-actions {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1453,8 +1452,7 @@ footer {
 }
 
 .pagination button,
-.row-actions button,
-.inline-form button {
+.row-actions button {
   min-height: 42px;
   padding: 0 16px;
   font-size: 15px;
@@ -1484,11 +1482,6 @@ footer {
 .playlist-state.active {
   background: rgba(49, 130, 246, 0.1);
   color: var(--blue);
-}
-
-.inline-form button {
-  min-width: 64px;
-  white-space: nowrap;
 }
 
 .post-detail > img {
@@ -1554,37 +1547,6 @@ footer {
 
 .danger:hover {
   background: #d83b3b;
-}
-
-.comments-box {
-  margin-top: 24px;
-  padding-top: 20px;
-  border-top: 1px solid var(--line);
-}
-
-.comments-box h3 {
-  font-size: 20px;
-}
-
-.comments-box p {
-  margin-bottom: 10px;
-  padding: 14px;
-  border-radius: 8px;
-  background: #f8fafc;
-}
-
-.comments-box strong {
-  display: block;
-  margin-bottom: 4px;
-  color: var(--text);
-}
-
-.inline-form {
-  margin-top: 14px;
-}
-
-.inline-form input {
-  min-width: 0;
 }
 
 .editor-panel .stack-form {
@@ -2221,7 +2183,6 @@ footer {
 
   .search-hero,
   .course-page .search-hero,
-  .inline-form,
   .explore-search {
     grid-template-columns: 1fr;
     display: grid;

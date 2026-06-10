@@ -1,6 +1,10 @@
 import { StudyBoardService } from './study-board.service';
 import { MemoryBoardRepository } from './memory-board.repository';
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 
 describe('StudyBoardService', () => {
   let service: StudyBoardService;
@@ -47,26 +51,61 @@ describe('StudyBoardService', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it('updates the signed-in user profile and password', async () => {
+  it('requires the current password before changing private profile data', async () => {
     const session = await service.signUp({
       name: 'Grace',
       email: 'grace@example.com',
       password: 'learn-fast',
     });
 
+    await expect(
+      service.updateMe(session.token, {
+        name: 'Grace Hopper',
+      } as any),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+
+    await expect(
+      service.updateMe(session.token, {
+        currentPassword: 'wrong-pass',
+        name: 'Grace Hopper',
+      } as any),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('updates profile, password, and learning preferences after identity verification', async () => {
+    const session = await service.signUp({
+      name: 'Grace',
+      email: 'grace-preferences@example.com',
+      password: 'learn-fast',
+    });
+
     const updated = await service.updateMe(session.token, {
+      currentPassword: 'learn-fast',
       name: 'Grace Hopper',
       password: 'new-pass',
+      preferences: {
+        interests: ['React', '영어 회화'],
+        pace: '하루 20분',
+        goal: '출퇴근 시간에 짧게 복습하기',
+      },
+    } as any);
+
+    const me = await service.getMe(session.token);
+
+    expect(me.preferences).toEqual({
+      interests: ['React', '영어 회화'],
+      pace: '하루 20분',
+      goal: '출퇴근 시간에 짧게 복습하기',
     });
 
     expect(updated).toMatchObject({
       id: session.user.id,
       name: 'Grace Hopper',
-      email: 'grace@example.com',
+      email: 'grace-preferences@example.com',
     });
 
     const login = await service.login({
-      email: 'grace@example.com',
+      email: 'grace-preferences@example.com',
       password: 'new-pass',
     });
 

@@ -8,6 +8,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import type {
   BoardRepository,
   CreatePostInput,
+  LearningPreferences,
   PaginatedPosts,
   Playlist,
   PlaylistFeedback,
@@ -93,16 +94,37 @@ export class StudyBoardService {
   async updateMe(
     token: string | undefined,
     input: {
+      currentPassword?: string;
       name?: string;
       password?: string;
+      preferences?: LearningPreferences;
     },
   ): Promise<User> {
     const session = await this.requireSession(token);
     const nextName = input.name?.trim();
     const nextPassword = input.password?.trim();
+    const currentPassword = input.currentPassword?.trim();
+    const preferences = input.preferences
+      ? this.normalizePreferences(input.preferences)
+      : undefined;
 
-    if (!nextName && !nextPassword) {
-      throw new BadRequestException('name or password is required');
+    if (!nextName && !nextPassword && !preferences) {
+      throw new BadRequestException('name, password, or preferences is required');
+    }
+
+    if (!currentPassword) {
+      throw new UnauthorizedException('Current password is required');
+    }
+
+    const userWithPassword = await this.repository.findUserByEmail(
+      session.user.email,
+    );
+
+    if (
+      !userWithPassword ||
+      userWithPassword.passwordHash !== this.hashPassword(currentPassword)
+    ) {
+      throw new UnauthorizedException('Current password is invalid');
     }
 
     if (nextName !== undefined) {
@@ -118,6 +140,7 @@ export class StudyBoardService {
       passwordHash: nextPassword
         ? this.hashPassword(nextPassword)
         : undefined,
+      preferences,
     });
 
     if (!user) {
@@ -344,6 +367,32 @@ export class StudyBoardService {
     this.assertText(input.videoUrl, 'videoUrl');
     this.assertText(input.summary, 'summary');
     this.assertText(input.translatedNotes, 'translatedNotes');
+  }
+
+  private normalizePreferences(input: LearningPreferences): LearningPreferences {
+    const interests = [
+      ...new Set(
+        (input.interests ?? [])
+          .map((item) => item.trim())
+          .filter((item) => item.length > 0)
+          .slice(0, 8),
+      ),
+    ];
+    const pace = input.pace?.trim();
+    const goal = input.goal?.trim();
+
+    if (interests.length === 0) {
+      throw new BadRequestException('preferences.interests is required');
+    }
+
+    this.assertText(pace, 'preferences.pace');
+    this.assertText(goal, 'preferences.goal');
+
+    return {
+      interests,
+      pace,
+      goal,
+    };
   }
 
   private assertEmail(email: string) {

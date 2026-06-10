@@ -920,7 +920,7 @@ def fallback_video_summary_sections(
                 "label": "핵심 요약",
                 "body": (
                     f"{context} 이 영상은 위 주제를 학습하기 위한 자료입니다. "
-                    "자동 상세 요약을 만들 수 없는 경우라 저장된 설명과 전사문 일부를 기준으로 정리했습니다."
+                    "자동 상세 요약을 만들 수 없는 경우라 저장된 설명과 영상 분석 요약 일부를 기준으로 정리했습니다."
                 ),
             }
         )
@@ -963,7 +963,7 @@ def fallback_video_summary_sections(
     return sections[:6] or [
         {
             "label": "요약 준비 중",
-            "body": "자막이나 전사문을 불러오면 이 영역에 자세한 학습 정리가 표시됩니다.",
+            "body": "자막이나 영상 분석 데이터를 불러오면 이 영역에 자세한 학습 정리가 표시됩니다.",
         }
     ]
 
@@ -2127,7 +2127,7 @@ def fallback_caption_segments(
     chunks = chunk_text_for_captions(
         text
         or "YouTube caption data is unavailable, so saved study notes are shown instead."
-        or "이 영상에서 사용할 수 있는 YouTube 자막 트랙을 찾지 못했습니다. 저장된 전사문 지식을 표시합니다."
+        or "이 영상에서 사용할 수 있는 YouTube 자막 트랙을 찾지 못했습니다."
     )
 
     caption_duration = duration_seconds or DEFAULT_FALLBACK_CAPTION_DURATION_SECONDS
@@ -2159,7 +2159,7 @@ def align_caption_text_to_timing(
 
     chunks = chunk_text_for_captions(
         text
-        or "원문 자막 타이밍은 확인했지만 전사문 지식이 비어 있습니다. 영상 등록에서 전사문을 저장해 주세요."
+        or "원문 자막 타이밍은 확인했지만 표시할 분석 요약이 비어 있습니다."
     )
     count = min(len(chunks), len(timing_segments), 80)
 
@@ -2601,8 +2601,8 @@ def create_playlist_recommendations(state: dict[str, Any]) -> list[dict[str, Any
                 "title": item["title"],
                 "url": item["videoUrl"],
                 "thumbnailUrl": item["thumbnailUrl"],
-                "source": "board-rag",
-                "why": f"전사문 RAG 점수 {item['score']}점으로 목표와 연결됩니다. 근거: {item.get('evidenceSnippet', item['summary'])}",
+                    "source": "board-analysis",
+                    "why": f"AI 영상 분석 매칭 점수 {item['score']}점으로 목표와 연결됩니다. 요약: {item.get('evidenceSnippet', item['summary'])}",
             }
         )
 
@@ -2633,7 +2633,7 @@ def post_to_response(post: BoardPost, score: float) -> dict[str, Any]:
         "channelName": post.channel_name,
         "summary": post.summary,
         "translatedNotes": post.translated_notes,
-        "evidenceSource": "video_transcript",
+        "evidenceSource": "video_analysis",
         "evidenceSnippet": evidence,
         "tags": post.tags,
         "score": score,
@@ -2642,12 +2642,12 @@ def post_to_response(post: BoardPost, score: float) -> dict[str, Any]:
 
 def summarize_related_posts(query: str, related: list[dict[str, Any]]) -> str:
     if not related:
-        return "관련 영상 전사문을 찾지 못했습니다. 다른 키워드로 검색해 보세요."
+        return "관련 영상 분석 요약을 찾지 못했습니다. 다른 키워드로 검색해 보세요."
 
     top = related[0]
     return (
-        f"'{query or top['title']}' 질문에는 {top['title']}의 전사문 근거가 가장 가깝습니다. "
-        f"근거: {top.get('evidenceSnippet') or top['summary']} "
+        f"'{query or top['title']}' 질문에는 {top['title']}의 AI 영상 분석 요약이 가장 가깝습니다. "
+        f"요약: {top.get('evidenceSnippet') or top['summary']} "
         f"관련 태그는 {', '.join(top['tags'][:3])}입니다."
     )
 
@@ -2675,12 +2675,12 @@ def create_agent_rationale(
 
     if language.lower().startswith("ko"):
         return (
-            f"목표 '{goal}'에 대해 영상 전사문 RAG 근거와 MCP 영상 메타데이터를 함께 사용해 "
+            f"목표 '{goal}'에 대해 기존 영상 분석 요약과 MCP 영상 메타데이터를 함께 사용해 "
             f"{count}개의 학습 코스 단계를 만들었습니다."
         )
 
     return (
-        f"The agent combined video transcript RAG context and MCP video metadata to create "
+        f"The agent combined existing video analysis summaries and MCP video metadata to create "
         f"{count} learning steps for '{goal}'."
     )
 
@@ -2750,7 +2750,7 @@ def embedding_provider() -> str:
 
 def tool_reason(tool_name: str) -> str:
     return {
-        "retrieve_posts": "영상별 요약과 전사문 지식을 먼저 검색합니다.",
+        "retrieve_posts": "영상별 AI 분석 요약을 먼저 검색합니다.",
         "search_video": "외부 YouTube 메타데이터로 추천 후보를 보강합니다.",
         "create_playlist_draft": "수집한 근거를 학습 코스 초안으로 정리합니다.",
     }[tool_name]

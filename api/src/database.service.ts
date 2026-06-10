@@ -11,6 +11,7 @@ import { MemoryBoardRepository } from './memory-board.repository';
 import {
   Comment,
   CreatePostInput,
+  LearningPreferences,
   PaginatedPosts,
   Playlist,
   PlaylistFeedback,
@@ -25,6 +26,7 @@ type UserRow = {
   name: string;
   email: string;
   passwordHash: string;
+  preferences: unknown;
   createdAt: Date | string;
 };
 
@@ -125,7 +127,7 @@ export class DatabaseService
         `
           INSERT INTO users (name, email, password_hash)
           VALUES ($1, $2, $3)
-          RETURNING id, name, email, password_hash AS "passwordHash", created_at AS "createdAt"
+          RETURNING id, name, email, password_hash AS "passwordHash", preferences, created_at AS "createdAt"
         `,
         [input.name, input.email, input.passwordHash],
       );
@@ -147,7 +149,8 @@ export class DatabaseService
     try {
       const result = await this.pool.query<UserRow>(
         `
-          SELECT id, name, email, password_hash AS "passwordHash", created_at AS "createdAt"
+          SELECT id, name, email, password_hash AS "passwordHash",
+                 preferences, created_at AS "createdAt"
           FROM users
           WHERE lower(email) = lower($1)
         `,
@@ -171,6 +174,7 @@ export class DatabaseService
     input: {
       name?: string;
       passwordHash?: string;
+      preferences?: LearningPreferences;
     },
   ): Promise<User | null> {
     if (!this.databaseAvailable) {
@@ -182,11 +186,17 @@ export class DatabaseService
         `
           UPDATE users
           SET name = COALESCE($2, name),
-              password_hash = COALESCE($3, password_hash)
+              password_hash = COALESCE($3, password_hash),
+              preferences = COALESCE($4::jsonb, preferences)
           WHERE id = $1
-          RETURNING id, name, email, password_hash AS "passwordHash", created_at AS "createdAt"
+          RETURNING id, name, email, password_hash AS "passwordHash", preferences, created_at AS "createdAt"
         `,
-        [id, input.name ?? null, input.passwordHash ?? null],
+        [
+          id,
+          input.name ?? null,
+          input.passwordHash ?? null,
+          input.preferences ? JSON.stringify(input.preferences) : null,
+        ],
       );
 
       return result.rows[0] ? this.publicUser(result.rows[0]) : null;
@@ -234,7 +244,8 @@ export class DatabaseService
     try {
       const result = await this.pool.query<UserRow & { token: string }>(
         `
-          SELECT s.token, u.id, u.name, u.email, u.password_hash AS "passwordHash", u.created_at AS "createdAt"
+          SELECT s.token, u.id, u.name, u.email, u.password_hash AS "passwordHash",
+                 u.preferences, u.created_at AS "createdAt"
           FROM sessions s
           JOIN users u ON u.id = s.user_id
           WHERE s.token = $1
@@ -666,6 +677,7 @@ export class DatabaseService
         name TEXT NOT NULL,
         email TEXT NOT NULL UNIQUE,
         password_hash TEXT NOT NULL,
+        preferences JSONB NOT NULL DEFAULT '{"interests":["YouTube 학습","프론트엔드"],"pace":"하루 20분","goal":"짧은 영상으로 꾸준히 복습하기"}'::jsonb,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now()
       );
 
@@ -737,6 +749,11 @@ export class DatabaseService
         embedding vector(64) NOT NULL,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
       );
+    `);
+    await this.pool.query(`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS preferences JSONB NOT NULL
+      DEFAULT '{"interests":["YouTube 학습","프론트엔드"],"pace":"하루 20분","goal":"짧은 영상으로 꾸준히 복습하기"}'::jsonb
     `);
   }
 
@@ -815,7 +832,7 @@ export class DatabaseService
   private async findUserById(id: number): Promise<User | null> {
     const result = await this.pool.query<UserRow>(
       `
-        SELECT id, name, email, password_hash AS "passwordHash", created_at AS "createdAt"
+        SELECT id, name, email, password_hash AS "passwordHash", preferences, created_at AS "createdAt"
         FROM users
         WHERE id = $1
       `,
@@ -971,7 +988,32 @@ export class DatabaseService
       id: row.id,
       name: row.name,
       email: row.email,
+      preferences: this.normalizePreferences(row.preferences),
       createdAt: this.iso(row.createdAt),
+    };
+  }
+
+  private normalizePreferences(value: unknown): LearningPreferences {
+    const fallback: LearningPreferences = {
+      interests: ['YouTube 학습', '프론트엔드'],
+      pace: '하루 20분',
+      goal: '짧은 영상으로 꾸준히 복습하기',
+    };
+
+    if (!value || typeof value !== 'object') {
+      return fallback;
+    }
+
+    const candidate = value as Partial<LearningPreferences>;
+
+    return {
+      interests: Array.isArray(candidate.interests)
+        ? candidate.interests
+            .filter((item): item is string => typeof item === 'string')
+            .slice(0, 8)
+        : fallback.interests,
+      pace: typeof candidate.pace === 'string' ? candidate.pace : fallback.pace,
+      goal: typeof candidate.goal === 'string' ? candidate.goal : fallback.goal,
     };
   }
 

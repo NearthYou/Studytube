@@ -88,8 +88,14 @@ export function fetchMe(token: string): Promise<User> {
 export function updateMe(
   token: string,
   input: {
+    currentPassword: string;
     name?: string;
     password?: string;
+    preferences?: {
+      interests: string[];
+      pace: string;
+      goal: string;
+    };
   },
 ): Promise<User> {
   return requestJson<User>(
@@ -183,6 +189,10 @@ export function addComment(token: string, postId: number, body: string) {
 
 export function fetchPlaylists(token: string): Promise<Playlist[]> {
   return requestJson<Playlist[]>('/playlists', {}, token);
+}
+
+export function fetchPublicPlaylists(): Promise<Playlist[]> {
+  return requestJson<Playlist[]>('/playlists');
 }
 
 export function createPlaylist(

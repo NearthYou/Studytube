@@ -3,6 +3,7 @@ import {
   BoardRepository,
   Comment,
   CreatePostInput,
+  LearningPreferences,
   PaginatedPosts,
   Playlist,
   PlaylistFeedback,
@@ -17,6 +18,11 @@ type StoredUser = User & { passwordHash: string };
 const nowIso = () => new Date().toISOString();
 
 const demoPasswordHash = createHash('sha256').update('demo1234').digest('hex');
+const defaultPreferences = (): LearningPreferences => ({
+  interests: ['YouTube 학습', '프론트엔드'],
+  pace: '하루 20분',
+  goal: '짧은 영상으로 꾸준히 복습하기',
+});
 
 export class MemoryBoardRepository implements BoardRepository {
   protected users: StoredUser[] = [
@@ -25,6 +31,7 @@ export class MemoryBoardRepository implements BoardRepository {
       name: 'Demo Learner',
       email: 'demo@studytube.local',
       passwordHash: demoPasswordHash,
+      preferences: defaultPreferences(),
       createdAt: nowIso(),
     },
   ];
@@ -147,6 +154,7 @@ export class MemoryBoardRepository implements BoardRepository {
       name: input.name,
       email: input.email,
       passwordHash: input.passwordHash,
+      preferences: defaultPreferences(),
       createdAt: nowIso(),
     };
     this.users.push(user);
@@ -171,6 +179,7 @@ export class MemoryBoardRepository implements BoardRepository {
     input: {
       name?: string;
       passwordHash?: string;
+      preferences?: LearningPreferences;
     },
   ): Promise<User | null> {
     await this.idle();
@@ -186,6 +195,7 @@ export class MemoryBoardRepository implements BoardRepository {
       ...current,
       name: input.name ?? current.name,
       passwordHash: input.passwordHash ?? current.passwordHash,
+      preferences: input.preferences ?? current.preferences,
     };
     this.users[index] = next;
 
@@ -477,6 +487,11 @@ export class MemoryBoardRepository implements BoardRepository {
       id: user.id,
       name: user.name,
       email: user.email,
+      preferences: {
+        interests: [...user.preferences.interests],
+        pace: user.preferences.pace,
+        goal: user.preferences.goal,
+      },
       createdAt: user.createdAt,
     };
   }

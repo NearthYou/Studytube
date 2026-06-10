@@ -53,8 +53,14 @@ export class StudyBoardController {
     @Headers('authorization') authorization: string | undefined,
     @Body()
     body: {
+      currentPassword?: string;
       name?: string;
       password?: string;
+      preferences?: {
+        interests: string[];
+        pace: string;
+        goal: string;
+      };
     },
   ) {
     return this.studyBoardService.updateMe(authorization, body);

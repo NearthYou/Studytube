@@ -23,6 +23,7 @@ import {
   demoSession,
   fetchPlaylists,
   fetchPosts,
+  fetchPublicPlaylists,
   fetchPublicPosts,
   fetchTranslatedCaptions,
   fetchVideoSummary,
@@ -35,6 +36,7 @@ import {
 import type {
   AgentResponse,
   CaptionResponse,
+  LearningPreferences,
   McpResponse,
   Playlist,
   RagResponse,
@@ -94,12 +96,7 @@ type VideoLearningState = {
   marks: LearningMark[];
 };
 
-type PreferenceProfile = {
-  interests: string[];
-  pace: string;
-  goal: string;
-  createdAt: string;
-};
+type PreferenceProfile = LearningPreferences;
 
 type YouTubePlayer = {
   loadVideoById: (videoId: string) => void;
@@ -152,7 +149,6 @@ const emptyEditor: PostEditor = {
 
 const QUEUE_STORAGE_KEY = 'studytube.watchQueue';
 const SESSION_STORAGE_KEY = 'studytube.session';
-const PREFERENCE_STORAGE_PREFIX = 'studytube.preferences.';
 const PLAYBACK_RATES = [0.75, 1, 1.25, 1.5, 2];
 const DEFAULT_CAPTION_DURATION_SECONDS = 600;
 const LIVE_CAPTION_PROVIDERS = new Set([
@@ -178,8 +174,9 @@ function App() {
   const [session, setSession] = useState<Session | null>(() => readSession());
 
   function handleAuthComplete(nextSession: Session) {
-    saveSession(nextSession);
-    setSession(nextSession);
+    const normalizedSession = normalizeSession(nextSession);
+    saveSession(normalizedSession);
+    setSession(normalizedSession);
   }
 
   function handleLogout() {
@@ -193,7 +190,7 @@ function App() {
         return current;
       }
 
-      const nextSession = { ...current, user };
+      const nextSession = normalizeSession({ ...current, user });
       saveSession(nextSession);
 
       return nextSession;
@@ -483,7 +480,13 @@ function MyPage({
 }) {
   const [user, setUser] = useState(session.user);
   const [name, setName] = useState(session.user.name);
+  const [currentPassword, setCurrentPassword] = useState('');
   const [password, setPassword] = useState('');
+  const [interests, setInterests] = useState(
+    session.user.preferences.interests.join(', '),
+  );
+  const [pace, setPace] = useState(session.user.preferences.pace);
+  const [goal, setGoal] = useState(session.user.preferences.goal);
   const [postCount, setPostCount] = useState(0);
   const [playlistCount, setPlaylistCount] = useState(0);
   const [status, setStatus] = useState('계정 정보를 불러오는 중입니다.');
@@ -506,6 +509,9 @@ function MyPage({
 
         setUser(nextUser);
         setName(nextUser.name);
+        setInterests(nextUser.preferences.interests.join(', '));
+        setPace(nextUser.preferences.pace);
+        setGoal(nextUser.preferences.goal);
         setPostCount(postResult.total);
         setPlaylistCount(nextPlaylists.length);
         onSessionUpdate(nextUser);
@@ -533,10 +539,33 @@ function MyPage({
     }
 
     const trimmedName = name.trim();
+    const trimmedCurrentPassword = currentPassword.trim();
     const trimmedPassword = password.trim();
+    const nextPreferences = {
+      interests: interests
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean),
+      pace: pace.trim(),
+      goal: goal.trim(),
+    };
 
     if (!trimmedName) {
       setStatus('이름을 입력하세요.');
+      return;
+    }
+
+    if (!trimmedCurrentPassword) {
+      setStatus('내 정보를 바꾸려면 현재 비밀번호로 본인 확인이 필요합니다.');
+      return;
+    }
+
+    if (
+      nextPreferences.interests.length === 0 ||
+      !nextPreferences.pace ||
+      !nextPreferences.goal
+    ) {
+      setStatus('관심사, 학습 속도, 목표를 모두 입력하세요.');
       return;
     }
 
@@ -545,12 +574,18 @@ function MyPage({
 
     try {
       const nextUser = await updateMe(session.token, {
+        currentPassword: trimmedCurrentPassword,
         name: trimmedName,
         password: trimmedPassword || undefined,
+        preferences: nextPreferences,
       });
 
       setUser(nextUser);
       setName(nextUser.name);
+      setInterests(nextUser.preferences.interests.join(', '));
+      setPace(nextUser.preferences.pace);
+      setGoal(nextUser.preferences.goal);
+      setCurrentPassword('');
       setPassword('');
       onSessionUpdate(nextUser);
       setStatus('내 정보가 저장되었습니다.');
@@ -603,6 +638,16 @@ function MyPage({
             <input value={user.email} readOnly />
           </label>
           <label>
+            현재 비밀번호
+            <input
+              minLength={6}
+              type="password"
+              value={currentPassword}
+              onChange={(event) => setCurrentPassword(event.target.value)}
+              placeholder="변경 저장 전 본인 확인"
+            />
+          </label>
+          <label>
             새 비밀번호
             <input
               minLength={6}
@@ -610,6 +655,30 @@ function MyPage({
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               placeholder="변경할 때만 입력"
+            />
+          </label>
+          <label>
+            관심사
+            <input
+              value={interests}
+              onChange={(event) => setInterests(event.target.value)}
+              placeholder="React, 영어 회화, 홈트"
+            />
+          </label>
+          <label>
+            학습 속도
+            <input
+              value={pace}
+              onChange={(event) => setPace(event.target.value)}
+              placeholder="하루 20분"
+            />
+          </label>
+          <label>
+            목표
+            <textarea
+              value={goal}
+              onChange={(event) => setGoal(event.target.value)}
+              placeholder="어떤 목표로 영상을 공부하고 싶은지"
             />
           </label>
           <button type="submit" disabled={isSaving}>
@@ -620,6 +689,8 @@ function MyPage({
         <aside className="profile-note">
           <strong>{user.name}</strong>
           <p>{user.email}</p>
+          <p>{user.preferences.interests.join(', ')}</p>
+          <span>{user.preferences.pace} · {user.preferences.goal}</span>
           <span>가입일 {formatDate(user.createdAt)}</span>
         </aside>
       </section>
@@ -685,7 +756,7 @@ function HomePage({ session }: { session: Session }) {
         <aside className="home-stats" aria-label="내 학습 현황">
           <span>
             <strong>{posts.length}</strong>
-            내 영상 카드
+            내 영상 재료
           </span>
           <span>
             <strong>{playlists.length}</strong>
@@ -757,76 +828,102 @@ function HomePage({ session }: { session: Session }) {
 function ExplorePage() {
   const navigate = useNavigate();
   const [posts, setPosts] = useState<StudyPost[]>([]);
-  const [selectedPostId, setSelectedPostId] = useState<number | null>(null);
+  const [playlists, setPlaylists] = useState<Playlist[]>([]);
+  const [selectedPlaylistId, setSelectedPlaylistId] = useState<number | null>(
+    null,
+  );
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
-  const [status, setStatus] = useState('다른 사람들이 등록한 영상 지식 카드를 불러오는 중입니다.');
+  const [status, setStatus] = useState('공개 학습 플레이리스트를 불러오는 중입니다.');
   const [playlistQueue, setPlaylistQueue] = useState<QueueVideo[]>(() => readQueue());
-  const totalPages = Math.max(1, Math.ceil(total / 12));
-  const selectedPost =
-    posts.find((post) => post.id === selectedPostId) ?? posts[0] ?? null;
-  const selectedVideo = selectedPost ? queueVideoFromPost(selectedPost) : null;
-  const selectedAlreadyInPlaylist = selectedVideo
-    ? isVideoInQueue(playlistQueue, selectedVideo)
-    : false;
+  const filteredPlaylists = useMemo(
+    () => filterPlaylists(playlists, posts, search),
+    [playlists, posts, search],
+  );
+  const totalPages = Math.max(1, Math.ceil(filteredPlaylists.length / 6));
+  const visiblePlaylists = filteredPlaylists.slice((page - 1) * 6, page * 6);
+  const selectedPlaylist =
+    filteredPlaylists.find((playlist) => playlist.id === selectedPlaylistId) ??
+    visiblePlaylists[0] ??
+    filteredPlaylists[0] ??
+    null;
+  const selectedPosts = selectedPlaylist
+    ? postsForPlaylistIds(selectedPlaylist.postIds, posts)
+    : [];
+  const selectedVideos = selectedPosts.map(queueVideoFromPost);
+  const selectedAlreadyInPlaylist =
+    selectedVideos.length > 0 &&
+    selectedVideos.every((video) => isVideoInQueue(playlistQueue, video));
 
-  useEffect(() => {
-    void loadPublicPosts('', 1);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  async function loadPublicPosts(nextSearch = search, nextPage = page) {
+  async function loadPublicBoard() {
     try {
-      const result = await fetchPublicPosts(nextSearch, nextPage, 12);
-      setPosts(result.items);
-      setTotal(result.total);
-      setSelectedPostId((current) =>
-        result.items.some((post) => post.id === current)
+      const [postResult, nextPlaylists] = await Promise.all([
+        fetchPublicPosts('', 1, 80),
+        fetchPublicPlaylists(),
+      ]);
+      setPosts(postResult.items);
+      setPlaylists(nextPlaylists);
+      setSelectedPlaylistId((current) =>
+        nextPlaylists.some((playlist) => playlist.id === current)
           ? current
-          : result.items[0]?.id ?? null,
+          : nextPlaylists[0]?.id ?? null,
       );
       setStatus(
-        result.total > 0
-          ? `${result.total}개의 공개 영상 지식 카드를 찾았어요.`
-          : '아직 공개 영상 카드가 없어요. 영상 등록에서 첫 카드를 만들어보세요.',
+        nextPlaylists.length > 0
+          ? `${nextPlaylists.length}개의 공개 학습 플레이리스트를 찾았어요.`
+          : '아직 공개 플레이리스트가 없어요. 영상 등록에서 여러 영상을 묶어 첫 코스를 만들어보세요.',
       );
     } catch {
-      setStatus('공개 영상 보드를 불러오지 못했어요. 서버를 확인하세요.');
+      setStatus('공개 플레이리스트 보드를 불러오지 못했어요. 서버를 확인하세요.');
     }
   }
 
-  async function changeSearch(nextSearch: string) {
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void loadPublicBoard();
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  function changeSearch(nextSearch: string) {
     setSearch(nextSearch);
     setPage(1);
-    await loadPublicPosts(nextSearch, 1);
+    const count = filterPlaylists(playlists, posts, nextSearch).length;
+    setStatus(
+      count > 0
+        ? `${count}개의 플레이리스트가 검색어와 맞아요.`
+        : '맞는 플레이리스트가 없어요. 코스 찾기에서 새 코스를 만들어보세요.',
+    );
   }
 
-  async function changePage(nextPage: number) {
+  function changePage(nextPage: number) {
     const boundedPage = Math.min(Math.max(nextPage, 1), totalPages);
     setPage(boundedPage);
-    await loadPublicPosts(search, boundedPage);
   }
 
-  function addPostToPlaylist(post: StudyPost, watchAfterAdd = false) {
-    const video = queueVideoFromPost(post);
+  function addSelectedPlaylistToQueue(watchAfterAdd = false) {
+    if (!selectedPlaylist || selectedVideos.length === 0) {
+      setStatus('이 플레이리스트에는 아직 담을 수 있는 영상 정보가 없어요.');
+      return;
+    }
 
-    if (isVideoInQueue(playlistQueue, video)) {
-      setStatus(`"${post.title}" 영상은 이미 내 플레이리스트에 있어요.`);
+    if (selectedAlreadyInPlaylist) {
+      setStatus(`"${selectedPlaylist.title}" 코스는 이미 내 플레이리스트에 있어요.`);
 
       if (watchAfterAdd) {
-        navigate(`/watch?videoId=${video.videoId}`);
+        navigate(`/watch?videoId=${selectedVideos[0].videoId}`);
       }
 
       return;
     }
 
-    const nextQueue = addVideosToQueue([video], video);
+    const nextQueue = addVideosToQueue(selectedVideos, selectedVideos[0]);
     setPlaylistQueue(nextQueue);
-    setStatus(`"${post.title}" 영상을 내 플레이리스트에 담았어요.`);
+    setStatus(`"${selectedPlaylist.title}" 코스의 ${selectedVideos.length}개 영상을 담았어요.`);
 
     if (watchAfterAdd) {
-      navigate(`/watch?videoId=${video.videoId}`);
+      navigate(`/watch?videoId=${selectedVideos[0].videoId}`);
     }
   }
 
@@ -842,15 +939,15 @@ function ExplorePage() {
     <main className="page-shell explore-page">
       <section className="page-heading">
         <p className="eyebrow">Public video board</p>
-        <h1>다른 사람이 올린 영상 지식 보드</h1>
+        <h1>다른 사람이 올린 학습 플레이리스트</h1>
         <p>
-          영상마다 요약과 전사문 지식을 함께 들고 있습니다. 마음에 드는 카드는
-          상세를 확인한 뒤 내 플레이리스트에 담거나, 코스 찾기 화면에서 맞춤 추천의 재료가 됩니다.
+          보드는 영상 하나가 아니라 여러 영상을 묶은 학습 코스입니다. 코스를
+          누르면 포함된 영상, 순서, AI 요약 포인트를 확인하고 통째로 담을 수 있습니다.
         </p>
         <div className="explore-search">
           <input
             value={search}
-            onChange={(event) => void changeSearch(event.target.value)}
+            onChange={(event) => changeSearch(event.target.value)}
             placeholder="영어 회화, 홈트, 요리, 재테크 같은 주제로 검색"
           />
           <Link className="primary-link" to="/board">
@@ -862,63 +959,86 @@ function ExplorePage() {
 
       <section className="explore-board">
         <div className="explore-grid">
-          {posts.map((post) => (
+          {visiblePlaylists.map((playlist) => {
+            const playlistPosts = postsForPlaylistIds(playlist.postIds, posts);
+            const cover = playlistPosts[0];
+
+            return (
             <button
-              className={post.id === selectedPost?.id ? 'explore-card active' : 'explore-card'}
-              key={post.id}
+              className={
+                playlist.id === selectedPlaylist?.id
+                  ? 'explore-card active'
+                  : 'explore-card'
+              }
+              key={playlist.id}
               type="button"
-              onClick={() => setSelectedPostId(post.id)}
+              onClick={() => setSelectedPlaylistId(playlist.id)}
             >
-              <img src={post.thumbnailUrl} alt="" />
+              {cover ? <img src={cover.thumbnailUrl} alt="" /> : <div className="draft-thumbnail-placeholder">Course</div>}
               <span className="explore-card-body">
                 <small>
-                  {post.channelName} · by {post.authorName}
+                  {playlistPosts.length}개 영상 · 후기 {playlist.feedback.length}개
                 </small>
-                <strong>{post.title}</strong>
-                <span className="card-summary">{clipText(post.summary, 120)}</span>
-                <TagLine tags={post.tags.slice(0, 4)} />
+                <strong>{playlist.title}</strong>
+                <span className="card-summary">
+                  {clipText(playlist.description || courseSummaryFromPosts(playlistPosts), 120)}
+                </span>
+                <TagLine tags={tagsFromPosts(playlistPosts).slice(0, 4)} />
               </span>
             </button>
-          ))}
-          {posts.length === 0 && (
+            );
+          })}
+          {visiblePlaylists.length === 0 && (
             <div className="empty-product">
-              <strong>공개 영상 카드가 아직 없어요</strong>
-              <p>영상 등록에서 YouTube URL과 전사문 지식을 저장하면 이 보드에 표시됩니다.</p>
+              <strong>공개 플레이리스트가 아직 없어요</strong>
+              <p>영상 등록에서 여러 영상을 담아 코스로 올리면 이 보드에 표시됩니다.</p>
             </div>
           )}
         </div>
 
         <aside className="explore-detail">
-          {selectedPost ? (
+          {selectedPlaylist ? (
             <>
-              <img src={selectedPost.thumbnailUrl} alt="" />
-              <small>{selectedPost.channelName} · by {selectedPost.authorName}</small>
-              <h2>{selectedPost.title}</h2>
-              <p>{selectedPost.summary}</p>
+              {selectedPosts[0] && <img src={selectedPosts[0].thumbnailUrl} alt="" />}
+              <small>학습 코스 · {selectedPosts.length}개 영상</small>
+              <h2>{selectedPlaylist.title}</h2>
+              <p>{selectedPlaylist.description || courseSummaryFromPosts(selectedPosts)}</p>
               <div className="route-card-meta">
-                <span>{estimateVideoMinutes(selectedPost)}분</span>
-                <span>{difficultyLabel(selectedPost.tags)}</span>
-                <span>{audienceLabel(selectedPost.tags)}</span>
+                <span>약 {estimateRouteMinutes(selectedPosts, selectedPlaylist.postIds.length)}분</span>
+                <span>{selectedPosts.length}개 영상</span>
+                <span>후기 {selectedPlaylist.feedback.length}개</span>
               </div>
               <div className="transcript-snippet">
-                <span>전사문/RAG 근거</span>
-                <p>{selectedPost.translatedNotes}</p>
+                <span>AI 영상 분석 요약</span>
+                <p>{courseAnalysisFromPosts(selectedPosts)}</p>
               </div>
-              <TagLine tags={selectedPost.tags} />
+              <ol className="playlist-step-list">
+                {selectedPosts.map((post, index) => (
+                  <li key={post.id}>
+                    <b>{index + 1}</b>
+                    <span>
+                      <strong>{post.title}</strong>
+                      <small>{post.channelName} · {estimateVideoMinutes(post)}분</small>
+                    </span>
+                  </li>
+                ))}
+              </ol>
+              <TagLine tags={tagsFromPosts(selectedPosts)} />
               <div className="row-actions">
                 <button
                   className={selectedAlreadyInPlaylist ? 'added-action' : undefined}
                   type="button"
-                  disabled={selectedAlreadyInPlaylist}
-                  onClick={() => addPostToPlaylist(selectedPost)}
+                  disabled={selectedAlreadyInPlaylist || selectedVideos.length === 0}
+                  onClick={() => addSelectedPlaylistToQueue()}
                 >
-                  {selectedAlreadyInPlaylist ? '이미 담김' : '내 플레이리스트에 담기'}
+                  {selectedAlreadyInPlaylist ? '이미 담긴 코스' : '코스 통째로 담기'}
                 </button>
                 <button
                   type="button"
-                  onClick={() => addPostToPlaylist(selectedPost, true)}
+                  disabled={selectedVideos.length === 0}
+                  onClick={() => addSelectedPlaylistToQueue(true)}
                 >
-                  {selectedAlreadyInPlaylist ? '영상 보기' : '담고 영상 보기'}
+                  {selectedAlreadyInPlaylist ? '코스 보기' : '담고 코스 보기'}
                 </button>
               </div>
               <p
@@ -927,14 +1047,14 @@ function ExplorePage() {
                 }
               >
                 {selectedAlreadyInPlaylist
-                  ? '이미 내 플레이리스트에 담긴 영상입니다.'
-                  : '담으면 아래 플레이리스트에 쌓이고 영상 보기에서 이어서 재생됩니다.'}
+                  ? '이 코스의 영상이 이미 내 플레이리스트에 담겨 있습니다.'
+                  : '담으면 코스 전체가 영상 보기 화면의 재생목록에 순서대로 들어갑니다.'}
               </p>
             </>
           ) : (
             <div className="empty-product">
-              <strong>영상을 선택해 주세요</strong>
-              <p>보드에서 카드를 누르면 요약, 태그, 전사문 지식을 확인할 수 있어요.</p>
+              <strong>플레이리스트를 선택해 주세요</strong>
+              <p>보드에서 코스를 누르면 포함된 영상과 분석 요약을 확인할 수 있어요.</p>
             </div>
           )}
           <PlaylistPreview videos={playlistQueue} onOpen={openPlaylist} />
@@ -942,13 +1062,13 @@ function ExplorePage() {
       </section>
 
       <div className="pagination wide-pagination">
-        <button type="button" onClick={() => void changePage(page - 1)}>
+        <button type="button" onClick={() => changePage(page - 1)}>
           이전
         </button>
         <span>
           {page} / {totalPages}
         </span>
-        <button type="button" onClick={() => void changePage(page + 1)}>
+        <button type="button" onClick={() => changePage(page + 1)}>
           다음
         </button>
       </div>
@@ -972,6 +1092,9 @@ function BoardPage({ session }: { session: Session }) {
   const [isEditingDetails, setIsEditingDetails] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isFetchingMetadata, setIsFetchingMetadata] = useState(false);
+  const [courseTitle, setCourseTitle] = useState('나만의 학습 코스');
+  const [courseDescription, setCourseDescription] = useState('');
+  const [isPublishingCourse, setIsPublishingCourse] = useState(false);
 
   const selectedPost = useMemo(
     () => posts.find((post) => post.id === selectedPostId) ?? posts[0],
@@ -1041,7 +1164,7 @@ function BoardPage({ session }: { session: Session }) {
     };
 
     if (!payload.title || !payload.videoUrl || !payload.summary) {
-      setStatus('제목, 영상 URL, 요약은 필수예요. 전사문 지식도 함께 저장하면 RAG 정확도가 좋아집니다.');
+      setStatus('제목, 영상 URL, AI 분석 요약은 필수예요.');
       return;
     }
 
@@ -1055,11 +1178,18 @@ function BoardPage({ session }: { session: Session }) {
       const saved = editingId
         ? await updatePost(session.token, editingId, payload)
         : await createPost(session.token, payload);
+      const savedVideo = queueVideoFromPost(saved);
+      const nextQueue = addVideosToQueue([savedVideo], savedVideo);
+      setPlaylistQueue(nextQueue);
 
       await loadPosts(search, 1);
       setPage(1);
       setSelectedPostId(saved.id);
-      setStatus(editingId ? '게시글을 수정했어요' : '게시글을 작성했어요');
+      setStatus(
+        editingId
+          ? '영상 재료를 수정하고 플레이리스트 초안에도 반영했어요'
+          : '영상 재료를 저장하고 플레이리스트 초안에 담았어요',
+      );
       setEditor(emptyEditor);
       setEditingId(null);
       setIsEditingDetails(false);
@@ -1102,7 +1232,7 @@ function BoardPage({ session }: { session: Session }) {
       tags: post.tags.join(', '),
     });
     setIsEditingDetails(true);
-    setMetadataStatus('저장된 영상 카드 정보를 수정 중입니다.');
+    setMetadataStatus('저장된 영상 재료 정보를 수정 중입니다.');
   }
 
   async function autofillVideoMetadata(inputUrl = editor.videoUrl) {
@@ -1138,7 +1268,7 @@ function BoardPage({ session }: { session: Session }) {
         summary,
         translatedNotes:
           current.translatedNotes ||
-          `${summary}\n\n전사문 지식: 핵심 개념, 타임스탬프, 이해한 내용을 여기에 정리하세요.`,
+          `${summary}\n\nAI 분석 요약: 핵심 개념, 구간별 학습 포인트, 복습 질문을 정리하세요.`,
         tags: deriveTags(`${metadata.title} ${metadata.channel} ${summary}`).join(', '),
       }));
       setIsEditingDetails(false);
@@ -1195,6 +1325,38 @@ function BoardPage({ session }: { session: Session }) {
     }
   }
 
+  async function publishCurrentPlaylist(event: FormEvent) {
+    event.preventDefault();
+    const postIds = extractPostIds(playlistQueue);
+
+    if (postIds.length === 0) {
+      setStatus('플레이리스트로 올릴 영상 재료를 먼저 담아주세요.');
+      return;
+    }
+
+    if (!courseTitle.trim()) {
+      setStatus('플레이리스트 제목을 입력하세요.');
+      return;
+    }
+
+    setIsPublishingCourse(true);
+
+    try {
+      const saved = await createPlaylist(session.token, {
+        title: courseTitle.trim(),
+        description:
+          courseDescription.trim() ||
+          `${postIds.length}개 영상으로 구성한 학습 플레이리스트입니다.`,
+        postIds,
+      });
+      setStatus(`"${saved.title}" 플레이리스트를 보드에 올렸어요.`);
+    } catch {
+      setStatus('플레이리스트 저장에 실패했어요.');
+    } finally {
+      setIsPublishingCourse(false);
+    }
+  }
+
   async function submitComment(event: FormEvent) {
     event.preventDefault();
 
@@ -1235,18 +1397,18 @@ function BoardPage({ session }: { session: Session }) {
   return (
     <main className="page-shell board-page">
       <section className="page-heading">
-        <p className="eyebrow">Playlist source board</p>
-        <h1>유튜브 링크로 학습 카드를 만드세요</h1>
+        <p className="eyebrow">Playlist board studio</p>
+        <h1>유튜브 영상을 묶어 학습 플레이리스트를 올리세요</h1>
         <p>
-          {status} · 링크를 분석해 영상 정보를 먼저 만들고, 등록된 카드는
-          보드에서 확인한 뒤 내 플레이리스트에 담습니다.
+          {status} · 링크를 분석해 영상 재료를 만들고, 여러 영상을 초안에 담은 뒤
+          플레이리스트 자체를 보드에 공개합니다.
         </p>
       </section>
 
       <section className="board-grid">
         <aside className="board-panel post-browser">
           <div className="section-title">
-            <h2>영상 재료</h2>
+            <h2>내 영상 재료</h2>
             <span>{total}개</span>
           </div>
           <input
@@ -1286,6 +1448,25 @@ function BoardPage({ session }: { session: Session }) {
             </button>
           </div>
           <PlaylistPreview videos={playlistQueue} onOpen={openPlaylist} compact />
+          <form className="playlist-publish-form" onSubmit={publishCurrentPlaylist}>
+            <strong>플레이리스트로 보드에 올리기</strong>
+            <input
+              value={courseTitle}
+              onChange={(event) => setCourseTitle(event.target.value)}
+              placeholder="플레이리스트 제목"
+            />
+            <textarea
+              value={courseDescription}
+              onChange={(event) => setCourseDescription(event.target.value)}
+              placeholder="이 코스가 어떤 순서로 무엇을 학습하는지"
+            />
+            <button
+              type="submit"
+              disabled={isPublishingCourse || extractPostIds(playlistQueue).length === 0}
+            >
+              {isPublishingCourse ? '올리는 중' : '플레이리스트 올리기'}
+            </button>
+          </form>
         </aside>
 
         <section className="board-panel post-detail">
@@ -1315,7 +1496,7 @@ function BoardPage({ session }: { session: Session }) {
                 </span>
               </div>
               <div className="note-panel">
-                <span>RAG 전사문 지식</span>
+                <span>AI 영상 분석 요약</span>
                 <p>{selectedPost.translatedNotes}</p>
               </div>
               <div className="row-actions">
@@ -1351,7 +1532,7 @@ function BoardPage({ session }: { session: Session }) {
               >
                 {selectedAlreadyInPlaylist
                   ? '이미 내 플레이리스트에 담긴 영상입니다.'
-                  : '이 영상 카드를 플레이리스트에 담으면 영상 보기 화면에서 이어서 재생됩니다.'}
+                  : '이 영상 재료를 초안에 담고, 여러 영상을 묶어 플레이리스트로 보드에 올릴 수 있습니다.'}
               </p>
               <div className="comments-box">
                 <h3>댓글 {selectedPost.comments.length}개</h3>
@@ -1383,10 +1564,10 @@ function BoardPage({ session }: { session: Session }) {
           <div className="register-heading">
             <div>
               <p className="eyebrow">Add video</p>
-              <h2>{editingId ? '영상 카드 수정' : 'YouTube 링크 붙여넣기'}</h2>
+              <h2>{editingId ? '영상 재료 수정' : 'YouTube 영상 재료 추가'}</h2>
               <p>
-                링크를 분석하면 제목, 채널, 썸네일, 요약이 먼저 채워집니다.
-                필요할 때만 세부 정보를 고쳐 등록하세요.
+                링크를 분석하면 제목, 채널, 썸네일, AI 분석 요약이 먼저 채워집니다.
+                저장하면 플레이리스트 초안에 들어가고, 초안을 코스로 발행합니다.
               </p>
             </div>
             {editingId && <span>수정 중 #{editingId}</span>}
@@ -1443,7 +1624,7 @@ function BoardPage({ session }: { session: Session }) {
                 <div className="draft-side">
                   <span>
                     <b>{editor.translatedNotes.trim() ? '준비됨' : '자동 초안'}</b>
-                    RAG 지식
+                    AI 분석
                   </span>
                   <span>
                     <b>{draftVideoId ? 'YouTube' : '링크 확인'}</b>
@@ -1517,7 +1698,7 @@ function BoardPage({ session }: { session: Session }) {
                       />
                     </label>
                     <label className="wide-field">
-                      전사문/RAG 지식
+                      AI 분석 요약
                       <textarea
                         value={editor.translatedNotes}
                         onChange={(event) =>
@@ -1526,7 +1707,7 @@ function BoardPage({ session }: { session: Session }) {
                             translatedNotes: event.target.value,
                           })
                         }
-                        placeholder="예: 00:30 핵심 표현 설명, 02:10 따라 말하기 구간, 05:20 실습 포인트"
+                        placeholder="예: 핵심 개념, 구간별 학습 포인트, 복습 질문"
                         disabled={isSaving}
                       />
                     </label>
@@ -1541,7 +1722,7 @@ function BoardPage({ session }: { session: Session }) {
                   ? '저장 중'
                   : editingId
                     ? '수정 저장'
-                    : '이 영상으로 등록하기'}
+                    : '영상 재료 추가하기'}
               </button>
               {(editingId || hasDraftPreview) && (
                 <button
@@ -1568,7 +1749,7 @@ function BoardPage({ session }: { session: Session }) {
 
 function CoursePage({ session }: { session: Session }) {
   const navigate = useNavigate();
-  const profile = readPreferenceProfile(session.user.id);
+  const profile = session.user.preferences;
   const initialQuery = createPersonalizedCoursePrompt(profile);
   const [query, setQuery] = useState(initialQuery);
   const [ragResult, setRagResult] = useState<RagResponse | null>(null);
@@ -1581,7 +1762,7 @@ function CoursePage({ session }: { session: Session }) {
   const [status, setStatus] = useState(
     profile
       ? `${profile.interests[0]} 취향을 반영해 먼저 기존 보드에서 찾아볼게요.`
-      : '원하는 코스를 입력하면 먼저 기존 영상 보드에서 찾고, 없으면 새로 만들어드립니다.',
+      : '원하는 코스를 입력하면 먼저 기존 플레이리스트 보드에서 찾고, 없으면 새로 만들어드립니다.',
   );
   const [isSearching, setIsSearching] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -1616,7 +1797,7 @@ function CoursePage({ session }: { session: Session }) {
     setIsSearching(true);
     setAgentResult(null);
     setMcpResult(null);
-    setStatus('먼저 기존 영상 보드와 저장된 학습 코스에서 찾는 중입니다.');
+    setStatus('먼저 기존 플레이리스트 보드와 저장된 학습 코스에서 찾는 중입니다.');
 
     try {
       const result = await askRag(trimmed);
@@ -1625,7 +1806,7 @@ function CoursePage({ session }: { session: Session }) {
       setCourseMatches(matches);
       setStatus(
         result.relatedPosts.length > 0 || matches.length > 0
-          ? '이미 올라온 코스나 영상 지식 카드를 찾았어요. 먼저 이것부터 확인해보세요.'
+          ? '이미 올라온 코스나 영상 분석 요약을 찾았어요. 먼저 이것부터 확인해보세요.'
           : '기존 보드에는 딱 맞는 코스가 없어요. 새 YouTube 코스를 만들어볼 수 있습니다.',
       );
     } catch {
@@ -1643,7 +1824,7 @@ function CoursePage({ session }: { session: Session }) {
     }
 
     setIsGenerating(true);
-    setStatus('새 코스를 만들기 위해 AI가 YouTube 후보와 기존 전사문 근거를 함께 살피는 중입니다.');
+    setStatus('새 코스를 만들기 위해 AI가 YouTube 후보와 기존 영상 분석 요약을 함께 살피는 중입니다.');
 
     const [agentResponse, mcpResponse] = await Promise.allSettled([
       askAgent(goal),
@@ -1682,7 +1863,7 @@ function CoursePage({ session }: { session: Session }) {
     );
 
     if (courseVideos.length === 0) {
-      setStatus('이 코스의 영상을 불러오지 못했어요. 영상 보드를 확인하세요.');
+      setStatus('이 코스의 영상을 불러오지 못했어요. 플레이리스트 보드를 확인하세요.');
       return;
     }
 
@@ -1700,7 +1881,7 @@ function CoursePage({ session }: { session: Session }) {
     const postIds = extractPostIds(generatedVideos);
 
     if (postIds.length === 0) {
-      setStatus('저장 가능한 기존 영상 카드가 없어요. 새 YouTube 후보는 먼저 영상 등록에 저장해야 코스로 묶을 수 있습니다.');
+      setStatus('저장 가능한 기존 영상 재료가 없어요. 새 YouTube 후보는 먼저 영상 등록에 저장해야 코스로 묶을 수 있습니다.');
       return;
     }
 
@@ -1763,8 +1944,8 @@ function CoursePage({ session }: { session: Session }) {
         <p className="eyebrow">Personal course finder</p>
         <h1>내 취향에 맞는 학습 코스 찾기</h1>
         <p>
-          먼저 이미 올라온 영상 보드와 학습 코스를 RAG로 확인합니다. 없으면
-          AI가 YouTube까지 탐색해서 새 코스 초안을 만듭니다.
+          먼저 이미 올라온 학습 플레이리스트와 AI 영상 분석 요약을 확인합니다.
+          없으면 AI가 YouTube까지 탐색해서 새 코스 초안을 만듭니다.
         </p>
         {profile && (
           <div className="preference-summary">
@@ -1840,7 +2021,7 @@ function CoursePage({ session }: { session: Session }) {
                 {video.evidenceSnippet && (
                   <p className="evidence-copy">{video.evidenceSnippet}</p>
                 )}
-                <em>전사문 근거 영상 보기</em>
+                <em>AI 분석 기반 영상 보기</em>
               </span>
             </button>
           ))}
@@ -1922,7 +2103,7 @@ function CoursePage({ session }: { session: Session }) {
                     <li key={`${playlist.id}-${postId}`}>
                       <b>{index + 1}</b>
                       <span>
-                        <strong>{post?.title ?? `영상 카드 #${postId}`}</strong>
+                        <strong>{post?.title ?? `영상 재료 #${postId}`}</strong>
                         <small>
                           {post
                             ? `${post.channelName} · ${estimateVideoMinutes(post)}분`
@@ -2482,7 +2663,7 @@ function WatchPage() {
       <main className="page-shell simple-page">
         <p className="eyebrow">Watch</p>
         <h1>재생목록이 비어 있어요</h1>
-        <p>코스 찾기나 영상 보드에서 보고 싶은 영상을 담으면 이곳에서 바로 볼 수 있어요.</p>
+        <p>코스 찾기나 플레이리스트 보드에서 보고 싶은 영상을 담으면 이곳에서 바로 볼 수 있어요.</p>
         <Link className="primary-link" to="/playlists">
           볼 코스 찾으러 가기
         </Link>
@@ -2526,7 +2707,7 @@ function WatchPage() {
                 {isSummaryBusy && (
                   <article>
                     <b>AI 상세 요약 생성 중</b>
-                    <p>자막 전사문을 읽고 핵심 흐름, 표현, 복습 질문을 정리하고 있습니다.</p>
+                    <p>영상 자막과 학습 맥락을 분석해 핵심 흐름, 표현, 복습 질문을 정리하고 있습니다.</p>
                   </article>
                 )}
                 {!isSummaryBusy && summaryDetails.map((detail) => (
@@ -2805,7 +2986,7 @@ function queueVideoFromRagPost(post: RagResponse['relatedPosts'][number]) {
     channelName: post.channelName,
     summary: post.summary,
     translatedNotes: post.translatedNotes,
-    source: `전사문 RAG ${post.score}`,
+    source: `AI 분석 매칭 ${post.score}`,
     evidenceSnippet: post.evidenceSnippet,
   };
 }
@@ -2881,7 +3062,7 @@ function captionUnavailableStatus(provider: string) {
   }
 
   if (provider === 'caption-source-unavailable') {
-    return '실제 자막/전사문을 찾지 못했습니다.';
+    return '실제 자막 데이터를 찾지 못했습니다.';
   }
 
   if (provider === 'caption-translation-unavailable') {
@@ -2985,27 +3166,45 @@ function saveQueue(queue: QueueVideo[]) {
 function readSession(): Session | null {
   try {
     const raw = window.localStorage.getItem(SESSION_STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as Session) : null;
+    return raw ? normalizeSession(JSON.parse(raw) as Session) : null;
   } catch {
     return null;
   }
 }
 
 function saveSession(session: Session) {
-  window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+  window.localStorage.setItem(
+    SESSION_STORAGE_KEY,
+    JSON.stringify(normalizeSession(session)),
+  );
 }
 
-function preferenceStorageKey(userId: number) {
-  return `${PREFERENCE_STORAGE_PREFIX}${userId}`;
+function normalizeSession(session: Session): Session {
+  return {
+    ...session,
+    user: normalizeUser(session.user),
+  };
 }
 
-function readPreferenceProfile(userId: number): PreferenceProfile | null {
-  try {
-    const raw = window.localStorage.getItem(preferenceStorageKey(userId));
-    return raw ? (JSON.parse(raw) as PreferenceProfile) : null;
-  } catch {
-    return null;
-  }
+function normalizeUser(user: User): User {
+  return {
+    ...user,
+    preferences: normalizePreferences(user.preferences),
+  };
+}
+
+function normalizePreferences(
+  preferences: Partial<LearningPreferences> | undefined,
+): LearningPreferences {
+  const interests = Array.isArray(preferences?.interests)
+    ? preferences.interests.filter((item): item is string => Boolean(item?.trim()))
+    : [];
+
+  return {
+    interests: interests.length > 0 ? interests : ['YouTube 학습', '프론트엔드'],
+    pace: preferences?.pace?.trim() || '하루 20분',
+    goal: preferences?.goal?.trim() || '짧은 영상으로 꾸준히 복습하기',
+  };
 }
 
 function createPersonalizedCoursePrompt(profile: PreferenceProfile | null) {
@@ -3071,6 +3270,73 @@ function findMatchingCourses(
     .sort((left, right) => right.score - left.score)
     .map((item) => item.playlist)
     .slice(0, 3);
+}
+
+function filterPlaylists(
+  playlists: Playlist[],
+  posts: StudyPost[],
+  query: string,
+) {
+  const normalized = query.trim().toLowerCase();
+
+  if (!normalized) {
+    return playlists;
+  }
+
+  return playlists.filter((playlist) => {
+    const playlistPosts = postsForPlaylistIds(playlist.postIds, posts);
+    const haystack = [
+      playlist.title,
+      playlist.description,
+      ...playlistPosts.flatMap((post) => [
+        post.title,
+        post.channelName,
+        post.summary,
+        post.translatedNotes,
+        ...post.tags,
+      ]),
+    ]
+      .join(' ')
+      .toLowerCase();
+
+    return haystack.includes(normalized);
+  });
+}
+
+function postsForPlaylistIds(postIds: number[], posts: StudyPost[]) {
+  return postIds
+    .map((postId) => posts.find((post) => post.id === postId))
+    .filter((post): post is StudyPost => Boolean(post));
+}
+
+function tagsFromPosts(posts: StudyPost[]) {
+  return [...new Set(posts.flatMap((post) => post.tags))];
+}
+
+function courseSummaryFromPosts(posts: StudyPost[]) {
+  if (posts.length === 0) {
+    return '아직 영상 정보가 연결되지 않은 학습 코스입니다.';
+  }
+
+  return posts
+    .slice(0, 3)
+    .map((post, index) => `${index + 1}. ${post.title}`)
+    .join(' · ');
+}
+
+function courseAnalysisFromPosts(posts: StudyPost[]) {
+  if (posts.length === 0) {
+    return 'AI 분석을 만들 영상이 아직 없습니다.';
+  }
+
+  return posts
+    .slice(0, 4)
+    .map((post, index) => {
+      const summary = normalizeCaptionSource(post.summary || post.translatedNotes);
+
+      return `${index + 1}. ${post.title}: ${clipText(summary, 120)}`;
+    })
+    .join('\n');
 }
 
 function tokenizeForMatch(value: string) {
@@ -3235,7 +3501,7 @@ function buildVideoSummaryDetails(video: QueueVideo) {
     return [
       {
         label: '요약 준비 중',
-        body: '이 영상에는 아직 자세한 요약이 저장되지 않았습니다. 영상 보드에서 요약을 보강하면 이 영역에 학습 정리가 표시됩니다.',
+        body: '이 영상에는 아직 자세한 요약이 저장되지 않았습니다. 영상 재료의 AI 분석 요약을 보강하면 이 영역에 학습 정리가 표시됩니다.',
       },
     ];
   }
@@ -3284,7 +3550,7 @@ function normalizeCaptionSource(value: string) {
   return value
     .split(/\n+/)
     .map((line) => line.trim())
-    .filter((line) => line && !line.startsWith('전사문 지식: 핵심 개념'))
+    .filter((line) => line && !line.startsWith('AI 분석 요약:'))
     .join(' ')
     .replace(/\s+/g, ' ')
     .trim();

@@ -1262,7 +1262,7 @@ Second subtitle line
         self.assertIn("react", response["answer"].lower())
         self.assertEqual(
             response["relatedPosts"][0]["evidenceSource"],
-            "video_transcript",
+            "video_analysis",
         )
         self.assertTrue(response["relatedPosts"][0]["evidenceSnippet"])
 

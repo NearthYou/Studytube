@@ -2,7 +2,14 @@ export type User = {
   id: number;
   name: string;
   email: string;
+  preferences: LearningPreferences;
   createdAt: string;
+};
+
+export type LearningPreferences = {
+  interests: string[];
+  pace: string;
+  goal: string;
 };
 
 export type Session = {

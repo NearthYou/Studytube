@@ -1,5 +1,6 @@
 import type {
   AgentResponse,
+  CaptionResponse,
   McpResponse,
   PaginatedPosts,
   Playlist,
@@ -7,6 +8,8 @@ import type {
   RagResponse,
   Session,
   StudyPost,
+  User,
+  VideoSummaryResponse,
 } from './types';
 
 const API_BASE_URL =
@@ -28,7 +31,22 @@ export async function requestJson<T>(
   });
 
   if (!response.ok) {
-    throw new Error(`API ${response.status}: ${response.statusText}`);
+    let message = `API ${response.status}: ${response.statusText}`;
+
+    try {
+      const errorBody = (await response.json()) as {
+        error?: string;
+        message?: string | string[];
+      };
+      const bodyMessage = Array.isArray(errorBody.message)
+        ? errorBody.message.join(' ')
+        : errorBody.message;
+      message = bodyMessage || errorBody.error || message;
+    } catch {
+      // Keep the HTTP fallback message when the response body is not JSON.
+    }
+
+    throw new Error(message);
   }
 
   return response.json() as Promise<T>;
@@ -63,7 +81,26 @@ export function login(input: {
   });
 }
 
+export function fetchMe(token: string): Promise<User> {
+  return requestJson<User>('/me', {}, token);
+}
+
+export function updateMe(
+  token: string,
+  input: {
+    name?: string;
+    password?: string;
+  },
+): Promise<User> {
+  return requestJson<User>(
+    '/me',
+    { method: 'PUT', body: JSON.stringify(input) },
+    token,
+  );
+}
+
 export function fetchPosts(
+  token: string,
   search: string,
   page: number,
   pageSize = 6,
@@ -77,7 +114,24 @@ export function fetchPosts(
     params.set('search', search.trim());
   }
 
-  return requestJson<PaginatedPosts>(`/posts?${params.toString()}`);
+  return requestJson<PaginatedPosts>(`/posts?${params.toString()}`, {}, token);
+}
+
+export function fetchPublicPosts(
+  search: string,
+  page: number,
+  pageSize = 12,
+): Promise<PaginatedPosts> {
+  const params = new URLSearchParams({
+    page: String(page),
+    pageSize: String(pageSize),
+  });
+
+  if (search.trim()) {
+    params.set('search', search.trim());
+  }
+
+  return requestJson<PaginatedPosts>(`/explore/posts?${params.toString()}`);
 }
 
 export function createPost(
@@ -184,6 +238,42 @@ export function askAgent(goal: string): Promise<AgentResponse> {
       goal,
       language: 'ko',
       interests: ['youtube', 'study'],
+    }),
+  });
+}
+
+export function fetchTranslatedCaptions(input: {
+  videoId: string;
+  videoUrl: string;
+  targetLanguage?: string;
+  fallbackText?: string;
+  allowFallback?: boolean;
+  translateFallback?: boolean;
+  durationSeconds?: number;
+}): Promise<CaptionResponse> {
+  return requestJson<CaptionResponse>('/ai/youtube/captions', {
+    method: 'POST',
+    body: JSON.stringify({
+      ...input,
+      targetLanguage: input.targetLanguage ?? 'ko',
+    }),
+  });
+}
+
+export function fetchVideoSummary(input: {
+  videoId: string;
+  title: string;
+  channelName: string;
+  language?: string;
+  summary?: string;
+  translatedNotes?: string;
+  segments: Array<{ start: number; end: number; text: string }>;
+}): Promise<VideoSummaryResponse> {
+  return requestJson<VideoSummaryResponse>('/ai/youtube/summary', {
+    method: 'POST',
+    body: JSON.stringify({
+      ...input,
+      language: input.language ?? 'ko',
     }),
   });
 }

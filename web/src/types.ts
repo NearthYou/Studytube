@@ -76,7 +76,11 @@ export type RagResponse = {
       | 'summary'
       | 'translatedNotes'
       | 'tags'
-    > & { score: number }
+    > & {
+      score: number;
+      evidenceSource?: string;
+      evidenceSnippet?: string;
+    }
   >;
   embedding?: {
     provider: string;
@@ -137,4 +141,35 @@ export type AgentResponse = {
     loopStopped: boolean;
     toolCalling: string;
   };
+};
+
+export type CaptionSegment = {
+  start: number;
+  end: number;
+  text: string;
+};
+
+export type CaptionResponse = {
+  mode: string;
+  provider: string;
+  videoId: string;
+  language: string;
+  sourceLanguage: string;
+  translated: boolean;
+  segments: CaptionSegment[];
+  message: string;
+};
+
+export type VideoSummarySection = {
+  label: string;
+  body: string;
+};
+
+export type VideoSummaryResponse = {
+  mode: string;
+  provider: string;
+  videoId: string;
+  language: string;
+  sections: VideoSummarySection[];
+  message: string;
 };

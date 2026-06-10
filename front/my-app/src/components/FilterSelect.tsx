@@ -1,11 +1,11 @@
+import '../styles/components/FilterSelect.css'
+
 type FilterSelectProps = {
   label: string
   options: string[]
   value: string
   onChange: (value: string) => void
 }
-
-import '../styles/components/FilterSelect.css'
 
 export function FilterSelect({
   label,

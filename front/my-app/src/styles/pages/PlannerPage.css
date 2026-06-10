@@ -1,0 +1,151 @@
+.planner-page {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.planner-hero,
+.planner-card {
+  border: 1px solid #cfc8bc;
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.planner-hero {
+  display: grid;
+  gap: 0.9rem;
+  padding: 2rem;
+  text-align: center;
+}
+
+.planner-hero span,
+.planner-card h2 {
+  color: #7a6d59;
+}
+
+.planner-hero span {
+  font-size: 0.74rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+
+.planner-hero h1 {
+  margin: 0;
+  color: #121212;
+  font-family: "Bodoni MT", "Didot", "Times New Roman", serif;
+  font-size: clamp(2.1rem, 5vw, 4.1rem);
+  font-weight: 400;
+}
+
+.planner-hero p {
+  color: #5f5a53;
+  line-height: 1.75;
+}
+
+.planner-grid {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1.3fr) 320px;
+  gap: 1.5rem;
+}
+
+.planner-card {
+  display: grid;
+  align-content: start;
+  gap: 1rem;
+  padding: 1.5rem;
+}
+
+.planner-card h2 {
+  margin: 0;
+  font-family: "Bodoni MT", "Didot", "Times New Roman", serif;
+  font-size: 1.5rem;
+  font-weight: 400;
+}
+
+.planner-form,
+.planner-days,
+.planner-sources {
+  display: grid;
+  gap: 1rem;
+}
+
+.planner-form label {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.planner-form input,
+.planner-form textarea {
+  width: 100%;
+  border: 1px solid #cfc8bc;
+  background: #fffdfa;
+  color: #1a1a1a;
+  font: inherit;
+  padding: 0.95rem 1rem;
+}
+
+.planner-form textarea {
+  min-height: 110px;
+  resize: vertical;
+}
+
+.planner-style {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.planner-style button {
+  border: 1px solid #1b1b1b;
+  background: transparent;
+  color: #1b1b1b;
+  cursor: pointer;
+  font: inherit;
+  padding: 0.7rem 0.95rem;
+}
+
+.planner-style button.active {
+  background: #1b1b1b;
+  color: #fff;
+}
+
+.planner-day,
+.planner-weather,
+.planner-source,
+.mini-plan-card {
+  display: grid;
+  gap: 0.65rem;
+  padding: 1rem;
+  border: 1px solid #d9d1c4;
+  background: #fffdfa;
+}
+
+.planner-day header {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.planner-stop {
+  display: grid;
+  grid-template-columns: 70px minmax(0, 1fr);
+  gap: 0.8rem;
+}
+
+.planner-stop span,
+.planner-source span,
+.planner-weather span,
+.mini-plan-card span,
+.planner-stop small,
+.planner-weather small {
+  color: #7a6d59;
+  font-size: 0.88rem;
+}
+
+.planner-source {
+  color: inherit;
+  text-decoration: none;
+}
+
+@media (max-width: 1180px) {
+  .planner-grid {
+    grid-template-columns: 1fr;
+  }
+}

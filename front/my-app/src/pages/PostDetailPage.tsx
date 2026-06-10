@@ -59,6 +59,25 @@ export function PostDetailPage({
   const relatedPosts = posts
     .filter((item) => item.region === post.region && item.id !== post.id)
     .slice(0, 3)
+  const chatHref = `/chat?${new URLSearchParams({
+    q: `${post.region} ${post.theme} ${post.companion} 여행 추천`,
+    region: post.region,
+    budget: post.budget,
+    theme: post.theme,
+    season: post.season,
+    companion: post.companion,
+    travelDate: post.travelDate,
+  }).toString()}`
+  const plannerHref = `/planner?${new URLSearchParams({
+    q: `${post.region} 일정 짜줘`,
+    region: post.region,
+    budget: post.budget,
+    theme: post.theme,
+    season: post.season,
+    companion: post.companion,
+    travelDate: post.travelDate,
+    duration: '3',
+  }).toString()}`
 
   return (
     <main className="page detail-page">
@@ -89,6 +108,12 @@ export function PostDetailPage({
             <button type="button" onClick={() => onToggleFollow(post.author.id)}>
               {followedAuthorIds.has(post.author.id) ? '팔로우 중' : '작성자 팔로우'}
             </button>
+            <Link className="secondary-button" to={chatHref}>
+              이 글 기반 추천
+            </Link>
+            <Link className="secondary-button" to={plannerHref}>
+              이 글로 일정 만들기
+            </Link>
           </div>
         </div>
       </article>
@@ -163,6 +188,23 @@ export function PostDetailPage({
               </form>
             </article>
           ))}
+        </div>
+      </section>
+
+      <section className="detail-section">
+        <div className="detail-section__heading">
+          <h2>AI 연결 패널</h2>
+          <span>게시글 기반 RAG 추천, MCP 날씨 판단, Agent 플래너로 이어지는 진입점입니다.</span>
+        </div>
+        <div className="detail-ai-links">
+          <Link className="detail-ai-card" to={chatHref}>
+            <strong>RAG 추천 시작</strong>
+            <p>이 게시글을 출처로 챗봇 추천을 시작합니다.</p>
+          </Link>
+          <Link className="detail-ai-card" to={plannerHref}>
+            <strong>AI 플래너 열기</strong>
+            <p>이 여행 후기 기반으로 일정 초안을 만듭니다.</p>
+          </Link>
         </div>
       </section>
 

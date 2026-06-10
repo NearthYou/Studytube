@@ -7,9 +7,17 @@ type PostCardProps = {
   post: PostWithMeta
   isLiked: boolean
   onToggleLike: (postId: number) => void
+  chatHref?: string
+  plannerHref?: string
 }
 
-export function PostCard({ post, isLiked, onToggleLike }: PostCardProps) {
+export function PostCard({
+  post,
+  isLiked,
+  onToggleLike,
+  chatHref,
+  plannerHref,
+}: PostCardProps) {
   return (
     <article className="post-card">
       <Link className="post-card__image-link" to={`/posts/${post.id}`}>
@@ -33,6 +41,20 @@ export function PostCard({ post, isLiked, onToggleLike }: PostCardProps) {
           <Link className="post-card__author" to={`/profile/${post.author.id}`}>
             {post.author.nickname}
           </Link>
+          {chatHref || plannerHref ? (
+            <div className="post-card__assist">
+              {chatHref ? (
+                <Link className="post-card__assist-link" to={chatHref}>
+                  RAG 추천
+                </Link>
+              ) : null}
+              {plannerHref ? (
+                <Link className="post-card__assist-link" to={plannerHref}>
+                  일정 만들기
+                </Link>
+              ) : null}
+            </div>
+          ) : null}
           <div className="post-card__stats">
             <span>조회 {post.views}</span>
             <span>댓글 {post.discussionCount}</span>

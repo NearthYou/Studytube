@@ -87,6 +87,27 @@
   padding: 1.5rem;
 }
 
+.detail-ai-links {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.detail-ai-card {
+  display: grid;
+  gap: 0.55rem;
+  padding: 1rem;
+  border: 1px solid #d9d1c4;
+  background: #fffdfa;
+  color: inherit;
+  text-decoration: none;
+}
+
+.detail-ai-card p {
+  margin: 0;
+  color: #5f5a53;
+}
+
 .detail-section__heading,
 .comment-list,
 .reply-list,
@@ -126,6 +147,10 @@
   .detail-card__content,
   .detail-section {
     padding: 1.25rem;
+  }
+
+  .detail-ai-links {
+    grid-template-columns: 1fr;
   }
 
   .comment-card__head,

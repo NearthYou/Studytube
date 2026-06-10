@@ -79,6 +79,33 @@ export function BoardPage({
     })
   }
 
+  const buildChatHref = (post?: PostWithMeta) => {
+    const params = new URLSearchParams()
+    if (post) {
+      params.set('q', `${post.region} ${post.theme} ${post.companion} 여행 추천`)
+      params.set('region', post.region)
+      params.set('theme', post.theme)
+      params.set('companion', post.companion)
+      params.set('budget', post.budget)
+      params.set('travelDate', post.travelDate)
+    }
+    return `/chat?${params.toString()}`
+  }
+
+  const buildPlannerHref = (post?: PostWithMeta) => {
+    const params = new URLSearchParams()
+    if (post) {
+      params.set('q', `${post.region} ${post.theme} 일정 짜줘`)
+      params.set('region', post.region)
+      params.set('theme', post.theme)
+      params.set('companion', post.companion)
+      params.set('budget', post.budget)
+      params.set('travelDate', post.travelDate)
+      params.set('duration', '3')
+    }
+    return `/planner?${params.toString()}`
+  }
+
   return (
     <main className="page board-page">
       <header className="board-page__headline">
@@ -107,6 +134,25 @@ export function BoardPage({
         </aside>
 
         <section className="board-content">
+          <section className="ai-launchpad">
+            <div className="ai-launchpad__copy">
+              <span>AI TRAVEL DESK</span>
+              <h2>RAG, MCP, Agent를 붙일 준비가 된 메인 화면</h2>
+              <p>
+                게시글 기반 추천은 챗봇으로 넘기고, 날씨 판단은 MCP 패널에서 보여주고,
+                일정 초안은 플래너에서 이어서 생성하도록 흐름을 추가했습니다.
+              </p>
+            </div>
+            <div className="ai-launchpad__actions">
+              <Link className="primary-button" to={buildChatHref()}>
+                AI 추천 시작
+              </Link>
+              <Link className="secondary-button" to={buildPlannerHref()}>
+                플래너 열기
+              </Link>
+            </div>
+          </section>
+
           <div className="board-toolbar">
             <div className="search-stack">
               <div className="search-row">
@@ -209,9 +255,11 @@ export function BoardPage({
           <section className="post-grid">
             {pagedPosts.map((post) => (
               <PostCard
+                chatHref={buildChatHref(post)}
                 isLiked={likedPostIds.has(post.id)}
                 key={post.id}
                 onToggleLike={onToggleLike}
+                plannerHref={buildPlannerHref(post)}
                 post={post}
               />
             ))}

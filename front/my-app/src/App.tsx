@@ -12,6 +12,7 @@ import { BoardPage } from './pages/BoardPage'
 import { ChatPage } from './pages/ChatPage'
 import { LoginPage } from './pages/LoginPage'
 import { MyPage } from './pages/MyPage'
+import { PlannerPage } from './pages/PlannerPage'
 import { PostDetailPage } from './pages/PostDetailPage'
 import { ProfilePage } from './pages/ProfilePage'
 import { SignupPage } from './pages/SignupPage'
@@ -318,7 +319,17 @@ function App() {
         />
         <Route
           path="/chat"
-          element={currentUser ? <ChatPage /> : <Navigate replace to="/login" />}
+          element={currentUser ? <ChatPage posts={postsWithMeta} /> : <Navigate replace to="/login" />}
+        />
+        <Route
+          path="/planner"
+          element={
+            currentUser ? (
+              <PlannerPage currentUser={currentUser} posts={postsWithMeta} />
+            ) : (
+              <Navigate replace to="/login" />
+            )
+          }
         />
       </Routes>
     </div>

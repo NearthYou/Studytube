@@ -28,6 +28,7 @@ export function AppShell({ currentUser, onSignOut }: AppShellProps) {
           <NavLink to="/mypage">MY PAGE</NavLink>
           <NavLink to="/write">WRITE</NavLink>
           <NavLink to="/chat">CHAT BOT</NavLink>
+          <NavLink to="/planner">PLANNER</NavLink>
         </nav>
         <div className="site-header__right">
           <span>{currentUser.nickname}</span>

@@ -74,6 +74,20 @@
   gap: 0.75rem;
 }
 
+.post-card__assist {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.post-card__assist-link {
+  border: 1px solid #d9d1c4;
+  padding: 0.5rem 0.7rem;
+  color: #1b1b1b;
+  font-size: 0.78rem;
+  text-decoration: none;
+}
+
 .post-card__stats {
   align-items: center;
   justify-content: space-between;

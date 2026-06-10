@@ -58,9 +58,28 @@ export function ProfilePage({
       <section className="post-grid">
         {authorPosts.map((post) => (
           <PostCard
+            chatHref={`/chat?${new URLSearchParams({
+              q: `${post.region} ${post.theme} 추천`,
+              region: post.region,
+              budget: post.budget,
+              theme: post.theme,
+              season: post.season,
+              companion: post.companion,
+              travelDate: post.travelDate,
+            }).toString()}`}
             isLiked={likedPostIds.has(post.id)}
             key={post.id}
             onToggleLike={onToggleLike}
+            plannerHref={`/planner?${new URLSearchParams({
+              q: `${post.region} 일정 짜줘`,
+              region: post.region,
+              budget: post.budget,
+              theme: post.theme,
+              season: post.season,
+              companion: post.companion,
+              travelDate: post.travelDate,
+              duration: '3',
+            }).toString()}`}
             post={post}
           />
         ))}

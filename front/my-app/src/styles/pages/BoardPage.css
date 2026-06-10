@@ -72,6 +72,46 @@
   gap: 1.5rem;
 }
 
+.ai-launchpad {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) auto;
+  gap: 1rem;
+  padding: 1.35rem 1.5rem;
+  border: 1px solid #cfc8bc;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.ai-launchpad__copy {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.ai-launchpad__copy span {
+  color: #7a6d59;
+  font-size: 0.74rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+
+.ai-launchpad__copy h2 {
+  margin: 0;
+  color: #121212;
+  font-family: "Bodoni MT", "Didot", "Times New Roman", serif;
+  font-size: 1.8rem;
+  font-weight: 400;
+}
+
+.ai-launchpad__copy p {
+  color: #5f5a53;
+  line-height: 1.7;
+}
+
+.ai-launchpad__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+}
+
 .search-stack {
   gap: 1rem;
 }
@@ -132,6 +172,10 @@
 @media (max-width: 1180px) {
   .board-layout,
   .about-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .ai-launchpad {
     grid-template-columns: 1fr;
   }
 

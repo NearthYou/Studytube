@@ -4,8 +4,9 @@
   border-radius: 8px;
   background-color: #2563EB;
   color: white;
-  font-size: 16px;
+  font-size: clamp(14px, 2.15vw, 16px);
   font-weight: 600;
+  overflow-wrap: anywhere;
   cursor: pointer;
   transition:
     background-color 0.2s ease,

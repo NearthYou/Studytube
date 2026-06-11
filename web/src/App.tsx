@@ -11,13 +11,32 @@ import {
   useSearchParams,
 } from 'react-router';
 import './App.css';
+import { courseAnalysisSectionsFromPosts } from './courseAnalysis';
 import {
-  addPlaylistFeedback,
+  EXPLORE_BOARD_PAGE_SIZE,
+  paginateExplorePlaylists,
+  selectExploreCommentPost,
+  selectExplorePlaylist,
+} from './exploreBoard';
+import { selectActiveCaption } from './captions';
+import { playlistThumbnailStackFromPosts } from './playlistThumbnailStack';
+import {
+  DEFAULT_PLAYLIST_DRAFT_TITLE,
+  createPlaylistDraft,
+  normalizePlaylistDraftState,
+  patchActivePlaylistDraft,
+  removePlaylistDraft,
+  selectActivePlaylistDraft,
+  type PlaylistDraftState,
+} from './playlistDrafts';
+import {
+  addComment,
   askAgent,
   askMcp,
   askRag,
   createPlaylist,
   createPost,
+  deleteComment,
   deletePost,
   demoSession,
   fetchPlaylists,
@@ -147,6 +166,8 @@ const emptyEditor: PostEditor = {
 };
 
 const QUEUE_STORAGE_KEY = 'studytube.watchQueue';
+const PLAYLIST_DRAFTS_STORAGE_KEY = 'studytube.playlistDrafts';
+const ACTIVE_PLAYLIST_DRAFT_STORAGE_KEY = 'studytube.activePlaylistDraftId';
 const SESSION_STORAGE_KEY = 'studytube.session';
 const PLAYBACK_RATES = [0.75, 1, 1.25, 1.5, 2];
 const DEFAULT_CAPTION_DURATION_SECONDS = 600;
@@ -155,6 +176,7 @@ const LIVE_CAPTION_PROVIDERS = new Set([
   'yt-dlp-captions',
   'openai-caption-translation',
   'youtube-transcript-api',
+  'youtube-source-captions',
 ]);
 const DEFAULT_LEARNING_STATE: VideoLearningState = {
   captionLanguage: 'ko',
@@ -228,7 +250,7 @@ function App() {
           path="/explore"
           element={
             <ProtectedRoute session={session}>
-              <ExplorePage />
+              <ExplorePage session={session!} />
             </ProtectedRoute>
           }
         />
@@ -603,6 +625,7 @@ function MyPage({
           <h1>내 정보</h1>
           <p>
             현재 비밀번호로 본인 확인을 마친 뒤 계정 정보와 학습 취향을 변경합니다.
+            <br />
             이 취향은 코스 추천과 플레이리스트 탐색에 반영됩니다.
           </p>
         </div>
@@ -728,10 +751,26 @@ function HomePage({ session }: { session: Session }) {
   const playlistPosts = latestPlaylist
     ? posts.filter((post) => latestPlaylist.postIds.includes(post.id))
     : [];
+  const latestVideo = latestPost ? queueVideoFromPost(latestPost) : null;
+  const latestVideoTarget = latestPost
+    ? `/watch?videoId=${extractYouTubeId(latestPost.videoUrl) ?? latestPost.id}`
+    : '/watch';
+  const nextQueuePosts =
+    playlistPosts.length > 0 ? playlistPosts.slice(0, 3) : posts.slice(1, 4);
   const feedbackCount = playlists.reduce(
     (sum, playlist) => sum + playlist.feedback.length,
     0,
   );
+
+  function playLatestVideo() {
+    if (!latestPost || !latestVideo) {
+      navigate('/board');
+      return;
+    }
+
+    addVideosToQueue([latestVideo], latestVideo);
+    navigate(latestVideoTarget);
+  }
 
   useEffect(() => {
     async function boot() {
@@ -754,104 +793,155 @@ function HomePage({ session }: { session: Session }) {
 
   return (
     <main className="page-shell product-home">
-      <section className="product-home-grid">
+      <section className="product-home-hero">
         <div className="product-home-copy">
-          <p className="eyebrow">StudyTube</p>
-          <h1>{session.user.name}님, 바로 이어서 학습하세요</h1>
+          <p className="eyebrow">Today study desk</p>
+          <h1>
+            {session.user.name}님,
+            <br />
+            이어서 학습하세요
+          </h1>
           <p>
-            영상은 사이트 안에서 재생하고, AI 번역 자막·요약·구간 메모는 영상별로
-            저장됩니다.
+            최근에 담은 영상 하나만 먼저 보여드릴게요. 바로 재생하거나,
+            오늘 볼 다른 코스를 고를 수 있습니다.
           </p>
-          <div className="hero-actions">
-            <Link className="primary-link" to="/watch">
-              영상 학습 시작
-            </Link>
-            <button type="button" onClick={() => navigate('/explore')}>
-              보드에서 고르기
+          <div className="home-hero-actions">
+            {latestPost ? (
+              <button type="button" onClick={playLatestVideo}>
+                바로 재생
+              </button>
+            ) : (
+              <Link className="primary-link" to="/board">
+                영상 등록하기
+              </Link>
+            )}
+            <button type="button" onClick={() => navigate('/search')}>
+              다른 코스 보기
             </button>
           </div>
-          <p className="system-note">{status}</p>
+          <div className="home-meta-strip" aria-label="학습 데이터 요약">
+            <span>{status}</span>
+            <span>{posts.length}개 영상</span>
+            <span>{playlists.length}개 코스</span>
+          </div>
         </div>
 
-        <aside className="home-stats" aria-label="내 학습 현황">
-          <span>
-            <strong>{posts.length}</strong>
-            내 영상 재료
-          </span>
-          <span>
-            <strong>{playlists.length}</strong>
-            재생목록
-          </span>
-          <span>
-            <strong>{feedbackCount}</strong>
-            피드백
-          </span>
-        </aside>
-      </section>
-
-      <section className="home-focus-grid">
         {latestPost ? (
-          <article className="home-video-card">
-            <img src={latestPost.thumbnailUrl} alt="" />
-            <div>
-              <small>{latestPost.channelName}</small>
+          <article className="home-feature-card">
+            <button
+              className="home-feature-media"
+              type="button"
+              onClick={playLatestVideo}
+              aria-label={`${latestPost.title} 바로 재생`}
+            >
+              <img src={latestPost.thumbnailUrl} alt="" />
+              <span>▶</span>
+            </button>
+            <div className="home-feature-copy">
+              <small>
+                {latestPost.channelName} · 약 {estimateVideoMinutes(latestPost)}분
+              </small>
               <h2>{latestPost.title}</h2>
-              <p>{latestPost.summary}</p>
+              <p>{clipText(latestPost.summary || latestPost.translatedNotes, 140)}</p>
               <TagLine tags={latestPost.tags} />
-              <button
-                type="button"
-                onClick={() => {
-                  addVideosToQueue([queueVideoFromPost(latestPost)], queueVideoFromPost(latestPost));
-                  navigate(`/watch?videoId=${extractYouTubeId(latestPost.videoUrl) ?? latestPost.id}`);
-                }}
-              >
-                이 영상 보기
-              </button>
             </div>
           </article>
         ) : (
-          <article className="home-empty-card">
-            <h2>아직 등록한 영상이 없습니다</h2>
-            <p>유튜브 링크를 넣으면 제목, 채널, 태그, 요약을 자동으로 채워줍니다.</p>
-            <Link className="primary-link" to="/board">
-              영상 등록하기
-            </Link>
+          <article className="home-feature-card empty">
+            <div className="home-empty-visual">Course</div>
+            <div className="home-feature-copy">
+              <small>첫 학습 영상 만들기</small>
+              <h2>아직 등록한 영상이 없습니다</h2>
+              <p>유튜브 링크 하나만 넣으면 제목, 채널, 태그, 요약을 자동으로 채워줍니다.</p>
+              <Link className="primary-link" to="/board">
+                영상 등록하기
+              </Link>
+            </div>
           </article>
         )}
+      </section>
 
-        <article className="home-course-card">
-          <small>최근 재생목록</small>
-          <h2>{latestPlaylist?.title ?? '재생목록을 만들어보세요'}</h2>
+      <section className="home-support-grid">
+        <article className="home-queue-card">
+          <div className="section-title">
+            <div>
+              <small>{latestPlaylist ? 'Recent course' : 'Next step'}</small>
+              <h2>{latestPlaylist?.title ?? '다음 학습을 준비하세요'}</h2>
+            </div>
+            <Link to={latestPlaylist ? '/explore' : '/board'}>
+              {latestPlaylist ? '코스 보기' : '영상 등록'}
+            </Link>
+          </div>
           <p>
             {latestPlaylist?.description ||
-              '보드에서 마음에 드는 영상을 골라 순서대로 학습할 수 있습니다.'}
+              '영상이 쌓이면 여기에서 오늘 이어갈 작은 학습 큐를 보여드립니다.'}
           </p>
-          {playlistPosts.length > 0 && (
+          {nextQueuePosts.length > 0 ? (
             <div className="home-course-list">
-              {playlistPosts.slice(0, 3).map((post, index) => (
-                <span key={post.id}>
+              {nextQueuePosts.map((post, index) => (
+                <button
+                  key={post.id}
+                  type="button"
+                  onClick={() => {
+                    const video = queueVideoFromPost(post);
+
+                    addVideosToQueue([video], video);
+                    navigate(`/watch?videoId=${extractYouTubeId(post.videoUrl) ?? post.id}`);
+                  }}
+                >
                   <b>{index + 1}</b>
-                  {post.title}
-                </span>
+                  <span>
+                    <strong>{post.title}</strong>
+                    <small>{post.channelName} · 약 {estimateVideoMinutes(post)}분</small>
+                  </span>
+                </button>
               ))}
             </div>
+          ) : (
+            <p className="home-queue-empty">
+              보드에서 영상을 담으면 다음 학습 큐가 여기에 조용히 쌓입니다.
+            </p>
           )}
-          <Link className="primary-link" to="/search">
-            AI로 추천 받기
-          </Link>
         </article>
+
+        <aside className="home-stats-card" aria-label="내 학습 현황">
+          <div className="section-title">
+            <div>
+              <small>My study</small>
+              <h2>학습 현황</h2>
+            </div>
+          </div>
+          <div className="home-stats">
+            <span>
+              <strong>{posts.length}</strong>
+              영상
+            </span>
+            <span>
+              <strong>{playlists.length}</strong>
+              코스
+            </span>
+            <span>
+              <strong>{feedbackCount}</strong>
+              피드백
+            </span>
+          </div>
+          <p>
+            숫자는 작게만 확인하고, 홈에서는 바로 볼 영상에 집중합니다.
+          </p>
+        </aside>
       </section>
     </main>
   );
 }
 
-function ExplorePage() {
+function ExplorePage({ session }: { session: Session }) {
   const navigate = useNavigate();
   const [posts, setPosts] = useState<StudyPost[]>([]);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<number | null>(
     null,
   );
+  const [commentPostId, setCommentPostId] = useState<number | null>(null);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState('공개 학습 플레이리스트를 불러오는 중입니다.');
@@ -860,16 +950,27 @@ function ExplorePage() {
     () => filterPlaylists(playlists, posts, search),
     [playlists, posts, search],
   );
-  const totalPages = Math.max(1, Math.ceil(filteredPlaylists.length / 6));
-  const visiblePlaylists = filteredPlaylists.slice((page - 1) * 6, page * 6);
-  const selectedPlaylist =
-    filteredPlaylists.find((playlist) => playlist.id === selectedPlaylistId) ??
-    visiblePlaylists[0] ??
-    filteredPlaylists[0] ??
-    null;
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredPlaylists.length / EXPLORE_BOARD_PAGE_SIZE),
+  );
+  const visiblePlaylists = paginateExplorePlaylists(filteredPlaylists, page);
+  const selectedPlaylist = selectExplorePlaylist(
+    filteredPlaylists,
+    selectedPlaylistId,
+  );
   const selectedPosts = selectedPlaylist
     ? postsForPlaylistIds(selectedPlaylist.postIds, posts)
     : [];
+  const selectedCommentPost = selectExploreCommentPost(selectedPosts, commentPostId);
+  const selectedCommentTotal = selectedPosts.reduce(
+    (count, post) => count + post.comments.length,
+    0,
+  );
+  const selectedAnalysisSections = useMemo(
+    () => courseAnalysisSectionsFromPosts(selectedPosts),
+    [selectedPosts],
+  );
   const selectedVideos = selectedPosts.map(queueVideoFromPost);
   const selectedAlreadyInPlaylist =
     selectedVideos.length > 0 &&
@@ -886,7 +987,7 @@ function ExplorePage() {
       setSelectedPlaylistId((current) =>
         nextPlaylists.some((playlist) => playlist.id === current)
           ? current
-          : nextPlaylists[0]?.id ?? null,
+          : null,
       );
       setStatus(
         nextPlaylists.length > 0
@@ -929,7 +1030,7 @@ function ExplorePage() {
     }
 
     if (selectedAlreadyInPlaylist) {
-      setStatus(`"${selectedPlaylist.title}" 코스는 이미 내 플레이리스트에 있어요.`);
+      setStatus(`"${selectedPlaylist.title}" 코스는 이미 담겨 있어요.`);
 
       if (watchAfterAdd) {
         navigate(`/watch?videoId=${selectedVideos[0].videoId}`);
@@ -947,21 +1048,31 @@ function ExplorePage() {
     }
   }
 
-  function openPlaylist() {
-    const firstVideo = playlistQueue[0];
+  function closeSelectedPlaylist() {
+    setSelectedPlaylistId(null);
+    setCommentPostId(null);
+  }
 
-    if (firstVideo) {
-      navigate(`/watch?videoId=${firstVideo.videoId}`);
-    }
+  function openSelectedPlaylist(playlistId: number) {
+    setSelectedPlaylistId(playlistId);
+    setCommentPostId(null);
+  }
+
+  async function refreshPublicBoardAfterComment() {
+    await loadPublicBoard();
   }
 
   return (
     <main className="page-shell explore-page">
       <section className="page-heading">
         <p className="eyebrow">Public video board</p>
-        <h1>다른 사람이 올린 학습 플레이리스트</h1>
+        <h1>
+          다른 사람이 올린 학습
+          <br />
+          플레이리스트
+        </h1>
         <p>
-          보드는 영상 하나가 아니라 여러 영상을 묶은 학습 코스입니다. 코스를
+          보드는 영상 하나가 아니라 여러 영상을 묶은 학습 코스입니다. <br /> 코스를
           누르면 포함된 영상, 순서, AI 요약 포인트를 확인하고 통째로 담을 수 있습니다.
         </p>
         <div className="explore-search">
@@ -981,31 +1092,30 @@ function ExplorePage() {
         <div className="explore-grid">
           {visiblePlaylists.map((playlist) => {
             const playlistPosts = postsForPlaylistIds(playlist.postIds, posts);
-            const cover = playlistPosts[0];
 
             return (
-            <button
-              className={
-                playlist.id === selectedPlaylist?.id
-                  ? 'explore-card active'
-                  : 'explore-card'
-              }
-              key={playlist.id}
-              type="button"
-              onClick={() => setSelectedPlaylistId(playlist.id)}
-            >
-              {cover ? <img src={cover.thumbnailUrl} alt="" /> : <div className="draft-thumbnail-placeholder">Course</div>}
-              <span className="explore-card-body">
-                <small>
-                  {playlistPosts.length}개 영상 · 후기 {playlist.feedback.length}개
-                </small>
-                <strong>{playlist.title}</strong>
-                <span className="card-summary">
-                  {clipText(playlist.description || courseSummaryFromPosts(playlistPosts), 120)}
+              <button
+                className={
+                  playlist.id === selectedPlaylist?.id
+                    ? 'explore-card active'
+                    : 'explore-card'
+                }
+                key={playlist.id}
+                type="button"
+                onClick={() => openSelectedPlaylist(playlist.id)}
+              >
+                <PlaylistThumbnailStack posts={playlistPosts} />
+                <span className="explore-card-body">
+                  <small>
+                    {playlistPosts.length}개 영상 · 후기 {playlist.feedback.length}개
+                  </small>
+                  <strong>{playlist.title}</strong>
+                  <span className="card-summary">
+                    {clipText(playlist.description || courseSummaryFromPosts(playlistPosts), 120)}
+                  </span>
+                  <TagLine tags={tagsFromPosts(playlistPosts).slice(0, 4)} />
                 </span>
-                <TagLine tags={tagsFromPosts(playlistPosts).slice(0, 4)} />
-              </span>
-            </button>
+              </button>
             );
           })}
           {visiblePlaylists.length === 0 && (
@@ -1016,69 +1126,138 @@ function ExplorePage() {
           )}
         </div>
 
-        <aside className="explore-detail">
-          {selectedPlaylist ? (
-            <>
-              {selectedPosts[0] && <img src={selectedPosts[0].thumbnailUrl} alt="" />}
-              <small>학습 코스 · {selectedPosts.length}개 영상</small>
-              <h2>{selectedPlaylist.title}</h2>
-              <p>{selectedPlaylist.description || courseSummaryFromPosts(selectedPosts)}</p>
-              <div className="route-card-meta">
-                <span>약 {estimateRouteMinutes(selectedPosts, selectedPlaylist.postIds.length)}분</span>
-                <span>{selectedPosts.length}개 영상</span>
-                <span>후기 {selectedPlaylist.feedback.length}개</span>
-              </div>
-              <div className="analysis-snippet">
-                <span>AI 영상 분석 요약</span>
-                <p>{courseAnalysisFromPosts(selectedPosts)}</p>
-              </div>
-              <ol className="playlist-step-list">
-                {selectedPosts.map((post, index) => (
-                  <li key={post.id}>
-                    <b>{index + 1}</b>
-                    <span>
-                      <strong>{post.title}</strong>
-                      <small>{post.channelName} · {estimateVideoMinutes(post)}분</small>
-                    </span>
-                  </li>
-                ))}
-              </ol>
-              <TagLine tags={tagsFromPosts(selectedPosts)} />
-              <div className="row-actions">
-                <button
-                  className={selectedAlreadyInPlaylist ? 'added-action' : undefined}
-                  type="button"
-                  disabled={selectedAlreadyInPlaylist || selectedVideos.length === 0}
-                  onClick={() => addSelectedPlaylistToQueue()}
-                >
-                  {selectedAlreadyInPlaylist ? '이미 담긴 코스' : '코스 통째로 담기'}
-                </button>
-                <button
-                  type="button"
-                  disabled={selectedVideos.length === 0}
-                  onClick={() => addSelectedPlaylistToQueue(true)}
-                >
-                  {selectedAlreadyInPlaylist ? '코스 보기' : '담고 코스 보기'}
-                </button>
-              </div>
-              <p
-                className={
-                  selectedAlreadyInPlaylist ? 'playlist-state active' : 'playlist-state'
-                }
+        {selectedPlaylist && (
+          <div
+            className="explore-detail-overlay"
+            role="presentation"
+            onClick={closeSelectedPlaylist}
+          >
+            <aside
+              aria-label="선택한 게시글 상세"
+              aria-modal="true"
+              className="explore-detail"
+              role="dialog"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <button
+                className="detail-close-button"
+                type="button"
+                onClick={closeSelectedPlaylist}
               >
-                {selectedAlreadyInPlaylist
-                  ? '이 코스의 영상이 이미 내 플레이리스트에 담겨 있습니다.'
-                  : '담으면 코스 전체가 영상 보기 화면의 재생목록에 순서대로 들어갑니다.'}
-              </p>
-            </>
-          ) : (
-            <div className="empty-product">
-              <strong>플레이리스트를 선택해 주세요</strong>
-              <p>보드에서 코스를 누르면 포함된 영상과 분석 요약을 확인할 수 있어요.</p>
-            </div>
-          )}
-          <PlaylistPreview videos={playlistQueue} onOpen={openPlaylist} />
-        </aside>
+                닫기
+              </button>
+              <div className="explore-detail-hero">
+                <PlaylistThumbnailStack posts={selectedPosts} size="detail" />
+                <div className="explore-detail-copy">
+                  <small>학습 코스 · {selectedPosts.length}개 영상</small>
+                  <h2>{selectedPlaylist.title}</h2>
+                  <p>{selectedPlaylist.description || courseSummaryFromPosts(selectedPosts)}</p>
+                  <div className="route-card-meta">
+                    <span>약 {estimateRouteMinutes(selectedPosts, selectedPlaylist.postIds.length)}분</span>
+                    <span>{selectedPosts.length}개 영상</span>
+                    <span>후기 {selectedPlaylist.feedback.length}개</span>
+                  </div>
+                  <TagLine tags={tagsFromPosts(selectedPosts)} />
+                  <div className="row-actions">
+                    <button
+                      className={selectedAlreadyInPlaylist ? 'added-action' : undefined}
+                      type="button"
+                      disabled={selectedAlreadyInPlaylist || selectedVideos.length === 0}
+                      onClick={() => addSelectedPlaylistToQueue()}
+                    >
+                      {selectedAlreadyInPlaylist ? '이미 담긴 코스' : '코스 통째로 담기'}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={selectedVideos.length === 0}
+                      onClick={() => addSelectedPlaylistToQueue(true)}
+                    >
+                      {selectedAlreadyInPlaylist ? '코스 보기' : '담고 코스 보기'}
+                    </button>
+                  </div>
+                  <p
+                    className={
+                      selectedAlreadyInPlaylist ? 'playlist-state active' : 'playlist-state'
+                    }
+                  >
+                    {selectedAlreadyInPlaylist
+                      ? '이 코스의 영상이 이미 담겨 있습니다.'
+                      : '담으면 코스 전체가 영상 보기 화면의 재생목록에 순서대로 들어갑니다.'}
+                  </p>
+                </div>
+              </div>
+              <div className="explore-detail-content">
+                <div className="analysis-snippet">
+                  <span>AI 영상 분석 요약</span>
+                  <div className="analysis-section-list">
+                    {selectedAnalysisSections.map((section) => (
+                      <article className="analysis-section" key={section.heading}>
+                        <strong>{section.heading}</strong>
+                        <p>{section.body}</p>
+                      </article>
+                    ))}
+                    {selectedAnalysisSections.length === 0 && (
+                      <p className="analysis-empty">
+                        AI 분석을 만들 영상이 아직 없습니다.
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <section className="course-video-strip">
+                  <div className="section-title">
+                    <h3>코스 순서</h3>
+                    <span>{selectedPosts.length}개</span>
+                  </div>
+                  <ol className="playlist-step-list">
+                    {selectedPosts.map((post, index) => (
+                      <li key={post.id}>
+                        <b>{index + 1}</b>
+                        <span>
+                          <strong>{post.title}</strong>
+                          <small>{post.channelName} · {estimateVideoMinutes(post)}분</small>
+                        </span>
+                      </li>
+                    ))}
+                  </ol>
+                </section>
+              </div>
+              <div className="explore-detail-lower">
+                {selectedCommentPost && (
+                  <section className="comments-stack compact" aria-label="코스 영상 댓글">
+                    <div className="section-title">
+                      <div>
+                        <small>Board comments</small>
+                        <h3>댓글</h3>
+                      </div>
+                      <span>{selectedCommentTotal}개</span>
+                    </div>
+                    <div className="comment-target-tabs" aria-label="댓글을 볼 영상 선택">
+                      {selectedPosts.map((post, index) => (
+                        <button
+                          className={
+                            post.id === selectedCommentPost.id ? 'active' : undefined
+                          }
+                          key={post.id}
+                          type="button"
+                          onClick={() => setCommentPostId(post.id)}
+                        >
+                          {index + 1}
+                        </button>
+                      ))}
+                    </div>
+                    <CommentSection
+                      post={selectedCommentPost}
+                      token={session.token}
+                      currentUserId={session.user.id}
+                      title={selectedCommentPost.title}
+                      onChanged={refreshPublicBoardAfterComment}
+                    />
+                  </section>
+                )}
+              </div>
+            </aside>
+          </div>
+        )}
       </section>
 
       <div className="pagination wide-pagination">
@@ -1106,14 +1285,19 @@ function BoardPage({ session }: { session: Session }) {
   const [editor, setEditor] = useState<PostEditor>(emptyEditor);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [status, setStatus] = useState(`${session.user.email} 계정으로 작업 중`);
-  const [playlistQueue, setPlaylistQueue] = useState<QueueVideo[]>(() => readQueue());
+  const [playlistDraftState, setPlaylistDraftState] =
+    useState<PlaylistDraftState<QueueVideo>>(() => readPlaylistDraftState());
   const [metadataStatus, setMetadataStatus] = useState('');
   const [isEditingDetails, setIsEditingDetails] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isFetchingMetadata, setIsFetchingMetadata] = useState(false);
-  const [courseTitle, setCourseTitle] = useState('나만의 학습 코스');
-  const [courseDescription, setCourseDescription] = useState('');
   const [isPublishingCourse, setIsPublishingCourse] = useState(false);
+  const activeDraft = selectActivePlaylistDraft(playlistDraftState);
+  const playlistDrafts = playlistDraftState.drafts;
+  const playlistQueue = activeDraft.videos;
+  const courseTitle = activeDraft.title;
+  const courseDescription = activeDraft.description;
+  const activeDraftTitle = courseTitle.trim() || DEFAULT_PLAYLIST_DRAFT_TITLE;
 
   const selectedPost = useMemo(
     () => posts.find((post) => post.id === selectedPostId) ?? posts[0],
@@ -1163,6 +1347,57 @@ function BoardPage({ session }: { session: Session }) {
     });
   }
 
+  function commitPlaylistDraftState(
+    updater: (
+      current: PlaylistDraftState<QueueVideo>,
+    ) => PlaylistDraftState<QueueVideo>,
+  ) {
+    setPlaylistDraftState((current) => {
+      const nextState = updater(current);
+      savePlaylistDraftState(nextState);
+
+      return nextState;
+    });
+  }
+
+  function updateActiveDraft(patch: {
+    title?: string;
+    description?: string;
+    videos?: QueueVideo[];
+  }) {
+    commitPlaylistDraftState((current) =>
+      patchActivePlaylistDraft(current, patch),
+    );
+  }
+
+  function createNewPlaylistDraft() {
+    const draft = createPlaylistDraft<QueueVideo>({
+      title: `학습 코스 초안 ${playlistDrafts.length + 1}`,
+    });
+    commitPlaylistDraftState((current) => ({
+      drafts: [draft, ...current.drafts],
+      activeDraftId: draft.id,
+    }));
+    setStatus('새 플레이리스트 초안을 만들었어요.');
+  }
+
+  function switchPlaylistDraft(draftId: string) {
+    const nextDraft = playlistDrafts.find((draft) => draft.id === draftId);
+    commitPlaylistDraftState((current) => ({
+      ...current,
+      activeDraftId: draftId,
+    }));
+    setStatus(`"${nextDraft?.title || '선택한 초안'}" 초안을 편집 중입니다.`);
+  }
+
+  function deleteActivePlaylistDraft() {
+    const replacementDraft = createPlaylistDraft<QueueVideo>();
+    commitPlaylistDraftState((current) =>
+      removePlaylistDraft(current, activeDraft.id, replacementDraft),
+    );
+    setStatus(`"${activeDraftTitle}" 초안을 삭제했어요.`);
+  }
+
   async function submitPost(event: FormEvent) {
     event.preventDefault();
 
@@ -1200,16 +1435,16 @@ function BoardPage({ session }: { session: Session }) {
         ? await updatePost(session.token, editingId, payload)
         : await createPost(session.token, payload);
       const savedVideo = queueVideoFromPost(saved);
-      const nextQueue = addVideosToQueue([savedVideo], savedVideo);
-      setPlaylistQueue(nextQueue);
+      const nextQueue = mergeVideosIntoQueue(playlistQueue, [savedVideo], savedVideo);
+      updateActiveDraft({ videos: nextQueue });
 
       await loadPosts(search, 1);
       setPage(1);
       setSelectedPostId(saved.id);
       setStatus(
         editingId
-          ? '영상 재료를 수정하고 플레이리스트 초안에도 반영했어요'
-          : '영상 재료를 저장하고 플레이리스트 초안에 담았어요',
+          ? '영상 재료를 수정하고 현재 플레이리스트 초안에도 반영했어요'
+          : '영상 재료를 저장하고 현재 플레이리스트 초안에 담았어요',
       );
       setEditor(emptyEditor);
       setEditingId(null);
@@ -1369,7 +1604,7 @@ function BoardPage({ session }: { session: Session }) {
     const video = queueVideoFromPost(post);
 
     if (isVideoInQueue(playlistQueue, video)) {
-      setStatus(`"${post.title}" 영상은 이미 플레이리스트 초안에 있어요.`);
+      setStatus(`"${post.title}" 영상은 이미 "${activeDraftTitle}" 초안에 있어요.`);
 
       if (watchAfterAdd) {
         navigate(`/watch?videoId=${video.videoId}`);
@@ -1378,9 +1613,9 @@ function BoardPage({ session }: { session: Session }) {
       return;
     }
 
-    const nextQueue = addVideosToQueue([video], video);
-    setPlaylistQueue(nextQueue);
-    setStatus(`"${post.title}" 영상을 플레이리스트 초안에 담았어요.`);
+    const nextQueue = mergeVideosIntoQueue(playlistQueue, [video], video);
+    updateActiveDraft({ videos: nextQueue });
+    setStatus(`"${post.title}" 영상을 "${activeDraftTitle}" 초안에 담았어요.`);
 
     if (watchAfterAdd) {
       navigate(`/watch?videoId=${video.videoId}`);
@@ -1391,6 +1626,7 @@ function BoardPage({ session }: { session: Session }) {
     const firstVideo = playlistQueue[0];
 
     if (firstVideo) {
+      saveQueue(playlistQueue);
       navigate(`/watch?videoId=${firstVideo.videoId}`);
     }
   }
@@ -1419,10 +1655,9 @@ function BoardPage({ session }: { session: Session }) {
           `${postIds.length}개 영상으로 구성한 학습 플레이리스트입니다.`,
         postIds,
       });
-      setPlaylistQueue([]);
-      saveQueue([]);
-      setCourseTitle('나만의 학습 코스');
-      setCourseDescription('');
+      commitPlaylistDraftState((current) =>
+        removePlaylistDraft(current, activeDraft.id, createPlaylistDraft<QueueVideo>()),
+      );
       setStatus(`"${saved.title}" 플레이리스트를 보드에 올렸어요.`);
     } catch {
       setStatus('플레이리스트 저장에 실패했어요.');
@@ -1435,15 +1670,13 @@ function BoardPage({ session }: { session: Session }) {
     const nextQueue = playlistQueue.filter(
       (item) => queueVideoKey(item) !== queueVideoKey(video),
     );
-    setPlaylistQueue(nextQueue);
-    saveQueue(nextQueue);
-    setStatus(`"${video.title}" 영상을 플레이리스트 초안에서 뺐어요.`);
+    updateActiveDraft({ videos: nextQueue });
+    setStatus(`"${video.title}" 영상을 현재 초안에서 뺐어요.`);
   }
 
   function clearDraftPlaylist() {
-    setPlaylistQueue([]);
-    saveQueue([]);
-    setStatus('플레이리스트 초안을 비웠어요.');
+    updateActiveDraft({ videos: [] });
+    setStatus('현재 플레이리스트 초안을 비웠어요.');
   }
 
   async function changeSearch(value: string) {
@@ -1470,11 +1703,16 @@ function BoardPage({ session }: { session: Session }) {
     <main className="page-shell board-page">
       <section className="page-heading">
         <p className="eyebrow">Playlist board studio</p>
-        <h1>유튜브 영상을 묶어 학습 플레이리스트를 올리세요</h1>
+        <h1>
+          유튜브 영상을 묶어
+          <br />
+          학습 플레이리스트를 올리세요
+        </h1>
         <p>
-          {status} · 링크를 분석해 영상 재료를 만들고, 여러 영상을 초안에 담은 뒤
+          링크를 분석해 영상 재료를 만들고, <br /> 여러 영상을 초안에 담은 뒤
           플레이리스트 자체를 보드에 공개합니다.
         </p>
+        <p className="system-note">{status}</p>
       </section>
 
       <section className="board-grid">
@@ -1525,13 +1763,48 @@ function BoardPage({ session }: { session: Session }) {
           <div className="section-title">
             <div>
               <small>보드에 공개될 단위</small>
-              <h2>플레이리스트 초안</h2>
+              <h2>플레이리스트 초안들</h2>
             </div>
-            <span>{playlistQueue.length}개 영상</span>
+            <span>{playlistDrafts.length}개 초안</span>
           </div>
+          <section className="draft-switcher" aria-label="플레이리스트 초안 선택">
+            <div className="draft-switcher-header">
+              <div>
+                <small>현재 작업 초안</small>
+                <strong>{activeDraftTitle}</strong>
+              </div>
+              <span>{playlistQueue.length}개 영상</span>
+            </div>
+            <div className="draft-tabs">
+              {playlistDrafts.map((draft, index) => (
+                <button
+                  className={draft.id === activeDraft.id ? 'active' : ''}
+                  key={draft.id}
+                  type="button"
+                  onClick={() => switchPlaylistDraft(draft.id)}
+                >
+                  <small>초안 {index + 1}</small>
+                  <strong>{draft.title || DEFAULT_PLAYLIST_DRAFT_TITLE}</strong>
+                  <span>{draft.videos.length}개 영상</span>
+                </button>
+              ))}
+            </div>
+            <div className="draft-actions">
+              <button type="button" onClick={createNewPlaylistDraft}>
+                새 초안
+              </button>
+              <button
+                className="danger-light"
+                type="button"
+                onClick={deleteActivePlaylistDraft}
+              >
+                현재 초안 삭제
+              </button>
+            </div>
+          </section>
           <p className="builder-copy">
             보드는 영상 하나가 아니라 여러 영상이 순서대로 묶인 학습 코스입니다.
-            왼쪽 보관함에서 영상을 담고, 아래 코스 정보를 채운 뒤 보드에 올리세요.
+            원하는 초안을 먼저 선택한 뒤 영상을 담고, 코스 정보를 채워 보드에 올리세요.
           </p>
           <div className="playlist-builder-stats">
             <span>
@@ -1558,12 +1831,14 @@ function BoardPage({ session }: { session: Session }) {
             <strong>플레이리스트로 보드에 올리기</strong>
             <input
               value={courseTitle}
-              onChange={(event) => setCourseTitle(event.target.value)}
+              onChange={(event) => updateActiveDraft({ title: event.target.value })}
               placeholder="플레이리스트 제목"
             />
             <textarea
               value={courseDescription}
-              onChange={(event) => setCourseDescription(event.target.value)}
+              onChange={(event) =>
+                updateActiveDraft({ description: event.target.value })
+              }
               placeholder="이 코스가 어떤 순서로 무엇을 학습하는지"
             />
             <button
@@ -1620,7 +1895,7 @@ function BoardPage({ session }: { session: Session }) {
                   disabled={selectedAlreadyInPlaylist}
                   onClick={() => addSelectedPostToQueue(selectedPost)}
                 >
-                  {selectedAlreadyInPlaylist ? '이미 담김' : '초안에 담기'}
+                  {selectedAlreadyInPlaylist ? '이미 담김' : '현재 초안에 담기'}
                 </button>
                 <button
                   type="button"
@@ -1645,8 +1920,8 @@ function BoardPage({ session }: { session: Session }) {
                 }
               >
                 {selectedAlreadyInPlaylist
-                  ? '이미 플레이리스트 초안에 담긴 영상입니다.'
-                  : '이 영상 재료를 초안에 담고, 여러 영상을 묶어 플레이리스트로 보드에 올릴 수 있습니다.'}
+                  ? `이미 "${activeDraftTitle}" 초안에 담긴 영상입니다.`
+                  : '이 영상 재료를 현재 선택된 초안에 담고, 여러 영상을 묶어 플레이리스트로 보드에 올릴 수 있습니다.'}
               </p>
             </>
           ) : (
@@ -1664,7 +1939,7 @@ function BoardPage({ session }: { session: Session }) {
               <h2>{editingId ? '영상 재료 수정' : 'YouTube 영상 재료 추가'}</h2>
               <p>
                 링크를 분석하면 제목, 채널, 썸네일, AI 분석 요약이 먼저 채워집니다.
-                저장하면 플레이리스트 초안에 들어가고, 초안을 코스로 발행합니다.
+                저장하면 현재 선택된 초안에 들어가고, 초안을 코스로 발행합니다.
               </p>
             </div>
             {editingId && <span>수정 중 #{editingId}</span>}
@@ -1844,6 +2119,160 @@ function BoardPage({ session }: { session: Session }) {
   );
 }
 
+function PlaylistThumbnailStack({
+  posts,
+  size = 'card',
+}: {
+  posts: StudyPost[];
+  size?: 'card' | 'detail';
+}) {
+  const stack = playlistThumbnailStackFromPosts(posts);
+  const classes = [
+    'playlist-thumbnail-stack',
+    `is-${size}`,
+    `count-${Math.max(1, stack.items.length)}`,
+  ].join(' ');
+
+  if (stack.items.length === 0) {
+    return (
+      <div className={`${classes} is-empty`} aria-label="플레이리스트 썸네일 없음">
+        <span>Course</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className={classes} aria-label={`${stack.totalCount}개 영상 썸네일`}>
+      {stack.items.map((item, index) => (
+        <img
+          alt=""
+          className={`thumbnail-layer layer-${index + 1}`}
+          key={item.id}
+          src={item.src}
+        />
+      ))}
+      {stack.overflowCount > 0 && (
+        <span className="playlist-thumbnail-overflow">+{stack.overflowCount}</span>
+      )}
+    </div>
+  );
+}
+
+function CommentSection({
+  post,
+  token,
+  currentUserId,
+  title,
+  onChanged,
+}: {
+  post: StudyPost;
+  token: string;
+  currentUserId: number;
+  title?: string;
+  onChanged: (postId: number) => Promise<void>;
+}) {
+  const [draft, setDraft] = useState('');
+  const [status, setStatus] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+
+  async function submitComment(event: FormEvent) {
+    event.preventDefault();
+
+    const body = draft.trim();
+
+    if (!body) {
+      setStatus('댓글 내용을 입력하세요.');
+      return;
+    }
+
+    if (isSaving) {
+      return;
+    }
+
+    setIsSaving(true);
+
+    try {
+      await addComment(token, post.id, body);
+      setDraft('');
+      setStatus('댓글을 등록했어요.');
+      await onChanged(post.id);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : '댓글을 등록하지 못했어요.');
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function removeComment(commentId: number) {
+    if (isSaving) {
+      return;
+    }
+
+    setIsSaving(true);
+
+    try {
+      await deleteComment(token, post.id, commentId);
+      setStatus('댓글을 삭제했어요.');
+      await onChanged(post.id);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : '댓글을 삭제하지 못했어요.');
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <section className="comments-panel">
+      <div className="comments-heading">
+        <div>
+          <strong>{title ?? '댓글'}</strong>
+          <span>{post.comments.length}개 댓글</span>
+        </div>
+        {status && <small>{status}</small>}
+      </div>
+      <div className="comment-list">
+        {post.comments.map((comment) => {
+          const canDelete =
+            comment.authorId === currentUserId || post.authorId === currentUserId;
+
+          return (
+            <article className="comment-item" key={comment.id}>
+              <div>
+                <strong>{comment.authorName}</strong>
+                <span>{formatDate(comment.createdAt)}</span>
+              </div>
+              <p>{comment.body}</p>
+              {canDelete && (
+                <button
+                  type="button"
+                  disabled={isSaving}
+                  onClick={() => void removeComment(comment.id)}
+                >
+                  삭제
+                </button>
+              )}
+            </article>
+          );
+        })}
+        {post.comments.length === 0 && (
+          <p className="empty-copy">아직 댓글이 없어요. 첫 의견을 남겨보세요.</p>
+        )}
+      </div>
+      <form className="comment-form" onSubmit={submitComment}>
+        <input
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          placeholder="댓글을 입력하세요"
+          disabled={isSaving}
+        />
+        <button type="submit" disabled={isSaving || !draft.trim()}>
+          {isSaving ? '처리 중' : '댓글 달기'}
+        </button>
+      </form>
+    </section>
+  );
+}
+
 function CoursePage({ session }: { session: Session }) {
   const navigate = useNavigate();
   const profile = session.user.preferences;
@@ -1855,7 +2284,6 @@ function CoursePage({ session }: { session: Session }) {
   const [mcpResult, setMcpResult] = useState<McpResponse | null>(null);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [posts, setPosts] = useState<StudyPost[]>([]);
-  const [feedbackDrafts, setFeedbackDrafts] = useState<Record<number, string>>({});
   const [status, setStatus] = useState(
     profile
       ? `${profile.interests[0]} 취향을 반영해 먼저 기존 보드에서 찾아볼게요.`
@@ -2001,27 +2429,6 @@ function CoursePage({ session }: { session: Session }) {
     }
   }
 
-  async function submitFeedback(event: FormEvent, playlist: Playlist) {
-    event.preventDefault();
-    const body = feedbackDrafts[playlist.id]?.trim();
-
-    if (!body) {
-      return;
-    }
-
-    try {
-      await addPlaylistFeedback(session.token, playlist.id, {
-        rating: 5,
-        body,
-      });
-      setFeedbackDrafts((current) => ({ ...current, [playlist.id]: '' }));
-      await refreshCourseData();
-      setStatus('피드백이 저장됐어요.');
-    } catch {
-      setStatus('피드백 저장에 실패했어요.');
-    }
-  }
-
   const existingVideos = ragResult?.relatedPosts.map(queueVideoFromRagPost) ?? [];
   const agentVideos =
     agentResult?.recommendations.map((item) => queueVideoFromRecommendation(item)) ??
@@ -2039,9 +2446,14 @@ function CoursePage({ session }: { session: Session }) {
     <main className="page-shell course-page">
       <section className="page-heading">
         <p className="eyebrow">Personal course finder</p>
-        <h1>내 취향에 맞는 학습 코스 찾기</h1>
+        <h1>
+          내 취향에 맞는
+          <br />
+          학습 코스 찾기
+        </h1>
         <p>
           먼저 이미 올라온 학습 플레이리스트와 AI 영상 분석 요약을 확인합니다.
+          <br />
           없으면 AI가 YouTube까지 탐색해서 새 코스 초안을 만듭니다.
         </p>
         {profile && (
@@ -2182,67 +2594,6 @@ function CoursePage({ session }: { session: Session }) {
         </section>
       )}
 
-      <section className="saved-playlists">
-        <div className="section-title">
-          <h2>공개 학습 코스</h2>
-          <span>{playlists.length}개</span>
-        </div>
-        {playlists.map((playlist) => (
-          <article key={playlist.id}>
-            <div>
-              <strong>{playlist.title}</strong>
-              <p>{playlist.description || '설명이 없는 학습 코스입니다.'}</p>
-              <ol className="playlist-step-list">
-                {playlist.postIds.map((postId, index) => {
-                  const post = posts.find((item) => item.id === postId);
-
-                  return (
-                    <li key={`${playlist.id}-${postId}`}>
-                      <b>{index + 1}</b>
-                      <span>
-                        <strong>{post?.title ?? `영상 재료 #${postId}`}</strong>
-                        <small>
-                          {post
-                            ? `${post.channelName} · ${estimateVideoMinutes(post)}분`
-                            : '영상 정보를 다시 불러와야 합니다'}
-                        </small>
-                      </span>
-                    </li>
-                  );
-                })}
-              </ol>
-              <div className="route-card-meta">
-                <span>{playlist.postIds.length}개 영상</span>
-                <span>약 {estimateRouteMinutes(postsForPlaylist(playlist), playlist.postIds.length)}분</span>
-                <span>후기 {playlist.feedback.length}개</span>
-              </div>
-              <button
-                className="route-play-button"
-                type="button"
-                onClick={() => playSavedPlaylist(playlist)}
-              >
-                코스 바로 보기
-              </button>
-            </div>
-            <form onSubmit={(event) => void submitFeedback(event, playlist)}>
-              <input
-                value={feedbackDrafts[playlist.id] ?? ''}
-                onChange={(event) =>
-                  setFeedbackDrafts((current) => ({
-                    ...current,
-                    [playlist.id]: event.target.value,
-                  }))
-                }
-                placeholder="완주 후기나 추가하면 좋을 영상"
-              />
-              <button type="submit">저장</button>
-            </form>
-          </article>
-        ))}
-        {playlists.length === 0 && (
-          <p className="empty-copy">아직 공개 학습 코스가 없어요. 원하는 코스를 검색해 첫 코스를 만들어보세요.</p>
-        )}
-      </section>
     </main>
   );
 }
@@ -2321,33 +2672,22 @@ function WatchPage() {
       : captionResponseMatchesVideo
       ? captionResponse.language !== captionLanguage
         ? '선택한 언어 자막을 불러오는 중'
+        : captionResponse.provider === 'youtube-source-captions'
+          ? `원문 자막 · ${captionResponse.sourceLanguage} → ${captionResponse.language} 번역 대기`
         : LIVE_CAPTION_PROVIDERS.has(captionResponse.provider)
           ? `AI 번역 자막 · ${captionResponse.sourceLanguage} → ${captionResponse.language}`
           : captionError || captionUnavailableStatus(captionResponse.provider)
       : captionError || '실시간 번역 자막 불러오는 중'
     : '';
   const activeCaption = useMemo(() => {
-    if (!captionsEnabled || captions.length === 0) {
-      return null;
-    }
-
-    const timedCaption =
-      captions.findLast(
-        (segment) => currentTime >= segment.start && currentTime < segment.end,
-      ) ?? null;
-
-    if (timedCaption) {
-      return timedCaption;
-    }
-
-    const lastCaption = captions[captions.length - 1];
-
-    return shouldHoldLastCaption &&
-      lastCaption &&
-      currentTime >= lastCaption.end
-      ? lastCaption
-      : null;
-  }, [captions, captionsEnabled, currentTime, shouldHoldLastCaption]);
+    return selectActiveCaption({
+      captionsEnabled,
+      currentTime,
+      holdLastCaption: shouldHoldLastCaption,
+      segments: captions,
+      videoDuration,
+    });
+  }, [captions, captionsEnabled, currentTime, shouldHoldLastCaption, videoDuration]);
 
   useEffect(() => {
     if (!currentVideo) {
@@ -2515,10 +2855,6 @@ function WatchPage() {
       setCaptionError('');
       setIsCaptionLoading(true);
 
-      if (videoDuration <= 0 && !durationWaitExpired) {
-        return;
-      }
-
       try {
         const response = await fetchTranslatedCaptions({
           videoId: currentVideo!.videoId,
@@ -2526,9 +2862,7 @@ function WatchPage() {
           targetLanguage: captionLanguage,
           allowFallback: false,
           translateFallback: false,
-          durationSeconds: Math.round(
-            videoDuration || DEFAULT_CAPTION_DURATION_SECONDS,
-          ),
+          durationSeconds: DEFAULT_CAPTION_DURATION_SECONDS,
         });
 
         if (!cancelled) {
@@ -2553,7 +2887,7 @@ function WatchPage() {
     return () => {
       cancelled = true;
     };
-  }, [captionLanguage, currentVideo, durationWaitExpired, videoDuration]);
+  }, [captionLanguage, currentVideo]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -3287,6 +3621,46 @@ function saveQueue(queue: QueueVideo[]) {
   );
 }
 
+function readPlaylistDraftState(): PlaylistDraftState<QueueVideo> {
+  try {
+    const raw = window.localStorage.getItem(PLAYLIST_DRAFTS_STORAGE_KEY);
+    const activeDraftId = window.localStorage.getItem(
+      ACTIVE_PLAYLIST_DRAFT_STORAGE_KEY,
+    );
+    const parsed = raw ? (JSON.parse(raw) as unknown) : null;
+
+    return normalizePlaylistDraftState(parsed, {
+      activeDraftId,
+      fallbackVideos: readQueue(),
+      normalizeVideo: (video) =>
+        isQueueVideoLike(video) ? normalizeQueueVideo(video) : null,
+    });
+  } catch {
+    return normalizePlaylistDraftState(null, {
+      fallbackVideos: readQueue(),
+      normalizeVideo: (video) =>
+        isQueueVideoLike(video) ? normalizeQueueVideo(video) : null,
+    });
+  }
+}
+
+function savePlaylistDraftState(state: PlaylistDraftState<QueueVideo>) {
+  window.localStorage.setItem(
+    PLAYLIST_DRAFTS_STORAGE_KEY,
+    JSON.stringify(
+      state.drafts.map((draft) => ({
+        ...draft,
+        videos: draft.videos.map((video) => normalizeQueueVideo(video)),
+      })),
+    ),
+  );
+  window.localStorage.setItem(
+    ACTIVE_PLAYLIST_DRAFT_STORAGE_KEY,
+    state.activeDraftId,
+  );
+  saveQueue(selectActivePlaylistDraft(state).videos);
+}
+
 function readSession(): Session | null {
   try {
     const raw = window.localStorage.getItem(SESSION_STORAGE_KEY);
@@ -3448,21 +3822,6 @@ function courseSummaryFromPosts(posts: StudyPost[]) {
     .join(' · ');
 }
 
-function courseAnalysisFromPosts(posts: StudyPost[]) {
-  if (posts.length === 0) {
-    return 'AI 분석을 만들 영상이 아직 없습니다.';
-  }
-
-  return posts
-    .slice(0, 4)
-    .map((post, index) => {
-      const summary = normalizeCaptionSource(post.summary || post.translatedNotes);
-
-      return `${index + 1}. ${post.title}: ${clipText(summary, 120)}`;
-    })
-    .join('\n');
-}
-
 function tokenizeForMatch(value: string) {
   return value
     .toLowerCase()
@@ -3475,6 +3834,18 @@ function tokenizeForMatch(value: string) {
 
 function addVideosToQueue(videos: QueueVideo[], selectedVideo: QueueVideo) {
   const existingQueue = readQueue();
+  const nextQueue = mergeVideosIntoQueue(existingQueue, videos, selectedVideo);
+
+  saveQueue(nextQueue);
+
+  return nextQueue;
+}
+
+function mergeVideosIntoQueue(
+  existingQueue: QueueVideo[],
+  videos: QueueVideo[],
+  selectedVideo: QueueVideo,
+) {
   const existingById = new Map(existingQueue.map((video) => [video.id, video]));
   const selectedFirst = [
     selectedVideo,
@@ -3483,7 +3854,6 @@ function addVideosToQueue(videos: QueueVideo[], selectedVideo: QueueVideo) {
   const selectedIds = new Set(selectedFirst.map((video) => video.id));
   const existing = existingQueue.filter((video) => !selectedIds.has(video.id));
   const nextQueue = uniqueVideos([...selectedFirst, ...existing]);
-  saveQueue(nextQueue);
 
   return nextQueue;
 }
@@ -3493,6 +3863,17 @@ function normalizeQueueVideo(video: QueueVideo): QueueVideo {
     ...video,
     learning: getVideoLearningState(video),
   };
+}
+
+function isQueueVideoLike(video: unknown): video is QueueVideo {
+  return (
+    Boolean(video) &&
+    typeof video === 'object' &&
+    typeof (video as QueueVideo).id === 'string' &&
+    typeof (video as QueueVideo).title === 'string' &&
+    typeof (video as QueueVideo).videoId === 'string' &&
+    typeof (video as QueueVideo).videoUrl === 'string'
+  );
 }
 
 function mergeVideoLearning(video: QueueVideo, existing?: QueueVideo): QueueVideo {

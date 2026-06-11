@@ -27,6 +27,20 @@ type ReplyRow = {
   author_location: string | null;
 };
 
+type CommentActivityCountRow = {
+  total_count: number;
+};
+
+type CommentActivityRow = {
+  id: number;
+  post_id: number;
+  post_title: string;
+  content: string;
+  created_at: Date;
+  updated_at: Date;
+  activity_type: 'comment' | 'reply';
+};
+
 export type ReplyView = {
   id: number;
   authorId: number;
@@ -56,6 +70,16 @@ export type CommentView = {
     location: string;
   };
   replies: ReplyView[];
+};
+
+export type CommentActivityItem = {
+  id: number;
+  postId: number;
+  postTitle: string;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+  type: 'comment' | 'reply';
 };
 
 @Injectable()
@@ -195,6 +219,179 @@ export class CommentsRepository {
     return result.rows[0].post_id;
   }
 
+  async findCommentsByAuthorId(authorId: number, page: number, limit: number) {
+    const offset = (page - 1) * limit;
+    const countResult = await this.databaseService.query<CommentActivityCountRow>(
+      `
+        SELECT COUNT(*)::int AS total_count
+        FROM (
+          SELECT c.id
+          FROM comments c
+          WHERE c.author_id = $1
+            AND c.is_deleted = FALSE
+
+          UNION ALL
+
+          SELECT r.id
+          FROM comment_replies r
+          WHERE r.author_id = $1
+            AND r.is_deleted = FALSE
+        ) activity
+      `,
+      [authorId],
+    );
+
+    const result = await this.databaseService.query<CommentActivityRow>(
+      `
+        SELECT
+          c.id,
+          c.post_id,
+          p.title AS post_title,
+          c.content,
+          c.created_at,
+          c.updated_at,
+          'comment'::text AS activity_type
+        FROM comments c
+        JOIN posts p
+          ON p.id = c.post_id
+        WHERE c.author_id = $1
+          AND c.is_deleted = FALSE
+
+        UNION ALL
+
+        SELECT
+          r.id,
+          c.post_id,
+          p.title AS post_title,
+          r.content,
+          r.created_at,
+          r.updated_at,
+          'reply'::text AS activity_type
+        FROM comment_replies r
+        JOIN comments c
+          ON c.id = r.comment_id
+        JOIN posts p
+          ON p.id = c.post_id
+        WHERE r.author_id = $1
+          AND r.is_deleted = FALSE
+
+        ORDER BY created_at DESC, id DESC
+        LIMIT $2
+        OFFSET $3
+      `,
+      [authorId, limit, offset],
+    );
+
+    return {
+      totalCount: countResult.rows[0]?.total_count ?? 0,
+      items: result.rows.map((row) => ({
+        id: row.id,
+        postId: row.post_id,
+        postTitle: row.post_title,
+        content: row.content,
+        createdAt: row.created_at.toISOString(),
+        updatedAt: row.updated_at.toISOString(),
+        type: row.activity_type,
+      })),
+    };
+  }
+
+  async findCommentByIdForOwnership(commentId: number) {
+    const result = await this.databaseService.query<{
+      id: number;
+      post_id: number;
+      author_id: number;
+      is_deleted: boolean;
+    }>(
+      `
+        SELECT id, post_id, author_id, is_deleted
+        FROM comments
+        WHERE id = $1
+      `,
+      [commentId],
+    );
+
+    if (!result.rowCount || result.rows[0].is_deleted) {
+      return null;
+    }
+
+    return result.rows[0];
+  }
+
+  async findReplyByIdForOwnership(replyId: number) {
+    const result = await this.databaseService.query<{
+      id: number;
+      comment_id: number;
+      author_id: number;
+      is_deleted: boolean;
+    }>(
+      `
+        SELECT id, comment_id, author_id, is_deleted
+        FROM comment_replies
+        WHERE id = $1
+      `,
+      [replyId],
+    );
+
+    if (!result.rowCount || result.rows[0].is_deleted) {
+      return null;
+    }
+
+    return result.rows[0];
+  }
+
+  async updateComment(commentId: number, content: string) {
+    await this.databaseService.query(
+      `
+        UPDATE comments
+        SET content = $2
+        WHERE id = $1
+      `,
+      [commentId, content],
+    );
+
+    return this.findCommentById(commentId);
+  }
+
+  async deleteComment(commentId: number) {
+    await this.databaseService.query(
+      `
+        UPDATE comments
+        SET
+          is_deleted = TRUE,
+          content = '[deleted]'
+        WHERE id = $1
+      `,
+      [commentId],
+    );
+  }
+
+  async updateReply(replyId: number, content: string) {
+    await this.databaseService.query(
+      `
+        UPDATE comment_replies
+        SET content = $2
+        WHERE id = $1
+      `,
+      [replyId, content],
+    );
+
+    return this.findReplyById(replyId);
+  }
+
+  async deleteReply(replyId: number) {
+    await this.databaseService.query(
+      `
+        UPDATE comment_replies
+        SET
+          is_deleted = TRUE,
+          content = '[deleted]'
+        WHERE id = $1
+      `,
+      [replyId],
+    );
+  }
+
   private async findCommentById(commentId: number) {
     const result = await this.databaseService.query<CommentRow>(
       `
@@ -213,6 +410,7 @@ export class CommentsRepository {
         JOIN users u
           ON u.id = c.author_id
         WHERE c.id = $1
+          AND c.is_deleted = FALSE
       `,
       [commentId],
     );
@@ -245,6 +443,7 @@ export class CommentsRepository {
         JOIN users u
           ON u.id = r.author_id
         WHERE r.id = $1
+          AND r.is_deleted = FALSE
       `,
       [replyId],
     );

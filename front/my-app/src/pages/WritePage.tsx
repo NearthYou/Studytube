@@ -1,23 +1,27 @@
-import { useEffect, useState } from 'react'
 import type { ChangeEvent } from 'react'
-import { useNavigate } from 'react-router'
+import { useEffect, useState } from 'react'
+import { useNavigate, useParams } from 'react-router'
 import { FilterSelect } from '../components/FilterSelect'
 import type { Filters } from '../types/community'
 import { fetchPostFilters, type PostFilterLookups } from '../utils/lookupsApi'
+import { fetchPostById } from '../utils/postsApi'
 import '../styles/pages/WritePage.css'
 
+type PostFormPayload = {
+  title: string
+  travelDate: string
+  imageUrl: string
+  regionCode: string
+  budgetCode: string
+  themeCode: string
+  season: string
+  companion: string
+  content: string
+}
+
 type WritePageProps = {
-  onCreatePost: (payload: {
-    title: string
-    travelDate: string
-    imageUrl: string
-    regionCode: string
-    budgetCode: string
-    themeCode: string
-    season: string
-    companion: string
-    content: string
-  }) => Promise<boolean>
+  onCreatePost: (payload: PostFormPayload) => Promise<boolean>
+  onUpdatePost: (postId: number, payload: PostFormPayload) => Promise<boolean>
 }
 
 const EMPTY_LOOKUPS: PostFilterLookups = {
@@ -28,10 +32,14 @@ const EMPTY_LOOKUPS: PostFilterLookups = {
   companions: [],
 }
 
-export function WritePage({ onCreatePost }: WritePageProps) {
+export function WritePage({ onCreatePost, onUpdatePost }: WritePageProps) {
   const navigate = useNavigate()
+  const params = useParams()
+  const postId = Number(params.postId)
+  const isEditMode = Number.isFinite(postId)
   const [lookupOptions, setLookupOptions] = useState<PostFilterLookups>(EMPTY_LOOKUPS)
   const [isLoadingLookups, setIsLoadingLookups] = useState(true)
+  const [isLoadingPost, setIsLoadingPost] = useState(isEditMode)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [form, setForm] = useState({
     title: '',
@@ -59,11 +67,9 @@ export function WritePage({ onCreatePost }: WritePageProps) {
 
         setLookupOptions(data)
       } catch (error) {
-        if (!isMounted) {
-          return
+        if (isMounted) {
+          window.alert(error instanceof Error ? error.message : 'Failed to load options.')
         }
-
-        window.alert(error instanceof Error ? error.message : '작성 옵션을 불러오지 못했습니다.')
       } finally {
         if (isMounted) {
           setIsLoadingLookups(false)
@@ -77,6 +83,55 @@ export function WritePage({ onCreatePost }: WritePageProps) {
       isMounted = false
     }
   }, [])
+
+  useEffect(() => {
+    if (!isEditMode) {
+      setIsLoadingPost(false)
+      return
+    }
+
+    let isMounted = true
+
+    const loadPost = async () => {
+      setIsLoadingPost(true)
+
+      try {
+        const response = await fetchPostById(postId)
+
+        if (!isMounted) {
+          return
+        }
+
+        setForm({
+          title: response.post.title,
+          travelDate: response.post.travelDate,
+          imageUrl: response.post.imageUrl,
+          region: response.post.regionCode ?? '',
+          budget: response.post.budgetCode ?? '',
+          theme: response.post.themeCode ?? '',
+          season: response.post.season,
+          companion: response.post.companion,
+          content: response.post.content,
+        })
+        setPreviewUrl(response.post.imageUrl)
+      } catch (error) {
+        if (isMounted) {
+          window.alert(error instanceof Error ? error.message : 'Failed to load post.')
+          navigate('/main')
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoadingPost(false)
+        }
+      }
+    }
+
+    void loadPost()
+
+    return () => {
+      isMounted = false
+    }
+  }, [isEditMode, navigate, postId])
 
   const updateSelect = (key: keyof Filters, value: string) => {
     setForm((current) => ({ ...current, [key]: value }))
@@ -98,13 +153,23 @@ export function WritePage({ onCreatePost }: WritePageProps) {
     reader.readAsDataURL(file)
   }
 
+  if (isLoadingLookups || isLoadingPost) {
+    return (
+      <main className="page">
+        <section className="empty-state">
+          <h1>Loading editor...</h1>
+        </section>
+      </main>
+    )
+  }
+
   return (
     <main className="page form-page">
       <section className="form-card">
         <div className="form-card__header">
-          <span>WRITE POST</span>
-          <h1>글쓰기</h1>
-          <p>제목, 여행일자, 사진, 동행 여부, 지역, 예산, 테마, 계절, 여행 내용을 입력합니다.</p>
+          <span>{isEditMode ? 'EDIT POST' : 'WRITE POST'}</span>
+          <h1>{isEditMode ? 'Edit Post' : 'Write Post'}</h1>
+          <p>Fill in the trip information and save it to the board.</p>
         </div>
         <form
           className="write-form"
@@ -121,14 +186,14 @@ export function WritePage({ onCreatePost }: WritePageProps) {
               !form.companion ||
               !form.content.trim()
             ) {
-              window.alert('필수 입력값을 모두 채워주세요.')
+              window.alert('Please fill in all required fields.')
               return
             }
 
             setIsSubmitting(true)
 
             try {
-              const isSuccess = await onCreatePost({
+              const payload = {
                 title: form.title.trim(),
                 travelDate: form.travelDate,
                 imageUrl: form.imageUrl || previewUrl,
@@ -138,28 +203,32 @@ export function WritePage({ onCreatePost }: WritePageProps) {
                 season: form.season,
                 companion: form.companion,
                 content: form.content.trim(),
-              })
+              }
+
+              const isSuccess = isEditMode
+                ? await onUpdatePost(postId, payload)
+                : await onCreatePost(payload)
 
               if (!isSuccess) {
                 return
               }
 
-              window.alert('게시글이 등록되었습니다.')
-              navigate('/main')
+              window.alert(isEditMode ? 'Post updated.' : 'Post created.')
+              navigate(isEditMode ? `/posts/${postId}` : '/main')
             } finally {
               setIsSubmitting(false)
             }
           }}
         >
           <label>
-            제목
+            Title
             <input
               value={form.title}
               onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
             />
           </label>
           <label>
-            여행일자
+            Travel Date
             <input
               type="date"
               value={form.travelDate}
@@ -169,7 +238,7 @@ export function WritePage({ onCreatePost }: WritePageProps) {
             />
           </label>
           <label>
-            사진 업로드
+            Upload Image
             <input accept="image/*" type="file" onChange={handleFileChange} />
           </label>
           {previewUrl ? (
@@ -179,46 +248,46 @@ export function WritePage({ onCreatePost }: WritePageProps) {
           ) : null}
           <div className="filter-grid form-filter-grid">
             <FilterSelect
-              label="동행 여부"
+              label="Companion"
               options={lookupOptions.companions}
               value={form.companion}
               onChange={(value) => updateSelect('companion', value)}
             />
             <FilterSelect
-              label="지역"
+              label="Region"
               options={lookupOptions.regions}
               value={form.region}
               onChange={(value) => updateSelect('region', value)}
             />
             <FilterSelect
-              label="예산"
+              label="Budget"
               options={lookupOptions.budgetRanges}
               value={form.budget}
               onChange={(value) => updateSelect('budget', value)}
             />
             <FilterSelect
-              label="테마"
+              label="Theme"
               options={lookupOptions.themes}
               value={form.theme}
               onChange={(value) => updateSelect('theme', value)}
             />
             <FilterSelect
-              label="계절"
+              label="Season"
               options={lookupOptions.seasons}
               value={form.season}
               onChange={(value) => updateSelect('season', value)}
             />
           </div>
           <label>
-            여행 내용
+            Content
             <textarea
-              placeholder="여행 내용, 동선, 추천 이유 등을 적어주세요."
+              placeholder="Write your trip route, budget, and recommendations."
               value={form.content}
               onChange={(event) => setForm((current) => ({ ...current, content: event.target.value }))}
             />
           </label>
-          <button className="primary-button" disabled={isLoadingLookups || isSubmitting} type="submit">
-            {isSubmitting ? '등록 중...' : '등록하기'}
+          <button className="primary-button" disabled={isSubmitting} type="submit">
+            {isSubmitting ? 'Saving...' : isEditMode ? 'Update Post' : 'Create Post'}
           </button>
         </form>
       </section>

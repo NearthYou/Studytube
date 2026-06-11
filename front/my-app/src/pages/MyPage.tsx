@@ -1,135 +1,284 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router'
-import type { Comment, PostWithMeta, User } from '../types/community'
+import type { CommentActivity, PostWithMeta, User } from '../types/community'
+import {
+  fetchMyBookmarks,
+  fetchMyComments,
+  fetchMyFollows,
+  fetchMyPosts,
+  type FollowUser,
+} from '../utils/meApi'
 import '../styles/pages/MyPage.css'
 
 type MyPageProps = {
   currentUser: User
-  posts: PostWithMeta[]
-  commentsByPost: Record<number, Comment[]>
-  likedPostIds: Set<number>
-  onUpdateProfile: (payload: { nickname: string; password: string }) => boolean
+  onUpdateProfile: (payload: {
+    nickname: string
+    password: string
+    bio: string
+    location: string
+  }) => Promise<boolean>
 }
 
-type MyPageTab = 'posts' | 'likes' | 'comments' | 'profile'
+type MyPageTab = 'posts' | 'likes' | 'comments' | 'follows' | 'profile'
 
-export function MyPage({
-  currentUser,
-  posts,
-  commentsByPost,
-  likedPostIds,
-  onUpdateProfile,
-}: MyPageProps) {
+const POST_LIMIT = 15
+const COMMENT_LIMIT = 20
+const FOLLOW_LIMIT = 20
+
+export function MyPage({ currentUser, onUpdateProfile }: MyPageProps) {
   const [tab, setTab] = useState<MyPageTab>('posts')
   const [nickname, setNickname] = useState(currentUser.nickname)
-  const [password, setPassword] = useState(currentUser.password)
+  const [password, setPassword] = useState('')
+  const [bio, setBio] = useState(currentUser.bio)
+  const [location, setLocation] = useState(currentUser.location)
+  const [myPosts, setMyPosts] = useState<PostWithMeta[]>([])
+  const [likedPosts, setLikedPosts] = useState<PostWithMeta[]>([])
+  const [myComments, setMyComments] = useState<CommentActivity[]>([])
+  const [followUsers, setFollowUsers] = useState<FollowUser[]>([])
+  const [pages, setPages] = useState({
+    posts: 1,
+    likes: 1,
+    comments: 1,
+    follows: 1,
+  })
+  const [totalPages, setTotalPages] = useState({
+    posts: 1,
+    likes: 1,
+    comments: 1,
+    follows: 1,
+  })
+  const [isLoading, setIsLoading] = useState(true)
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
-  const myPosts = useMemo(
-    () => posts.filter((post) => post.author.id === currentUser.id),
-    [currentUser.id, posts],
-  )
-  const likedPosts = useMemo(
-    () => posts.filter((post) => likedPostIds.has(post.id)),
-    [likedPostIds, posts],
-  )
+  useEffect(() => {
+    setNickname(currentUser.nickname)
+    setBio(currentUser.bio)
+    setLocation(currentUser.location)
+  }, [currentUser.bio, currentUser.location, currentUser.nickname])
 
-  const myComments = useMemo(() => {
-    return Object.entries(commentsByPost).flatMap(([postId, comments]) => {
-      const parentMatches = comments
-        .filter((comment) => comment.authorId === currentUser.id)
-        .map((comment) => ({
-          postId: Number(postId),
-          text: comment.content,
-          createdAt: comment.createdAt,
-          type: '댓글',
-        }))
+  useEffect(() => {
+    if (tab === 'profile') {
+      setIsLoading(false)
+      return
+    }
 
-      const replyMatches = comments.flatMap((comment) =>
-        comment.replies
-          .filter((reply) => reply.authorId === currentUser.id)
-          .map((reply) => ({
-            postId: Number(postId),
-            text: reply.content,
-            createdAt: reply.createdAt,
-            type: '대댓글',
-          })),
-      )
+    let isMounted = true
 
-      return [...parentMatches, ...replyMatches]
-    })
-  }, [commentsByPost, currentUser.id])
+    const loadCurrentTab = async () => {
+      setIsLoading(true)
+
+      try {
+        if (tab === 'posts') {
+          const response = await fetchMyPosts({
+            page: pages.posts,
+            limit: POST_LIMIT,
+          })
+
+          if (!isMounted) {
+            return
+          }
+
+          setMyPosts(response.items)
+          setTotalPages((current) => ({ ...current, posts: response.totalPages }))
+        }
+
+        if (tab === 'likes') {
+          const response = await fetchMyBookmarks({
+            page: pages.likes,
+            limit: POST_LIMIT,
+          })
+
+          if (!isMounted) {
+            return
+          }
+
+          setLikedPosts(response.items)
+          setTotalPages((current) => ({ ...current, likes: response.totalPages }))
+        }
+
+        if (tab === 'comments') {
+          const response = await fetchMyComments({
+            page: pages.comments,
+            limit: COMMENT_LIMIT,
+          })
+
+          if (!isMounted) {
+            return
+          }
+
+          setMyComments(response.items)
+          setTotalPages((current) => ({ ...current, comments: response.totalPages }))
+        }
+
+        if (tab === 'follows') {
+          const response = await fetchMyFollows({
+            page: pages.follows,
+            limit: FOLLOW_LIMIT,
+          })
+
+          if (!isMounted) {
+            return
+          }
+
+          setFollowUsers(response.items)
+          setTotalPages((current) => ({ ...current, follows: response.totalPages }))
+        }
+      } catch (error) {
+        if (isMounted) {
+          window.alert(error instanceof Error ? error.message : 'Failed to load my page.')
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false)
+        }
+      }
+    }
+
+    void loadCurrentTab()
+
+    return () => {
+      isMounted = false
+    }
+  }, [pages.comments, pages.follows, pages.likes, pages.posts, tab])
+
+  const renderPagination = (key: 'posts' | 'likes' | 'comments' | 'follows') => {
+    const currentPage = pages[key]
+    const currentTotalPages = totalPages[key]
+
+    if (currentTotalPages <= 1) {
+      return null
+    }
+
+    return (
+      <div className="mypage-pagination">
+        <button
+          disabled={currentPage <= 1}
+          type="button"
+          onClick={() =>
+            setPages((current) => ({
+              ...current,
+              [key]: Math.max(1, current[key] - 1),
+            }))
+          }
+        >
+          Previous
+        </button>
+        <span>
+          {currentPage} / {currentTotalPages}
+        </span>
+        <button
+          disabled={currentPage >= currentTotalPages}
+          type="button"
+          onClick={() =>
+            setPages((current) => ({
+              ...current,
+              [key]: Math.min(currentTotalPages, current[key] + 1),
+            }))
+          }
+        >
+          Next
+        </button>
+      </div>
+    )
+  }
 
   return (
     <main className="page mypage-page">
       <section className="profile-banner">
         <span>MYPAGE</span>
         <h1>{currentUser.nickname}</h1>
-        <p>{currentUser.bio}</p>
+        <p>{currentUser.bio || 'No bio yet.'}</p>
       </section>
 
       <section className="mypage-tabs">
         <button className={tab === 'posts' ? 'active' : ''} type="button" onClick={() => setTab('posts')}>
-          내가 쓴 글
+          My Posts
         </button>
         <button className={tab === 'likes' ? 'active' : ''} type="button" onClick={() => setTab('likes')}>
-          좋아요한 글
+          Bookmarks
         </button>
         <button className={tab === 'comments' ? 'active' : ''} type="button" onClick={() => setTab('comments')}>
-          내가 쓴 댓글
+          My Comments
+        </button>
+        <button className={tab === 'follows' ? 'active' : ''} type="button" onClick={() => setTab('follows')}>
+          Following
         </button>
         <button className={tab === 'profile' ? 'active' : ''} type="button" onClick={() => setTab('profile')}>
-          내 정보 수정
+          Edit Profile
         </button>
       </section>
 
       {tab === 'posts' ? (
         <section className="mypage-panel">
-          {myPosts.length ? (
-            myPosts.map((post) => (
-              <Link className="mypage-item" key={post.id} to={`/posts/${post.id}`}>
-                <strong>{post.title}</strong>
-                <span>{post.region} · {post.travelDate}</span>
-              </Link>
-            ))
-          ) : (
-            <p className="muted-copy">아직 작성한 게시글이 없습니다.</p>
-          )}
+          {isLoading ? <p className="muted-copy">Loading...</p> : null}
+          {!isLoading && myPosts.length
+            ? myPosts.map((post) => (
+                <Link className="mypage-item" key={post.id} to={`/posts/${post.id}`}>
+                  <strong>{post.title}</strong>
+                  <span>
+                    {post.region} | {post.travelDate}
+                  </span>
+                </Link>
+              ))
+            : null}
+          {!isLoading && !myPosts.length ? <p className="muted-copy">No posts yet.</p> : null}
+          {renderPagination('posts')}
         </section>
       ) : null}
 
       {tab === 'likes' ? (
         <section className="mypage-panel">
-          {likedPosts.length ? (
-            likedPosts.map((post) => (
-              <Link className="mypage-item" key={post.id} to={`/posts/${post.id}`}>
-                <strong>{post.title}</strong>
-                <span>{post.author.nickname} · 조회 {post.views}</span>
-              </Link>
-            ))
-          ) : (
-            <p className="muted-copy">좋아요한 글이 없습니다.</p>
-          )}
+          {isLoading ? <p className="muted-copy">Loading...</p> : null}
+          {!isLoading && likedPosts.length
+            ? likedPosts.map((post) => (
+                <Link className="mypage-item" key={post.id} to={`/posts/${post.id}`}>
+                  <strong>{post.title}</strong>
+                  <span>
+                    {post.author.nickname} | Views {post.views}
+                  </span>
+                </Link>
+              ))
+            : null}
+          {!isLoading && !likedPosts.length ? <p className="muted-copy">No bookmarks yet.</p> : null}
+          {renderPagination('likes')}
         </section>
       ) : null}
 
       {tab === 'comments' ? (
         <section className="mypage-panel">
-          {myComments.length ? (
-            myComments.map((entry, index) => {
-              const post = posts.find((item) => item.id === entry.postId)
-              return (
-                <Link className="mypage-item" key={`${entry.postId}-${index}`} to={`/posts/${entry.postId}`}>
-                  <strong>{entry.type}</strong>
-                  <span>{entry.text}</span>
+          {isLoading ? <p className="muted-copy">Loading...</p> : null}
+          {!isLoading && myComments.length
+            ? myComments.map((entry) => (
+                <Link className="mypage-item" key={`${entry.type}-${entry.id}`} to={`/posts/${entry.postId}`}>
+                  <strong>{entry.type === 'comment' ? 'Comment' : 'Reply'}</strong>
+                  <span>{entry.content}</span>
                   <small>
-                    {post?.title ?? '알 수 없는 글'} · {entry.createdAt}
+                    {entry.postTitle} | {entry.createdAt}
                   </small>
                 </Link>
-              )
-            })
-          ) : (
-            <p className="muted-copy">아직 작성한 댓글이 없습니다.</p>
-          )}
+              ))
+            : null}
+          {!isLoading && !myComments.length ? <p className="muted-copy">No comments yet.</p> : null}
+          {renderPagination('comments')}
+        </section>
+      ) : null}
+
+      {tab === 'follows' ? (
+        <section className="mypage-panel">
+          {isLoading ? <p className="muted-copy">Loading...</p> : null}
+          {!isLoading && followUsers.length
+            ? followUsers.map((user) => (
+                <Link className="mypage-item" key={user.id} to={`/profile/${user.id}`}>
+                  <strong>{user.nickname}</strong>
+                  <span>{user.bio || user.name}</span>
+                </Link>
+              ))
+            : null}
+          {!isLoading && !followUsers.length ? (
+            <p className="muted-copy">You are not following anyone yet.</p>
+          ) : null}
+          {renderPagination('follows')}
         </section>
       ) : null}
 
@@ -137,45 +286,66 @@ export function MyPage({
         <section className="mypage-panel">
           <form
             className="profile-edit-form"
-            onSubmit={(event) => {
+            onSubmit={async (event) => {
               event.preventDefault()
-              if (!nickname.trim() || !password.trim()) {
-                window.alert('닉네임과 비밀번호를 입력해주세요.')
+
+              if (!nickname.trim()) {
+                window.alert('Nickname is required.')
                 return
               }
-              const success = onUpdateProfile({
-                nickname: nickname.trim(),
-                password: password.trim(),
-              })
-              if (!success) {
-                window.alert('중복된 닉네임입니다.')
-                return
+
+              setIsSubmitting(true)
+
+              try {
+                const success = await onUpdateProfile({
+                  nickname: nickname.trim(),
+                  password: password.trim(),
+                  bio: bio.trim(),
+                  location: location.trim(),
+                })
+
+                if (!success) {
+                  return
+                }
+
+                setPassword('')
+                window.alert('Profile updated.')
+              } finally {
+                setIsSubmitting(false)
               }
-              window.alert('내 정보가 수정되었습니다.')
             }}
           >
             <label>
-              이름
+              Name
               <input disabled value={currentUser.name} />
             </label>
             <label>
-              이메일
+              Email
               <input disabled value={currentUser.email} />
             </label>
             <label>
-              닉네임
+              Nickname
               <input value={nickname} onChange={(event) => setNickname(event.target.value)} />
             </label>
             <label>
-              비밀번호
+              New Password
               <input
+                placeholder="Leave blank to keep current password"
                 type="password"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
               />
             </label>
-            <button className="primary-button" type="submit">
-              수정 저장
+            <label>
+              Bio
+              <textarea value={bio} onChange={(event) => setBio(event.target.value)} />
+            </label>
+            <label>
+              Location
+              <input value={location} onChange={(event) => setLocation(event.target.value)} />
+            </label>
+            <button className="primary-button" disabled={isSubmitting} type="submit">
+              {isSubmitting ? 'Saving...' : 'Save'}
             </button>
           </form>
         </section>

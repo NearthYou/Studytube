@@ -60,6 +60,26 @@
   font-size: 0.88rem;
 }
 
+.mypage-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 1.25rem;
+}
+
+.mypage-pagination button {
+  border: 1px solid #d9d1c4;
+  background: #fffdfa;
+  padding: 0.55rem 0.9rem;
+  cursor: pointer;
+}
+
+.mypage-pagination button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 @media (max-width: 760px) {
   .profile-banner,
   .mypage-panel {

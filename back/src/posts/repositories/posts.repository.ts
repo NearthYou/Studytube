@@ -32,6 +32,21 @@ type CreatePostParams = {
   tags: string[];
 };
 
+type UpdatePostParams = {
+  postId: number;
+  title?: string;
+  summary?: string | null;
+  content?: string | null;
+  imageUrl?: string | null;
+  regionId?: number;
+  budgetRangeId?: number;
+  themeId?: number;
+  season?: string;
+  companion?: string;
+  travelDate?: string;
+  tags?: string[];
+};
+
 type PostCountRow = {
   total_count: number;
 };
@@ -109,23 +124,52 @@ export type PostListItem = {
 export class PostsRepository {
   constructor(private readonly databaseService: DatabaseService) {}
 
+  private readonly baseSelectClause = `
+    SELECT
+      p.id,
+      p.author_id,
+      p.title,
+      p.summary,
+      p.content,
+      p.image_url,
+      r.code AS region_code,
+      r.name AS region_name,
+      b.code AS budget_code,
+      b.label AS budget_label,
+      t.code AS theme_code,
+      t.name AS theme_name,
+      p.season,
+      p.companion,
+      p.travel_date,
+      p.tags,
+      p.view_count,
+      p.comment_count,
+      p.created_at,
+      p.updated_at,
+      u.name AS author_name,
+      u.nickname AS author_nickname,
+      u.bio AS author_bio,
+      u.location AS author_location
+  `;
+
+  private readonly baseFromClause = `
+    FROM posts p
+    JOIN users u
+      ON u.id = p.author_id
+    JOIN regions r
+      ON r.id = p.region_id
+    JOIN budget_ranges b
+      ON b.id = p.budget_range_id
+    JOIN themes t
+      ON t.id = p.theme_id
+  `;
+
   async findPosts(params: FindPostsParams) {
-    const fromClause = `
-      FROM posts p
-      JOIN users u
-        ON u.id = p.author_id
-      JOIN regions r
-        ON r.id = p.region_id
-      JOIN budget_ranges b
-        ON b.id = p.budget_range_id
-      JOIN themes t
-        ON t.id = p.theme_id
-    `;
     const { values, whereClause } = this.buildWhereClause(params);
     const countResult = await this.databaseService.query<PostCountRow>(
       `
         SELECT COUNT(*)::int AS total_count
-        ${fromClause}
+        ${this.baseFromClause}
         ${whereClause}
       `,
       values,
@@ -136,32 +180,8 @@ export class PostsRepository {
     const offset = (params.page - 1) * params.limit;
     const rowsResult = await this.databaseService.query<PostRow>(
       `
-        SELECT
-          p.id,
-          p.author_id,
-          p.title,
-          p.summary,
-          p.content,
-          p.image_url,
-          r.code AS region_code,
-          r.name AS region_name,
-          b.code AS budget_code,
-          b.label AS budget_label,
-          t.code AS theme_code,
-          t.name AS theme_name,
-          p.season,
-          p.companion,
-          p.travel_date,
-          p.tags,
-          p.view_count,
-          p.comment_count,
-          p.created_at,
-          p.updated_at,
-          u.name AS author_name,
-          u.nickname AS author_nickname,
-          u.bio AS author_bio,
-          u.location AS author_location
-        ${fromClause}
+        ${this.baseSelectClause}
+        ${this.baseFromClause}
         ${whereClause}
         ORDER BY ${this.getOrderByClause(params.sort)}
         LIMIT $${limitParamIndex}
@@ -176,35 +196,54 @@ export class PostsRepository {
     };
   }
 
-  async findPostById(postId: number) {
-    const result = await this.databaseService.query<PostRow>(
+  async findPostsByAuthorId(authorId: number, page: number, limit: number) {
+    const offset = (page - 1) * limit;
+    const countResult = await this.databaseService.query<PostCountRow>(
       `
-        SELECT
-          p.id,
-          p.author_id,
-          p.title,
-          p.summary,
-          p.content,
-          p.image_url,
-          r.code AS region_code,
-          r.name AS region_name,
-          b.code AS budget_code,
-          b.label AS budget_label,
-          t.code AS theme_code,
-          t.name AS theme_name,
-          p.season,
-          p.companion,
-          p.travel_date,
-          p.tags,
-          p.view_count,
-          p.comment_count,
-          p.created_at,
-          p.updated_at,
-          u.name AS author_name,
-          u.nickname AS author_nickname,
-          u.bio AS author_bio,
-          u.location AS author_location
-        FROM posts p
+        SELECT COUNT(*)::int AS total_count
+        ${this.baseFromClause}
+        WHERE p.author_id = $1
+      `,
+      [authorId],
+    );
+
+    const rowsResult = await this.databaseService.query<PostRow>(
+      `
+        ${this.baseSelectClause}
+        ${this.baseFromClause}
+        WHERE p.author_id = $1
+        ORDER BY p.created_at DESC, p.id DESC
+        LIMIT $2
+        OFFSET $3
+      `,
+      [authorId, limit, offset],
+    );
+
+    return {
+      totalCount: countResult.rows[0]?.total_count ?? 0,
+      items: rowsResult.rows.map((row) => this.toPostListItem(row)),
+    };
+  }
+
+  async findBookmarkedPostsByUserId(userId: number, page: number, limit: number) {
+    const offset = (page - 1) * limit;
+    const countResult = await this.databaseService.query<PostCountRow>(
+      `
+        SELECT COUNT(*)::int AS total_count
+        FROM post_bookmarks pb
+        JOIN posts p
+          ON p.id = pb.post_id
+        WHERE pb.user_id = $1
+      `,
+      [userId],
+    );
+
+    const rowsResult = await this.databaseService.query<PostRow>(
+      `
+        ${this.baseSelectClause}
+        FROM post_bookmarks pb
+        JOIN posts p
+          ON p.id = pb.post_id
         JOIN users u
           ON u.id = p.author_id
         JOIN regions r
@@ -213,6 +252,25 @@ export class PostsRepository {
           ON b.id = p.budget_range_id
         JOIN themes t
           ON t.id = p.theme_id
+        WHERE pb.user_id = $1
+        ORDER BY pb.created_at DESC, p.created_at DESC, p.id DESC
+        LIMIT $2
+        OFFSET $3
+      `,
+      [userId, limit, offset],
+    );
+
+    return {
+      totalCount: countResult.rows[0]?.total_count ?? 0,
+      items: rowsResult.rows.map((row) => this.toPostListItem(row)),
+    };
+  }
+
+  async findPostById(postId: number) {
+    const result = await this.databaseService.query<PostRow>(
+      `
+        ${this.baseSelectClause}
+        ${this.baseFromClause}
         WHERE p.id = $1
       `,
       [postId],
@@ -244,6 +302,38 @@ export class PostsRepository {
       postId,
       viewCount: result.rows[0].view_count,
     };
+  }
+
+  async existsPost(postId: number) {
+    const result = await this.databaseService.query<{ exists: boolean }>(
+      `
+        SELECT EXISTS (
+          SELECT 1
+          FROM posts
+          WHERE id = $1
+        ) AS exists
+      `,
+      [postId],
+    );
+
+    return result.rows[0]?.exists ?? false;
+  }
+
+  async findPostAuthorId(postId: number) {
+    const result = await this.databaseService.query<{ author_id: number }>(
+      `
+        SELECT author_id
+        FROM posts
+        WHERE id = $1
+      `,
+      [postId],
+    );
+
+    if (!result.rowCount) {
+      return null;
+    }
+
+    return result.rows[0].author_id;
   }
 
   async resolvePostFiltersByCode(
@@ -322,6 +412,55 @@ export class PostsRepository {
     return result.rows[0].id;
   }
 
+  async updatePost(params: UpdatePostParams) {
+    const updates: string[] = [];
+    const values: unknown[] = [];
+
+    const appendUpdate = (column: string, value: unknown) => {
+      values.push(value);
+      updates.push(`${column} = $${values.length}`);
+    };
+
+    if (params.title !== undefined) appendUpdate('title', params.title);
+    if (params.summary !== undefined) appendUpdate('summary', params.summary);
+    if (params.content !== undefined) appendUpdate('content', params.content);
+    if (params.imageUrl !== undefined) appendUpdate('image_url', params.imageUrl);
+    if (params.regionId !== undefined) appendUpdate('region_id', params.regionId);
+    if (params.budgetRangeId !== undefined) {
+      appendUpdate('budget_range_id', params.budgetRangeId);
+    }
+    if (params.themeId !== undefined) appendUpdate('theme_id', params.themeId);
+    if (params.season !== undefined) appendUpdate('season', params.season);
+    if (params.companion !== undefined) appendUpdate('companion', params.companion);
+    if (params.travelDate !== undefined) appendUpdate('travel_date', params.travelDate);
+    if (params.tags !== undefined) appendUpdate('tags', params.tags);
+
+    if (!updates.length) {
+      return;
+    }
+
+    values.push(params.postId);
+
+    await this.databaseService.query(
+      `
+        UPDATE posts
+        SET ${updates.join(', ')}
+        WHERE id = $${values.length}
+      `,
+      values,
+    );
+  }
+
+  async deletePost(postId: number) {
+    await this.databaseService.query(
+      `
+        DELETE FROM posts
+        WHERE id = $1
+      `,
+      [postId],
+    );
+  }
+
   private buildWhereClause(params: FindPostsParams) {
     const clauses: string[] = [];
     const values: unknown[] = [];
@@ -332,21 +471,29 @@ export class PostsRepository {
     };
 
     if (params.q) {
-      appendClause(
-        `
-          (
-            p.title ILIKE '%' || ? || '%'
-            OR COALESCE(p.summary, '') ILIKE '%' || ? || '%'
-            OR COALESCE(p.content, '') ILIKE '%' || ? || '%'
-            OR COALESCE(array_to_string(p.tags, ' '), '') ILIKE '%' || ? || '%'
-            OR u.nickname ILIKE '%' || ? || '%'
-            OR r.name ILIKE '%' || ? || '%'
-            OR b.label ILIKE '%' || ? || '%'
-            OR t.name ILIKE '%' || ? || '%'
-          )
-        `,
+      values.push(
+        params.q,
+        params.q,
+        params.q,
+        params.q,
+        params.q,
+        params.q,
+        params.q,
         params.q,
       );
+      const start = values.length - 7;
+      clauses.push(`
+        (
+          p.title ILIKE '%' || $${start} || '%'
+          OR COALESCE(p.summary, '') ILIKE '%' || $${start + 1} || '%'
+          OR COALESCE(p.content, '') ILIKE '%' || $${start + 2} || '%'
+          OR COALESCE(array_to_string(p.tags, ' '), '') ILIKE '%' || $${start + 3} || '%'
+          OR u.nickname ILIKE '%' || $${start + 4} || '%'
+          OR r.name ILIKE '%' || $${start + 5} || '%'
+          OR b.label ILIKE '%' || $${start + 6} || '%'
+          OR t.name ILIKE '%' || $${start + 7} || '%'
+        )
+      `);
     }
 
     if (params.regionCode) {
@@ -369,31 +516,36 @@ export class PostsRepository {
       appendClause('p.companion = ?', params.companion);
     }
 
+    if (!clauses.length) {
+      return {
+        values,
+        whereClause: '',
+      };
+    }
+
     return {
       values,
-      whereClause: clauses.length
-        ? `WHERE ${clauses.join(' AND ')}`
-        : '',
+      whereClause: `WHERE ${clauses.join('\nAND ')}`,
     };
   }
 
   private getOrderByClause(sort: PostSort) {
-    if (sort === 'popular') {
-      return 'p.view_count DESC, p.created_at DESC, p.id DESC';
+    switch (sort) {
+      case 'popular':
+        return 'p.view_count DESC, p.created_at DESC, p.id DESC';
+      case 'comments':
+        return 'p.comment_count DESC, p.created_at DESC, p.id DESC';
+      case 'latest':
+      default:
+        return 'p.created_at DESC, p.id DESC';
     }
-
-    if (sort === 'comments') {
-      return 'p.comment_count DESC, p.created_at DESC, p.id DESC';
-    }
-
-    return 'p.created_at DESC, p.id DESC';
   }
 
   private toPostListItem(row: PostRow): PostListItem {
     return {
       id: row.id,
       title: row.title,
-      summary: row.summary ?? '',
+      summary: row.summary ?? row.content ?? '',
       content: row.content ?? '',
       region: row.region_name,
       regionCode: row.region_code,

@@ -1,11 +1,13 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { AuthUser } from '../common/types/auth-user.type';
 import { CreatePostDto } from './dto/create-post.dto';
 import { GetPostsQueryDto } from './dto/get-posts.query.dto';
+import { UpdatePostDto } from './dto/update-post.dto';
 import { PostsRepository } from './repositories/posts.repository';
 
 @Injectable()
@@ -39,7 +41,7 @@ export class PostsService {
     const post = await this.postsRepository.findPostById(postId);
 
     if (!post) {
-      throw new NotFoundException('게시글을 찾을 수 없습니다.');
+      throw new NotFoundException('Post not found.');
     }
 
     return {
@@ -51,7 +53,7 @@ export class PostsService {
     const result = await this.postsRepository.incrementViewCount(postId);
 
     if (!result) {
-      throw new NotFoundException('게시글을 찾을 수 없습니다.');
+      throw new NotFoundException('Post not found.');
     }
 
     return result;
@@ -65,19 +67,18 @@ export class PostsService {
     );
 
     if (!resolvedFilters) {
-      throw new BadRequestException('유효하지 않은 지역/예산/테마 코드입니다.');
+      throw new BadRequestException('Invalid post filter code.');
     }
 
     const content = createPostDto.content?.trim() ?? null;
     const summary = this.buildSummary(content);
-    const tags =
-      createPostDto.tags?.length
-        ? createPostDto.tags
-        : [
-            `#${resolvedFilters.region_name}`,
-            `#${resolvedFilters.theme_name}`,
-            `#${createPostDto.companion}`,
-          ];
+    const tags = createPostDto.tags?.length
+      ? createPostDto.tags
+      : [
+          `#${resolvedFilters.region_name}`,
+          `#${resolvedFilters.theme_name}`,
+          `#${createPostDto.companion}`,
+        ];
 
     const postId = await this.postsRepository.createPost({
       authorId: user.id,
@@ -97,12 +98,103 @@ export class PostsService {
     const post = await this.postsRepository.findPostById(postId);
 
     if (!post) {
-      throw new NotFoundException('생성된 게시글을 찾을 수 없습니다.');
+      throw new NotFoundException('Created post not found.');
     }
 
     return {
-      message: '게시글이 등록되었습니다.',
+      message: 'Post created.',
       post,
+    };
+  }
+
+  async updatePost(postId: number, user: AuthUser, updatePostDto: UpdatePostDto) {
+    const currentPost = await this.postsRepository.findPostById(postId);
+
+    if (!currentPost) {
+      throw new NotFoundException('Post not found.');
+    }
+
+    if (currentPost.author.id !== user.id) {
+      throw new ForbiddenException('You can only edit your own post.');
+    }
+
+    const nextRegionCode = updatePostDto.regionCode ?? currentPost.regionCode ?? '';
+    const nextBudgetCode = updatePostDto.budgetCode ?? currentPost.budgetCode ?? '';
+    const nextThemeCode = updatePostDto.themeCode ?? currentPost.themeCode ?? '';
+
+    const shouldResolveFilters =
+      updatePostDto.regionCode !== undefined ||
+      updatePostDto.budgetCode !== undefined ||
+      updatePostDto.themeCode !== undefined;
+
+    const resolvedFilters = shouldResolveFilters
+      ? await this.postsRepository.resolvePostFiltersByCode(
+          nextRegionCode,
+          nextBudgetCode,
+          nextThemeCode,
+        )
+      : null;
+
+    if (shouldResolveFilters && !resolvedFilters) {
+      throw new BadRequestException('Invalid post filter code.');
+    }
+
+    const content =
+      updatePostDto.content !== undefined
+        ? updatePostDto.content.trim() || null
+        : undefined;
+    const summary =
+      content !== undefined ? this.buildSummary(content) : undefined;
+
+    await this.postsRepository.updatePost({
+      postId,
+      title:
+        updatePostDto.title !== undefined
+          ? updatePostDto.title.trim()
+          : undefined,
+      summary,
+      content,
+      imageUrl:
+        updatePostDto.imageUrl !== undefined
+          ? updatePostDto.imageUrl.trim() || null
+          : undefined,
+      regionId: resolvedFilters?.region_id,
+      budgetRangeId: resolvedFilters?.budget_range_id,
+      themeId: resolvedFilters?.theme_id,
+      season: updatePostDto.season,
+      companion: updatePostDto.companion,
+      travelDate: updatePostDto.travelDate,
+      tags: updatePostDto.tags,
+    });
+
+    const post = await this.postsRepository.findPostById(postId);
+
+    if (!post) {
+      throw new NotFoundException('Updated post not found.');
+    }
+
+    return {
+      message: 'Post updated.',
+      post,
+    };
+  }
+
+  async deletePost(postId: number, user: AuthUser) {
+    const authorId = await this.postsRepository.findPostAuthorId(postId);
+
+    if (!authorId) {
+      throw new NotFoundException('Post not found.');
+    }
+
+    if (authorId !== user.id) {
+      throw new ForbiddenException('You can only delete your own post.');
+    }
+
+    await this.postsRepository.deletePost(postId);
+
+    return {
+      message: 'Post deleted.',
+      postId,
     };
   }
 

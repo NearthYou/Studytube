@@ -13,6 +13,7 @@ type BoardPageProps = {
   likedPostIds: Set<number>
   onToggleLike: (postId: number) => void
   onHydratePosts: (posts: PostWithMeta[]) => void
+  refreshToken: number
 }
 
 const EMPTY_FILTERS: Filters = {
@@ -36,6 +37,7 @@ export function BoardPage({
   likedPostIds,
   onToggleLike,
   onHydratePosts,
+  refreshToken,
 }: BoardPageProps) {
   const [query, setQuery] = useState('')
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS)
@@ -135,6 +137,7 @@ export function BoardPage({
     filters.season,
     filters.theme,
     onHydratePosts,
+    refreshToken,
     sortOption,
   ])
 

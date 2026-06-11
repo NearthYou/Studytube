@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from 'react'
 import { Navigate, Route, Routes, useNavigate } from 'react-router'
 import { AppShell } from './components/AppShell'
 import {
-  INITIAL_COMMENTS,
   INITIAL_FOLLOWED_BY_USER,
   INITIAL_LIKED_BY_USER,
   INITIAL_POSTS,
@@ -17,7 +16,7 @@ import { PostDetailPage } from './pages/PostDetailPage'
 import { ProfilePage } from './pages/ProfilePage'
 import { SignupPage } from './pages/SignupPage'
 import { WritePage } from './pages/WritePage'
-import type { Comment, Post, PostWithMeta, User } from './types/community'
+import type { Post, PostWithMeta, User } from './types/community'
 import {
   clearAuthToken,
   fetchMe,
@@ -30,8 +29,14 @@ import {
   signupUser,
   type AuthApiUser,
 } from './utils/authApi'
-import { createPost as createPostApi, incrementPostView } from './utils/postsApi'
-import { countDiscussion } from './utils/community'
+import { fetchMyBookmarks, fetchMyFollows, updateMyProfile as updateMyProfileApi } from './utils/meApi'
+import {
+  createPost as createPostApi,
+  deletePost as deletePostApi,
+  incrementPostView,
+  updatePost as updatePostApi,
+} from './utils/postsApi'
+import { addBookmark, followUser, removeBookmark, unfollowUser } from './utils/socialApi'
 
 type SignupPayload = {
   name: string
@@ -143,9 +148,9 @@ function App() {
   const [currentUserId, setCurrentUserId] = useState<number | null>(null)
   const [isAuthReady, setIsAuthReady] = useState(false)
   const [posts, setPosts] = useState<Post[]>(INITIAL_POSTS)
-  const [commentsByPost] = useState<Record<number, Comment[]>>(INITIAL_COMMENTS)
   const [likedByUser, setLikedByUser] = useState<Record<number, number[]>>(INITIAL_LIKED_BY_USER)
   const [followedByUser, setFollowedByUser] = useState<Record<number, number[]>>(INITIAL_FOLLOWED_BY_USER)
+  const [boardRefreshToken, setBoardRefreshToken] = useState(0)
 
   useEffect(() => {
     const token = getAuthToken()
@@ -202,11 +207,54 @@ function App() {
     return [
       {
         ...post,
-        discussionCount: (post.discussionCount ?? 0) + countDiscussion(commentsByPost[post.id] ?? []),
+        discussionCount: post.discussionCount ?? 0,
         author,
       },
     ]
   })
+
+  const syncSocialState = useCallback(async (userId: number) => {
+    try {
+      const [bookmarksResponse, followsResponse] = await Promise.all([
+        fetchMyBookmarks({ page: 1, limit: 100 }),
+        fetchMyFollows({ page: 1, limit: 100 }),
+      ])
+
+      setLikedByUser((current) => ({
+        ...current,
+        [userId]: bookmarksResponse.items.map((post) => post.id),
+      }))
+
+      setFollowedByUser((current) => ({
+        ...current,
+        [userId]: followsResponse.items.map((user) => user.id),
+      }))
+
+      setUsers((current) =>
+        followsResponse.items.reduce(
+          (nextUsers, user) => upsertUser(nextUsers, mapAuthUserToCommunityUser(user)),
+          current,
+        ),
+      )
+    } catch {
+      setLikedByUser((current) => ({
+        ...current,
+        [userId]: current[userId] ?? [],
+      }))
+      setFollowedByUser((current) => ({
+        ...current,
+        [userId]: current[userId] ?? [],
+      }))
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!currentUserId || !getAuthToken()) {
+      return
+    }
+
+    void syncSocialState(currentUserId)
+  }, [currentUserId, syncSocialState])
 
   const handleLogin = async (userId: string, password: string) => {
     try {
@@ -250,6 +298,8 @@ function App() {
     }
 
     setCurrentUserId(null)
+    setLikedByUser(INITIAL_LIKED_BY_USER)
+    setFollowedByUser(INITIAL_FOLLOWED_BY_USER)
     navigate('/login')
   }
 
@@ -268,40 +318,72 @@ function App() {
     setPosts((current) => upsertPosts(current, incomingPosts.map(toCommunityPost)))
   }, [])
 
-  const toggleLike = (postId: number) => {
+  const removePost = useCallback((postId: number) => {
+    setPosts((current) => current.filter((post) => post.id !== postId))
+  }, [])
+
+  const refreshBoard = useCallback(() => {
+    setBoardRefreshToken((current) => current + 1)
+  }, [])
+
+  const toggleLike = async (postId: number) => {
     if (!currentUser) {
       return
     }
 
-    setLikedByUser((current) => {
-      const currentLikes = current[currentUser.id] ?? []
-      const nextLikes = currentLikes.includes(postId)
-        ? currentLikes.filter((id) => id !== postId)
-        : [...currentLikes, postId]
+    const alreadyLiked = likedPostIds.has(postId)
 
-      return {
-        ...current,
-        [currentUser.id]: nextLikes,
+    try {
+      if (alreadyLiked) {
+        await removeBookmark(postId)
+      } else {
+        await addBookmark(postId)
       }
-    })
+
+      setLikedByUser((current) => {
+        const currentLikes = current[currentUser.id] ?? []
+        const nextLikes = alreadyLiked
+          ? currentLikes.filter((id) => id !== postId)
+          : [...currentLikes, postId]
+
+        return {
+          ...current,
+          [currentUser.id]: nextLikes,
+        }
+      })
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Failed to update bookmark.')
+    }
   }
 
-  const toggleFollow = (authorId: number) => {
+  const toggleFollow = async (authorId: number) => {
     if (!currentUser) {
       return
     }
 
-    setFollowedByUser((current) => {
-      const currentFollows = current[currentUser.id] ?? []
-      const nextFollows = currentFollows.includes(authorId)
-        ? currentFollows.filter((id) => id !== authorId)
-        : [...currentFollows, authorId]
+    const alreadyFollowing = followedAuthorIds.has(authorId)
 
-      return {
-        ...current,
-        [currentUser.id]: nextFollows,
+    try {
+      if (alreadyFollowing) {
+        await unfollowUser(authorId)
+      } else {
+        await followUser(authorId)
       }
-    })
+
+      setFollowedByUser((current) => {
+        const currentFollows = current[currentUser.id] ?? []
+        const nextFollows = alreadyFollowing
+          ? currentFollows.filter((id) => id !== authorId)
+          : [...currentFollows, authorId]
+
+        return {
+          ...current,
+          [currentUser.id]: nextFollows,
+        }
+      })
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Failed to update follow status.')
+    }
   }
 
   const createPost = async (payload: {
@@ -333,9 +415,66 @@ function App() {
       })
 
       hydratePosts([response.post])
+      refreshBoard()
       return true
     } catch (error) {
       window.alert(error instanceof Error ? error.message : '게시글 등록에 실패했습니다.')
+      return false
+    }
+  }
+
+  const updatePost = async (
+    postId: number,
+    payload: {
+      title: string
+      travelDate: string
+      imageUrl: string
+      regionCode: string
+      budgetCode: string
+      themeCode: string
+      season: string
+      companion: string
+      content: string
+    },
+  ) => {
+    if (!currentUser) {
+      return false
+    }
+
+    try {
+      const response = await updatePostApi(postId, {
+        title: payload.title,
+        travelDate: payload.travelDate,
+        imageUrl: payload.imageUrl,
+        regionCode: payload.regionCode,
+        budgetCode: payload.budgetCode,
+        themeCode: payload.themeCode,
+        season: payload.season,
+        companion: payload.companion,
+        content: payload.content,
+      })
+
+      hydratePosts([response.post])
+      refreshBoard()
+      return true
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Failed to update post.')
+      return false
+    }
+  }
+
+  const deletePost = async (postId: number) => {
+    if (!currentUser) {
+      return false
+    }
+
+    try {
+      await deletePostApi(postId)
+      removePost(postId)
+      refreshBoard()
+      return true
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Failed to delete post.')
       return false
     }
   }
@@ -347,30 +486,42 @@ function App() {
     void incrementPostView(postId).catch(() => undefined)
   }, [])
 
-  const updateProfile = (payload: { nickname: string; password: string }) => {
+  const updateProfile = async (payload: {
+    nickname: string
+    password: string
+    bio: string
+    location: string
+  }) => {
     if (!currentUser) {
       return false
     }
 
-    const isDuplicatedNickname = users.some(
-      (user) =>
-        user.id !== currentUser.id &&
-        user.nickname.toLowerCase() === payload.nickname.toLowerCase(),
-    )
+    try {
+      const response = await updateMyProfileApi({
+        nickname: payload.nickname,
+        password: payload.password || undefined,
+        bio: payload.bio,
+        location: payload.location,
+      })
+      const nextUser = mapAuthUserToCommunityUser(response.user)
 
-    if (isDuplicatedNickname) {
+      setUsers((current) =>
+        current.map((user) =>
+          user.id === currentUser.id
+            ? {
+                ...user,
+                ...nextUser,
+                password: payload.password ? payload.password : user.password,
+              }
+            : user,
+        ),
+      )
+
+      return true
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Failed to update profile.')
       return false
     }
-
-    setUsers((current) =>
-      current.map((user) =>
-        user.id === currentUser.id
-          ? { ...user, nickname: payload.nickname, password: payload.password }
-          : user,
-      ),
-    )
-
-    return true
   }
 
   if (!isAuthReady) {
@@ -409,6 +560,7 @@ function App() {
                 currentUser={currentUser}
                 likedPostIds={likedPostIds}
                 onHydratePosts={hydratePosts}
+                refreshToken={boardRefreshToken}
                 onToggleLike={toggleLike}
               />
             ) : (
@@ -421,8 +573,11 @@ function App() {
           element={
             currentUser ? (
               <PostDetailPage
+                currentUser={currentUser}
                 followedAuthorIds={followedAuthorIds}
                 likedPostIds={likedPostIds}
+                onUpdatePost={updatePost}
+                onDeletePost={deletePost}
                 onHydratePosts={hydratePosts}
                 onIncrementView={incrementView}
                 onToggleFollow={toggleFollow}
@@ -436,16 +591,25 @@ function App() {
           }
         />
         <Route
+          path="/posts/:postId/edit"
+          element={
+            currentUser ? (
+              <WritePage onCreatePost={createPost} onUpdatePost={updatePost} />
+            ) : (
+              <Navigate replace to="/login" />
+            )
+          }
+        />
+        <Route
           path="/profile/:authorId"
           element={
             currentUser ? (
               <ProfilePage
                 followedAuthorIds={followedAuthorIds}
                 likedPostIds={likedPostIds}
+                onHydratePosts={hydratePosts}
                 onToggleFollow={toggleFollow}
                 onToggleLike={toggleLike}
-                posts={postsWithMeta}
-                users={users}
               />
             ) : (
               <Navigate replace to="/login" />
@@ -457,11 +621,8 @@ function App() {
           element={
             currentUser ? (
               <MyPage
-                commentsByPost={commentsByPost}
                 currentUser={currentUser}
-                likedPostIds={likedPostIds}
                 onUpdateProfile={updateProfile}
-                posts={postsWithMeta}
               />
             ) : (
               <Navigate replace to="/login" />
@@ -471,7 +632,11 @@ function App() {
         <Route
           path="/write"
           element={
-            currentUser ? <WritePage onCreatePost={createPost} /> : <Navigate replace to="/login" />
+            currentUser ? (
+              <WritePage onCreatePost={createPost} onUpdatePost={updatePost} />
+            ) : (
+              <Navigate replace to="/login" />
+            )
           }
         />
         <Route

@@ -1,12 +1,21 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link, useParams } from 'react-router'
+import { Link, useNavigate, useParams } from 'react-router'
 import type { Comment, PostWithMeta, User } from '../types/community'
-import { createComment, createReply, fetchComments } from '../utils/commentsApi'
+import {
+  createComment,
+  createReply,
+  deleteComment,
+  deleteReply,
+  fetchComments,
+  updateComment,
+  updateReply,
+} from '../utils/commentsApi'
 import { formatDate, getUserLabel } from '../utils/community'
 import { fetchPostById } from '../utils/postsApi'
 import '../styles/pages/PostDetailPage.css'
 
 type PostDetailPageProps = {
+  currentUser: User
   users: User[]
   posts: PostWithMeta[]
   likedPostIds: Set<number>
@@ -15,9 +24,25 @@ type PostDetailPageProps = {
   onToggleFollow: (authorId: number) => void
   onIncrementView: (postId: number) => void
   onHydratePosts: (posts: PostWithMeta[]) => void
+  onDeletePost: (postId: number) => Promise<boolean>
+  onUpdatePost: (
+    postId: number,
+    payload: {
+      title: string
+      travelDate: string
+      imageUrl: string
+      regionCode: string
+      budgetCode: string
+      themeCode: string
+      season: string
+      companion: string
+      content: string
+    },
+  ) => Promise<boolean>
 }
 
 export function PostDetailPage({
+  currentUser,
   users,
   posts,
   likedPostIds,
@@ -26,12 +51,27 @@ export function PostDetailPage({
   onToggleFollow,
   onIncrementView,
   onHydratePosts,
+  onDeletePost,
+  onUpdatePost,
 }: PostDetailPageProps) {
   const params = useParams()
+  const navigate = useNavigate()
   const [post, setPost] = useState<PostWithMeta | null>(null)
   const [comments, setComments] = useState<Comment[]>([])
   const [commentText, setCommentText] = useState('')
   const [replyDrafts, setReplyDrafts] = useState<Record<number, string>>({})
+  const [editingCommentId, setEditingCommentId] = useState<number | null>(null)
+  const [editingReplyId, setEditingReplyId] = useState<number | null>(null)
+  const [editingCommentText, setEditingCommentText] = useState('')
+  const [editingReplyText, setEditingReplyText] = useState('')
+  const [isEditingPost, setIsEditingPost] = useState(false)
+  const [editPostForm, setEditPostForm] = useState({
+    title: '',
+    travelDate: '',
+    imageUrl: '',
+    content: '',
+  })
+  const [isSavingPostEdit, setIsSavingPostEdit] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [isSubmittingComment, setIsSubmittingComment] = useState(false)
   const [submittingReplyFor, setSubmittingReplyFor] = useState<number | null>(null)
@@ -42,7 +82,7 @@ export function PostDetailPage({
   useEffect(() => {
     if (!Number.isFinite(postId)) {
       setIsLoading(false)
-      setErrorMessage('잘못된 게시글 주소입니다.')
+      setErrorMessage('Invalid post address.')
       return
     }
 
@@ -63,6 +103,12 @@ export function PostDetailPage({
         }
 
         setPost(postResponse.post)
+        setEditPostForm({
+          title: postResponse.post.title,
+          travelDate: postResponse.post.travelDate,
+          imageUrl: postResponse.post.imageUrl,
+          content: postResponse.post.content,
+        })
         setComments(commentsResponse.items)
         onHydratePosts([postResponse.post])
       } catch (error) {
@@ -70,7 +116,7 @@ export function PostDetailPage({
           return
         }
 
-        setErrorMessage(error instanceof Error ? error.message : '게시글을 불러오지 못했습니다.')
+        setErrorMessage(error instanceof Error ? error.message : 'Failed to load post.')
       } finally {
         if (isMounted) {
           setIsLoading(false)
@@ -98,7 +144,7 @@ export function PostDetailPage({
     return (
       <main className="page">
         <section className="empty-state">
-          <h1>게시글을 불러오는 중입니다.</h1>
+          <h1>Loading post...</h1>
         </section>
       </main>
     )
@@ -108,20 +154,19 @@ export function PostDetailPage({
     return (
       <main className="page">
         <section className="empty-state">
-          <h1>{errorMessage || '게시글을 찾을 수 없습니다.'}</h1>
+          <h1>{errorMessage || 'Post not found.'}</h1>
           <Link className="secondary-button" to="/main">
-            메인으로 돌아가기
+            Back to Main
           </Link>
         </section>
       </main>
     )
   }
 
-  const relatedPosts = posts
-    .filter((item) => item.region === post.region && item.id !== post.id)
-    .slice(0, 3)
+  const isAuthor = currentUser.id === post.author.id
+  const relatedPosts = posts.filter((item) => item.region === post.region && item.id !== post.id).slice(0, 3)
   const chatHref = `/chat?${new URLSearchParams({
-    q: `${post.region} ${post.theme} ${post.companion} 여행 추천`,
+    q: `${post.region} ${post.theme} ${post.companion} recommendation`,
     region: post.region,
     budget: post.budget,
     theme: post.theme,
@@ -130,7 +175,7 @@ export function PostDetailPage({
     travelDate: post.travelDate,
   }).toString()}`
   const plannerHref = `/planner?${new URLSearchParams({
-    q: `${post.region} 일정 추천`,
+    q: `${post.region} planner`,
     region: post.region,
     budget: post.budget,
     theme: post.theme,
@@ -140,10 +185,7 @@ export function PostDetailPage({
     duration: '3',
   }).toString()}`
 
-  const renderedDiscussionCount = comments.reduce(
-    (total, comment) => total + 1 + comment.replies.length,
-    0,
-  )
+  const renderedDiscussionCount = comments.reduce((total, comment) => total + 1 + comment.replies.length, 0)
 
   return (
     <main className="page detail-page">
@@ -157,37 +199,168 @@ export function PostDetailPage({
             <span>{post.region}</span>
             <span>{post.travelDate}</span>
           </div>
-          <h1>{post.title}</h1>
-          <p className="detail-card__author">
-            작성자 <Link to={`/profile/${post.author.id}`}>{post.author.nickname}</Link>
-          </p>
-          <div className="detail-card__tags">
-            {post.tags.map((tag) => (
-              <span key={tag}>{tag}</span>
-            ))}
-          </div>
-          <p className="detail-card__body">{post.content || '본문이 없는 게시글입니다.'}</p>
+
+          {isEditingPost ? (
+            <form
+              className="detail-edit-form"
+              onSubmit={async (event) => {
+                event.preventDefault()
+
+                if (!editPostForm.title.trim() || !editPostForm.travelDate || !editPostForm.content.trim()) {
+                  window.alert('Please fill in title, travel date, and content.')
+                  return
+                }
+
+                setIsSavingPostEdit(true)
+
+                try {
+                  const success = await onUpdatePost(post.id, {
+                    title: editPostForm.title.trim(),
+                    travelDate: editPostForm.travelDate,
+                    imageUrl: editPostForm.imageUrl.trim(),
+                    regionCode: post.regionCode ?? '',
+                    budgetCode: post.budgetCode ?? '',
+                    themeCode: post.themeCode ?? '',
+                    season: post.season,
+                    companion: post.companion,
+                    content: editPostForm.content.trim(),
+                  })
+
+                  if (!success) {
+                    return
+                  }
+
+                  const refreshed = await fetchPostById(post.id)
+                  setPost(refreshed.post)
+                  setEditPostForm({
+                    title: refreshed.post.title,
+                    travelDate: refreshed.post.travelDate,
+                    imageUrl: refreshed.post.imageUrl,
+                    content: refreshed.post.content,
+                  })
+                  onHydratePosts([refreshed.post])
+                  setIsEditingPost(false)
+                } finally {
+                  setIsSavingPostEdit(false)
+                }
+              }}
+            >
+              <label>
+                Title
+                <input
+                  value={editPostForm.title}
+                  onChange={(event) =>
+                    setEditPostForm((current) => ({ ...current, title: event.target.value }))
+                  }
+                />
+              </label>
+              <label>
+                Travel Date
+                <input
+                  type="date"
+                  value={editPostForm.travelDate}
+                  onChange={(event) =>
+                    setEditPostForm((current) => ({ ...current, travelDate: event.target.value }))
+                  }
+                />
+              </label>
+              <label>
+                Image URL
+                <input
+                  value={editPostForm.imageUrl}
+                  onChange={(event) =>
+                    setEditPostForm((current) => ({ ...current, imageUrl: event.target.value }))
+                  }
+                />
+              </label>
+              <label>
+                Content
+                <textarea
+                  value={editPostForm.content}
+                  onChange={(event) =>
+                    setEditPostForm((current) => ({ ...current, content: event.target.value }))
+                  }
+                />
+              </label>
+              <div className="detail-inline-actions">
+                <button className="primary-button" disabled={isSavingPostEdit} type="submit">
+                  {isSavingPostEdit ? 'Saving...' : 'Save Post'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditPostForm({
+                      title: post.title,
+                      travelDate: post.travelDate,
+                      imageUrl: post.imageUrl,
+                      content: post.content,
+                    })
+                    setIsEditingPost(false)
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          ) : (
+            <>
+              <h1>{post.title}</h1>
+              <p className="detail-card__author">
+                Author <Link to={`/profile/${post.author.id}`}>{post.author.nickname}</Link>
+              </p>
+              <div className="detail-card__tags">
+                {post.tags.map((tag) => (
+                  <span key={tag}>{tag}</span>
+                ))}
+              </div>
+              <p className="detail-card__body">{post.content || 'No content.'}</p>
+            </>
+          )}
+
           <div className="detail-card__actions">
-            <button type="button" onClick={() => onToggleLike(post.id)}>
-              {likedPostIds.has(post.id) ? '좋아요 취소' : '좋아요'}
+            <button type="button" onClick={() => void onToggleLike(post.id)}>
+              {likedPostIds.has(post.id) ? 'Remove Bookmark' : 'Bookmark'}
             </button>
-            <button type="button" onClick={() => onToggleFollow(post.author.id)}>
-              {followedAuthorIds.has(post.author.id) ? '팔로우 중' : '작성자 팔로우'}
+            <button type="button" onClick={() => void onToggleFollow(post.author.id)}>
+              {followedAuthorIds.has(post.author.id) ? 'Unfollow Author' : 'Follow Author'}
             </button>
             <Link className="secondary-button" to={chatHref}>
-              이 글 기반 추천
+              Recommendation Bot
             </Link>
             <Link className="secondary-button" to={plannerHref}>
-              이 글로 일정 만들기
+              Travel Planner
             </Link>
+            {isAuthor ? (
+              <>
+                <button type="button" onClick={() => setIsEditingPost((current) => !current)}>
+                  {isEditingPost ? 'Close Edit' : 'Edit Post'}
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!window.confirm('Delete this post?')) {
+                      return
+                    }
+
+                    const success = await onDeletePost(post.id)
+
+                    if (success) {
+                      navigate('/main')
+                    }
+                  }}
+                >
+                  Delete Post
+                </button>
+              </>
+            ) : null}
           </div>
         </div>
       </article>
 
       <section className="detail-section">
         <div className="detail-section__heading">
-          <h2>댓글 {renderedDiscussionCount}</h2>
-          <span>댓글과 대댓글을 바로 확인하고 작성할 수 있습니다.</span>
+          <h2>Comments {renderedDiscussionCount}</h2>
+          <span>Read and write comments in this post.</span>
         </div>
         <form
           className="comment-form"
@@ -206,19 +379,19 @@ export function PostDetailPage({
               setComments((current) => [response.comment, ...current])
               setCommentText('')
             } catch (error) {
-              window.alert(error instanceof Error ? error.message : '댓글 등록에 실패했습니다.')
+              window.alert(error instanceof Error ? error.message : 'Failed to create comment.')
             } finally {
               setIsSubmittingComment(false)
             }
           }}
         >
           <textarea
-            placeholder="이 게시글에 대한 의견을 남겨보세요."
+            placeholder="Write a comment."
             value={commentText}
             onChange={(event) => setCommentText(event.target.value)}
           />
           <button className="primary-button" disabled={isSubmittingComment} type="submit">
-            {isSubmittingComment ? '등록 중...' : '댓글 등록'}
+            {isSubmittingComment ? 'Saving...' : 'Add Comment'}
           </button>
         </form>
         <div className="comment-list">
@@ -228,13 +401,184 @@ export function PostDetailPage({
                 <strong>{comment.author?.nickname ?? getUserLabel(users, comment.authorId)}</strong>
                 <span>{formatDate(comment.createdAt)}</span>
               </div>
-              <p>{comment.content}</p>
+
+              {editingCommentId === comment.id ? (
+                <form
+                  className="detail-edit-inline-form"
+                  onSubmit={async (event) => {
+                    event.preventDefault()
+                    const nextContent = editingCommentText.trim()
+
+                    if (!nextContent) {
+                      return
+                    }
+
+                    try {
+                      const response = await updateComment(comment.id, nextContent)
+                      setComments((current) =>
+                        current.map((item) => (item.id === comment.id ? { ...item, ...response.comment } : item)),
+                      )
+                      setEditingCommentId(null)
+                      setEditingCommentText('')
+                    } catch (error) {
+                      window.alert(error instanceof Error ? error.message : 'Failed to update comment.')
+                    }
+                  }}
+                >
+                  <textarea
+                    value={editingCommentText}
+                    onChange={(event) => setEditingCommentText(event.target.value)}
+                  />
+                  <div className="detail-inline-actions">
+                    <button className="ghost-button" type="submit">
+                      Save
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingCommentId(null)
+                        setEditingCommentText('')
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <p>{comment.content}</p>
+              )}
+
+              {comment.authorId === currentUser.id ? (
+                <div className="detail-inline-actions">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingCommentId(comment.id)
+                      setEditingCommentText(comment.content)
+                    }}
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (!window.confirm('Delete this comment?')) {
+                        return
+                      }
+
+                      try {
+                        await deleteComment(comment.id)
+                        setComments((current) => current.filter((item) => item.id !== comment.id))
+                      } catch (error) {
+                        window.alert(error instanceof Error ? error.message : 'Failed to delete comment.')
+                      }
+                    }}
+                  >
+                    Delete
+                  </button>
+                </div>
+              ) : null}
+
               <div className="reply-list">
                 {comment.replies.map((reply) => (
                   <div className="reply-card" key={reply.id}>
                     <strong>{reply.author?.nickname ?? getUserLabel(users, reply.authorId)}</strong>
                     <span>{formatDate(reply.createdAt)}</span>
-                    <p>{reply.content}</p>
+
+                    {editingReplyId === reply.id ? (
+                      <form
+                        className="detail-edit-inline-form"
+                        onSubmit={async (event) => {
+                          event.preventDefault()
+                          const nextContent = editingReplyText.trim()
+
+                          if (!nextContent) {
+                            return
+                          }
+
+                          try {
+                            const response = await updateReply(reply.id, nextContent)
+                            setComments((current) =>
+                              current.map((item) =>
+                                item.id === comment.id
+                                  ? {
+                                      ...item,
+                                      replies: item.replies.map((entry) =>
+                                        entry.id === reply.id ? { ...entry, ...response.reply } : entry,
+                                      ),
+                                    }
+                                  : item,
+                              ),
+                            )
+                            setEditingReplyId(null)
+                            setEditingReplyText('')
+                          } catch (error) {
+                            window.alert(error instanceof Error ? error.message : 'Failed to update reply.')
+                          }
+                        }}
+                      >
+                        <textarea
+                          value={editingReplyText}
+                          onChange={(event) => setEditingReplyText(event.target.value)}
+                        />
+                        <div className="detail-inline-actions">
+                          <button className="ghost-button" type="submit">
+                            Save
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingReplyId(null)
+                              setEditingReplyText('')
+                            }}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </form>
+                    ) : (
+                      <p>{reply.content}</p>
+                    )}
+
+                    {reply.authorId === currentUser.id ? (
+                      <div className="detail-inline-actions">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingReplyId(reply.id)
+                            setEditingReplyText(reply.content)
+                          }}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            if (!window.confirm('Delete this reply?')) {
+                              return
+                            }
+
+                            try {
+                              await deleteReply(reply.id)
+                              setComments((current) =>
+                                current.map((item) =>
+                                  item.id === comment.id
+                                    ? {
+                                        ...item,
+                                        replies: item.replies.filter((entry) => entry.id !== reply.id),
+                                      }
+                                    : item,
+                                ),
+                              )
+                            } catch (error) {
+                              window.alert(error instanceof Error ? error.message : 'Failed to delete reply.')
+                            }
+                          }}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
                 ))}
               </div>
@@ -264,14 +608,14 @@ export function PostDetailPage({
                     )
                     setReplyDrafts((current) => ({ ...current, [comment.id]: '' }))
                   } catch (error) {
-                    window.alert(error instanceof Error ? error.message : '답글 등록에 실패했습니다.')
+                    window.alert(error instanceof Error ? error.message : 'Failed to create reply.')
                   } finally {
                     setSubmittingReplyFor(null)
                   }
                 }}
               >
                 <input
-                  placeholder="답글을 입력하세요."
+                  placeholder="Write a reply."
                   value={replyDrafts[comment.id] ?? ''}
                   onChange={(event) =>
                     setReplyDrafts((current) => ({
@@ -281,47 +625,47 @@ export function PostDetailPage({
                   }
                 />
                 <button className="ghost-button" disabled={submittingReplyFor === comment.id} type="submit">
-                  {submittingReplyFor === comment.id ? '등록 중...' : '답글 등록'}
+                  {submittingReplyFor === comment.id ? 'Saving...' : 'Add Reply'}
                 </button>
               </form>
             </article>
           ))}
-          {!comments.length ? <p className="muted-copy">아직 댓글이 없습니다.</p> : null}
+          {!comments.length ? <p className="muted-copy">No comments yet.</p> : null}
         </div>
       </section>
 
       <section className="detail-section">
         <div className="detail-section__heading">
-          <h2>AI 연결 동선</h2>
-          <span>게시글 기반 추천과 일정 생성을 바로 이어서 사용할 수 있습니다.</span>
+          <h2>AI Shortcuts</h2>
+          <span>Move directly to recommendation and planner flows from this post.</span>
         </div>
         <div className="detail-ai-links">
           <Link className="detail-ai-card" to={chatHref}>
-            <strong>RAG 추천 시작</strong>
-            <p>이 게시글 내용을 바탕으로 추천 흐름을 이어갑니다.</p>
+            <strong>Start RAG Recommendation</strong>
+            <p>Use this post as context for travel recommendations.</p>
           </Link>
           <Link className="detail-ai-card" to={plannerHref}>
-            <strong>AI 플래너 열기</strong>
-            <p>이 글을 참고해 일정 초안을 이어서 만듭니다.</p>
+            <strong>Open Planner</strong>
+            <p>Draft a travel plan based on this post.</p>
           </Link>
         </div>
       </section>
 
       <section className="detail-section">
         <div className="detail-section__heading">
-          <h2>같은 지역 글</h2>
-          <span>{post.region} 관련 추천 게시글</span>
+          <h2>Related Posts</h2>
+          <span>More posts from {post.region}</span>
         </div>
         <div className="related-posts">
           {relatedPosts.map((relatedPost) => (
             <Link className="related-post" key={relatedPost.id} to={`/posts/${relatedPost.id}`}>
               <strong>{relatedPost.title}</strong>
               <span>
-                조회 {relatedPost.views} · 댓글 {relatedPost.discussionCount}
+                Views {relatedPost.views} | Comments {relatedPost.discussionCount}
               </span>
             </Link>
           ))}
-          {!relatedPosts.length ? <p className="muted-copy">같은 지역의 다른 글은 아직 없습니다.</p> : null}
+          {!relatedPosts.length ? <p className="muted-copy">No related posts yet.</p> : null}
         </div>
       </section>
     </main>

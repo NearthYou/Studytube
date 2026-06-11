@@ -78,3 +78,13 @@ export type PostWithMeta = Post & {
   discussionCount: number
   author: PostAuthor
 }
+
+export type CommentActivity = {
+  id: number
+  postId: number
+  postTitle: string
+  content: string
+  createdAt: string
+  updatedAt: string
+  type: 'comment' | 'reply'
+}

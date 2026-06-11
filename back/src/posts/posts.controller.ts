@@ -1,9 +1,11 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseIntPipe,
+  Patch,
   Post,
   Query,
   Req,
@@ -14,6 +16,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AuthUser } from '../common/types/auth-user.type';
 import { CreatePostDto } from './dto/create-post.dto';
 import { GetPostsQueryDto } from './dto/get-posts.query.dto';
+import { UpdatePostDto } from './dto/update-post.dto';
 import { PostsService } from './posts.service';
 
 type RequestWithUser = Request & {
@@ -41,6 +44,25 @@ export class PostsController {
     @Body() createPostDto: CreatePostDto,
   ) {
     return this.postsService.createPost(request.user, createPostDto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch(':postId')
+  async updatePost(
+    @Param('postId', ParseIntPipe) postId: number,
+    @Req() request: RequestWithUser,
+    @Body() updatePostDto: UpdatePostDto,
+  ) {
+    return this.postsService.updatePost(postId, request.user, updatePostDto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Delete(':postId')
+  async deletePost(
+    @Param('postId', ParseIntPipe) postId: number,
+    @Req() request: RequestWithUser,
+  ) {
+    return this.postsService.deletePost(postId, request.user);
   }
 
   @Post(':postId/view')

@@ -9,6 +9,6 @@ import { PostsRepository } from './repositories/posts.repository';
   imports: [DatabaseModule, AuthModule],
   controllers: [PostsController],
   providers: [PostsService, PostsRepository],
-  exports: [PostsService],
+  exports: [PostsService, PostsRepository],
 })
 export class PostsModule {}

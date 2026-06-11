@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import copy
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import html as html_lib
@@ -14,6 +16,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from typing import Any
 from urllib.parse import parse_qsl, quote_plus, urlencode, urlparse, urlunparse
 from xml.etree import ElementTree
@@ -79,6 +82,10 @@ DEFAULT_DATABASE_URL = "postgresql://app:app@localhost:5432/app_dev"
 EMBEDDING_DIMENSIONS = 64
 DEFAULT_FALLBACK_CAPTION_DURATION_SECONDS = 600
 CAPTION_TRANSLATION_BATCH_SIZE = 25
+CAPTION_TRANSLATION_MAX_WORKERS = 4
+CAPTION_RESPONSE_CACHE_TTL_SECONDS = 10 * 60
+CAPTION_RESPONSE_CACHE_MAX_SIZE = 64
+CAPTION_RESPONSE_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 
 app = FastAPI(title="StudyTube AI Service")
 
@@ -504,6 +511,19 @@ def lookup_youtube(params: dict[str, Any]) -> dict[str, Any]:
 
 
 def load_translated_captions(payload: dict[str, Any]) -> dict[str, Any]:
+    cache_key = caption_response_cache_key(payload)
+    cached_response = read_caption_response_cache(cache_key)
+
+    if cached_response:
+        return cached_response
+
+    response = load_translated_captions_uncached(payload)
+    write_caption_response_cache(cache_key, response)
+
+    return response
+
+
+def load_translated_captions_uncached(payload: dict[str, Any]) -> dict[str, Any]:
     video_id = (
         str(payload.get("videoId") or "").strip()
         or extract_video_hint(
@@ -655,16 +675,13 @@ def load_translated_captions(payload: dict[str, Any]) -> dict[str, Any]:
                 }
 
             if source_segments:
-                return {
-                    "mode": "youtube-captions",
-                    "provider": "caption-translation-unavailable",
-                    "videoId": video_id,
-                    "language": target_language,
-                    "sourceLanguage": source_language,
-                    "translated": False,
-                    "segments": [],
-                    "message": caption_translation_unavailable_reason(),
-                }
+                return source_caption_response(
+                    video_id,
+                    target_language,
+                    source_language,
+                    source_segments,
+                    "Source captions loaded while translation is unavailable.",
+                )
 
             last_error = source_error or last_error
 
@@ -722,6 +739,14 @@ def load_translated_captions(payload: dict[str, Any]) -> dict[str, Any]:
                     "message": "YouTube timed-text captions translated for live playback.",
                 }
 
+            return source_caption_response(
+                video_id,
+                target_language,
+                source_language or "youtube",
+                normalized_segments,
+                "Timed-text source captions loaded while translation is unavailable.",
+            )
+
         return {
             "mode": "youtube-captions",
             "provider": "youtube-timedtext",
@@ -742,6 +767,77 @@ def load_translated_captions(payload: dict[str, Any]) -> dict[str, Any]:
             translate_fallback=translate_fallback,
             duration_seconds=duration_seconds,
         )
+
+
+def caption_response_cache_key(payload: dict[str, Any]) -> str:
+    video_id = (
+        str(payload.get("videoId") or "").strip()
+        or extract_video_hint(
+            str(
+                payload.get("url")
+                or payload.get("videoUrl")
+                or payload.get("sourceUrl")
+                or ""
+            )
+        )
+        or ""
+    )
+
+    if not video_id:
+        return ""
+
+    target_language = normalize_language(payload.get("targetLanguage") or "ko")
+    fallback_text = str(payload.get("fallbackText") or "").strip()
+    duration_seconds = normalize_caption_duration(
+        payload.get("durationSeconds") or payload.get("duration")
+    )
+    openai_enabled = OpenAI is not None and bool(os.getenv("OPENAI_API_KEY"))
+    cache_parts = {
+        "videoId": video_id,
+        "targetLanguage": target_language,
+        "allowFallback": bool(payload.get("allowFallback", True)),
+        "translateFallback": bool(payload.get("translateFallback", False)),
+        "durationSeconds": duration_seconds,
+        "fallbackTextHash": hashlib.sha256(fallback_text.encode("utf-8")).hexdigest(),
+        "openaiEnabled": openai_enabled,
+    }
+
+    return json.dumps(cache_parts, sort_keys=True)
+
+
+def read_caption_response_cache(cache_key: str) -> dict[str, Any] | None:
+    if not cache_key:
+        return None
+
+    cached = CAPTION_RESPONSE_CACHE.get(cache_key)
+
+    if not cached:
+        return None
+
+    created_at, response = cached
+
+    if time.time() - created_at > CAPTION_RESPONSE_CACHE_TTL_SECONDS:
+        CAPTION_RESPONSE_CACHE.pop(cache_key, None)
+        return None
+
+    return copy.deepcopy(response)
+
+
+def write_caption_response_cache(
+    cache_key: str,
+    response: dict[str, Any],
+) -> None:
+    if not cache_key or not response.get("segments"):
+        return
+
+    while len(CAPTION_RESPONSE_CACHE) >= CAPTION_RESPONSE_CACHE_MAX_SIZE:
+        oldest_key = min(
+            CAPTION_RESPONSE_CACHE,
+            key=lambda key: CAPTION_RESPONSE_CACHE[key][0],
+        )
+        CAPTION_RESPONSE_CACHE.pop(oldest_key, None)
+
+    CAPTION_RESPONSE_CACHE[cache_key] = (time.time(), copy.deepcopy(response))
 
 
 def build_youtube_summary(payload: dict[str, Any]) -> dict[str, Any]:
@@ -1541,13 +1637,22 @@ def translate_caption_segments(
 
     try:  # pragma: no cover - live credentials are optional in local tests
         client = OpenAI()
+        max_workers = min(CAPTION_TRANSLATION_MAX_WORKERS, len(batches))
 
-        for batch in batches:
-            translations = translate_caption_batch(
-                client,
-                batch,
-                target_language,
-            )
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [
+                executor.submit(
+                    translate_caption_batch,
+                    client,
+                    batch,
+                    target_language,
+                )
+                for batch in batches
+            ]
+
+            batch_translations = [future.result() for future in futures]
+
+        for batch, translations in zip(batches, batch_translations):
 
             if len(translations) != len(batch):
                 return []
@@ -1795,16 +1900,13 @@ def yt_dlp_caption_response(
                 "message": "yt-dlp source captions translated for live playback.",
             }
 
-        return {
-            "mode": "youtube-captions",
-            "provider": "caption-translation-unavailable",
-            "videoId": video_id,
-            "language": target_language,
-            "sourceLanguage": normalized_source_language,
-            "translated": False,
-            "segments": [],
-            "message": caption_translation_unavailable_reason(),
-        }
+        return source_caption_response(
+            video_id,
+            target_language,
+            normalized_source_language,
+            normalized_segments,
+            "yt-dlp source captions loaded while translation is unavailable.",
+        )
 
     return {
         "mode": "youtube-captions",
@@ -1815,6 +1917,25 @@ def yt_dlp_caption_response(
         "translated": translated,
         "segments": normalized_segments,
         "message": "yt-dlp captions loaded for live playback.",
+    }
+
+
+def source_caption_response(
+    video_id: str,
+    target_language: str,
+    source_language: str,
+    segments: list[dict[str, Any]],
+    message: str,
+) -> dict[str, Any]:
+    return {
+        "mode": "youtube-captions",
+        "provider": "youtube-source-captions",
+        "videoId": video_id,
+        "language": target_language,
+        "sourceLanguage": normalize_language(source_language) or "youtube",
+        "translated": False,
+        "segments": normalize_caption_segments(segments),
+        "message": message,
     }
 
 

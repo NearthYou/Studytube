@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
   UnauthorizedException,
@@ -245,7 +246,7 @@ export class StudyBoardService {
     input: { body: string },
   ) {
     const session = await this.requireSession(token);
-    await this.requireOwnedPost(postId, session.user.id);
+    await this.requirePost(postId);
     this.assertText(input.body, 'body');
 
     return this.repository.addComment({
@@ -253,6 +254,33 @@ export class StudyBoardService {
       authorId: session.user.id,
       body: input.body.trim(),
     });
+  }
+
+  async deleteComment(
+    token: string | undefined,
+    postId: number,
+    commentId: number,
+  ): Promise<{
+    deleted: boolean;
+  }> {
+    const session = await this.requireSession(token);
+    const post = await this.requirePost(postId);
+    const comment = post.comments.find((candidate) => candidate.id === commentId);
+
+    if (!comment) {
+      throw new NotFoundException('Comment not found');
+    }
+
+    if (
+      comment.authorId !== session.user.id &&
+      post.authorId !== session.user.id
+    ) {
+      throw new ForbiddenException('Cannot delete this comment');
+    }
+
+    return {
+      deleted: await this.repository.deleteComment(postId, commentId),
+    };
   }
 
   async listPlaylists(token?: string): Promise<Playlist[]> {
@@ -337,9 +365,19 @@ export class StudyBoardService {
     postId: number,
     userId: number,
   ): Promise<StudyPost> {
+    const post = await this.requirePost(postId);
+
+    if (post.authorId !== userId) {
+      throw new NotFoundException('Post not found');
+    }
+
+    return post;
+  }
+
+  private async requirePost(postId: number): Promise<StudyPost> {
     const post = await this.repository.findPost(postId);
 
-    if (!post || post.authorId !== userId) {
+    if (!post) {
       throw new NotFoundException('Post not found');
     }
 

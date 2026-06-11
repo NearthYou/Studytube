@@ -154,6 +154,19 @@ export class StudyBoardController {
     return this.studyBoardService.addComment(authorization, Number(id), body);
   }
 
+  @Delete('posts/:postId/comments/:commentId')
+  deleteComment(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('postId') postId: string,
+    @Param('commentId') commentId: string,
+  ) {
+    return this.studyBoardService.deleteComment(
+      authorization,
+      Number(postId),
+      Number(commentId),
+    );
+  }
+
   @Get('playlists')
   listPlaylists(@Headers('authorization') authorization?: string) {
     return this.studyBoardService.listPlaylists(authorization);

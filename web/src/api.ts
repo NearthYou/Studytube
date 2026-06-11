@@ -1,10 +1,10 @@
 import type {
   AgentResponse,
   CaptionResponse,
+  Comment as StudyComment,
   McpResponse,
   PaginatedPosts,
   Playlist,
-  PlaylistFeedback,
   RagResponse,
   Session,
   StudyPost,
@@ -180,9 +180,21 @@ export function deletePost(token: string, id: number) {
 }
 
 export function addComment(token: string, postId: number, body: string) {
-  return requestJson(
+  return requestJson<StudyComment>(
     `/posts/${postId}/comments`,
     { method: 'POST', body: JSON.stringify({ body }) },
+    token,
+  );
+}
+
+export function deleteComment(
+  token: string,
+  postId: number,
+  commentId: number,
+) {
+  return requestJson<{ deleted: boolean }>(
+    `/posts/${postId}/comments/${commentId}`,
+    { method: 'DELETE' },
     token,
   );
 }
@@ -201,18 +213,6 @@ export function createPlaylist(
 ) {
   return requestJson<Playlist>(
     '/playlists',
-    { method: 'POST', body: JSON.stringify(input) },
-    token,
-  );
-}
-
-export function addPlaylistFeedback(
-  token: string,
-  playlistId: number,
-  input: { rating: number; body: string },
-): Promise<PlaylistFeedback> {
-  return requestJson<PlaylistFeedback>(
-    `/playlists/${playlistId}/feedback`,
     { method: 'POST', body: JSON.stringify(input) },
     token,
   );

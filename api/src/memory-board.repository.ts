@@ -402,6 +402,21 @@ export class MemoryBoardRepository implements BoardRepository {
     return comment;
   }
 
+  async deleteComment(postId: number, commentId: number): Promise<boolean> {
+    await this.idle();
+
+    const post = this.posts.find((candidate) => candidate.id === postId);
+
+    if (!post) {
+      return false;
+    }
+
+    const before = post.comments.length;
+    post.comments = post.comments.filter((comment) => comment.id !== commentId);
+
+    return post.comments.length !== before;
+  }
+
   async listPlaylists(ownerId?: number): Promise<Playlist[]> {
     await this.idle();
 

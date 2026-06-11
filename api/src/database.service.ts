@@ -533,6 +533,27 @@ export class DatabaseService
     }
   }
 
+  override async deleteComment(
+    postId: number,
+    commentId: number,
+  ): Promise<boolean> {
+    if (!this.databaseAvailable) {
+      return super.deleteComment(postId, commentId);
+    }
+
+    try {
+      const result = await this.pool.query(
+        'DELETE FROM comments WHERE post_id = $1 AND id = $2',
+        [postId, commentId],
+      );
+
+      return (result.rowCount ?? 0) > 0;
+    } catch (error) {
+      this.fallback(error);
+      return super.deleteComment(postId, commentId);
+    }
+  }
+
   override async listPlaylists(ownerId?: number): Promise<Playlist[]> {
     if (!this.databaseAvailable) {
       return super.listPlaylists(ownerId);

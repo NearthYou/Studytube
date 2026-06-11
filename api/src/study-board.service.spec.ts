@@ -2,6 +2,7 @@ import { StudyBoardService } from './study-board.service';
 import { MemoryBoardRepository } from './memory-board.repository';
 import {
   BadRequestException,
+  ForbiddenException,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -244,6 +245,88 @@ describe('StudyBoardService', () => {
     expect(detail.comments).toContainEqual(
       expect.objectContaining({ id: comment.id }),
     );
+  });
+
+  it('lets signed-in users comment on public posts from another account', async () => {
+    const ada = await service.signUp({
+      name: 'Ada',
+      email: 'ada-comments@example.com',
+      password: 'learn-fast',
+    });
+    const linus = await service.signUp({
+      name: 'Linus',
+      email: 'linus-comments@example.com',
+      password: 'learn-fast',
+    });
+    const post = await service.createPost(ada.token, {
+      title: 'Public board discussion seed',
+      videoUrl: 'https://www.youtube.com/watch?v=discussion-seed',
+      channelName: 'Ada Channel',
+      summary: 'A public lesson that should accept discussion.',
+      translatedNotes: 'Discussion-ready public lesson notes.',
+      tags: ['discussion', 'public'],
+    });
+
+    const comment = await service.addComment(linus.token, post.id, {
+      body: 'This belongs in a shared board conversation.',
+    });
+
+    const detail = await service.getPost(ada.token, post.id);
+
+    expect(comment).toMatchObject({
+      postId: post.id,
+      authorId: linus.user.id,
+      body: 'This belongs in a shared board conversation.',
+    });
+    expect(detail.comments).toContainEqual(
+      expect.objectContaining({ id: comment.id, authorName: 'Linus' }),
+    );
+  });
+
+  it('lets comment authors and post authors delete comments but rejects unrelated users', async () => {
+    const ada = await service.signUp({
+      name: 'Ada',
+      email: 'ada-comment-delete@example.com',
+      password: 'learn-fast',
+    });
+    const linus = await service.signUp({
+      name: 'Linus',
+      email: 'linus-comment-delete@example.com',
+      password: 'learn-fast',
+    });
+    const grace = await service.signUp({
+      name: 'Grace',
+      email: 'grace-comment-delete@example.com',
+      password: 'learn-fast',
+    });
+    const post = await service.createPost(ada.token, {
+      title: 'Comment deletion permissions',
+      videoUrl: 'https://www.youtube.com/watch?v=comment-delete',
+      channelName: 'Ada Channel',
+      summary: 'A public lesson with comment moderation rules.',
+      translatedNotes: 'Comment moderation rule notes.',
+      tags: ['discussion', 'permissions'],
+    });
+
+    const authorOwnedComment = await service.addComment(linus.token, post.id, {
+      body: 'I should be able to remove my own comment.',
+    });
+
+    await expect(
+      service.deleteComment(grace.token, post.id, authorOwnedComment.id),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+
+    await expect(
+      service.deleteComment(linus.token, post.id, authorOwnedComment.id),
+    ).resolves.toEqual({ deleted: true });
+
+    const postOwnerModeratedComment = await service.addComment(linus.token, post.id, {
+      body: 'The post owner can moderate this comment.',
+    });
+
+    await expect(
+      service.deleteComment(ada.token, post.id, postOwnerModeratedComment.id),
+    ).resolves.toEqual({ deleted: true });
   });
 
   it('collects playlist feedback with a bounded rating', async () => {

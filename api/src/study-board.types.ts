@@ -115,6 +115,7 @@ export type BoardRepository = {
     authorId: number;
     body: string;
   }): Promise<Comment>;
+  deleteComment(postId: number, commentId: number): Promise<boolean>;
   listPlaylists(ownerId?: number): Promise<Playlist[]>;
   createPlaylist(input: {
     ownerId: number;

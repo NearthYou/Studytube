@@ -1,10 +1,12 @@
+import type { LookupOption } from '../types/community'
 import '../styles/components/FilterSelect.css'
 
 type FilterSelectProps = {
   label: string
-  options: string[]
+  options: LookupOption[]
   value: string
   onChange: (value: string) => void
+  placeholder?: string
 }
 
 export function FilterSelect({
@@ -12,15 +14,16 @@ export function FilterSelect({
   options,
   value,
   onChange,
+  placeholder = '전체',
 }: FilterSelectProps) {
   return (
     <label className="filter-field">
       <span>{label}</span>
       <select value={value} onChange={(event) => onChange(event.target.value)}>
-        <option value="">전체</option>
+        <option value="">{placeholder}</option>
         {options.map((option) => (
-          <option key={option} value={option}>
-            {option}
+          <option key={option.value} value={option.value}>
+            {option.label}
           </option>
         ))}
       </select>

@@ -1,69 +1,142 @@
-import { startTransition, useDeferredValue, useState } from 'react'
+import { startTransition, useDeferredValue, useEffect, useState } from 'react'
 import { Link } from 'react-router'
-import { BUDGETS, COMPANIONS, EMPTY_FILTERS, REGIONS, SEASONS, THEMES } from '../data/mockData'
 import { FilterSelect } from '../components/FilterSelect'
 import { PostCard } from '../components/PostCard'
 import type { Filters, PostWithMeta, SortOption, User } from '../types/community'
 import { PAGE_SIZE } from '../utils/community'
+import { fetchPostFilters, type PostFilterLookups } from '../utils/lookupsApi'
+import { fetchPosts } from '../utils/postsApi'
 import '../styles/pages/BoardPage.css'
 
 type BoardPageProps = {
   currentUser: User
-  posts: PostWithMeta[]
   likedPostIds: Set<number>
   onToggleLike: (postId: number) => void
+  onHydratePosts: (posts: PostWithMeta[]) => void
+}
+
+const EMPTY_FILTERS: Filters = {
+  region: '',
+  budget: '',
+  theme: '',
+  season: '',
+  companion: '',
+}
+
+const EMPTY_LOOKUPS: PostFilterLookups = {
+  regions: [],
+  themes: [],
+  budgetRanges: [],
+  seasons: [],
+  companions: [],
 }
 
 export function BoardPage({
   currentUser,
-  posts,
   likedPostIds,
   onToggleLike,
+  onHydratePosts,
 }: BoardPageProps) {
   const [query, setQuery] = useState('')
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS)
   const [sortOption, setSortOption] = useState<SortOption>('latest')
   const [page, setPage] = useState(1)
   const [showAdvanced, setShowAdvanced] = useState(false)
-  const deferredQuery = useDeferredValue(query.trim().toLowerCase())
-
-  const filteredPosts = posts
-    .filter((post) => {
-      const matchesQuery =
-        !deferredQuery ||
-        [post.title, post.summary, post.region, post.theme, post.author.nickname, ...post.tags]
-          .join(' ')
-          .toLowerCase()
-          .includes(deferredQuery)
-
-      const matchesRegion = !filters.region || post.region === filters.region
-      const matchesBudget = !filters.budget || post.budget === filters.budget
-      const matchesTheme = !filters.theme || post.theme === filters.theme
-      const matchesSeason = !filters.season || post.season === filters.season
-      const matchesCompanion = !filters.companion || post.companion === filters.companion
-
-      return (
-        matchesQuery &&
-        matchesRegion &&
-        matchesBudget &&
-        matchesTheme &&
-        matchesSeason &&
-        matchesCompanion
-      )
-    })
-    .sort((left, right) => {
-      if (sortOption === 'popular') {
-        return right.views - left.views
-      }
-      if (sortOption === 'comments') {
-        return right.discussionCount - left.discussionCount
-      }
-      return new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
-    })
-
-  const totalPages = Math.max(1, Math.ceil(filteredPosts.length / PAGE_SIZE))
+  const [lookupOptions, setLookupOptions] = useState<PostFilterLookups>(EMPTY_LOOKUPS)
+  const [posts, setPosts] = useState<PostWithMeta[]>([])
+  const [totalCount, setTotalCount] = useState(0)
+  const [isLoading, setIsLoading] = useState(false)
+  const [errorMessage, setErrorMessage] = useState('')
+  const deferredQuery = useDeferredValue(query.trim())
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
   const currentPage = Math.min(page, totalPages)
-  const pagedPosts = filteredPosts.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+
+  useEffect(() => {
+    let isMounted = true
+
+    const loadLookups = async () => {
+      try {
+        const data = await fetchPostFilters()
+
+        if (!isMounted) {
+          return
+        }
+
+        setLookupOptions(data)
+      } catch (error) {
+        if (!isMounted) {
+          return
+        }
+
+        setErrorMessage(error instanceof Error ? error.message : '필터 옵션을 불러오지 못했습니다.')
+      }
+    }
+
+    void loadLookups()
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
+
+  useEffect(() => {
+    let isMounted = true
+
+    const loadPosts = async () => {
+      setIsLoading(true)
+      setErrorMessage('')
+
+      try {
+        const response = await fetchPosts({
+          q: deferredQuery,
+          regionCode: filters.region,
+          budgetCode: filters.budget,
+          themeCode: filters.theme,
+          season: filters.season,
+          companion: filters.companion,
+          sort: sortOption,
+          page: currentPage,
+          limit: PAGE_SIZE,
+        })
+
+        if (!isMounted) {
+          return
+        }
+
+        setPosts(response.items)
+        setTotalCount(response.totalCount)
+        onHydratePosts(response.items)
+      } catch (error) {
+        if (!isMounted) {
+          return
+        }
+
+        setPosts([])
+        setTotalCount(0)
+        setErrorMessage(error instanceof Error ? error.message : '게시글을 불러오지 못했습니다.')
+      } finally {
+        if (isMounted) {
+          setIsLoading(false)
+        }
+      }
+    }
+
+    void loadPosts()
+
+    return () => {
+      isMounted = false
+    }
+  }, [
+    currentPage,
+    deferredQuery,
+    filters.budget,
+    filters.companion,
+    filters.region,
+    filters.season,
+    filters.theme,
+    onHydratePosts,
+    sortOption,
+  ])
 
   const updateFilter = (key: keyof Filters, value: string) => {
     startTransition(() => {
@@ -81,6 +154,7 @@ export function BoardPage({
 
   const buildChatHref = (post?: PostWithMeta) => {
     const params = new URLSearchParams()
+
     if (post) {
       params.set('q', `${post.region} ${post.theme} ${post.companion} 여행 추천`)
       params.set('region', post.region)
@@ -89,13 +163,15 @@ export function BoardPage({
       params.set('budget', post.budget)
       params.set('travelDate', post.travelDate)
     }
+
     return `/chat?${params.toString()}`
   }
 
   const buildPlannerHref = (post?: PostWithMeta) => {
     const params = new URLSearchParams()
+
     if (post) {
-      params.set('q', `${post.region} ${post.theme} 일정 짜줘`)
+      params.set('q', `${post.region} ${post.theme} 일정 추천`)
       params.set('region', post.region)
       params.set('theme', post.theme)
       params.set('companion', post.companion)
@@ -103,6 +179,7 @@ export function BoardPage({
       params.set('travelDate', post.travelDate)
       params.set('duration', '3')
     }
+
     return `/planner?${params.toString()}`
   }
 
@@ -111,7 +188,7 @@ export function BoardPage({
       <header className="board-page__headline">
         <span>Travel Community Feed</span>
         <h1>THE TRAVEL JOURNAL</h1>
-        <p>카드형 게시글, 블로그형 레이아웃, 정렬과 상세 검색이 한 화면에서 보이도록 구성했습니다.</p>
+        <p>검색어와 상세 필터에 따라 실제 DB 게시글을 다시 조회하는 메인 피드입니다.</p>
       </header>
 
       <div className="board-layout">
@@ -119,7 +196,7 @@ export function BoardPage({
           <div className="sidebar-panel">
             <span className="sidebar-panel__label">WELCOME</span>
             <h2>{currentUser.nickname}</h2>
-            <p>{currentUser.bio}</p>
+            <p>{currentUser.bio || '여행 기록을 쌓아가는 중입니다.'}</p>
           </div>
           <div className="sidebar-panel">
             <span className="sidebar-panel__label">MENU</span>
@@ -129,7 +206,7 @@ export function BoardPage({
           </div>
           <div className="sidebar-panel">
             <span className="sidebar-panel__label">QUICK INFO</span>
-            <p>좋아요한 글과 내가 쓴 댓글은 마이페이지에서 모아볼 수 있습니다.</p>
+            <p>검색 결과는 입력한 키워드와 상세 필터에 따라 서버에서 다시 계산됩니다.</p>
           </div>
         </aside>
 
@@ -137,10 +214,10 @@ export function BoardPage({
           <section className="ai-launchpad">
             <div className="ai-launchpad__copy">
               <span>AI TRAVEL DESK</span>
-              <h2>RAG, MCP, Agent를 붙일 준비가 된 메인 화면</h2>
+              <h2>검색과 추천 흐름이 함께 이어지는 메인 화면</h2>
               <p>
-                게시글 기반 추천은 챗봇으로 넘기고, 날씨 판단은 MCP 패널에서 보여주고,
-                일정 초안은 플래너에서 이어서 생성하도록 흐름을 추가했습니다.
+                검색어는 고정된 값이 아니라 사용자가 입력한 문장 그대로 서버로 전달되고, 서버는 DB에서
+                조건에 맞는 게시글만 다시 골라서 내려줍니다.
               </p>
             </div>
             <div className="ai-launchpad__actions">
@@ -158,7 +235,7 @@ export function BoardPage({
               <div className="search-row">
                 <input
                   className="search-input"
-                  placeholder="여행지, 작성자, 태그, 테마로 검색"
+                  placeholder="여행지, 제목, 태그, 작성자 등으로 검색"
                   value={query}
                   onChange={(event) => {
                     setQuery(event.target.value)
@@ -177,31 +254,31 @@ export function BoardPage({
                 <div className="filter-grid board-filter-grid">
                   <FilterSelect
                     label="지역"
-                    options={REGIONS}
+                    options={lookupOptions.regions}
                     value={filters.region}
                     onChange={(value) => updateFilter('region', value)}
                   />
                   <FilterSelect
                     label="예산"
-                    options={BUDGETS}
+                    options={lookupOptions.budgetRanges}
                     value={filters.budget}
                     onChange={(value) => updateFilter('budget', value)}
                   />
                   <FilterSelect
                     label="테마"
-                    options={THEMES}
+                    options={lookupOptions.themes}
                     value={filters.theme}
                     onChange={(value) => updateFilter('theme', value)}
                   />
                   <FilterSelect
                     label="계절"
-                    options={SEASONS}
+                    options={lookupOptions.seasons}
                     value={filters.season}
                     onChange={(value) => updateFilter('season', value)}
                   />
                   <FilterSelect
-                    label="동행 여부"
-                    options={COMPANIONS}
+                    label="동행"
+                    options={lookupOptions.companions}
                     value={filters.companion}
                     onChange={(value) => updateFilter('companion', value)}
                   />
@@ -248,21 +325,47 @@ export function BoardPage({
           </div>
 
           <div className="board-result-bar">
-            <strong>{filteredPosts.length}개의 게시글</strong>
-            <span>사진, 태그, 본문 요약 1~2줄을 카드로 확인할 수 있습니다.</span>
+            <strong>총 {totalCount}개의 게시글</strong>
+            <span>
+              {query.trim() ? `"${query.trim()}" 검색 결과` : '전체 게시글'} · {currentPage} / {totalPages}{' '}
+              페이지
+            </span>
           </div>
 
           <section className="post-grid">
-            {pagedPosts.map((post) => (
-              <PostCard
-                chatHref={buildChatHref(post)}
-                isLiked={likedPostIds.has(post.id)}
-                key={post.id}
-                onToggleLike={onToggleLike}
-                plannerHref={buildPlannerHref(post)}
-                post={post}
-              />
-            ))}
+            {isLoading ? (
+              <section className="empty-state">
+                <h2>게시글을 불러오는 중입니다.</h2>
+                <p>검색 조건에 맞는 결과를 다시 조회하고 있습니다.</p>
+              </section>
+            ) : null}
+
+            {!isLoading && errorMessage ? (
+              <section className="empty-state">
+                <h2>게시글을 불러오지 못했습니다.</h2>
+                <p>{errorMessage}</p>
+              </section>
+            ) : null}
+
+            {!isLoading && !errorMessage && !posts.length ? (
+              <section className="empty-state">
+                <h2>검색 결과가 없습니다.</h2>
+                <p>검색어를 바꾸거나 상세 필터를 초기화해 다시 확인해보세요.</p>
+              </section>
+            ) : null}
+
+            {!isLoading && !errorMessage
+              ? posts.map((post) => (
+                  <PostCard
+                    chatHref={buildChatHref(post)}
+                    isLiked={likedPostIds.has(post.id)}
+                    key={post.id}
+                    onToggleLike={onToggleLike}
+                    plannerHref={buildPlannerHref(post)}
+                    post={post}
+                  />
+                ))
+              : null}
           </section>
 
           <section className="pagination">
@@ -303,11 +406,10 @@ export function BoardPage({
             </div>
             <div className="about-panel__copy">
               <span>ABOUT TRIPY</span>
-              <h2>여행지를 추천하고 경험을 나누는 공간</h2>
+              <h2>검색과 기록이 함께 쌓이는 여행 커뮤니티</h2>
               <p>
-                메인에서는 게시글을 탐색하고, 상세 페이지에서 댓글과 프로필을 이어서 보고,
-                마이페이지에서는 내가 쓴 글과 좋아요한 글, 댓글, 계정 정보를 모아볼 수
-                있습니다.
+                메인 화면에서 게시글을 찾고, 상세 페이지에서 댓글과 작성자를 확인하고, 마이페이지에서
+                내가 쓴 글과 찜한 글을 정리할 수 있는 흐름을 기준으로 맞춰져 있습니다.
               </p>
               <Link className="secondary-button" to="/chat">
                 여행추천봇 보러가기

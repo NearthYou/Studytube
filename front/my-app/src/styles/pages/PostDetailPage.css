@@ -1,6 +1,8 @@
 .detail-page {
   display: grid;
   gap: 1.5rem;
+  position: relative;
+  z-index: 0;
 }
 
 .detail-card,
@@ -12,9 +14,19 @@
 .detail-card {
   display: grid;
   grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  overflow: hidden;
+  position: relative;
+  z-index: 0;
+}
+
+.detail-card__media {
+  position: relative;
+  z-index: 0;
+  overflow: hidden;
 }
 
 .detail-card__media img {
+  display: block;
   width: 100%;
   height: 100%;
   min-height: 520px;

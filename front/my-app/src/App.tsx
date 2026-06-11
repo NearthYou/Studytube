@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Navigate, Route, Routes, useNavigate } from 'react-router'
 import { AppShell } from './components/AppShell'
 import {
@@ -17,20 +17,21 @@ import { PostDetailPage } from './pages/PostDetailPage'
 import { ProfilePage } from './pages/ProfilePage'
 import { SignupPage } from './pages/SignupPage'
 import { WritePage } from './pages/WritePage'
-import type { Comment, Post, User } from './types/community'
+import type { Comment, Post, PostWithMeta, User } from './types/community'
 import {
   clearAuthToken,
   fetchMe,
-  loginUser,
-  logoutUser,
-  signupUser,
-  type AuthApiUser,
   getAuthToken,
   isLoginIdAvailable,
   isNicknameAvailable,
+  loginUser,
+  logoutUser,
   requestEmailVerification,
+  signupUser,
+  type AuthApiUser,
 } from './utils/authApi'
-import { countDiscussion, getSummary } from './utils/community'
+import { createPost as createPostApi, incrementPostView } from './utils/postsApi'
+import { countDiscussion } from './utils/community'
 
 type SignupPayload = {
   name: string
@@ -54,6 +55,19 @@ function mapAuthUserToCommunityUser(user: AuthApiUser): User {
   }
 }
 
+function mapPostAuthorToCommunityUser(author: PostWithMeta['author']): User {
+  return {
+    id: author.id,
+    userId: '',
+    password: '',
+    name: author.name,
+    email: '',
+    nickname: author.nickname,
+    bio: author.bio ?? '',
+    location: author.location ?? '',
+  }
+}
+
 function upsertUser(users: User[], nextUser: User) {
   const matchIndex = users.findIndex((user) => user.id === nextUser.id)
 
@@ -70,8 +84,57 @@ function upsertUser(users: User[], nextUser: User) {
       ...user,
       ...nextUser,
       password: user.password || nextUser.password,
+      userId: user.userId || nextUser.userId,
+      email: user.email || nextUser.email,
     }
   })
+}
+
+function toCommunityPost(post: PostWithMeta): Post {
+  return {
+    id: post.id,
+    title: post.title,
+    summary: post.summary,
+    content: post.content,
+    region: post.region,
+    regionCode: post.regionCode,
+    budget: post.budget,
+    budgetCode: post.budgetCode,
+    theme: post.theme,
+    themeCode: post.themeCode,
+    season: post.season,
+    companion: post.companion,
+    createdAt: post.createdAt,
+    updatedAt: post.updatedAt,
+    travelDate: post.travelDate,
+    views: post.views,
+    discussionCount: post.discussionCount,
+    imageUrl: post.imageUrl,
+    tags: post.tags,
+    authorId: post.author.id,
+  }
+}
+
+function upsertPosts(currentPosts: Post[], nextPosts: Post[]) {
+  const postMap = new Map<number, Post>(currentPosts.map((post) => [post.id, post]))
+
+  for (const nextPost of nextPosts) {
+    const currentPost = postMap.get(nextPost.id)
+
+    postMap.set(
+      nextPost.id,
+      currentPost
+        ? {
+            ...currentPost,
+            ...nextPost,
+          }
+        : nextPost,
+    )
+  }
+
+  return Array.from(postMap.values()).sort(
+    (left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime(),
+  )
 }
 
 function App() {
@@ -80,7 +143,7 @@ function App() {
   const [currentUserId, setCurrentUserId] = useState<number | null>(null)
   const [isAuthReady, setIsAuthReady] = useState(false)
   const [posts, setPosts] = useState<Post[]>(INITIAL_POSTS)
-  const [commentsByPost, setCommentsByPost] = useState<Record<number, Comment[]>>(INITIAL_COMMENTS)
+  const [commentsByPost] = useState<Record<number, Comment[]>>(INITIAL_COMMENTS)
   const [likedByUser, setLikedByUser] = useState<Record<number, number[]>>(INITIAL_LIKED_BY_USER)
   const [followedByUser, setFollowedByUser] = useState<Record<number, number[]>>(INITIAL_FOLLOWED_BY_USER)
 
@@ -107,6 +170,7 @@ function App() {
         setCurrentUserId(nextUser.id)
       } catch {
         clearAuthToken()
+
         if (isMounted) {
           setCurrentUserId(null)
         }
@@ -128,11 +192,21 @@ function App() {
   const likedPostIds = new Set(currentUser ? likedByUser[currentUser.id] ?? [] : [])
   const followedAuthorIds = new Set(currentUser ? followedByUser[currentUser.id] ?? [] : [])
 
-  const postsWithMeta = posts.map((post) => ({
-    ...post,
-    discussionCount: countDiscussion(commentsByPost[post.id] ?? []),
-    author: users.find((user) => user.id === post.authorId)!,
-  }))
+  const postsWithMeta = posts.flatMap((post) => {
+    const author = users.find((user) => user.id === post.authorId)
+
+    if (!author) {
+      return []
+    }
+
+    return [
+      {
+        ...post,
+        discussionCount: (post.discussionCount ?? 0) + countDiscussion(commentsByPost[post.id] ?? []),
+        author,
+      },
+    ]
+  })
 
   const handleLogin = async (userId: string, password: string) => {
     try {
@@ -179,6 +253,21 @@ function App() {
     navigate('/login')
   }
 
+  const hydratePosts = useCallback((incomingPosts: PostWithMeta[]) => {
+    if (!incomingPosts.length) {
+      return
+    }
+
+    setUsers((current) =>
+      incomingPosts.reduce(
+        (nextUsers, post) => upsertUser(nextUsers, mapPostAuthorToCommunityUser(post.author)),
+        current,
+      ),
+    )
+
+    setPosts((current) => upsertPosts(current, incomingPosts.map(toCommunityPost)))
+  }, [])
+
   const toggleLike = (postId: number) => {
     if (!currentUser) {
       return
@@ -215,94 +304,48 @@ function App() {
     })
   }
 
-  const addComment = (postId: number, content: string) => {
-    if (!currentUser) {
-      return
-    }
-
-    const nextComment: Comment = {
-      id: Date.now(),
-      authorId: currentUser.id,
-      content,
-      createdAt: '방금 전',
-      replies: [],
-    }
-
-    setCommentsByPost((current) => ({
-      ...current,
-      [postId]: [nextComment, ...(current[postId] ?? [])],
-    }))
-  }
-
-  const addReply = (postId: number, commentId: number, content: string) => {
-    if (!currentUser) {
-      return
-    }
-
-    setCommentsByPost((current) => ({
-      ...current,
-      [postId]: (current[postId] ?? []).map((comment) =>
-        comment.id === commentId
-          ? {
-              ...comment,
-              replies: [
-                ...comment.replies,
-                {
-                  id: Date.now(),
-                  authorId: currentUser.id,
-                  content,
-                  createdAt: '방금 전',
-                },
-              ],
-            }
-          : comment,
-      ),
-    }))
-  }
-
-  const createPost = (payload: {
+  const createPost = async (payload: {
     title: string
     travelDate: string
     imageUrl: string
-    region: string
-    budget: string
-    theme: string
+    regionCode: string
+    budgetCode: string
+    themeCode: string
     season: string
     companion: string
     content: string
   }) => {
     if (!currentUser) {
-      return
+      return false
     }
 
-    const nextPost: Post = {
-      id: Date.now(),
-      title: payload.title,
-      summary: getSummary(payload.content),
-      content: payload.content,
-      region: payload.region,
-      budget: payload.budget,
-      theme: payload.theme,
-      season: payload.season,
-      companion: payload.companion,
-      createdAt: new Date().toISOString().slice(0, 10),
-      travelDate: payload.travelDate,
-      views: 0,
-      imageUrl:
-        payload.imageUrl ||
-        'https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=900&q=80',
-      tags: [`#${payload.region}`, `#${payload.theme}`, `#${payload.companion}`],
-      authorId: currentUser.id,
-    }
+    try {
+      const response = await createPostApi({
+        title: payload.title,
+        travelDate: payload.travelDate,
+        imageUrl: payload.imageUrl,
+        regionCode: payload.regionCode,
+        budgetCode: payload.budgetCode,
+        themeCode: payload.themeCode,
+        season: payload.season,
+        companion: payload.companion,
+        content: payload.content,
+      })
 
-    setPosts((current) => [nextPost, ...current])
+      hydratePosts([response.post])
+      return true
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : '게시글 등록에 실패했습니다.')
+      return false
+    }
   }
 
-  const incrementView = (postId: number) => {
+  const incrementView = useCallback((postId: number) => {
     setPosts((current) =>
       current.map((post) => (post.id === postId ? { ...post, views: post.views + 1 } : post)),
     )
-  }
+    void incrementPostView(postId).catch(() => undefined)
+  }, [])
 
   const updateProfile = (payload: { nickname: string; password: string }) => {
     if (!currentUser) {
@@ -338,10 +381,7 @@ function App() {
     <div className="app-shell">
       <AppShell currentUser={currentUser} onSignOut={handleSignOut} />
       <Routes>
-        <Route
-          path="/"
-          element={<Navigate replace to={currentUser ? '/main' : '/login'} />}
-        />
+        <Route path="/" element={<Navigate replace to={currentUser ? '/main' : '/login'} />} />
         <Route
           path="/login"
           element={currentUser ? <Navigate replace to="/main" /> : <LoginPage onLogin={handleLogin} />}
@@ -368,8 +408,8 @@ function App() {
               <BoardPage
                 currentUser={currentUser}
                 likedPostIds={likedPostIds}
+                onHydratePosts={hydratePosts}
                 onToggleLike={toggleLike}
-                posts={postsWithMeta}
               />
             ) : (
               <Navigate replace to="/login" />
@@ -381,12 +421,9 @@ function App() {
           element={
             currentUser ? (
               <PostDetailPage
-                commentsByPost={commentsByPost}
-                currentUser={currentUser}
                 followedAuthorIds={followedAuthorIds}
                 likedPostIds={likedPostIds}
-                onAddComment={addComment}
-                onAddReply={addReply}
+                onHydratePosts={hydratePosts}
                 onIncrementView={incrementView}
                 onToggleFollow={toggleFollow}
                 onToggleLike={toggleLike}

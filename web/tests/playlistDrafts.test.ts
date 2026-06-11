@@ -75,12 +75,12 @@ test('patches only the active draft', () => {
 
   const nextState = patchActivePlaylistDraft(
     state,
-    { title: 'FastAPI 백엔드', videos: [{ id: 'post-2', title: 'API' }] },
+    { title: 'FastAPI Backend', videos: [{ id: 'post-2', title: 'API' }] },
     '2026-06-11T00:00:00.000Z',
   );
 
   assert.equal(nextState.drafts[0].title, 'React');
-  assert.equal(selectActivePlaylistDraft(nextState).title, 'FastAPI 백엔드');
+  assert.equal(selectActivePlaylistDraft(nextState).title, 'FastAPI Backend');
   assert.equal(selectActivePlaylistDraft(nextState).videos.length, 1);
 });
 

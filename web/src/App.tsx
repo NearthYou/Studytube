@@ -30,6 +30,11 @@ import {
   type PlaylistDraftState,
 } from './playlistDrafts';
 import {
+  buildWatchPlaylistChoices,
+  findMatchingWatchPlaylistChoice,
+  type WatchPlaylistChoice,
+} from './watchLibrary';
+import {
   addComment,
   askAgent,
   askMcp,
@@ -266,7 +271,7 @@ function App() {
           path="/watch"
           element={
             <ProtectedRoute session={session}>
-              <WatchPage />
+              <WatchPage session={session!} />
             </ProtectedRoute>
           }
         />
@@ -2598,9 +2603,15 @@ function CoursePage({ session }: { session: Session }) {
   );
 }
 
-function WatchPage() {
+function WatchPage({ session }: { session: Session }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [queue, setQueue] = useState<QueueVideo[]>(() => readQueue());
+  const [savedPlaylists, setSavedPlaylists] = useState<Playlist[]>([]);
+  const [libraryPosts, setLibraryPosts] = useState<StudyPost[]>([]);
+  const [playlistDraftState, setPlaylistDraftState] =
+    useState<PlaylistDraftState<QueueVideo>>(() => readPlaylistDraftState());
+  const [playlistLibraryStatus, setPlaylistLibraryStatus] =
+    useState('내 플레이리스트를 불러오는 중입니다.');
   const [currentTime, setCurrentTime] = useState(0);
   const [captionResponse, setCaptionResponse] = useState<CaptionResponse | null>(
     null,
@@ -2688,6 +2699,68 @@ function WatchPage() {
       videoDuration,
     });
   }, [captions, captionsEnabled, currentTime, shouldHoldLastCaption, videoDuration]);
+  const playlistChoices = useMemo(
+    () =>
+      buildWatchPlaylistChoices({
+        savedPlaylists,
+        posts: libraryPosts,
+        drafts: playlistDraftState.drafts,
+        videoFromPost: queueVideoFromPost,
+      }),
+    [libraryPosts, playlistDraftState.drafts, savedPlaylists],
+  );
+  const activePlaylistChoice = useMemo(
+    () => findMatchingWatchPlaylistChoice(playlistChoices, queue, queueVideoKey),
+    [playlistChoices, queue],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadPlaylistLibrary() {
+      const draftState = readPlaylistDraftState();
+      setPlaylistDraftState(draftState);
+
+      try {
+        const [nextPlaylists, nextPosts] = await Promise.all([
+          fetchPlaylists(session.token),
+          fetchOwnedPostsForLibrary(session.token),
+        ]);
+
+        if (cancelled) {
+          return;
+        }
+
+        const nextChoices = buildWatchPlaylistChoices({
+          savedPlaylists: nextPlaylists,
+          posts: nextPosts,
+          drafts: draftState.drafts,
+          videoFromPost: queueVideoFromPost,
+        });
+
+        setSavedPlaylists(nextPlaylists);
+        setLibraryPosts(nextPosts);
+        setPlaylistLibraryStatus(
+          nextChoices.length > 0
+            ? `${nextChoices.length}개의 플레이리스트를 고를 수 있어요.`
+            : '아직 재생할 수 있는 플레이리스트가 없어요.',
+        );
+      } catch {
+        if (!cancelled) {
+          setPlaylistDraftState(readPlaylistDraftState());
+          setPlaylistLibraryStatus(
+            '저장된 플레이리스트를 불러오지 못했어요. 작업 초안은 바로 사용할 수 있습니다.',
+          );
+        }
+      }
+    }
+
+    void loadPlaylistLibrary();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session.token]);
 
   useEffect(() => {
     if (!currentVideo) {
@@ -3089,14 +3162,40 @@ function WatchPage() {
     jumpTo(mark.start);
   }
 
+  function playPlaylistChoice(choice: WatchPlaylistChoice<QueueVideo>) {
+    const nextQueue = choice.videos.map((video) => normalizeQueueVideo(video));
+    const firstVideo = nextQueue[0];
+
+    if (!firstVideo) {
+      setPlaylistLibraryStatus('이 플레이리스트에는 재생할 영상이 없어요.');
+      return;
+    }
+
+    setQueue(nextQueue);
+    saveQueue(nextQueue);
+    setCurrentTime(0);
+    setNoteDraft('');
+    setSearchParams({ videoId: firstVideo.videoId });
+    setPlaylistLibraryStatus(`"${choice.title}" 플레이리스트를 재생합니다.`);
+  }
+
   if (!currentVideo) {
     return (
-      <main className="page-shell simple-page">
+      <main className="page-shell simple-page watch-empty-page">
         <p className="eyebrow">Watch</p>
         <h1>재생목록이 비어 있어요</h1>
-        <p>코스 찾기나 플레이리스트 보드에서 보고 싶은 영상을 담으면 이곳에서 바로 볼 수 있어요.</p>
+        <p>
+          내 플레이리스트 중 하나를 골라 바로 학습을 시작하거나,
+          새 코스를 찾아 재생목록에 담아보세요.
+        </p>
+        <WatchPlaylistPicker
+          activeChoiceId={activePlaylistChoice?.id ?? null}
+          choices={playlistChoices}
+          onSelect={playPlaylistChoice}
+          status={playlistLibraryStatus}
+        />
         <Link className="primary-link" to="/playlists">
-          볼 코스 찾으러 가기
+          새 코스 찾으러 가기
         </Link>
       </main>
     );
@@ -3153,6 +3252,13 @@ function WatchPage() {
         </article>
 
         <aside className="watch-queue study-rail">
+          <WatchPlaylistPicker
+            activeChoiceId={activePlaylistChoice?.id ?? null}
+            choices={playlistChoices}
+            onSelect={playPlaylistChoice}
+            status={playlistLibraryStatus}
+          />
+
           <section className="study-panel">
             <div className="section-title">
               <h2>학습 컨트롤</h2>
@@ -3333,6 +3439,51 @@ function WatchPage() {
         </aside>
       </section>
     </main>
+  );
+}
+
+function WatchPlaylistPicker({
+  choices,
+  activeChoiceId,
+  status,
+  onSelect,
+}: {
+  choices: WatchPlaylistChoice<QueueVideo>[];
+  activeChoiceId: string | null;
+  status: string;
+  onSelect: (choice: WatchPlaylistChoice<QueueVideo>) => void;
+}) {
+  return (
+    <section className="study-panel playlist-library-panel">
+      <div className="section-title">
+        <h2>내 플레이리스트</h2>
+        <span>{choices.length}개</span>
+      </div>
+      <p className="playlist-library-status">{status}</p>
+      {choices.length > 0 ? (
+        <div className="playlist-choice-list">
+          {choices.map((choice) => (
+            <button
+              className={choice.id === activeChoiceId ? 'active' : ''}
+              key={choice.id}
+              type="button"
+              onClick={() => onSelect(choice)}
+            >
+              <span className="playlist-choice-kind">
+                {choice.kind === 'saved' ? '저장한 코스' : '작업 초안'}
+              </span>
+              <strong>{choice.title}</strong>
+              <span className="playlist-choice-description">
+                {clipText(choice.description, 86)}
+              </span>
+              <em>{choice.metaLabel}</em>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <p className="empty-copy">등록 화면에서 플레이리스트를 만들면 여기에 표시됩니다.</p>
+      )}
+    </section>
   );
 }
 
@@ -3619,6 +3770,20 @@ function saveQueue(queue: QueueVideo[]) {
     QUEUE_STORAGE_KEY,
     JSON.stringify(queue.map((video) => normalizeQueueVideo(video))),
   );
+}
+
+async function fetchOwnedPostsForLibrary(token: string) {
+  const pageSize = 24;
+  const firstPage = await fetchPosts(token, '', 1, pageSize);
+  const posts = [...firstPage.items];
+  const totalPages = Math.ceil(firstPage.total / pageSize);
+
+  for (let page = 2; page <= totalPages; page += 1) {
+    const result = await fetchPosts(token, '', page, pageSize);
+    posts.push(...result.items);
+  }
+
+  return posts;
 }
 
 function readPlaylistDraftState(): PlaylistDraftState<QueueVideo> {

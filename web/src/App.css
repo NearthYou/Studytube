@@ -3441,6 +3441,77 @@ footer {
   font-weight: 900;
 }
 
+.playlist-library-panel {
+  background: #f8fafc;
+}
+
+.playlist-library-status {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-13);
+  font-weight: 800;
+  line-height: 1.55;
+}
+
+.playlist-choice-list {
+  display: grid;
+  gap: 8px;
+  max-height: 280px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.playlist-choice-list button {
+  display: grid;
+  gap: 6px;
+  min-height: auto;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text);
+  text-align: left;
+  box-shadow: none;
+}
+
+.playlist-choice-list button.active,
+.playlist-choice-list button:hover {
+  border-color: rgba(49, 130, 246, 0.36);
+  background: rgba(49, 130, 246, 0.1);
+  box-shadow: none;
+  transform: none;
+}
+
+.playlist-choice-kind,
+.playlist-choice-list em {
+  color: var(--blue);
+  font-size: var(--font-12);
+  font-style: normal;
+  font-weight: 900;
+}
+
+.playlist-choice-list strong {
+  color: var(--text);
+  font-size: var(--font-15);
+  line-height: 1.35;
+}
+
+.playlist-choice-description {
+  color: #4e5968;
+  font-size: var(--font-13);
+  font-weight: 800;
+  line-height: 1.45;
+}
+
+.watch-empty-page {
+  display: grid;
+  gap: 18px;
+}
+
+.watch-empty-page .playlist-library-panel {
+  max-width: 640px;
+}
+
 .control-group {
   display: grid;
   gap: 8px;

@@ -1,7 +1,20 @@
 .post-card {
   display: grid;
   border: 1px solid #cfc8bc;
+  border-radius: 22px;
   background: #fff;
+  box-shadow: 0 16px 34px rgba(121, 109, 89, 0.08);
+  overflow: hidden;
+  transition:
+    box-shadow 180ms ease,
+    transform 180ms ease,
+    border-color 180ms ease;
+}
+
+.post-card:hover {
+  border-color: #c1b6a6;
+  box-shadow: 0 22px 42px rgba(121, 109, 89, 0.14);
+  transform: translateY(-3px);
 }
 
 .post-card__image-link {
@@ -55,6 +68,7 @@
 
 .post-card__tags span {
   border: 1px solid #d9d1c4;
+  border-radius: 999px;
   padding: 0.28rem 0.55rem;
   color: #5f5a53;
   font-size: 0.78rem;
@@ -82,10 +96,22 @@
 
 .post-card__assist-link {
   border: 1px solid #d9d1c4;
+  border-radius: 999px;
   padding: 0.5rem 0.7rem;
   color: #1b1b1b;
   font-size: 0.78rem;
+  background: rgba(255, 252, 247, 0.9);
   text-decoration: none;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    transform 160ms ease;
+}
+
+.post-card__assist-link:hover {
+  border-color: #bfae93;
+  background: #fff;
+  transform: translateY(-1px);
 }
 
 .post-card__stats {

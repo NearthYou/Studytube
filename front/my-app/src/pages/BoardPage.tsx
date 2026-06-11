@@ -302,7 +302,7 @@ export function BoardPage({
               />
             </div>
             <div className="about-panel__copy">
-              <span>ABOUT TRIPBOARD</span>
+              <span>ABOUT TRIPY</span>
               <h2>여행지를 추천하고 경험을 나누는 공간</h2>
               <p>
                 메인에서는 게시글을 탐색하고, 상세 페이지에서 댓글과 프로필을 이어서 보고,

@@ -26,6 +26,11 @@
   gap: 0.75rem;
 }
 
+.auth-card__brand-logo {
+  width: min(220px, 62%);
+  height: auto;
+}
+
 .auth-card__eyebrow {
   color: #7a6d59;
   font-size: 0.74rem;

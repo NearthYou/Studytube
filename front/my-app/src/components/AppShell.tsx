@@ -18,9 +18,9 @@ export function AppShell({ currentUser, onSignOut }: AppShellProps) {
     <header className="site-header">
       <div className="site-header__inner">
         <div className="site-header__left">
-          <span className="site-header__eyebrow">Trip Community</span>
-          <Link className="site-header__brand" to="/main">
-            TRIPBOARD
+          <span className="site-header__eyebrow">Cozy Trip Community</span>
+          <Link aria-label="Tripy home" className="site-header__brand" to="/main">
+            <img alt="Tripy" className="site-header__brand-mark" src="/tripy-logo.png" />
           </Link>
         </div>
         <nav className="site-header__nav">

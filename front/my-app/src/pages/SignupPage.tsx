@@ -145,6 +145,7 @@ export function SignupPage({
     <main className="auth-screen">
       <section className="auth-card auth-card--wide">
         <div className="auth-card__header">
+          <img alt="Tripy logo" className="auth-card__brand-logo" src="/tripy-logo.png" />
           <span className="auth-card__eyebrow">CREATE ACCOUNT</span>
           <h1>회원가입</h1>
           <p>이름, 아이디, 비밀번호, 이메일, 닉네임을 입력하고 가입을 진행합니다.</p>

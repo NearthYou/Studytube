@@ -9,21 +9,23 @@
 
 .site-header__inner {
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr) 220px;
+  grid-template-columns: 260px minmax(0, 1fr) 220px;
   align-items: center;
   width: min(1280px, calc(100% - 2rem));
   margin: 0 auto;
-  min-height: 72px;
+  min-height: 84px;
 }
 
-.site-header__left,
+.site-header__left {
+  display: grid;
+  align-content: center;
+  gap: 0.35rem;
+}
+
 .site-header__right {
   display: flex;
   align-items: center;
   gap: 1rem;
-}
-
-.site-header__right {
   justify-content: flex-end;
 }
 
@@ -35,11 +37,16 @@
 }
 
 .site-header__brand {
-  color: #111;
-  font-family: "Bodoni MT", "Didot", "Times New Roman", serif;
-  font-size: 1.1rem;
-  letter-spacing: 0.16em;
+  display: block;
+  line-height: 0;
   text-decoration: none;
+}
+
+.site-header__brand-mark {
+  display: block;
+  width: 168px;
+  max-width: 100%;
+  height: auto;
 }
 
 .site-header__nav {

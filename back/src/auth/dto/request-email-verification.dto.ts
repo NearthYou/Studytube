@@ -1,6 +1,6 @@
 import { IsEmail, MaxLength } from 'class-validator';
 
-export class CheckEmailDto {
+export class RequestEmailVerificationDto {
   @IsEmail()
   @MaxLength(255)
   email!: string;

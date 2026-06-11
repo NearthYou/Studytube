@@ -3,7 +3,7 @@ import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { AppModule } from './../src/app.module';
 
-describe('AppController (e2e)', () => {
+describe('AuthController (e2e)', () => {
   let app: INestApplication;
 
   beforeEach(async () => {
@@ -16,13 +16,17 @@ describe('AppController (e2e)', () => {
     await app.init();
   });
 
-  it('/api/health (GET)', () => {
+  afterEach(async () => {
+    await app.close();
+  });
+
+  it('/api/auth/check-login-id (GET)', () => {
     return request(app.getHttpServer())
-      .get('/api/health')
+      .get('/api/auth/check-login-id')
+      .query({ loginId: 'testuser1234' })
       .expect(200)
       .expect(({ body }) => {
-        expect(body.status).toBe('ok');
-        expect(body.service).toBe('travel-app-backend');
+        expect(typeof body.available).toBe('boolean');
       });
   });
 });

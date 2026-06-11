@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Navigate, Route, Routes, useNavigate } from 'react-router'
 import { AppShell } from './components/AppShell'
 import {
@@ -18,16 +18,111 @@ import { ProfilePage } from './pages/ProfilePage'
 import { SignupPage } from './pages/SignupPage'
 import { WritePage } from './pages/WritePage'
 import type { Comment, Post, User } from './types/community'
+import {
+  clearAuthToken,
+  fetchMe,
+  loginUser,
+  logoutUser,
+  signupUser,
+  type AuthApiUser,
+  getAuthToken,
+  isLoginIdAvailable,
+  isNicknameAvailable,
+  requestEmailVerification,
+} from './utils/authApi'
 import { countDiscussion, getSummary } from './utils/community'
+
+type SignupPayload = {
+  name: string
+  userId: string
+  password: string
+  passwordConfirm: string
+  email: string
+  nickname: string
+}
+
+function mapAuthUserToCommunityUser(user: AuthApiUser): User {
+  return {
+    id: user.id,
+    userId: user.loginId,
+    password: '',
+    name: user.name,
+    email: user.email,
+    nickname: user.nickname,
+    bio: user.bio ?? '',
+    location: user.location ?? '',
+  }
+}
+
+function upsertUser(users: User[], nextUser: User) {
+  const matchIndex = users.findIndex((user) => user.id === nextUser.id)
+
+  if (matchIndex === -1) {
+    return [...users, nextUser]
+  }
+
+  return users.map((user, index) => {
+    if (index !== matchIndex) {
+      return user
+    }
+
+    return {
+      ...user,
+      ...nextUser,
+      password: user.password || nextUser.password,
+    }
+  })
+}
 
 function App() {
   const navigate = useNavigate()
   const [users, setUsers] = useState<User[]>(INITIAL_USERS)
   const [currentUserId, setCurrentUserId] = useState<number | null>(null)
+  const [isAuthReady, setIsAuthReady] = useState(false)
   const [posts, setPosts] = useState<Post[]>(INITIAL_POSTS)
   const [commentsByPost, setCommentsByPost] = useState<Record<number, Comment[]>>(INITIAL_COMMENTS)
   const [likedByUser, setLikedByUser] = useState<Record<number, number[]>>(INITIAL_LIKED_BY_USER)
   const [followedByUser, setFollowedByUser] = useState<Record<number, number[]>>(INITIAL_FOLLOWED_BY_USER)
+
+  useEffect(() => {
+    const token = getAuthToken()
+
+    if (!token) {
+      setIsAuthReady(true)
+      return
+    }
+
+    let isMounted = true
+
+    const restoreSession = async () => {
+      try {
+        const response = await fetchMe()
+        const nextUser = mapAuthUserToCommunityUser(response.user)
+
+        if (!isMounted) {
+          return
+        }
+
+        setUsers((current) => upsertUser(current, nextUser))
+        setCurrentUserId(nextUser.id)
+      } catch {
+        clearAuthToken()
+        if (isMounted) {
+          setCurrentUserId(null)
+        }
+      } finally {
+        if (isMounted) {
+          setIsAuthReady(true)
+        }
+      }
+    }
+
+    void restoreSession()
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
 
   const currentUser = users.find((user) => user.id === currentUserId) ?? null
   const likedPostIds = new Set(currentUser ? likedByUser[currentUser.id] ?? [] : [])
@@ -39,43 +134,47 @@ function App() {
     author: users.find((user) => user.id === post.authorId)!,
   }))
 
-  const handleLogin = (userId: string, password: string) => {
-    const matchedUser = users.find(
-      (user) => user.userId === userId && user.password === password,
-    )
+  const handleLogin = async (userId: string, password: string) => {
+    try {
+      const response = await loginUser({
+        loginId: userId,
+        password,
+      })
+      const nextUser = mapAuthUserToCommunityUser(response.user)
 
-    if (!matchedUser) {
-      window.alert('아이디/비밀번호를 확인해주세요!')
-      return
+      setUsers((current) => upsertUser(current, nextUser))
+      setCurrentUserId(nextUser.id)
+      navigate('/main')
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : '아이디/비밀번호를 확인해주세요.')
     }
-
-    setCurrentUserId(matchedUser.id)
-    navigate('/main')
   }
 
-  const handleSignup = (payload: {
-    name: string
-    userId: string
-    password: string
-    email: string
-    nickname: string
-  }) => {
-    setUsers((current) => [
-      ...current,
-      {
-        id: Math.max(...current.map((user) => user.id)) + 1,
-        userId: payload.userId,
-        password: payload.password,
+  const handleSignup = async (payload: SignupPayload) => {
+    try {
+      await signupUser({
         name: payload.name,
+        loginId: payload.userId,
+        password: payload.password,
+        passwordConfirm: payload.passwordConfirm,
         email: payload.email,
         nickname: payload.nickname,
-        bio: '새로 가입한 사용자입니다.',
-        location: '미정',
-      },
-    ])
+      })
+
+      return true
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : '회원가입에 실패했습니다.')
+      return false
+    }
   }
 
-  const handleSignOut = () => {
+  const handleSignOut = async () => {
+    try {
+      await logoutUser()
+    } catch {
+      clearAuthToken()
+    }
+
     setCurrentUserId(null)
     navigate('/login')
   }
@@ -231,6 +330,10 @@ function App() {
     return true
   }
 
+  if (!isAuthReady) {
+    return <div className="app-shell" />
+  }
+
   return (
     <div className="app-shell">
       <AppShell currentUser={currentUser} onSignOut={handleSignOut} />
@@ -239,8 +342,25 @@ function App() {
           path="/"
           element={<Navigate replace to={currentUser ? '/main' : '/login'} />}
         />
-        <Route path="/login" element={<LoginPage onLogin={handleLogin} />} />
-        <Route path="/signup" element={<SignupPage onSignup={handleSignup} users={users} />} />
+        <Route
+          path="/login"
+          element={currentUser ? <Navigate replace to="/main" /> : <LoginPage onLogin={handleLogin} />}
+        />
+        <Route
+          path="/signup"
+          element={
+            currentUser ? (
+              <Navigate replace to="/main" />
+            ) : (
+              <SignupPage
+                onRequestEmailVerification={requestEmailVerification}
+                onCheckLoginId={isLoginIdAvailable}
+                onCheckNickname={isNicknameAvailable}
+                onSignup={handleSignup}
+              />
+            )
+          }
+        />
         <Route
           path="/main"
           element={

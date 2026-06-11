@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
+import { FilterSelect } from '../components/FilterSelect'
 import type { Comment, PostWithMeta, User } from '../types/community'
 import {
   createComment,
@@ -11,6 +12,7 @@ import {
   updateReply,
 } from '../utils/commentsApi'
 import { formatDate, getUserLabel } from '../utils/community'
+import { fetchPostFilters, type PostFilterLookups } from '../utils/lookupsApi'
 import { fetchPostById } from '../utils/postsApi'
 import '../styles/pages/PostDetailPage.css'
 
@@ -41,6 +43,22 @@ type PostDetailPageProps = {
   ) => Promise<boolean>
 }
 
+const EMPTY_LOOKUPS: PostFilterLookups = {
+  regions: [],
+  themes: [],
+  budgetRanges: [],
+  seasons: [],
+  companions: [],
+}
+
+function isEdited(createdAt?: string, updatedAt?: string) {
+  if (!createdAt || !updatedAt) {
+    return false
+  }
+
+  return new Date(updatedAt).getTime() > new Date(createdAt).getTime()
+}
+
 export function PostDetailPage({
   currentUser,
   users,
@@ -65,10 +83,16 @@ export function PostDetailPage({
   const [editingCommentText, setEditingCommentText] = useState('')
   const [editingReplyText, setEditingReplyText] = useState('')
   const [isEditingPost, setIsEditingPost] = useState(false)
+  const [lookupOptions, setLookupOptions] = useState<PostFilterLookups>(EMPTY_LOOKUPS)
   const [editPostForm, setEditPostForm] = useState({
     title: '',
     travelDate: '',
     imageUrl: '',
+    regionCode: '',
+    budgetCode: '',
+    themeCode: '',
+    season: '',
+    companion: '',
     content: '',
   })
   const [isSavingPostEdit, setIsSavingPostEdit] = useState(false)
@@ -78,6 +102,32 @@ export function PostDetailPage({
   const [errorMessage, setErrorMessage] = useState('')
   const viewedPostIdsRef = useRef<Set<number>>(new Set())
   const postId = Number(params.postId)
+
+  useEffect(() => {
+    let isMounted = true
+
+    const loadLookups = async () => {
+      try {
+        const data = await fetchPostFilters()
+
+        if (!isMounted) {
+          return
+        }
+
+        setLookupOptions(data)
+      } catch {
+        if (!isMounted) {
+          return
+        }
+      }
+    }
+
+    void loadLookups()
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
 
   useEffect(() => {
     if (!Number.isFinite(postId)) {
@@ -107,6 +157,11 @@ export function PostDetailPage({
           title: postResponse.post.title,
           travelDate: postResponse.post.travelDate,
           imageUrl: postResponse.post.imageUrl,
+          regionCode: postResponse.post.regionCode ?? '',
+          budgetCode: postResponse.post.budgetCode ?? '',
+          themeCode: postResponse.post.themeCode ?? '',
+          season: postResponse.post.season,
+          companion: postResponse.post.companion,
           content: postResponse.post.content,
         })
         setComments(commentsResponse.items)
@@ -206,8 +261,17 @@ export function PostDetailPage({
               onSubmit={async (event) => {
                 event.preventDefault()
 
-                if (!editPostForm.title.trim() || !editPostForm.travelDate || !editPostForm.content.trim()) {
-                  window.alert('Please fill in title, travel date, and content.')
+                if (
+                  !editPostForm.title.trim() ||
+                  !editPostForm.travelDate ||
+                  !editPostForm.regionCode ||
+                  !editPostForm.budgetCode ||
+                  !editPostForm.themeCode ||
+                  !editPostForm.season ||
+                  !editPostForm.companion ||
+                  !editPostForm.content.trim()
+                ) {
+                  window.alert('Please fill in all required fields.')
                   return
                 }
 
@@ -218,11 +282,11 @@ export function PostDetailPage({
                     title: editPostForm.title.trim(),
                     travelDate: editPostForm.travelDate,
                     imageUrl: editPostForm.imageUrl.trim(),
-                    regionCode: post.regionCode ?? '',
-                    budgetCode: post.budgetCode ?? '',
-                    themeCode: post.themeCode ?? '',
-                    season: post.season,
-                    companion: post.companion,
+                    regionCode: editPostForm.regionCode,
+                    budgetCode: editPostForm.budgetCode,
+                    themeCode: editPostForm.themeCode,
+                    season: editPostForm.season,
+                    companion: editPostForm.companion,
                     content: editPostForm.content.trim(),
                   })
 
@@ -236,6 +300,11 @@ export function PostDetailPage({
                     title: refreshed.post.title,
                     travelDate: refreshed.post.travelDate,
                     imageUrl: refreshed.post.imageUrl,
+                    regionCode: refreshed.post.regionCode ?? '',
+                    budgetCode: refreshed.post.budgetCode ?? '',
+                    themeCode: refreshed.post.themeCode ?? '',
+                    season: refreshed.post.season,
+                    companion: refreshed.post.companion,
                     content: refreshed.post.content,
                   })
                   onHydratePosts([refreshed.post])
@@ -273,6 +342,48 @@ export function PostDetailPage({
                   }
                 />
               </label>
+              <div className="detail-edit-grid">
+                <FilterSelect
+                  label="Region"
+                  options={lookupOptions.regions}
+                  value={editPostForm.regionCode}
+                  onChange={(value) =>
+                    setEditPostForm((current) => ({ ...current, regionCode: value }))
+                  }
+                />
+                <FilterSelect
+                  label="Budget"
+                  options={lookupOptions.budgetRanges}
+                  value={editPostForm.budgetCode}
+                  onChange={(value) =>
+                    setEditPostForm((current) => ({ ...current, budgetCode: value }))
+                  }
+                />
+                <FilterSelect
+                  label="Theme"
+                  options={lookupOptions.themes}
+                  value={editPostForm.themeCode}
+                  onChange={(value) =>
+                    setEditPostForm((current) => ({ ...current, themeCode: value }))
+                  }
+                />
+                <FilterSelect
+                  label="Season"
+                  options={lookupOptions.seasons}
+                  value={editPostForm.season}
+                  onChange={(value) =>
+                    setEditPostForm((current) => ({ ...current, season: value }))
+                  }
+                />
+                <FilterSelect
+                  label="Companion"
+                  options={lookupOptions.companions}
+                  value={editPostForm.companion}
+                  onChange={(value) =>
+                    setEditPostForm((current) => ({ ...current, companion: value }))
+                  }
+                />
+              </div>
               <label>
                 Content
                 <textarea
@@ -293,6 +404,11 @@ export function PostDetailPage({
                       title: post.title,
                       travelDate: post.travelDate,
                       imageUrl: post.imageUrl,
+                      regionCode: post.regionCode ?? '',
+                      budgetCode: post.budgetCode ?? '',
+                      themeCode: post.themeCode ?? '',
+                      season: post.season,
+                      companion: post.companion,
                       content: post.content,
                     })
                     setIsEditingPost(false)
@@ -399,7 +515,12 @@ export function PostDetailPage({
             <article className="comment-card" key={comment.id}>
               <div className="comment-card__head">
                 <strong>{comment.author?.nickname ?? getUserLabel(users, comment.authorId)}</strong>
-                <span>{formatDate(comment.createdAt)}</span>
+                <span>
+                  {formatDate(comment.createdAt)}
+                  {isEdited(comment.createdAt, comment.updatedAt) ? (
+                    <em className="detail-edited-badge">edited</em>
+                  ) : null}
+                </span>
               </div>
 
               {editingCommentId === comment.id ? (
@@ -483,7 +604,12 @@ export function PostDetailPage({
                 {comment.replies.map((reply) => (
                   <div className="reply-card" key={reply.id}>
                     <strong>{reply.author?.nickname ?? getUserLabel(users, reply.authorId)}</strong>
-                    <span>{formatDate(reply.createdAt)}</span>
+                    <span>
+                      {formatDate(reply.createdAt)}
+                      {isEdited(reply.createdAt, reply.updatedAt) ? (
+                        <em className="detail-edited-badge">edited</em>
+                      ) : null}
+                    </span>
 
                     {editingReplyId === reply.id ? (
                       <form

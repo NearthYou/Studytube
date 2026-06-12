@@ -26,6 +26,10 @@ yarn-debug.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Agent/local generated artifacts
+.superpowers/
+docs/study/*.html
+
 # Environment files
 .env
 .env.*

@@ -126,7 +126,7 @@ export function MyPage({ currentUser, onUpdateProfile }: MyPageProps) {
         }
       } catch (error) {
         if (isMounted) {
-          window.alert(error instanceof Error ? error.message : 'Failed to load my page.')
+          window.alert(error instanceof Error ? error.message : '마이페이지 정보를 불러오지 못했습니다.')
         }
       } finally {
         if (isMounted) {
@@ -162,7 +162,7 @@ export function MyPage({ currentUser, onUpdateProfile }: MyPageProps) {
             }))
           }
         >
-          Previous
+          이전
         </button>
         <span>
           {currentPage} / {currentTotalPages}
@@ -177,7 +177,7 @@ export function MyPage({ currentUser, onUpdateProfile }: MyPageProps) {
             }))
           }
         >
-          Next
+          다음
         </button>
       </div>
     )
@@ -186,32 +186,32 @@ export function MyPage({ currentUser, onUpdateProfile }: MyPageProps) {
   return (
     <main className="page mypage-page">
       <section className="profile-banner">
-        <span>MYPAGE</span>
+        <span>마이페이지</span>
         <h1>{currentUser.nickname}</h1>
-        <p>{currentUser.bio || 'No bio yet.'}</p>
+        <p>{currentUser.bio || '아직 소개글이 없습니다.'}</p>
       </section>
 
       <section className="mypage-tabs">
         <button className={tab === 'posts' ? 'active' : ''} type="button" onClick={() => setTab('posts')}>
-          My Posts
+          내가 쓴 글
         </button>
         <button className={tab === 'likes' ? 'active' : ''} type="button" onClick={() => setTab('likes')}>
-          Bookmarks
+          찜한 글
         </button>
         <button className={tab === 'comments' ? 'active' : ''} type="button" onClick={() => setTab('comments')}>
-          My Comments
+          내가 쓴 댓글
         </button>
         <button className={tab === 'follows' ? 'active' : ''} type="button" onClick={() => setTab('follows')}>
-          Following
+          팔로우 목록
         </button>
         <button className={tab === 'profile' ? 'active' : ''} type="button" onClick={() => setTab('profile')}>
-          Edit Profile
+          내 정보 수정
         </button>
       </section>
 
       {tab === 'posts' ? (
         <section className="mypage-panel">
-          {isLoading ? <p className="muted-copy">Loading...</p> : null}
+          {isLoading ? <p className="muted-copy">불러오는 중...</p> : null}
           {!isLoading && myPosts.length
             ? myPosts.map((post) => (
                 <Link className="mypage-item" key={post.id} to={`/posts/${post.id}`}>
@@ -222,36 +222,36 @@ export function MyPage({ currentUser, onUpdateProfile }: MyPageProps) {
                 </Link>
               ))
             : null}
-          {!isLoading && !myPosts.length ? <p className="muted-copy">No posts yet.</p> : null}
+          {!isLoading && !myPosts.length ? <p className="muted-copy">아직 작성한 글이 없습니다.</p> : null}
           {renderPagination('posts')}
         </section>
       ) : null}
 
       {tab === 'likes' ? (
         <section className="mypage-panel">
-          {isLoading ? <p className="muted-copy">Loading...</p> : null}
+          {isLoading ? <p className="muted-copy">불러오는 중...</p> : null}
           {!isLoading && likedPosts.length
             ? likedPosts.map((post) => (
                 <Link className="mypage-item" key={post.id} to={`/posts/${post.id}`}>
                   <strong>{post.title}</strong>
                   <span>
-                    {post.author.nickname} | Views {post.views}
+                    {post.author.nickname} | 조회 {post.views}
                   </span>
                 </Link>
               ))
             : null}
-          {!isLoading && !likedPosts.length ? <p className="muted-copy">No bookmarks yet.</p> : null}
+          {!isLoading && !likedPosts.length ? <p className="muted-copy">아직 찜한 글이 없습니다.</p> : null}
           {renderPagination('likes')}
         </section>
       ) : null}
 
       {tab === 'comments' ? (
         <section className="mypage-panel">
-          {isLoading ? <p className="muted-copy">Loading...</p> : null}
+          {isLoading ? <p className="muted-copy">불러오는 중...</p> : null}
           {!isLoading && myComments.length
             ? myComments.map((entry) => (
                 <Link className="mypage-item" key={`${entry.type}-${entry.id}`} to={`/posts/${entry.postId}`}>
-                  <strong>{entry.type === 'comment' ? 'Comment' : 'Reply'}</strong>
+                  <strong>{entry.type === 'comment' ? '댓글' : '대댓글'}</strong>
                   <span>{entry.content}</span>
                   <small>
                     {entry.postTitle} | {entry.createdAt}
@@ -259,14 +259,14 @@ export function MyPage({ currentUser, onUpdateProfile }: MyPageProps) {
                 </Link>
               ))
             : null}
-          {!isLoading && !myComments.length ? <p className="muted-copy">No comments yet.</p> : null}
+          {!isLoading && !myComments.length ? <p className="muted-copy">아직 작성한 댓글이 없습니다.</p> : null}
           {renderPagination('comments')}
         </section>
       ) : null}
 
       {tab === 'follows' ? (
         <section className="mypage-panel">
-          {isLoading ? <p className="muted-copy">Loading...</p> : null}
+          {isLoading ? <p className="muted-copy">불러오는 중...</p> : null}
           {!isLoading && followUsers.length
             ? followUsers.map((user) => (
                 <Link className="mypage-item" key={user.id} to={`/profile/${user.id}`}>
@@ -275,9 +275,7 @@ export function MyPage({ currentUser, onUpdateProfile }: MyPageProps) {
                 </Link>
               ))
             : null}
-          {!isLoading && !followUsers.length ? (
-            <p className="muted-copy">You are not following anyone yet.</p>
-          ) : null}
+          {!isLoading && !followUsers.length ? <p className="muted-copy">아직 팔로우한 사용자가 없습니다.</p> : null}
           {renderPagination('follows')}
         </section>
       ) : null}
@@ -290,7 +288,7 @@ export function MyPage({ currentUser, onUpdateProfile }: MyPageProps) {
               event.preventDefault()
 
               if (!nickname.trim()) {
-                window.alert('Nickname is required.')
+                window.alert('닉네임을 입력해주세요.')
                 return
               }
 
@@ -309,43 +307,43 @@ export function MyPage({ currentUser, onUpdateProfile }: MyPageProps) {
                 }
 
                 setPassword('')
-                window.alert('Profile updated.')
+                window.alert('회원 정보가 수정되었습니다.')
               } finally {
                 setIsSubmitting(false)
               }
             }}
           >
             <label>
-              Name
+              이름
               <input disabled value={currentUser.name} />
             </label>
             <label>
-              Email
+              이메일
               <input disabled value={currentUser.email} />
             </label>
             <label>
-              Nickname
+              닉네임
               <input value={nickname} onChange={(event) => setNickname(event.target.value)} />
             </label>
             <label>
-              New Password
+              새 비밀번호
               <input
-                placeholder="Leave blank to keep current password"
+                placeholder="변경하지 않으려면 비워두세요"
                 type="password"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
               />
             </label>
             <label>
-              Bio
+              소개글
               <textarea value={bio} onChange={(event) => setBio(event.target.value)} />
             </label>
             <label>
-              Location
+              지역
               <input value={location} onChange={(event) => setLocation(event.target.value)} />
             </label>
             <button className="primary-button" disabled={isSubmitting} type="submit">
-              {isSubmitting ? 'Saving...' : 'Save'}
+              {isSubmitting ? '저장 중...' : '저장하기'}
             </button>
           </form>
         </section>

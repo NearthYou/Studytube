@@ -66,7 +66,9 @@ export function retrieveRelevantPosts(posts: PostWithMeta[], request: AssistantR
   return [...posts]
     .map((post) => {
       let score = 0
-      const joined = `${post.title} ${post.summary} ${post.content} ${post.region} ${post.theme} ${post.companion} ${post.tags.join(' ')}`
+      const joined =
+        `${post.title} ${post.summary} ${post.content} ${post.region} ${post.theme} ` +
+        `${post.companion} ${post.tags.join(' ')}`
 
       if (request.region && post.region === request.region) {
         score += 5
@@ -83,6 +85,7 @@ export function retrieveRelevantPosts(posts: PostWithMeta[], request: AssistantR
       if (request.companion && post.companion === request.companion) {
         score += 4
       }
+
       for (const keyword of keywords) {
         if (includesKeyword(joined, keyword)) {
           score += 2
@@ -113,36 +116,36 @@ export function buildWeatherInsight(request: AssistantRequest): WeatherInsight {
 
   if (season === '여름') {
     return {
-      headline: `${region} ${duration}일 여행은 오전/저녁 중심 일정이 유리합니다.`,
-      temperature: '평균 24~30도, 자외선 강함',
-      travelVerdict: '바다 산책이나 카페 위주 일정에는 적합한 시기입니다.',
-      caution: '한낮 실외 일정은 줄이고, 비 예보가 있으면 실내 대체 코스를 준비하는 편이 좋습니다.',
+      headline: `${region} ${duration}일 여행은 오전·해질녘 중심으로 짜는 편이 안정적입니다.`,
+      temperature: '평균 24~30도, 한낮 체감온도 높음',
+      travelVerdict: '바다, 카페, 야경 코스를 섞으면 만족도가 높습니다.',
+      caution: '정오 시간대 야외 일정은 줄이고, 비 예보가 있으면 실내 대체 코스를 준비해두는 편이 좋습니다.',
     }
   }
 
   if (season === '겨울') {
     return {
-      headline: `${region} 겨울 여행은 바람과 체감온도를 꼭 확인해야 합니다.`,
+      headline: `${region} 겨울 여행은 바람과 체감온도를 먼저 확인해야 합니다.`,
       temperature: '평균 -2~8도, 해안 지역은 바람 강함',
-      travelVerdict: '숙소 중심 여행이나 실내 명소를 섞으면 만족도가 높습니다.',
-      caution: '야외 일정 비중이 높다면 방한 준비와 일몰 이후 이동 시간을 줄이는 편이 좋습니다.',
+      travelVerdict: '숙소 중심 일정이나 실내 명소를 함께 넣으면 훨씬 편합니다.',
+      caution: '야외 일정 비중이 높다면 방한 준비와 이동 시간을 넉넉히 잡는 편이 좋습니다.',
     }
   }
 
   if (season === '가을') {
     return {
       headline: `${region} 가을 여행은 도보 이동이 많은 일정과 잘 맞습니다.`,
-      temperature: '평균 12~22도, 비교적 쾌적',
-      travelVerdict: '산책, 야경, 사진 위주 여행에 가장 무난한 시기입니다.',
-      caution: '주말 인기 지역은 일교차와 혼잡도를 함께 고려하는 편이 좋습니다.',
+      temperature: '평균 12~22도, 비교적 쾌적함',
+      travelVerdict: '산책, 풍경, 사진 위주의 여행에 특히 잘 맞는 시기입니다.',
+      caution: '주말 인기 지역은 주차와 대기 시간이 길 수 있어 오전 동선을 먼저 잡는 편이 좋습니다.',
     }
   }
 
   return {
-    headline: `${region} 봄 여행은 꽃 시즌과 주말 혼잡도를 같이 봐야 합니다.`,
-    temperature: '평균 10~20도, 바람은 약간 차가울 수 있음',
+    headline: `${region} 봄 여행은 꽃 시즌과 주말 혼잡도를 함께 봐야 합니다.`,
+    temperature: '평균 10~20도, 바람과 일교차가 있음',
     travelVerdict: '야외 산책, 브런치, 드라이브 코스와 잘 맞습니다.',
-    caution: '벚꽃 시즌이나 연휴 기간에는 숙소와 이동 시간을 미리 확보하는 편이 좋습니다.',
+    caution: '벚꽃 시즌이나 축제 기간이라면 숙소와 이동 시간을 미리 확인해두는 편이 좋습니다.',
   }
 }
 
@@ -154,30 +157,30 @@ export function buildAgentPlan(request: AssistantRequest, posts: PostWithMeta[])
 
   return Array.from({ length: duration }, (_, index) => {
     const sourcePost = posts[index % Math.max(posts.length, 1)]
-    const focusTitle = sourcePost?.title ?? `${region} 핵심 코스`
+    const focusTitle = sourcePost?.title ?? `${region} 대표 코스`
 
     return {
       dayLabel: `DAY ${index + 1}`,
-      theme: index === 0 ? `${region} 도착 및 핵심 동선` : `${theme} 중심 일정`,
+      theme: index === 0 ? `${region} 핵심 동선` : `${theme} 중심 일정`,
       stops: [
         {
           time: '09:30',
           title: `${region} 대표 장소 탐색`,
           description: sourceTitles.length
-            ? `RAG로 찾은 "${focusTitle}"의 동선을 참고해 오전 코스를 시작합니다.`
+            ? `관련 글 "${focusTitle}"를 참고해서 시작 동선을 먼저 잡습니다.`
             : `${region}의 대표 장소부터 가볍게 둘러보는 일정입니다.`,
           estimatedCost: request.budget || '예산 조정 가능',
         },
         {
           time: '13:00',
-          title: `${theme} 중심 점심 및 휴식`,
-          description: `${request.companion || '동행'} 여행 기준으로 이동 피로가 적은 식사/카페 동선을 배치합니다.`,
+          title: `${theme} 중심 식사 및 휴식`,
+          description: `${request.companion || '동행'} 여행 기준으로 이동 피로가 적은 식사·카페 동선을 배치합니다.`,
           estimatedCost: '1~3만원',
         },
         {
           time: '17:30',
-          title: `${region} 저녁 하이라이트`,
-          description: '날씨와 시간대를 고려해 야경, 산책, 오션뷰, 실내 대체 코스 중 하나를 배치합니다.',
+          title: `${region} 하이라이트 마무리`,
+          description: '날씨와 시간대를 고려해 야경, 산책, 뷰 포인트 중 하나를 마무리 코스로 넣습니다.',
           estimatedCost: '0~5만원',
         },
       ],

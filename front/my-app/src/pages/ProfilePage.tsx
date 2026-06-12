@@ -50,7 +50,7 @@ export function ProfilePage({
 
   useEffect(() => {
     if (!Number.isFinite(authorId)) {
-      setErrorMessage('Invalid profile address.')
+      setErrorMessage('잘못된 프로필 주소입니다.')
       setIsLoading(false)
       return
     }
@@ -80,7 +80,7 @@ export function ProfilePage({
           return
         }
 
-        setErrorMessage(error instanceof Error ? error.message : 'Failed to load profile.')
+        setErrorMessage(error instanceof Error ? error.message : '프로필을 불러오지 못했습니다.')
       } finally {
         if (isMounted) {
           setIsLoading(false)
@@ -99,7 +99,7 @@ export function ProfilePage({
     return (
       <main className="page">
         <section className="empty-state">
-          <h1>Loading profile...</h1>
+          <h1>프로필을 불러오는 중입니다...</h1>
         </section>
       </main>
     )
@@ -109,9 +109,9 @@ export function ProfilePage({
     return (
       <main className="page">
         <section className="empty-state">
-          <h1>{errorMessage || 'Profile not found.'}</h1>
+          <h1>{errorMessage || '프로필을 찾을 수 없습니다.'}</h1>
           <Link className="secondary-button" to="/main">
-            Back to Main
+            메인으로 돌아가기
           </Link>
         </section>
       </main>
@@ -121,16 +121,16 @@ export function ProfilePage({
   return (
     <main className="page profile-page">
       <section className="profile-hero">
-        <span className="profile-hero__eyebrow">WRITER PROFILE</span>
+        <span className="profile-hero__eyebrow">작성자 프로필</span>
         <h1>{author.nickname}</h1>
-        <p>{author.bio || 'No bio yet.'}</p>
+        <p>{author.bio || '아직 소개글이 없습니다.'}</p>
         <div className="profile-hero__meta">
           <span>{author.name}</span>
-          <span>{author.location || 'Unknown location'}</span>
-          <span>Posts {authorPosts.length}</span>
+          <span>{author.location || '지역 정보 없음'}</span>
+          <span>게시글 {authorPosts.length}개</span>
         </div>
         <button className="primary-button" type="button" onClick={() => onToggleFollow(author.id)}>
-          {followedAuthorIds.has(author.id) ? 'Unfollow' : 'Follow'}
+          {followedAuthorIds.has(author.id) ? '팔로우 취소' : '팔로우'}
         </button>
       </section>
 
@@ -138,7 +138,7 @@ export function ProfilePage({
         {authorPosts.map((post) => (
           <PostCard
             chatHref={`/chat?${new URLSearchParams({
-              q: `${post.region} ${post.theme} recommendation`,
+              q: `${post.region} ${post.theme} 여행 추천`,
               region: post.region,
               budget: post.budget,
               theme: post.theme,
@@ -150,7 +150,7 @@ export function ProfilePage({
             key={post.id}
             onToggleLike={onToggleLike}
             plannerHref={`/planner?${new URLSearchParams({
-              q: `${post.region} planner`,
+              q: `${post.region} 여행 일정`,
               region: post.region,
               budget: post.budget,
               theme: post.theme,

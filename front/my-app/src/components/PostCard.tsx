@@ -45,7 +45,7 @@ export function PostCard({
             <div className="post-card__assist">
               {chatHref ? (
                 <Link className="post-card__assist-link" to={chatHref}>
-                  RAG 추천
+                  추천 챗봇
                 </Link>
               ) : null}
               {plannerHref ? (
@@ -58,8 +58,16 @@ export function PostCard({
           <div className="post-card__stats">
             <span>조회 {post.views}</span>
             <span>댓글 {post.discussionCount}</span>
-            <button type="button" onClick={() => onToggleLike(post.id)}>
-              {isLiked ? '좋아요 취소' : '좋아요'}
+            <button
+              aria-label={isLiked ? '찜 취소' : '찜하기'}
+              className={`like-button ${isLiked ? 'active' : ''}`}
+              title={isLiked ? '찜 취소' : '찜하기'}
+              type="button"
+              onClick={() => onToggleLike(post.id)}
+            >
+              <span aria-hidden="true" className="like-button__heart">
+                {isLiked ? '♥' : '♡'}
+              </span>
             </button>
           </div>
         </div>

@@ -16,9 +16,9 @@ export function LoginPage({ onLogin }: LoginPageProps) {
       <section className="auth-card">
         <div className="auth-card__header">
           <img alt="Tripy logo" className="auth-card__brand-logo" src="/tripy-logo.png" />
-          <span className="auth-card__eyebrow">Cozy Trip Community</span>
+          <span className="auth-card__eyebrow">여행 기록 커뮤니티</span>
           <h1>로그인</h1>
-          <p>Tripy에 어서오세요!</p>
+          <p>Tripy에서 여행 기록을 둘러보세요.</p>
         </div>
         <form
           className="auth-form"
@@ -62,19 +62,20 @@ export function LoginPage({ onLogin }: LoginPageProps) {
           </button>
         </form>
         <div className="auth-card__footer">
-          <span>계정이 없다면?</span>
+          <span>계정이 없다면</span>
           <Link to="/signup">회원가입으로 이동</Link>
         </div>
         <div className="auth-card__note">
           <strong>안내</strong>
-          <span>회원가입 후 만든 계정으로 로그인하세요.</span>
+          <span>회원가입 후 만든 계정으로 로그인해주세요.</span>
         </div>
       </section>
       <section className="auth-promo">
-        <div className="auth-promo__label">THE TRAVEL JOURNAL</div>
+        <div className="auth-promo__label">여행 기록 게시판</div>
         <h2>블로그형 여행 커뮤니티 Tripy</h2>
         <p>
-          Tripy는 여행을 사랑하는 사람들을 위한 블로그형 커뮤니티입니다. 여행 경험을 공유하고, 다른 여행자들과 소통하며, 새로운 여행지를 발견해보세요!
+          Tripy는 여행 경험을 공유하고, 다른 사람의 후기를 참고하고, 새로운 여행지를 탐색할 수 있도록 만든
+          커뮤니티입니다.
         </p>
       </section>
     </main>

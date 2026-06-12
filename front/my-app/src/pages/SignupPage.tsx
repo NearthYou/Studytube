@@ -146,9 +146,9 @@ export function SignupPage({
       <section className="auth-card auth-card--wide">
         <div className="auth-card__header">
           <img alt="Tripy logo" className="auth-card__brand-logo" src="/tripy-logo.png" />
-          <span className="auth-card__eyebrow">CREATE ACCOUNT</span>
+          <span className="auth-card__eyebrow">회원가입</span>
           <h1>회원가입</h1>
-          <p>이름, 아이디, 비밀번호, 이메일, 닉네임을 입력하고 가입을 진행합니다.</p>
+          <p>이름, 아이디, 비밀번호, 이메일, 닉네임을 입력하고 가입을 진행해주세요.</p>
         </div>
         <form
           className="signup-form"
@@ -271,7 +271,7 @@ export function SignupPage({
           </button>
         </form>
         <div className="auth-card__footer">
-          <span>이미 계정이 있다면?</span>
+          <span>이미 계정이 있다면</span>
           <Link to="/login">로그인으로 돌아가기</Link>
         </div>
       </section>

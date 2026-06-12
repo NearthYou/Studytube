@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+﻿import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { FilterSelect } from '../components/FilterSelect'
 import type { Comment, PostWithMeta, User } from '../types/community'
@@ -132,7 +132,7 @@ export function PostDetailPage({
   useEffect(() => {
     if (!Number.isFinite(postId)) {
       setIsLoading(false)
-      setErrorMessage('Invalid post address.')
+      setErrorMessage('?섎せ??寃뚯떆湲 二쇱냼?낅땲??')
       return
     }
 
@@ -171,7 +171,7 @@ export function PostDetailPage({
           return
         }
 
-        setErrorMessage(error instanceof Error ? error.message : 'Failed to load post.')
+        setErrorMessage(error instanceof Error ? error.message : '寃뚯떆湲??遺덈윭?ㅼ? 紐삵뻽?듬땲??')
       } finally {
         if (isMounted) {
           setIsLoading(false)
@@ -199,7 +199,7 @@ export function PostDetailPage({
     return (
       <main className="page">
         <section className="empty-state">
-          <h1>Loading post...</h1>
+          <h1>寃뚯떆湲??遺덈윭?ㅻ뒗 以묒엯?덈떎...</h1>
         </section>
       </main>
     )
@@ -209,10 +209,9 @@ export function PostDetailPage({
     return (
       <main className="page">
         <section className="empty-state">
-          <h1>{errorMessage || 'Post not found.'}</h1>
+          <h1>{errorMessage || '寃뚯떆湲??李얠쓣 ???놁뒿?덈떎.'}</h1>
           <Link className="secondary-button" to="/main">
-            Back to Main
-          </Link>
+            硫붿씤?쇰줈 ?뚯븘媛湲?          </Link>
         </section>
       </main>
     )
@@ -271,7 +270,7 @@ export function PostDetailPage({
                   !editPostForm.companion ||
                   !editPostForm.content.trim()
                 ) {
-                  window.alert('Please fill in all required fields.')
+                  window.alert('?꾩닔 ??ぉ??紐⑤몢 ?낅젰?댁＜?몄슂.')
                   return
                 }
 
@@ -315,7 +314,7 @@ export function PostDetailPage({
               }}
             >
               <label>
-                Title
+                ?쒕ぉ
                 <input
                   value={editPostForm.title}
                   onChange={(event) =>
@@ -324,7 +323,7 @@ export function PostDetailPage({
                 />
               </label>
               <label>
-                Travel Date
+                ?ы뻾?쇱옄
                 <input
                   type="date"
                   value={editPostForm.travelDate}
@@ -334,7 +333,7 @@ export function PostDetailPage({
                 />
               </label>
               <label>
-                Image URL
+                ?대?吏 URL
                 <input
                   value={editPostForm.imageUrl}
                   onChange={(event) =>
@@ -344,7 +343,7 @@ export function PostDetailPage({
               </label>
               <div className="detail-edit-grid">
                 <FilterSelect
-                  label="Region"
+                  label="지역"
                   options={lookupOptions.regions}
                   value={editPostForm.regionCode}
                   onChange={(value) =>
@@ -352,7 +351,7 @@ export function PostDetailPage({
                   }
                 />
                 <FilterSelect
-                  label="Budget"
+                  label="예산"
                   options={lookupOptions.budgetRanges}
                   value={editPostForm.budgetCode}
                   onChange={(value) =>
@@ -360,7 +359,7 @@ export function PostDetailPage({
                   }
                 />
                 <FilterSelect
-                  label="Theme"
+                  label="테마"
                   options={lookupOptions.themes}
                   value={editPostForm.themeCode}
                   onChange={(value) =>
@@ -368,7 +367,7 @@ export function PostDetailPage({
                   }
                 />
                 <FilterSelect
-                  label="Season"
+                  label="계절"
                   options={lookupOptions.seasons}
                   value={editPostForm.season}
                   onChange={(value) =>
@@ -376,7 +375,7 @@ export function PostDetailPage({
                   }
                 />
                 <FilterSelect
-                  label="Companion"
+                  label="동행"
                   options={lookupOptions.companions}
                   value={editPostForm.companion}
                   onChange={(value) =>
@@ -385,7 +384,7 @@ export function PostDetailPage({
                 />
               </div>
               <label>
-                Content
+                ?댁슜
                 <textarea
                   value={editPostForm.content}
                   onChange={(event) =>
@@ -395,7 +394,7 @@ export function PostDetailPage({
               </label>
               <div className="detail-inline-actions">
                 <button className="primary-button" disabled={isSavingPostEdit} type="submit">
-                  {isSavingPostEdit ? 'Saving...' : 'Save Post'}
+                  {isSavingPostEdit ? '저장 중...' : '게시글 저장'}
                 </button>
                 <button
                   type="button"
@@ -414,7 +413,7 @@ export function PostDetailPage({
                     setIsEditingPost(false)
                   }}
                 >
-                  Cancel
+                  痍⑥냼
                 </button>
               </div>
             </form>
@@ -422,39 +421,47 @@ export function PostDetailPage({
             <>
               <h1>{post.title}</h1>
               <p className="detail-card__author">
-                Author <Link to={`/profile/${post.author.id}`}>{post.author.nickname}</Link>
+                ?묒꽦??<Link to={`/profile/${post.author.id}`}>{post.author.nickname}</Link>
               </p>
               <div className="detail-card__tags">
                 {post.tags.map((tag) => (
                   <span key={tag}>{tag}</span>
                 ))}
               </div>
-              <p className="detail-card__body">{post.content || 'No content.'}</p>
+              <p className="detail-card__body">{post.content || '?댁슜???놁뒿?덈떎.'}</p>
             </>
           )}
 
           <div className="detail-card__actions">
-            <button type="button" onClick={() => void onToggleLike(post.id)}>
-              {likedPostIds.has(post.id) ? 'Remove Bookmark' : 'Bookmark'}
+            <button
+              aria-label={likedPostIds.has(post.id) ? '찜 취소' : '찜하기'}
+              className={`like-button ${likedPostIds.has(post.id) ? 'active' : ''}`}
+              title={likedPostIds.has(post.id) ? '찜 취소' : '찜하기'}
+              type="button"
+              onClick={() => void onToggleLike(post.id)}
+            >
+              <span aria-hidden="true" className="like-button__heart">
+                {likedPostIds.has(post.id) ? '♥' : '♡'}
+              </span>
             </button>
             <button type="button" onClick={() => void onToggleFollow(post.author.id)}>
-              {followedAuthorIds.has(post.author.id) ? 'Unfollow Author' : 'Follow Author'}
+              {followedAuthorIds.has(post.author.id) ? '팔로우 취소' : '작성자 팔로우'}
             </button>
             <Link className="secondary-button" to={chatHref}>
-              Recommendation Bot
+              추천 챗봇
             </Link>
             <Link className="secondary-button" to={plannerHref}>
-              Travel Planner
+              여행 플래너
             </Link>
             {isAuthor ? (
               <>
                 <button type="button" onClick={() => setIsEditingPost((current) => !current)}>
-                  {isEditingPost ? 'Close Edit' : 'Edit Post'}
+                  {isEditingPost ? '?섏젙 ?リ린' : '寃뚯떆湲 ?섏젙'}
                 </button>
                 <button
                   type="button"
                   onClick={async () => {
-                    if (!window.confirm('Delete this post?')) {
+                    if (!window.confirm('??寃뚯떆湲????젣?좉퉴??')) {
                       return
                     }
 
@@ -465,7 +472,7 @@ export function PostDetailPage({
                     }
                   }}
                 >
-                  Delete Post
+                  寃뚯떆湲 ??젣
                 </button>
               </>
             ) : null}
@@ -475,8 +482,8 @@ export function PostDetailPage({
 
       <section className="detail-section">
         <div className="detail-section__heading">
-          <h2>Comments {renderedDiscussionCount}</h2>
-          <span>Read and write comments in this post.</span>
+          <h2>?볤? {renderedDiscussionCount}</h2>
+          <span>??寃뚯떆湲???볤?怨???볤????뺤씤?섍퀬 ?묒꽦?????덉뒿?덈떎.</span>
         </div>
         <form
           className="comment-form"
@@ -495,19 +502,19 @@ export function PostDetailPage({
               setComments((current) => [response.comment, ...current])
               setCommentText('')
             } catch (error) {
-              window.alert(error instanceof Error ? error.message : 'Failed to create comment.')
+              window.alert(error instanceof Error ? error.message : '?볤????깅줉?섏? 紐삵뻽?듬땲??')
             } finally {
               setIsSubmittingComment(false)
             }
           }}
         >
           <textarea
-            placeholder="Write a comment."
+            placeholder="?볤????낅젰?섏꽭??"
             value={commentText}
             onChange={(event) => setCommentText(event.target.value)}
           />
           <button className="primary-button" disabled={isSubmittingComment} type="submit">
-            {isSubmittingComment ? 'Saving...' : 'Add Comment'}
+            {isSubmittingComment ? '???以?..' : '?볤? ?깅줉'}
           </button>
         </form>
         <div className="comment-list">
@@ -518,7 +525,7 @@ export function PostDetailPage({
                 <span>
                   {formatDate(comment.createdAt)}
                   {isEdited(comment.createdAt, comment.updatedAt) ? (
-                    <em className="detail-edited-badge">edited</em>
+                    <em className="detail-edited-badge">수정됨</em>
                   ) : null}
                 </span>
               </div>
@@ -542,7 +549,7 @@ export function PostDetailPage({
                       setEditingCommentId(null)
                       setEditingCommentText('')
                     } catch (error) {
-                      window.alert(error instanceof Error ? error.message : 'Failed to update comment.')
+                      window.alert(error instanceof Error ? error.message : '?볤????섏젙?섏? 紐삵뻽?듬땲??')
                     }
                   }}
                 >
@@ -552,8 +559,7 @@ export function PostDetailPage({
                   />
                   <div className="detail-inline-actions">
                     <button className="ghost-button" type="submit">
-                      Save
-                    </button>
+                      ???                    </button>
                     <button
                       type="button"
                       onClick={() => {
@@ -561,7 +567,7 @@ export function PostDetailPage({
                         setEditingCommentText('')
                       }}
                     >
-                      Cancel
+                      痍⑥냼
                     </button>
                   </div>
                 </form>
@@ -578,12 +584,12 @@ export function PostDetailPage({
                       setEditingCommentText(comment.content)
                     }}
                   >
-                    Edit
+                    ?섏젙
                   </button>
                   <button
                     type="button"
                     onClick={async () => {
-                      if (!window.confirm('Delete this comment?')) {
+                      if (!window.confirm('???볤?????젣?좉퉴??')) {
                         return
                       }
 
@@ -591,11 +597,11 @@ export function PostDetailPage({
                         await deleteComment(comment.id)
                         setComments((current) => current.filter((item) => item.id !== comment.id))
                       } catch (error) {
-                        window.alert(error instanceof Error ? error.message : 'Failed to delete comment.')
+                        window.alert(error instanceof Error ? error.message : '?볤?????젣?섏? 紐삵뻽?듬땲??')
                       }
                     }}
                   >
-                    Delete
+                    ??젣
                   </button>
                 </div>
               ) : null}
@@ -607,7 +613,7 @@ export function PostDetailPage({
                     <span>
                       {formatDate(reply.createdAt)}
                       {isEdited(reply.createdAt, reply.updatedAt) ? (
-                        <em className="detail-edited-badge">edited</em>
+                        <em className="detail-edited-badge">수정됨</em>
                       ) : null}
                     </span>
 
@@ -639,7 +645,7 @@ export function PostDetailPage({
                             setEditingReplyId(null)
                             setEditingReplyText('')
                           } catch (error) {
-                            window.alert(error instanceof Error ? error.message : 'Failed to update reply.')
+                            window.alert(error instanceof Error ? error.message : '??볤????섏젙?섏? 紐삵뻽?듬땲??')
                           }
                         }}
                       >
@@ -649,8 +655,7 @@ export function PostDetailPage({
                         />
                         <div className="detail-inline-actions">
                           <button className="ghost-button" type="submit">
-                            Save
-                          </button>
+                            ???                          </button>
                           <button
                             type="button"
                             onClick={() => {
@@ -658,7 +663,7 @@ export function PostDetailPage({
                               setEditingReplyText('')
                             }}
                           >
-                            Cancel
+                            痍⑥냼
                           </button>
                         </div>
                       </form>
@@ -675,12 +680,12 @@ export function PostDetailPage({
                             setEditingReplyText(reply.content)
                           }}
                         >
-                          Edit
+                          ?섏젙
                         </button>
                         <button
                           type="button"
                           onClick={async () => {
-                            if (!window.confirm('Delete this reply?')) {
+                            if (!window.confirm('????볤?????젣?좉퉴??')) {
                               return
                             }
 
@@ -697,11 +702,11 @@ export function PostDetailPage({
                                 ),
                               )
                             } catch (error) {
-                              window.alert(error instanceof Error ? error.message : 'Failed to delete reply.')
+                              window.alert(error instanceof Error ? error.message : '??볤?????젣?섏? 紐삵뻽?듬땲??')
                             }
                           }}
                         >
-                          Delete
+                          ??젣
                         </button>
                       </div>
                     ) : null}
@@ -734,14 +739,14 @@ export function PostDetailPage({
                     )
                     setReplyDrafts((current) => ({ ...current, [comment.id]: '' }))
                   } catch (error) {
-                    window.alert(error instanceof Error ? error.message : 'Failed to create reply.')
+                    window.alert(error instanceof Error ? error.message : '??볤????깅줉?섏? 紐삵뻽?듬땲??')
                   } finally {
                     setSubmittingReplyFor(null)
                   }
                 }}
               >
                 <input
-                  placeholder="Write a reply."
+                  placeholder="??볤????낅젰?섏꽭??"
                   value={replyDrafts[comment.id] ?? ''}
                   onChange={(event) =>
                     setReplyDrafts((current) => ({
@@ -751,47 +756,47 @@ export function PostDetailPage({
                   }
                 />
                 <button className="ghost-button" disabled={submittingReplyFor === comment.id} type="submit">
-                  {submittingReplyFor === comment.id ? 'Saving...' : 'Add Reply'}
+                  {submittingReplyFor === comment.id ? '???以?..' : '??볤? ?깅줉'}
                 </button>
               </form>
             </article>
           ))}
-          {!comments.length ? <p className="muted-copy">No comments yet.</p> : null}
+          {!comments.length ? <p className="muted-copy">?꾩쭅 ?볤????놁뒿?덈떎.</p> : null}
         </div>
       </section>
 
       <section className="detail-section">
         <div className="detail-section__heading">
-          <h2>AI Shortcuts</h2>
-          <span>Move directly to recommendation and planner flows from this post.</span>
+          <h2>바로가기</h2>
+          <span>이 게시글을 기준으로 추천 챗봇과 플래너로 바로 이동할 수 있습니다.</span>
         </div>
         <div className="detail-ai-links">
           <Link className="detail-ai-card" to={chatHref}>
-            <strong>Start RAG Recommendation</strong>
-            <p>Use this post as context for travel recommendations.</p>
+            <strong>추천 챗봇 열기</strong>
+            <p>이 게시글을 기준으로 여행지를 추천받습니다.</p>
           </Link>
           <Link className="detail-ai-card" to={plannerHref}>
-            <strong>Open Planner</strong>
-            <p>Draft a travel plan based on this post.</p>
+            <strong>플래너 열기</strong>
+            <p>이 게시글을 바탕으로 일정 초안을 만듭니다.</p>
           </Link>
         </div>
       </section>
 
       <section className="detail-section">
         <div className="detail-section__heading">
-          <h2>Related Posts</h2>
-          <span>More posts from {post.region}</span>
+          <h2>연관 게시글</h2>
+          <span>{post.region} 지역의 다른 게시글</span>
         </div>
         <div className="related-posts">
           {relatedPosts.map((relatedPost) => (
             <Link className="related-post" key={relatedPost.id} to={`/posts/${relatedPost.id}`}>
               <strong>{relatedPost.title}</strong>
               <span>
-                Views {relatedPost.views} | Comments {relatedPost.discussionCount}
+                조회 {relatedPost.views} | 댓글 {relatedPost.discussionCount}
               </span>
             </Link>
           ))}
-          {!relatedPosts.length ? <p className="muted-copy">No related posts yet.</p> : null}
+          {!relatedPosts.length ? <p className="muted-copy">연관 게시글이 아직 없습니다.</p> : null}
         </div>
       </section>
     </main>

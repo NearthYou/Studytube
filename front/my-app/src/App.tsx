@@ -352,7 +352,7 @@ function App() {
         }
       })
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : 'Failed to update bookmark.')
+      window.alert(error instanceof Error ? error.message : '찜 상태를 변경하지 못했습니다.')
     }
   }
 
@@ -382,7 +382,7 @@ function App() {
         }
       })
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : 'Failed to update follow status.')
+      window.alert(error instanceof Error ? error.message : '팔로우 상태를 변경하지 못했습니다.')
     }
   }
 
@@ -458,7 +458,7 @@ function App() {
       refreshBoard()
       return true
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : 'Failed to update post.')
+      window.alert(error instanceof Error ? error.message : '게시글을 수정하지 못했습니다.')
       return false
     }
   }
@@ -474,7 +474,7 @@ function App() {
       refreshBoard()
       return true
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : 'Failed to delete post.')
+      window.alert(error instanceof Error ? error.message : '게시글을 삭제하지 못했습니다.')
       return false
     }
   }
@@ -519,7 +519,7 @@ function App() {
 
       return true
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : 'Failed to update profile.')
+      window.alert(error instanceof Error ? error.message : '회원 정보를 수정하지 못했습니다.')
       return false
     }
   }

@@ -3,9 +3,18 @@
   top: 0;
   z-index: 20;
   isolation: isolate;
-  border-bottom: 1px solid #cfc8bc;
-  background: rgba(251, 249, 244, 0.96);
-  backdrop-filter: blur(14px);
+  border-bottom: 1px solid rgba(114, 94, 67, 0.14);
+  background: linear-gradient(180deg, rgba(250, 247, 241, 0.94) 0%, rgba(250, 247, 241, 0.86) 100%);
+  backdrop-filter: blur(18px) saturate(120%);
+  box-shadow: 0 8px 30px rgba(87, 67, 43, 0.05);
+}
+
+.site-header::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(122, 109, 89, 0.35), transparent);
 }
 
 .site-header__inner {
@@ -16,7 +25,7 @@
   align-items: center;
   width: min(1280px, calc(100% - 2rem));
   margin: 0 auto;
-  min-height: 84px;
+  min-height: 92px;
 }
 
 .site-header__left {
@@ -30,15 +39,15 @@
 .site-header__right {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 0.7rem;
   justify-content: flex-end;
   position: relative;
   z-index: 1;
 }
 
 .site-header__eyebrow {
-  color: #7a6d59;
-  font-size: 0.72rem;
+  color: #806f5b;
+  font-size: 0.68rem;
   letter-spacing: 0.22em;
   text-transform: uppercase;
 }
@@ -51,7 +60,7 @@
 
 .site-header__brand-mark {
   display: block;
-  width: 168px;
+  width: 176px;
   max-width: 100%;
   height: auto;
 }
@@ -59,23 +68,27 @@
 .site-header__nav {
   display: flex;
   justify-content: center;
-  gap: 2rem;
+  gap: 0.55rem;
+  flex-wrap: wrap;
   position: relative;
   z-index: 1;
 }
 
 .site-header__nav button {
-  color: #4a443b;
-  border: 1px solid transparent;
+  color: #544b40;
+  border: 1px solid rgba(114, 94, 67, 0.08);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.46);
-  box-shadow: 0 8px 16px rgba(121, 109, 89, 0.06);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.86) 0%, rgba(247, 241, 232, 0.9) 100%);
+  box-shadow:
+    0 10px 20px rgba(121, 109, 89, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.82);
   cursor: pointer;
   font: inherit;
-  font-size: 0.74rem;
-  letter-spacing: 0.18em;
-  padding: 0.7rem 1rem;
-  text-transform: uppercase;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  padding: 0.74rem 1rem;
+  white-space: nowrap;
   transition:
     background-color 160ms ease,
     border-color 160ms ease,
@@ -85,17 +98,21 @@
 }
 
 .site-header__nav button:hover {
-  border-color: rgba(27, 27, 27, 0.08);
-  background: rgba(255, 255, 255, 0.82);
-  box-shadow: 0 12px 22px rgba(121, 109, 89, 0.1);
-  transform: translateY(-1px);
+  border-color: rgba(114, 94, 67, 0.16);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(250, 245, 238, 0.95) 100%);
+  box-shadow:
+    0 14px 26px rgba(121, 109, 89, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
+  transform: translateY(-1px) scale(1.01);
 }
 
 .site-header__nav button.active {
   color: #fff;
   border-color: transparent;
-  background: linear-gradient(135deg, #1f1d1a 0%, #34302a 100%);
-  box-shadow: 0 14px 28px rgba(27, 27, 27, 0.14);
+  background: linear-gradient(135deg, #241f1a 0%, #3d362f 100%);
+  box-shadow:
+    0 16px 30px rgba(27, 27, 27, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
 @media (max-width: 1180px) {
@@ -107,7 +124,6 @@
 
   .site-header__nav {
     justify-content: flex-start;
-    flex-wrap: wrap;
   }
 }
 

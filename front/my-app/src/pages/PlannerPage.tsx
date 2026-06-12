@@ -34,19 +34,18 @@ export function PlannerPage({ currentUser, posts }: PlannerPageProps) {
   const [request, setRequest] = useState<AssistantRequest>(() => getInitialRequest(searchParams))
   const [planStyle, setPlanStyle] = useState<'balanced' | 'budget' | 'slow'>('balanced')
 
-  const retrievedPosts = useMemo(
-    () => retrieveRelevantPosts(posts, request, 3),
-    [posts, request],
-  )
+  const retrievedPosts = useMemo(() => retrieveRelevantPosts(posts, request, 3), [posts, request])
   const weather = useMemo(() => buildWeatherInsight(request), [request])
   const plan = useMemo(() => buildAgentPlan(request, retrievedPosts), [request, retrievedPosts])
 
   return (
     <main className="page planner-page">
       <section className="planner-hero">
-        <span>AI TRAVEL PLANNER</span>
-        <h1>{currentUser.nickname}님의 여행 플래너</h1>
-        <p>RAG로 유사 게시글을 찾고, MCP 날씨 정보를 반영하고, Agent가 일정 초안을 구성하는 흐름을 한 화면에 정리했습니다.</p>
+        <span>AI 여행 플래너</span>
+        <h1>{currentUser.nickname}님의 여행 플랜</h1>
+        <p>
+          관련 게시글을 참고하고, 날씨 흐름을 반영하고, 일정 초안을 구성하는 화면입니다.
+        </p>
       </section>
 
       <section className="planner-grid">
@@ -121,7 +120,7 @@ export function PlannerPage({ currentUser, posts }: PlannerPageProps) {
               type="button"
               onClick={() => setPlanStyle('slow')}
             >
-              느긋한 일정형
+              여유로운 일정형
             </button>
           </div>
           <Link className="secondary-button" to="/chat">
@@ -130,7 +129,7 @@ export function PlannerPage({ currentUser, posts }: PlannerPageProps) {
         </article>
 
         <article className="planner-card planner-card--schedule">
-          <h2>Agent 일정 초안</h2>
+          <h2>일정 초안</h2>
           <div className="planner-days">
             {plan.map((day) => (
               <section className="planner-day" key={day.dayLabel}>
@@ -162,13 +161,13 @@ export function PlannerPage({ currentUser, posts }: PlannerPageProps) {
         <article className="planner-card planner-card--context">
           <h2>추천 근거</h2>
           <div className="planner-weather">
-            <strong>MCP 날씨 판단</strong>
+            <strong>날씨 요약</strong>
             <p>{weather.headline}</p>
             <span>{weather.temperature}</span>
             <small>{weather.caution}</small>
           </div>
           <div className="planner-sources">
-            <strong>RAG 참고 게시글</strong>
+            <strong>참고 게시글</strong>
             {retrievedPosts.map((post) => (
               <Link className="planner-source" key={post.id} to={`/posts/${post.id}`}>
                 <strong>{post.title}</strong>

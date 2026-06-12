@@ -1,19 +1,27 @@
 .planner-page {
   display: grid;
-  gap: 1.5rem;
+  gap: 1.8rem;
 }
 
 .planner-hero,
 .planner-card {
-  border: 1px solid #cfc8bc;
-  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(114, 94, 67, 0.14);
+  border-radius: 28px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94) 0%, rgba(249, 244, 236, 0.92) 100%);
+  box-shadow:
+    0 24px 50px rgba(92, 74, 50, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.86);
 }
 
 .planner-hero {
   display: grid;
-  gap: 0.9rem;
-  padding: 2rem;
+  gap: 1rem;
+  padding: 2.3rem;
   text-align: center;
+  background:
+    radial-gradient(circle at top right, rgba(221, 205, 181, 0.22), transparent 24%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94) 0%, rgba(249, 244, 236, 0.92) 100%);
 }
 
 .planner-hero span,
@@ -22,8 +30,9 @@
 }
 
 .planner-hero span {
-  font-size: 0.74rem;
-  letter-spacing: 0.22em;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.24em;
   text-transform: uppercase;
 }
 
@@ -31,32 +40,34 @@
   margin: 0;
   color: #121212;
   font-family: "Bodoni MT", "Didot", "Times New Roman", serif;
-  font-size: clamp(2.1rem, 5vw, 4.1rem);
+  font-size: clamp(2.5rem, 6vw, 4.5rem);
   font-weight: 400;
+  line-height: 0.98;
 }
 
 .planner-hero p {
   color: #5f5a53;
-  line-height: 1.75;
+  line-height: 1.72;
+  font-size: 0.98rem;
 }
 
 .planner-grid {
   display: grid;
   grid-template-columns: 320px minmax(0, 1.3fr) 320px;
-  gap: 1.5rem;
+  gap: 1.6rem;
 }
 
 .planner-card {
   display: grid;
   align-content: start;
-  gap: 1rem;
-  padding: 1.5rem;
+  gap: 1.08rem;
+  padding: 1.7rem;
 }
 
 .planner-card h2 {
   margin: 0;
   font-family: "Bodoni MT", "Didot", "Times New Roman", serif;
-  font-size: 1.5rem;
+  font-size: 1.55rem;
   font-weight: 400;
 }
 
@@ -75,11 +86,13 @@
 .planner-form input,
 .planner-form textarea {
   width: 100%;
-  border: 1px solid #cfc8bc;
+  border: 1px solid rgba(114, 94, 67, 0.14);
+  border-radius: 16px;
   background: #fffdfa;
   color: #1a1a1a;
   font: inherit;
   padding: 0.95rem 1rem;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82);
 }
 
 .planner-form textarea {
@@ -94,17 +107,7 @@
 }
 
 .planner-style button {
-  border: 1px solid #1b1b1b;
-  background: transparent;
-  color: #1b1b1b;
-  cursor: pointer;
-  font: inherit;
-  padding: 0.7rem 0.95rem;
-}
-
-.planner-style button.active {
-  background: #1b1b1b;
-  color: #fff;
+  min-height: 44px;
 }
 
 .planner-day,
@@ -113,8 +116,9 @@
 .mini-plan-card {
   display: grid;
   gap: 0.65rem;
-  padding: 1rem;
-  border: 1px solid #d9d1c4;
+  padding: 1.05rem;
+  border: 1px solid rgba(114, 94, 67, 0.12);
+  border-radius: 18px;
   background: #fffdfa;
 }
 
@@ -142,6 +146,13 @@
 .planner-source {
   color: inherit;
   text-decoration: none;
+  transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+}
+
+.planner-source:hover {
+  transform: translateY(-2px);
+  border-color: rgba(141, 118, 85, 0.24);
+  box-shadow: 0 14px 26px rgba(92, 76, 54, 0.08);
 }
 
 @media (max-width: 1180px) {

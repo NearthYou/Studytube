@@ -7,18 +7,24 @@
 .post-card__stats button,
 .detail-card__actions button,
 .mypage-tabs button {
-  border: 1px solid rgba(27, 27, 27, 0.12);
+  border: 1px solid rgba(56, 45, 28, 0.14);
   border-radius: 999px;
-  background: linear-gradient(135deg, #1f1d1a 0%, #34302a 100%);
-  box-shadow: 0 10px 24px rgba(27, 27, 27, 0.12);
+  background: linear-gradient(135deg, #211d18 0%, #3a342d 100%);
+  box-shadow:
+    0 14px 30px rgba(27, 27, 27, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
   color: #fff;
   cursor: pointer;
   font: inherit;
-  font-size: 0.92rem;
+  font-size: 0.9rem;
   font-weight: 600;
-  letter-spacing: 0.01em;
-  padding: 0.88rem 1.2rem;
+  letter-spacing: 0.015em;
+  line-height: 1;
+  white-space: nowrap;
+  min-height: 46px;
+  padding: 0.9rem 1.24rem;
   text-decoration: none;
+  text-align: center;
   transition:
     background 160ms ease,
     border-color 160ms ease,
@@ -36,8 +42,10 @@
 .post-card__stats button:hover,
 .detail-card__actions button:hover,
 .mypage-tabs button:hover {
-  box-shadow: 0 14px 28px rgba(27, 27, 27, 0.16);
-  transform: translateY(-2px);
+  box-shadow:
+    0 18px 34px rgba(27, 27, 27, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  transform: translateY(-2px) scale(1.01);
 }
 
 .secondary-button,
@@ -48,9 +56,11 @@
 .post-card__stats button,
 .detail-card__actions button,
 .mypage-tabs button {
-  background: rgba(255, 253, 250, 0.88);
-  box-shadow: 0 8px 18px rgba(121, 109, 89, 0.08);
-  color: #1b1b1b;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92) 0%, rgba(249, 244, 237, 0.96) 100%);
+  box-shadow:
+    0 10px 22px rgba(121, 109, 89, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  color: #221f1a;
 }
 
 .toggle-button.active,
@@ -58,8 +68,10 @@
 .pagination button.active,
 .mypage-tabs button.active {
   border-color: transparent;
-  background: linear-gradient(135deg, #1f1d1a 0%, #34302a 100%);
-  box-shadow: 0 12px 24px rgba(27, 27, 27, 0.16);
+  background: linear-gradient(135deg, #211d18 0%, #3a342d 100%);
+  box-shadow:
+    0 16px 32px rgba(27, 27, 27, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
   color: #fff;
 }
 
@@ -106,8 +118,9 @@
 .filter-field {
   display: grid;
   gap: 0.5rem;
-  color: #2f2c28;
-  font-size: 0.92rem;
+  color: var(--text-body);
+  font-size: 0.91rem;
+  font-weight: 500;
 }
 
 .auth-form input,
@@ -121,13 +134,15 @@
 .filter-field select,
 .search-input {
   width: 100%;
-  border: 1px solid #cfc8bc;
-  border-radius: 16px;
-  background: #fffdfa;
-  color: #1a1a1a;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(114, 94, 67, 0.16);
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(253, 250, 245, 0.98) 100%);
+  color: var(--text-strong);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.78),
+    0 8px 18px rgba(121, 109, 89, 0.05);
   font: inherit;
-  padding: 0.95rem 1rem;
+  padding: 0.98rem 1.08rem;
 }
 
 .write-form textarea,
@@ -147,8 +162,11 @@
 .chat-form textarea:focus,
 .filter-field select:focus,
 .search-input:focus {
-  outline: 2px solid rgba(101, 90, 67, 0.18);
+  outline: 2px solid rgba(101, 90, 67, 0.15);
   border-color: #9a8e7a;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.86),
+    0 12px 22px rgba(121, 109, 89, 0.08);
 }
 
 .filter-grid,
@@ -159,8 +177,17 @@
 
 .pagination {
   display: flex;
+  flex-wrap: wrap;
   justify-content: center;
   gap: 0.65rem;
+}
+
+.sort-group button,
+.pagination button,
+.mypage-tabs button,
+.detail-card__actions button,
+.post-card__stats button {
+  min-height: 44px;
 }
 
 .pagination button:disabled {

@@ -59,18 +59,13 @@ export function BoardPage({
     const loadLookups = async () => {
       try {
         const data = await fetchPostFilters()
-
-        if (!isMounted) {
-          return
+        if (isMounted) {
+          setLookupOptions(data)
         }
-
-        setLookupOptions(data)
       } catch (error) {
-        if (!isMounted) {
-          return
+        if (isMounted) {
+          setErrorMessage(error instanceof Error ? error.message : '필터 옵션을 불러오지 못했습니다.')
         }
-
-        setErrorMessage(error instanceof Error ? error.message : '필터 옵션을 불러오지 못했습니다.')
       }
     }
 
@@ -189,43 +184,44 @@ export function BoardPage({
   return (
     <main className="page board-page">
       <header className="board-page__headline">
-        <span>Travel Community Feed</span>
-        <h1>THE TRAVEL JOURNAL</h1>
-        <p>검색어와 상세 필터에 따라 실제 DB 게시글을 다시 조회하는 메인 피드입니다.</p>
+        <span>여행 커뮤니티 피드</span>
+        <h1>여행 기록 게시판</h1>
+        <p>검색어와 상세 필터를 조합해서 실제 DB에 저장된 여행 게시글을 찾아볼 수 있습니다.</p>
       </header>
 
       <div className="board-layout">
         <aside className="board-sidebar">
           <div className="sidebar-panel">
-            <span className="sidebar-panel__label">WELCOME</span>
+            <span className="sidebar-panel__label">환영합니다</span>
             <h2>{currentUser.nickname}</h2>
-            <p>{currentUser.bio || '여행 기록을 쌓아가는 중입니다.'}</p>
+            <p>{currentUser.bio || '여행 기록을 하나씩 쌓아가는 중입니다.'}</p>
           </div>
           <div className="sidebar-panel">
-            <span className="sidebar-panel__label">MENU</span>
+            <span className="sidebar-panel__label">바로가기</span>
             <Link to="/mypage">마이페이지</Link>
             <Link to="/write">글쓰기</Link>
-            <Link to="/chat">여행추천봇</Link>
+            <Link to="/chat">여행 추천 챗봇</Link>
+            <Link to="/planner">플래너</Link>
           </div>
           <div className="sidebar-panel">
-            <span className="sidebar-panel__label">QUICK INFO</span>
-            <p>검색 결과는 입력한 키워드와 상세 필터에 따라 서버에서 다시 계산됩니다.</p>
+            <span className="sidebar-panel__label">안내</span>
+            <p>검색창과 필터를 함께 쓰면 원하는 조건의 여행 글을 더 빠르게 찾을 수 있습니다.</p>
           </div>
         </aside>
 
         <section className="board-content">
           <section className="ai-launchpad">
             <div className="ai-launchpad__copy">
-              <span>AI TRAVEL DESK</span>
-              <h2>검색과 추천 흐름이 함께 이어지는 메인 화면</h2>
+              <span>AI 여행 도우미</span>
+              <h2>게시글 검색과 추천 흐름이 자연스럽게 이어지는 메인 화면</h2>
               <p>
-                검색어는 고정된 값이 아니라 사용자가 입력한 문장 그대로 서버로 전달되고, 서버는 DB에서
-                조건에 맞는 게시글만 다시 골라서 내려줍니다.
+                검색어는 고정값이 아니라 사용자가 입력한 문장 그대로 반영됩니다. 원하는 지역, 예산, 테마를
+                먼저 둘러본 뒤 추천 챗봇이나 플래너로 이어서 사용할 수 있습니다.
               </p>
             </div>
             <div className="ai-launchpad__actions">
               <Link className="primary-button" to={buildChatHref()}>
-                AI 추천 시작
+                추천 챗봇 시작
               </Link>
               <Link className="secondary-button" to={buildPlannerHref()}>
                 플래너 열기
@@ -238,7 +234,7 @@ export function BoardPage({
               <div className="search-row">
                 <input
                   className="search-input"
-                  placeholder="여행지, 제목, 태그, 작성자 등으로 검색"
+                  placeholder="여행지, 제목, 태그, 작성자 이름으로 검색"
                   value={query}
                   onChange={(event) => {
                     setQuery(event.target.value)
@@ -330,8 +326,7 @@ export function BoardPage({
           <div className="board-result-bar">
             <strong>총 {totalCount}개의 게시글</strong>
             <span>
-              {query.trim() ? `"${query.trim()}" 검색 결과` : '전체 게시글'} · {currentPage} / {totalPages}{' '}
-              페이지
+              {query.trim() ? `"${query.trim()}" 검색 결과` : '전체 게시글'} · {currentPage} / {totalPages} 페이지
             </span>
           </div>
 
@@ -353,7 +348,7 @@ export function BoardPage({
             {!isLoading && !errorMessage && !posts.length ? (
               <section className="empty-state">
                 <h2>검색 결과가 없습니다.</h2>
-                <p>검색어를 바꾸거나 상세 필터를 초기화해 다시 확인해보세요.</p>
+                <p>검색어를 바꾸거나 상세 필터를 초기화해서 다시 확인해보세요.</p>
               </section>
             ) : null}
 
@@ -400,25 +395,6 @@ export function BoardPage({
             </button>
           </section>
 
-          <section className="about-panel">
-            <div className="about-panel__image">
-              <img
-                alt="travel portrait"
-                src="https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=1200&q=80"
-              />
-            </div>
-            <div className="about-panel__copy">
-              <span>ABOUT TRIPY</span>
-              <h2>검색과 기록이 함께 쌓이는 여행 커뮤니티</h2>
-              <p>
-                메인 화면에서 게시글을 찾고, 상세 페이지에서 댓글과 작성자를 확인하고, 마이페이지에서
-                내가 쓴 글과 찜한 글을 정리할 수 있는 흐름을 기준으로 맞춰져 있습니다.
-              </p>
-              <Link className="secondary-button" to="/chat">
-                여행추천봇 보러가기
-              </Link>
-            </div>
-          </section>
         </section>
       </div>
     </main>

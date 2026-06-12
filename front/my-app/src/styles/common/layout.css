@@ -3,25 +3,28 @@
 }
 
 .page {
-  width: min(1280px, calc(100% - 2rem));
+  width: min(1340px, calc(100% - 2.25rem));
   margin: 0 auto;
-  padding: 2rem 0 4rem;
+  padding: 2.4rem 0 4.75rem;
 }
 
 .empty-state {
-  padding: 4rem 1rem;
-  border: 1px solid #cfc8bc;
-  background: #fff;
+  padding: 4.25rem 1.4rem;
+  border: 1px solid var(--border-soft);
+  border-radius: 28px;
+  background: var(--surface-strong);
+  box-shadow: var(--shadow-soft);
   text-align: center;
 }
 
 .muted-copy {
-  color: #5f5a53;
-  line-height: 1.75;
+  color: var(--text-muted);
+  line-height: 1.72;
 }
 
 @media (max-width: 760px) {
   .page {
-    width: min(100% - 1rem, 1280px);
+    width: min(100% - 1rem, 1340px);
+    padding: 1.35rem 0 3rem;
   }
 }

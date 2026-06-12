@@ -68,7 +68,7 @@ export function WritePage({ onCreatePost, onUpdatePost }: WritePageProps) {
         setLookupOptions(data)
       } catch (error) {
         if (isMounted) {
-          window.alert(error instanceof Error ? error.message : 'Failed to load options.')
+          window.alert(error instanceof Error ? error.message : '옵션을 불러오지 못했습니다.')
         }
       } finally {
         if (isMounted) {
@@ -116,7 +116,7 @@ export function WritePage({ onCreatePost, onUpdatePost }: WritePageProps) {
         setPreviewUrl(response.post.imageUrl)
       } catch (error) {
         if (isMounted) {
-          window.alert(error instanceof Error ? error.message : 'Failed to load post.')
+          window.alert(error instanceof Error ? error.message : '게시글을 불러오지 못했습니다.')
           navigate('/main')
         }
       } finally {
@@ -157,7 +157,7 @@ export function WritePage({ onCreatePost, onUpdatePost }: WritePageProps) {
     return (
       <main className="page">
         <section className="empty-state">
-          <h1>Loading editor...</h1>
+          <h1>작성 화면을 불러오는 중입니다...</h1>
         </section>
       </main>
     )
@@ -167,9 +167,9 @@ export function WritePage({ onCreatePost, onUpdatePost }: WritePageProps) {
     <main className="page form-page">
       <section className="form-card">
         <div className="form-card__header">
-          <span>{isEditMode ? 'EDIT POST' : 'WRITE POST'}</span>
-          <h1>{isEditMode ? 'Edit Post' : 'Write Post'}</h1>
-          <p>Fill in the trip information and save it to the board.</p>
+          <span>{isEditMode ? '게시글 수정' : '게시글 작성'}</span>
+          <h1>{isEditMode ? '게시글 수정하기' : '새 게시글 작성하기'}</h1>
+          <p>여행 정보를 입력하고 게시판에 저장하세요.</p>
         </div>
         <form
           className="write-form"
@@ -186,7 +186,7 @@ export function WritePage({ onCreatePost, onUpdatePost }: WritePageProps) {
               !form.companion ||
               !form.content.trim()
             ) {
-              window.alert('Please fill in all required fields.')
+              window.alert('필수 항목을 모두 입력해주세요.')
               return
             }
 
@@ -213,7 +213,7 @@ export function WritePage({ onCreatePost, onUpdatePost }: WritePageProps) {
                 return
               }
 
-              window.alert(isEditMode ? 'Post updated.' : 'Post created.')
+              window.alert(isEditMode ? '게시글이 수정되었습니다.' : '게시글이 등록되었습니다.')
               navigate(isEditMode ? `/posts/${postId}` : '/main')
             } finally {
               setIsSubmitting(false)
@@ -221,14 +221,14 @@ export function WritePage({ onCreatePost, onUpdatePost }: WritePageProps) {
           }}
         >
           <label>
-            Title
+            제목
             <input
               value={form.title}
               onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
             />
           </label>
           <label>
-            Travel Date
+            여행일자
             <input
               type="date"
               value={form.travelDate}
@@ -238,7 +238,7 @@ export function WritePage({ onCreatePost, onUpdatePost }: WritePageProps) {
             />
           </label>
           <label>
-            Upload Image
+            사진 업로드
             <input accept="image/*" type="file" onChange={handleFileChange} />
           </label>
           {previewUrl ? (
@@ -248,46 +248,46 @@ export function WritePage({ onCreatePost, onUpdatePost }: WritePageProps) {
           ) : null}
           <div className="filter-grid form-filter-grid">
             <FilterSelect
-              label="Companion"
+              label="동행"
               options={lookupOptions.companions}
               value={form.companion}
               onChange={(value) => updateSelect('companion', value)}
             />
             <FilterSelect
-              label="Region"
+              label="지역"
               options={lookupOptions.regions}
               value={form.region}
               onChange={(value) => updateSelect('region', value)}
             />
             <FilterSelect
-              label="Budget"
+              label="예산"
               options={lookupOptions.budgetRanges}
               value={form.budget}
               onChange={(value) => updateSelect('budget', value)}
             />
             <FilterSelect
-              label="Theme"
+              label="테마"
               options={lookupOptions.themes}
               value={form.theme}
               onChange={(value) => updateSelect('theme', value)}
             />
             <FilterSelect
-              label="Season"
+              label="계절"
               options={lookupOptions.seasons}
               value={form.season}
               onChange={(value) => updateSelect('season', value)}
             />
           </div>
           <label>
-            Content
+            여행 내용
             <textarea
-              placeholder="Write your trip route, budget, and recommendations."
+              placeholder="동선, 예산, 추천 포인트를 자유롭게 적어주세요."
               value={form.content}
               onChange={(event) => setForm((current) => ({ ...current, content: event.target.value }))}
             />
           </label>
           <button className="primary-button" disabled={isSubmitting} type="submit">
-            {isSubmitting ? 'Saving...' : isEditMode ? 'Update Post' : 'Create Post'}
+            {isSubmitting ? '저장 중...' : isEditMode ? '수정 완료' : '등록하기'}
           </button>
         </form>
       </section>

@@ -12,11 +12,11 @@ export function AppShell({ currentUser, onSignOut }: AppShellProps) {
   const navigate = useNavigate()
 
   const navItems = [
-    { label: 'MAIN', path: '/main' },
-    { label: 'MY PAGE', path: '/mypage' },
-    { label: 'WRITE', path: '/write' },
-    { label: 'CHAT BOT', path: '/chat' },
-    { label: 'PLANNER', path: '/planner' },
+    { label: '메인', path: '/main' },
+    { label: '마이페이지', path: '/mypage' },
+    { label: '글쓰기', path: '/write' },
+    { label: '챗봇', path: '/chat' },
+    { label: '플래너', path: '/planner' },
   ]
 
   if (!currentUser || location.pathname === '/login' || location.pathname === '/signup') {
@@ -27,8 +27,8 @@ export function AppShell({ currentUser, onSignOut }: AppShellProps) {
     <header className="site-header">
       <div className="site-header__inner">
         <div className="site-header__left">
-          <span className="site-header__eyebrow">Cozy Trip Community</span>
-          <Link aria-label="Tripy home" className="site-header__brand" to="/main">
+          <span className="site-header__eyebrow">여행 기록 커뮤니티</span>
+          <Link aria-label="Tripy 홈" className="site-header__brand" to="/main">
             <img alt="Tripy" className="site-header__brand-mark" src="/tripy-logo.png" />
           </Link>
         </div>
@@ -47,7 +47,7 @@ export function AppShell({ currentUser, onSignOut }: AppShellProps) {
         <div className="site-header__right">
           <span>{currentUser.nickname}</span>
           <button className="ghost-button" type="button" onClick={onSignOut}>
-            LOGOUT
+            로그아웃
           </button>
         </div>
       </div>

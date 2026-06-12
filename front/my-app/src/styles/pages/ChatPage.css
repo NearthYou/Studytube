@@ -1,57 +1,214 @@
 .chat-page {
   display: grid;
-  gap: 1.5rem;
+  gap: 1.7rem;
+}
+
+.chat-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) 360px;
+  gap: 1.35rem;
+  align-items: stretch;
+}
+
+.chat-hero__copy,
+.chat-hero__stats,
+.chat-shell,
+.chat-panel {
+  border: 1px solid rgba(114, 94, 67, 0.14);
+  border-radius: 30px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.95) 0%, rgba(249, 244, 236, 0.93) 100%);
+  box-shadow:
+    0 24px 48px rgba(92, 74, 50, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
+.chat-hero__copy {
+  display: grid;
+  gap: 1rem;
+  padding: 2rem 2.1rem;
+}
+
+.chat-hero__copy span,
+.chat-panel > span,
+.chat-shell__header > span,
+.chat-highlight-card > span {
+  color: #7a6d59;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+}
+
+.chat-hero__copy h1,
+.chat-panel h2,
+.chat-shell__header h2 {
+  margin: 0;
+  color: #151515;
+  font-family: "Bodoni MT", "Didot", "Times New Roman", serif;
+  font-weight: 400;
+}
+
+.chat-hero__copy h1 {
+  max-width: 10ch;
+  font-size: clamp(2.5rem, 5vw, 4.4rem);
+  line-height: 0.98;
+}
+
+.chat-hero__copy p,
+.chat-shell__header p,
+.chat-panel p,
+.chat-highlight-card p,
+.chat-bubble p,
+.evidence-card p,
+.mini-plan-card p,
+.chat-empty-card,
+.weather-card p {
+  margin: 0;
+  color: #5e584f;
+  line-height: 1.72;
+}
+
+.chat-hero__stats {
+  display: grid;
+  gap: 1rem;
+  padding: 1.2rem;
+}
+
+.chat-stat-card {
+  display: grid;
+  gap: 0.45rem;
+  align-content: center;
+  min-height: 120px;
+  padding: 1.1rem 1.15rem;
+  border-radius: 22px;
+  background: rgba(255, 253, 249, 0.82);
+  border: 1px solid rgba(114, 94, 67, 0.1);
+}
+
+.chat-stat-card span,
+.weather-card span,
+.weather-card small,
+.evidence-card span,
+.mini-plan-card span {
+  color: #7a6d59;
+  font-size: 0.9rem;
+}
+
+.chat-stat-card strong,
+.chat-highlight-card strong,
+.weather-card strong,
+.evidence-card strong,
+.mini-plan-card strong,
+.chat-window__header strong {
+  color: #171513;
+  font-size: 1.12rem;
 }
 
 .chat-layout {
   display: grid;
-  grid-template-columns: 240px minmax(0, 1.2fr) 320px;
-  gap: 1.5rem;
-}
-
-.chat-shell,
-.chat-panel {
-  border: 1px solid #cfc8bc;
-  background: rgba(255, 255, 255, 0.92);
-}
-
-.chat-shell {
-  display: grid;
-  gap: 1.5rem;
-  padding: 2rem;
+  grid-template-columns: 270px minmax(0, 1.35fr) 340px;
+  gap: 1.45rem;
+  align-items: start;
 }
 
 .chat-sidebar,
 .chat-evidence {
   display: grid;
-  align-content: start;
   gap: 1rem;
 }
 
 .chat-panel {
   display: grid;
-  gap: 0.9rem;
+  gap: 0.95rem;
   padding: 1.25rem;
 }
 
-.chat-panel span,
-.chat-shell__header span {
-  color: #7a6d59;
-  font-size: 0.74rem;
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
-}
-
 .chat-panel h2,
-.chat-shell__header h1 {
-  margin: 0;
-  color: #121212;
-  font-family: "Bodoni MT", "Didot", "Times New Roman", serif;
-  font-weight: 400;
+.chat-shell__header h2 {
+  font-size: 1.8rem;
+  line-height: 1.08;
 }
 
-.chat-panel h2 {
-  font-size: 1.45rem;
+.chat-panel--dark {
+  background:
+    radial-gradient(circle at top left, rgba(238, 211, 172, 0.18), transparent 44%),
+    linear-gradient(145deg, #2d2823 0%, #171411 100%);
+  border-color: rgba(64, 50, 35, 0.52);
+  box-shadow:
+    0 26px 52px rgba(24, 19, 14, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.chat-panel--dark > span,
+.chat-panel--dark h2,
+.chat-panel--dark p {
+  color: #f7f1e7;
+}
+
+.chat-panel--dark > span {
+  color: rgba(247, 241, 231, 0.74);
+}
+
+.chat-session-list,
+.chat-chip-list,
+.evidence-list,
+.mini-plan-list {
+  display: grid;
+  gap: 0.78rem;
+}
+
+.chat-session-button,
+.chat-chip,
+.evidence-card,
+.mini-plan-card,
+.weather-card,
+.chat-highlight-card,
+.chat-empty-card {
+  border: 1px solid rgba(114, 94, 67, 0.12);
+  border-radius: 22px;
+  background: rgba(255, 253, 249, 0.92);
+}
+
+.chat-session-button {
+  color: #191714;
+  cursor: pointer;
+  font: inherit;
+  padding: 1rem 1rem 1rem 1.05rem;
+  text-align: left;
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    border-color 180ms ease,
+    background 180ms ease;
+}
+
+.chat-session-button:hover {
+  transform: translateY(-2px);
+  border-color: rgba(214, 180, 132, 0.52);
+  background: rgba(255, 249, 240, 0.98);
+  box-shadow: 0 16px 28px rgba(54, 41, 28, 0.16);
+}
+
+.chat-chip-list {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.chat-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 54px;
+  padding: 0.8rem 0.9rem;
+  color: #50473d;
+  font-size: 0.94rem;
+  text-align: center;
+}
+
+.chat-shell {
+  display: grid;
+  gap: 1.35rem;
+  padding: 1.8rem;
 }
 
 .chat-shell__header {
@@ -59,127 +216,161 @@
   gap: 0.75rem;
 }
 
-.chat-shell__header h1 {
-  font-size: clamp(2.1rem, 5vw, 4.1rem);
-}
-
-.chat-shell__header p,
-.weather-card p,
-.evidence-card span,
-.mini-plan-card p {
-  color: #5f5a53;
-  line-height: 1.75;
-}
-
-.chat-session-list,
-.evidence-list,
-.mini-plan-list {
-  display: grid;
-  gap: 0.75rem;
-}
-
-.chat-session-button {
-  border: 1px solid #d9d1c4;
-  background: #fffdfa;
-  color: #1b1b1b;
-  cursor: pointer;
-  font: inherit;
-  padding: 0.8rem 0.9rem;
-  text-align: left;
-}
-
 .chat-request-form,
-.chat-filter-grid {
+.chat-filter-grid,
+.chat-form-lead {
   display: grid;
-  gap: 1rem;
+  gap: 0.95rem;
+}
+
+.chat-form-lead > span,
+.chat-filter-grid label > span {
+  color: #625847;
+  font-size: 0.86rem;
+  font-weight: 700;
 }
 
 .chat-filter-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.chat-filter-grid label {
-  display: grid;
-  gap: 0.45rem;
-}
-
-.chat-filter-grid label:first-child {
-  grid-column: 1 / -1;
-}
-
 .chat-request-actions {
   display: flex;
-  gap: 0.8rem;
+  flex-wrap: wrap;
+  gap: 0.85rem;
+}
+
+.chat-action-button {
+  min-width: 184px;
+  justify-content: center;
+}
+
+.chat-response-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.chat-highlight-card,
+.weather-card,
+.evidence-card,
+.mini-plan-card,
+.chat-empty-card {
+  display: grid;
+  gap: 0.55rem;
+  padding: 1.15rem;
 }
 
 .chat-window {
   display: grid;
-  gap: 0.8rem;
-  min-height: 360px;
+  gap: 0.9rem;
+  min-height: 420px;
   padding: 1.25rem;
-  border: 1px solid #d9d1c4;
-  background: #fffdfa;
+  border: 1px solid rgba(114, 94, 67, 0.12);
+  border-radius: 28px;
+  background:
+    linear-gradient(180deg, rgba(252, 249, 245, 0.96) 0%, rgba(245, 239, 230, 0.94) 100%);
+}
+
+.chat-window__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: 0.2rem;
+}
+
+.chat-window__header span {
+  color: #796d5a;
+  font-size: 0.9rem;
 }
 
 .chat-bubble {
+  display: grid;
+  gap: 0.45rem;
   max-width: 88%;
-  padding: 0.9rem 1rem;
-  line-height: 1.7;
+  padding: 1rem 1.05rem;
+  border-radius: 24px;
+  box-shadow: 0 14px 28px rgba(92, 76, 54, 0.06);
+}
+
+.chat-bubble em {
+  color: inherit;
+  font-size: 0.77rem;
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  opacity: 0.78;
+  text-transform: uppercase;
 }
 
 .chat-bubble.assistant {
-  background: #f5f1ea;
+  background: linear-gradient(180deg, #fbf6ee 0%, #efe4d5 100%);
 }
 
 .chat-bubble.user {
   justify-self: end;
-  background: #1b1b1b;
-  color: #fff;
+  background: linear-gradient(135deg, #26211c 0%, #3c342c 100%);
+  color: #fffaf2;
 }
 
 .evidence-card,
 .mini-plan-card {
-  display: grid;
-  gap: 0.45rem;
-  padding: 0.95rem;
-  border: 1px solid #d9d1c4;
-  background: #fffdfa;
   color: inherit;
   text-decoration: none;
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    border-color 180ms ease;
 }
 
-.weather-card {
-  display: grid;
-  gap: 0.55rem;
-  padding: 0.95rem;
-  border: 1px solid #d9d1c4;
-  background: #fffdfa;
+.evidence-card:hover,
+.mini-plan-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(214, 180, 132, 0.42);
+  box-shadow: 0 16px 30px rgba(92, 76, 54, 0.08);
 }
 
-.weather-card span,
-.weather-card small,
-.evidence-card span,
-.mini-plan-card span {
-  color: #7a6d59;
-  font-size: 0.88rem;
+.mini-plan-card__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.9rem;
 }
 
-@media (max-width: 1180px) {
+@media (max-width: 1260px) {
+  .chat-hero,
   .chat-layout {
     grid-template-columns: 1fr;
   }
 }
 
 @media (max-width: 760px) {
+  .chat-hero__copy,
   .chat-shell {
-    padding: 1.25rem;
+    padding: 1.35rem;
   }
 
-  .chat-filter-grid {
+  .chat-chip-list,
+  .chat-filter-grid,
+  .chat-response-grid {
     grid-template-columns: 1fr;
   }
 
   .chat-request-actions {
     flex-direction: column;
+  }
+
+  .chat-action-button {
+    width: 100%;
+  }
+
+  .chat-window__header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .chat-bubble {
+    max-width: 100%;
   }
 }

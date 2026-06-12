@@ -1,32 +1,36 @@
 .mypage-page {
-  --mypage-border: #ddd4c7;
-  --mypage-surface: rgba(255, 255, 255, 0.94);
+  --mypage-border: rgba(114, 94, 67, 0.14);
+  --mypage-surface: rgba(255, 252, 247, 0.92);
   --mypage-subtle: #fcfaf6;
   --mypage-text: #4f4a42;
   --mypage-muted: #7c7265;
-  --mypage-accent: #9b7c56;
 }
 
 .mypage-page {
   display: grid;
-  gap: 1.65rem;
+  gap: 1.85rem;
 }
 
 .profile-banner {
   display: grid;
-  gap: 1rem;
-  padding: 2.15rem;
+  gap: 1.05rem;
+  padding: 2.45rem;
   border: 1px solid var(--mypage-border);
-  border-radius: 20px;
-  background: var(--mypage-surface);
-  box-shadow: 0 18px 40px rgba(78, 66, 50, 0.06);
+  border-radius: 28px;
+  background:
+    radial-gradient(circle at top right, rgba(220, 205, 183, 0.22), transparent 24%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94) 0%, rgba(249, 244, 236, 0.92) 100%);
+  box-shadow:
+    0 24px 52px rgba(78, 66, 50, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.86);
   text-align: center;
 }
 
 .profile-banner span {
   color: var(--mypage-muted);
-  font-size: 0.74rem;
-  letter-spacing: 0.22em;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.24em;
   text-transform: uppercase;
 }
 
@@ -34,66 +38,54 @@
   margin: 0;
   color: #121212;
   font-family: "Bodoni MT", "Didot", "Times New Roman", serif;
-  font-size: clamp(2.1rem, 5vw, 4.1rem);
+  font-size: clamp(2.5rem, 6vw, 4.6rem);
   font-weight: 400;
+  line-height: 0.96;
 }
 
 .profile-banner p {
   color: var(--mypage-text);
-  line-height: 1.75;
+  line-height: 1.7;
+  font-size: 1rem;
 }
 
 .mypage-tabs {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem;
-}
-
-.mypage-tabs button {
-  border: 1px solid #ddd5c8;
-  border-radius: 999px;
-  background: rgba(255, 252, 247, 0.88);
-  padding: 0.62rem 1rem;
-  color: var(--mypage-text);
-  cursor: pointer;
-  transition: border-color 140ms ease, background 140ms ease, transform 140ms ease;
-}
-
-.mypage-tabs button:hover {
-  transform: translateY(-1px);
-  border-color: #cdbda8;
-}
-
-.mypage-tabs button.active {
-  border-color: #c4b098;
-  background: #f6efe5;
-  color: #2e2a24;
+  gap: 0.8rem;
 }
 
 .mypage-panel {
-  padding: 1.6rem;
+  padding: 1.8rem;
   border: 1px solid var(--mypage-border);
-  border-radius: 18px;
-  background: var(--mypage-surface);
-  box-shadow: 0 18px 40px rgba(78, 66, 50, 0.05);
+  border-radius: 24px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94) 0%, rgba(250, 246, 239, 0.9) 100%);
+  box-shadow:
+    0 20px 44px rgba(78, 66, 50, 0.07),
+    inset 0 1px 0 rgba(255, 255, 255, 0.86);
 }
 
 .mypage-item {
   display: grid;
-  gap: 0.6rem;
-  padding: 1.05rem 1.1rem;
-  border: 1px solid #e0d8cc;
-  border-radius: 16px;
+  gap: 0.62rem;
+  padding: 1.15rem 1.2rem;
+  border: 1px solid rgba(114, 94, 67, 0.12);
+  border-radius: 18px;
   background: var(--mypage-subtle);
   color: inherit;
   text-decoration: none;
   transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
 }
 
+.mypage-item + .mypage-item {
+  margin-top: 0.8rem;
+}
+
 .mypage-item:hover {
-  transform: translateY(-2px);
-  border-color: #cdbda8;
-  box-shadow: 0 12px 26px rgba(92, 76, 54, 0.08);
+  transform: translateY(-3px);
+  border-color: rgba(141, 118, 85, 0.26);
+  box-shadow: 0 16px 30px rgba(92, 76, 54, 0.08);
 }
 
 .mypage-item span,
@@ -104,18 +96,15 @@
 
 .mypage-pagination {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: center;
   gap: 1rem;
-  margin-top: 1.25rem;
+  margin-top: 1.45rem;
 }
 
 .mypage-pagination button {
-  border: 1px solid #ddd5c8;
-  border-radius: 999px;
-  background: rgba(255, 252, 247, 0.92);
-  padding: 0.55rem 0.9rem;
-  cursor: pointer;
+  min-height: 42px;
 }
 
 .mypage-pagination button:disabled {
@@ -126,6 +115,6 @@
 @media (max-width: 760px) {
   .profile-banner,
   .mypage-panel {
-    padding: 1.25rem;
+    padding: 1.3rem;
   }
 }

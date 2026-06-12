@@ -1,6 +1,8 @@
 import json
 import os
+import time
 import unittest
+from urllib.parse import parse_qsl, urlparse
 
 import main
 from main import (
@@ -12,6 +14,12 @@ from main import (
 
 
 class AiServiceTest(unittest.TestCase):
+    def test_caption_payload_language_alias_selects_target_language(self):
+        self.assertEqual(
+            main.caption_target_language({"videoId": "abc123", "language": "en"}),
+            "en",
+        )
+
     def test_transcript_rows_are_normalized_to_latest_start_timing(self):
         segments = main.parse_transcript_api_rows(
             [
@@ -108,7 +116,7 @@ class AiServiceTest(unittest.TestCase):
         os.environ["OPENAI_API_KEY"] = "test-key"
         source_segments = [
             {"start": index * 2, "end": index * 2 + 2, "text": f"caption {index}"}
-            for index in range(185)
+            for index in range(12)
         ]
 
         try:
@@ -120,9 +128,182 @@ class AiServiceTest(unittest.TestCase):
             else:
                 os.environ["OPENAI_API_KEY"] = original_key
 
-        self.assertEqual(len(translated), 185)
+        self.assertEqual(len(translated), 12)
         self.assertGreater(FakeOpenAI.calls, 1)
-        self.assertEqual(translated[-1]["start"], 368)
+        self.assertEqual(translated[-1]["start"], 22)
+
+    def test_caption_segment_translation_compacts_long_word_level_captions(self):
+        class FakeOpenAI:
+            calls = 0
+
+            def __init__(self):
+                self.chat = self.Chat()
+
+            class Chat:
+                def __init__(self):
+                    self.completions = self.Completions()
+
+                class Completions:
+                    @staticmethod
+                    def create(**kwargs):
+                        FakeOpenAI.calls += 1
+                        payload = json.loads(kwargs["messages"][1]["content"])
+                        translations = [
+                            f"{text} translated" for text in payload["segments"]
+                        ]
+                        message = type(
+                            "Message",
+                            (),
+                            {
+                                "content": json.dumps(
+                                    {"translations": translations},
+                                    ensure_ascii=False,
+                                )
+                            },
+                        )()
+                        choice = type("Choice", (), {"message": message})()
+                        return type("Response", (), {"choices": [choice]})()
+
+        original_openai = main.OpenAI
+        original_key = os.environ.get("OPENAI_API_KEY")
+        main.OpenAI = FakeOpenAI
+        os.environ["OPENAI_API_KEY"] = "test-key"
+
+        source_segments = [
+            {"start": index, "end": index + 1, "text": f"word{index}"}
+            for index in range(300)
+        ]
+
+        try:
+            translated = main.translate_caption_segments(source_segments, "ko")
+        finally:
+            main.OpenAI = original_openai
+            if original_key is None:
+                os.environ.pop("OPENAI_API_KEY", None)
+            else:
+                os.environ["OPENAI_API_KEY"] = original_key
+
+        self.assertLess(len(translated), len(source_segments))
+        self.assertEqual(translated[0]["start"], 0)
+        self.assertEqual(translated[-1]["end"], 300)
+        self.assertIn("word0", translated[0]["text"])
+        self.assertIn("translated", translated[0]["text"])
+
+    def test_caption_segment_translation_keeps_long_videos_within_inline_budget(self):
+        source_segments = [
+            {"start": index * 2, "end": index * 2 + 2, "text": f"caption {index}"}
+            for index in range(2700)
+        ]
+
+        compacted = main.compact_caption_segments_for_translation(source_segments)
+
+        self.assertLessEqual(
+            len(compacted),
+            main.CAPTION_TRANSLATION_INLINE_MAX_SEGMENTS,
+        )
+        self.assertEqual(compacted[0]["start"], 0)
+        self.assertEqual(compacted[-1]["end"], 5400)
+        self.assertIn("caption 0", compacted[0]["text"])
+        self.assertIn("caption 2699", compacted[-1]["text"])
+
+    def test_caption_segment_translation_uses_concise_prompt_for_compacted_captions(self):
+        class FakeOpenAI:
+            system_prompt = ""
+
+            def __init__(self):
+                self.chat = self.Chat()
+
+            class Chat:
+                def __init__(self):
+                    self.completions = self.Completions()
+
+                class Completions:
+                    @staticmethod
+                    def create(**kwargs):
+                        FakeOpenAI.system_prompt = kwargs["messages"][0]["content"]
+                        payload = json.loads(kwargs["messages"][1]["content"])
+                        translations = [
+                            f"{text} translated" for text in payload["segments"]
+                        ]
+                        message = type(
+                            "Message",
+                            (),
+                            {
+                                "content": json.dumps(
+                                    {"translations": translations},
+                                    ensure_ascii=False,
+                                )
+                            },
+                        )()
+                        choice = type("Choice", (), {"message": message})()
+                        return type("Response", (), {"choices": [choice]})()
+
+        original_openai = main.OpenAI
+        original_key = os.environ.get("OPENAI_API_KEY")
+        main.OpenAI = FakeOpenAI
+        os.environ["OPENAI_API_KEY"] = "test-key"
+
+        try:
+            translated = main.translate_caption_segments(
+                [
+                    {"start": index * 2, "end": index * 2 + 2, "text": f"caption {index}"}
+                    for index in range(2700)
+                ],
+                "ko",
+            )
+        finally:
+            main.OpenAI = original_openai
+            if original_key is None:
+                os.environ.pop("OPENAI_API_KEY", None)
+            else:
+                os.environ["OPENAI_API_KEY"] = original_key
+
+        self.assertLessEqual(len(translated), main.CAPTION_TRANSLATION_TARGET_SEGMENTS)
+        self.assertIn("Condense each item", FakeOpenAI.system_prompt)
+
+    def test_concise_caption_prompt_uses_requested_english_target(self):
+        class FakeClient:
+            system_prompt = ""
+            user_payload = {}
+
+            def __init__(self):
+                self.chat = self.Chat()
+
+            class Chat:
+                def __init__(self):
+                    self.completions = self.Completions()
+
+                class Completions:
+                    @staticmethod
+                    def create(**kwargs):
+                        FakeClient.system_prompt = kwargs["messages"][0]["content"]
+                        FakeClient.user_payload = json.loads(
+                            kwargs["messages"][1]["content"]
+                        )
+                        message = type(
+                            "Message",
+                            (),
+                            {
+                                "content": json.dumps(
+                                    {"translations": ["hello"]},
+                                    ensure_ascii=False,
+                                )
+                            },
+                        )()
+                        choice = type("Choice", (), {"message": message})()
+                        return type("Response", (), {"choices": [choice]})()
+
+        translations = main.request_caption_translations(
+            FakeClient(),
+            ["안녕하세요"],
+            "en",
+            use_concise_subtitles=True,
+        )
+
+        self.assertEqual(translations, ["hello"])
+        self.assertEqual(FakeClient.user_payload["targetLanguage"], "en")
+        self.assertIn("into English", FakeClient.system_prompt)
+        self.assertNotIn("into Korean", FakeClient.system_prompt)
 
     def test_caption_segment_translation_runs_batches_concurrently(self):
         import threading
@@ -138,7 +319,7 @@ class AiServiceTest(unittest.TestCase):
         started_batches: list[list[str]] = []
         barrier = threading.Barrier(3, timeout=0.5)
 
-        def fake_translate_batch(_client, batch, _target_language):
+        def fake_translate_batch(_client, batch, _target_language, _use_concise=False):
             texts = [segment["text"] for segment in batch]
             started_batches.append(texts)
             barrier.wait()
@@ -394,7 +575,7 @@ class AiServiceTest(unittest.TestCase):
         self.assertEqual(result["videos"][0]["videoId"], "abc123")
         self.assertEqual(result["videos"][0]["title"], "Real React Hooks Lesson")
 
-    def test_youtube_captions_fetches_translated_timed_segments(self):
+    def test_youtube_captions_fetches_timed_segments_without_youtube_tlang_when_openai_ready(self):
         calls = []
         player_response = {
             "captions": {
@@ -475,7 +656,7 @@ class AiServiceTest(unittest.TestCase):
         self.assertEqual(response["segments"][0]["end"], 2.2)
         self.assertEqual(calls[0][1]["params"]["v"], "abc123")
         self.assertEqual(calls[0][1]["params"]["hl"], "en")
-        self.assertIn("tlang=ko", calls[-1][0])
+        self.assertNotIn("tlang=ko", calls[-1][0])
         self.assertIn("fmt=json3", calls[-1][0])
 
     def test_youtube_captions_reuses_cached_response_for_same_video_and_language(self):
@@ -550,6 +731,37 @@ class AiServiceTest(unittest.TestCase):
         self.assertEqual(fetch_count, 1)
         self.assertEqual(first, second)
         self.assertEqual(second["segments"][0]["text"], "Cached caption")
+
+    def test_caption_cache_does_not_pin_source_response_when_translation_is_available(self):
+        class FakeOpenAI:
+            pass
+
+        original_openai = main.OpenAI
+        original_key = os.environ.get("OPENAI_API_KEY")
+        cache_key = "source-cache"
+        main.OpenAI = FakeOpenAI
+        os.environ["OPENAI_API_KEY"] = "test-key"
+        main.CAPTION_RESPONSE_CACHE[cache_key] = (
+            time.time(),
+            {
+                "provider": "youtube-source-captions",
+                "translated": False,
+                "segments": [{"start": 0, "end": 1, "text": "source"}],
+            },
+        )
+
+        try:
+            cached = main.read_caption_response_cache(cache_key)
+        finally:
+            main.OpenAI = original_openai
+            if original_key is None:
+                os.environ.pop("OPENAI_API_KEY", None)
+            else:
+                os.environ["OPENAI_API_KEY"] = original_key
+            main.CAPTION_RESPONSE_CACHE.clear()
+
+        self.assertIsNone(cached)
+        self.assertNotIn(cache_key, main.CAPTION_RESPONSE_CACHE)
 
     @unittest.skip("Stored summaries are no longer used as live translated captions.")
     def test_youtube_captions_fallback_chunks_saved_notes(self):
@@ -919,7 +1131,11 @@ class AiServiceTest(unittest.TestCase):
                 )
 
         original_httpx = main.httpx
+        original_openai = main.OpenAI
+        original_key = os.environ.get("OPENAI_API_KEY")
         main.httpx = FakeHttpx
+        main.OpenAI = None
+        os.environ.pop("OPENAI_API_KEY", None)
 
         try:
             response = load_translated_captions(
@@ -927,10 +1143,144 @@ class AiServiceTest(unittest.TestCase):
             )
         finally:
             main.httpx = original_httpx
+            main.OpenAI = original_openai
+            if original_key is None:
+                os.environ.pop("OPENAI_API_KEY", None)
+            else:
+                os.environ["OPENAI_API_KEY"] = original_key
 
         self.assertEqual(response["provider"], "youtube-source-captions")
         self.assertEqual(response["segments"][0]["text"], "대체 URL 성공")
         self.assertTrue(any("www.youtube.com/api/timedtext" in url for url in calls))
+
+    def test_youtube_captions_reports_rate_limit_when_track_fetch_is_limited(self):
+        original_fetch_tracks = main.fetch_youtube_caption_tracks
+        original_fetch_urls = main.fetch_caption_segments_from_urls
+        original_transcript = main.fetch_transcript_api_segments
+        original_yt_dlp = main.fetch_yt_dlp_caption_segments
+
+        main.fetch_youtube_caption_tracks = lambda _video_id: [
+            {
+                "baseUrl": "https://www.youtube.com/api/timedtext?v=limited123&lang=en",
+                "languageCode": "en",
+                "isTranslatable": True,
+            }
+        ]
+        main.fetch_caption_segments_from_urls = lambda *_args: (
+            [],
+            RuntimeError("HTTP Error 429: Too Many Requests"),
+        )
+        main.fetch_transcript_api_segments = lambda *_args: ([], "", False)
+        main.fetch_yt_dlp_caption_segments = lambda *_args: (
+            [],
+            "en",
+            False,
+            RuntimeError("HTTP Error 429: Too Many Requests"),
+        )
+
+        try:
+            response = load_translated_captions(
+                {
+                    "videoId": "limited123",
+                    "targetLanguage": "ko",
+                    "allowFallback": False,
+                }
+            )
+        finally:
+            main.fetch_youtube_caption_tracks = original_fetch_tracks
+            main.fetch_caption_segments_from_urls = original_fetch_urls
+            main.fetch_transcript_api_segments = original_transcript
+            main.fetch_yt_dlp_caption_segments = original_yt_dlp
+
+        self.assertEqual(response["provider"], "youtube-caption-rate-limited")
+        self.assertEqual(response["sourceLanguage"], "en")
+        self.assertFalse(response["translated"])
+        self.assertEqual(response["segments"], [])
+        self.assertIn("429", response["message"])
+
+    def test_caption_cache_keeps_rate_limited_caption_response(self):
+        original_fetch_tracks = main.fetch_youtube_caption_tracks
+        original_fetch_urls = main.fetch_caption_segments_from_urls
+        original_transcript = main.fetch_transcript_api_segments
+        original_yt_dlp = main.fetch_yt_dlp_caption_segments
+        fetch_count = 0
+
+        def fake_fetch_tracks(_video_id):
+            nonlocal fetch_count
+            fetch_count += 1
+            return [
+                {
+                    "baseUrl": "https://www.youtube.com/api/timedtext?v=cache-native&lang=en",
+                    "languageCode": "en",
+                    "isTranslatable": True,
+                }
+            ]
+
+        main.fetch_youtube_caption_tracks = fake_fetch_tracks
+        main.fetch_caption_segments_from_urls = lambda *_args: (
+            [],
+            RuntimeError("HTTP Error 429: Too Many Requests"),
+        )
+        main.fetch_transcript_api_segments = lambda *_args: ([], "", False)
+        main.fetch_yt_dlp_caption_segments = lambda *_args: (
+            [],
+            "en",
+            False,
+            RuntimeError("HTTP Error 429: Too Many Requests"),
+        )
+        main.CAPTION_RESPONSE_CACHE.clear()
+
+        try:
+            payload = {
+                "videoId": "cache-rate-limited",
+                "targetLanguage": "ko",
+                "allowFallback": False,
+            }
+            first = load_translated_captions(payload)
+            second = load_translated_captions(payload)
+        finally:
+            main.fetch_youtube_caption_tracks = original_fetch_tracks
+            main.fetch_caption_segments_from_urls = original_fetch_urls
+            main.fetch_transcript_api_segments = original_transcript
+            main.fetch_yt_dlp_caption_segments = original_yt_dlp
+            main.CAPTION_RESPONSE_CACHE.clear()
+
+        self.assertEqual(fetch_count, 1)
+        self.assertEqual(first, second)
+        self.assertEqual(second["provider"], "youtube-caption-rate-limited")
+        self.assertEqual(second["segments"], [])
+
+    def test_youtube_captions_reports_rate_limit_from_yt_dlp_metadata(self):
+        original_fetch_tracks = main.fetch_youtube_caption_tracks
+        original_transcript = main.fetch_transcript_api_segments
+        original_yt_dlp = main.fetch_yt_dlp_caption_segments
+
+        main.fetch_youtube_caption_tracks = lambda _video_id: []
+        main.fetch_transcript_api_segments = lambda *_args: ([], "", False)
+        main.fetch_yt_dlp_caption_segments = lambda *_args: (
+            [],
+            "en",
+            False,
+            RuntimeError("HTTP Error 429: Too Many Requests"),
+        )
+
+        try:
+            response = load_translated_captions(
+                {
+                    "videoId": "metadata123",
+                    "targetLanguage": "ko",
+                    "allowFallback": False,
+                }
+            )
+        finally:
+            main.fetch_youtube_caption_tracks = original_fetch_tracks
+            main.fetch_transcript_api_segments = original_transcript
+            main.fetch_yt_dlp_caption_segments = original_yt_dlp
+
+        self.assertEqual(response["provider"], "youtube-caption-rate-limited")
+        self.assertEqual(response["sourceLanguage"], "en")
+        self.assertFalse(response["translated"])
+        self.assertEqual(response["segments"], [])
 
     def test_youtube_captions_uses_yt_dlp_when_youtube_caption_apis_fail(self):
         original_fetch_tracks = main.fetch_youtube_caption_tracks
@@ -1011,6 +1361,154 @@ class AiServiceTest(unittest.TestCase):
         self.assertFalse(translated)
         self.assertEqual(segments[0]["text"], "Downloaded by yt-dlp")
 
+    def test_yt_dlp_recovery_args_use_explicit_youtube_settings(self):
+        env_updates = {
+            "YT_DLP_JS_RUNTIME": r"node:C:\Program Files\nodejs\node.exe",
+            "YOUTUBE_PO_TOKEN": "web.subs+TEST_TOKEN",
+            "YOUTUBE_VISITOR_DATA": "TEST_VISITOR",
+            "YOUTUBE_COOKIES_FILE": r"C:\captions\cookies.txt",
+            "YOUTUBE_COOKIES_FROM_BROWSER": "edge",
+            "YOUTUBE_PROXY_URL": "http://127.0.0.1:8888",
+            "YT_DLP_ALLOW_REMOTE_COMPONENTS": "true",
+        }
+        original_env = {key: os.environ.get(key) for key in env_updates}
+        os.environ.update(env_updates)
+
+        try:
+            args = main.yt_dlp_recovery_args()
+        finally:
+            for key, value in original_env.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+
+        self.assertIn("--js-runtimes", args)
+        self.assertIn(r"node:C:\Program Files\nodejs\node.exe", args)
+        self.assertIn("--remote-components", args)
+        self.assertIn("ejs:github", args)
+        self.assertIn("--cookies", args)
+        self.assertIn(r"C:\captions\cookies.txt", args)
+        self.assertIn("--cookies-from-browser", args)
+        self.assertIn("edge", args)
+        self.assertIn("--proxy", args)
+        self.assertIn("http://127.0.0.1:8888", args)
+        self.assertIn("--extractor-args", args)
+        self.assertIn(
+            "youtube:po_token=web.subs+TEST_TOKEN;visitor_data=TEST_VISITOR",
+            args,
+        )
+
+    def test_caption_url_with_recovery_params_adds_subtitle_po_token(self):
+        original_token = os.environ.get("YOUTUBE_PO_TOKEN")
+        os.environ["YOUTUBE_PO_TOKEN"] = "web.subs+TEST_TOKEN"
+
+        try:
+            url = main.caption_url_with_recovery_params(
+                "https://www.youtube.com/api/timedtext?v=abc123&lang=en"
+            )
+        finally:
+            if original_token is None:
+                os.environ.pop("YOUTUBE_PO_TOKEN", None)
+            else:
+                os.environ["YOUTUBE_PO_TOKEN"] = original_token
+
+        query = dict(parse_qsl(urlparse(url).query, keep_blank_values=True))
+        self.assertEqual(query["pot"], "TEST_TOKEN")
+        self.assertEqual(query["potc"], "1")
+        self.assertEqual(query["c"], "WEB")
+
+    def test_fetch_caption_segments_uses_recovery_url_and_proxy(self):
+        class FakeResponse:
+            text = json.dumps(
+                {
+                    "events": [
+                        {
+                            "tStartMs": 0,
+                            "dDurationMs": 1000,
+                            "segs": [{"utf8": "Recovered caption"}],
+                        }
+                    ]
+                }
+            )
+
+            @staticmethod
+            def json():
+                return json.loads(FakeResponse.text)
+
+            @staticmethod
+            def raise_for_status():
+                return None
+
+        class FakeHttpx:
+            calls: list[tuple[str, dict[str, object]]] = []
+
+            @staticmethod
+            def get(url, **kwargs):
+                FakeHttpx.calls.append((url, kwargs))
+                return FakeResponse()
+
+        env_updates = {
+            "YOUTUBE_PO_TOKEN": "web.subs+TEST_TOKEN",
+            "YOUTUBE_PROXY_URL": "http://127.0.0.1:8888",
+        }
+        original_env = {key: os.environ.get(key) for key in env_updates}
+        original_httpx = main.httpx
+        os.environ.update(env_updates)
+        main.httpx = FakeHttpx
+
+        try:
+            segments, error = main.fetch_caption_segments_from_urls(
+                ["https://www.youtube.com/api/timedtext?v=abc123&lang=en"],
+                "abc123",
+            )
+        finally:
+            main.httpx = original_httpx
+            for key, value in original_env.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+
+        self.assertIsNone(error)
+        self.assertEqual(segments[0]["text"], "Recovered caption")
+        called_url, kwargs = FakeHttpx.calls[0]
+        query = dict(parse_qsl(urlparse(called_url).query, keep_blank_values=True))
+        self.assertEqual(query["pot"], "TEST_TOKEN")
+        self.assertEqual(query["potc"], "1")
+        self.assertEqual(query["c"], "WEB")
+        self.assertEqual(kwargs["proxy"], "http://127.0.0.1:8888")
+
+    def test_yt_dlp_caption_candidate_prefers_source_url_when_openai_can_translate(self):
+        metadata = {
+            "automatic_captions": {
+                "en": [
+                    {
+                        "ext": "json3",
+                        "url": "https://www.youtube.com/api/timedtext?lang=ko&tlang=en",
+                    }
+                ],
+                "ko": [
+                    {
+                        "ext": "json3",
+                        "url": "https://www.youtube.com/api/timedtext?lang=ko",
+                    }
+                ],
+            },
+            "subtitles": {},
+        }
+
+        candidate = main.choose_yt_dlp_caption_candidate(
+            metadata,
+            "en",
+            prefer_source_captions=True,
+        )
+
+        self.assertIsNotNone(candidate)
+        self.assertEqual(candidate["sourceLanguage"], "ko")
+        self.assertFalse(candidate["translated"])
+        self.assertNotIn("tlang=", candidate["url"])
+
     def test_parse_timedtext_response_accepts_webvtt_from_yt_dlp(self):
         class FakeResponse:
             text = """WEBVTT
@@ -1036,7 +1534,7 @@ Second subtitle line
             ],
         )
 
-    def test_youtube_captions_translates_source_segments_when_tlang_fails(self):
+    def test_youtube_captions_translates_source_segments_without_youtube_tlang_when_openai_ready(self):
         calls = []
         player_response = {
             "captions": {
@@ -1153,7 +1651,7 @@ Second subtitle line
         self.assertEqual(response["segments"][0]["text"], "리액트 학습자 여러분 안녕하세요")
         self.assertEqual(response["segments"][0]["start"], 0)
         self.assertEqual(response["segments"][1]["end"], 3.0)
-        self.assertTrue(any("tlang=ko" in url for url in calls))
+        self.assertFalse(any("tlang=ko" in url for url in calls))
 
     def test_youtube_captions_returns_source_segments_when_translation_unavailable(self):
         player_response = {
@@ -1308,8 +1806,12 @@ Second subtitle line
 
         original_httpx = main.httpx
         original_transcript_api = main.YouTubeTranscriptApi
+        original_openai = main.OpenAI
+        original_key = os.environ.get("OPENAI_API_KEY")
         main.httpx = FakeHttpx
         main.YouTubeTranscriptApi = FakeTranscriptApi
+        main.OpenAI = None
+        os.environ.pop("OPENAI_API_KEY", None)
 
         try:
             response = load_translated_captions(
@@ -1322,6 +1824,11 @@ Second subtitle line
         finally:
             main.httpx = original_httpx
             main.YouTubeTranscriptApi = original_transcript_api
+            main.OpenAI = original_openai
+            if original_key is None:
+                os.environ.pop("OPENAI_API_KEY", None)
+            else:
+                os.environ["OPENAI_API_KEY"] = original_key
 
         self.assertEqual(response["provider"], "youtube-transcript-api")
         self.assertEqual(response["sourceLanguage"], "en")

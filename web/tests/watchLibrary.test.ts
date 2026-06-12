@@ -59,10 +59,28 @@ test('builds watch choices from saved playlists and local drafts', () => {
   });
 
   assert.deepEqual(
-    choices.map((choice) => [choice.id, choice.title, choice.videos.length]),
+    choices.map((choice) => [
+      choice.id,
+      choice.title,
+      choice.description,
+      choice.metaLabel,
+      choice.videos.length,
+    ]),
     [
-      ['saved-1', 'Saved Course', 2],
-      ['draft-draft-a', 'Draft Course', 1],
+      [
+        'saved-1',
+        'Saved Course',
+        '저장된 학습 플레이리스트입니다.',
+        '2개 영상 · 저장됨',
+        2,
+      ],
+      [
+        'draft-draft-a',
+        'Draft Course',
+        '아직 보드에 올리지 않은 작업 초안입니다.',
+        '1개 영상 · 초안',
+        1,
+      ],
     ],
   );
 });

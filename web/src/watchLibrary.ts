@@ -35,7 +35,7 @@ export function buildWatchPlaylistChoices<TVideo>({
         id: `saved-${playlist.id}`,
         kind: 'saved' as const,
         title: playlist.title,
-        description: playlist.description || '저장한 학습 플레이리스트입니다.',
+        description: playlist.description || '저장된 학습 플레이리스트입니다.',
         videos,
         metaLabel: `${videos.length}개 영상 · 저장됨`,
       };

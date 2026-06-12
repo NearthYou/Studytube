@@ -16,6 +16,20 @@ const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, '') ??
   'http://localhost:3000';
 
+export class ApiRequestError extends Error {
+  status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = 'ApiRequestError';
+    this.status = status;
+  }
+}
+
+export function isUnauthorizedRequest(error: unknown) {
+  return error instanceof ApiRequestError && error.status === 401;
+}
+
 export async function requestJson<T>(
   path: string,
   options: RequestInit = {},
@@ -46,7 +60,7 @@ export async function requestJson<T>(
       // Keep the HTTP fallback message when the response body is not JSON.
     }
 
-    throw new Error(message);
+    throw new ApiRequestError(response.status, message);
   }
 
   return response.json() as Promise<T>;

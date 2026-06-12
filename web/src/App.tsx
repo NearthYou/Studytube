@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState } from 'react';
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Dispatch, FormEvent, ReactNode, SetStateAction } from 'react';
 import {
   Link,
@@ -18,7 +18,15 @@ import {
   selectExploreCommentPost,
   selectExplorePlaylist,
 } from './exploreBoard';
-import { selectActiveCaption } from './captions';
+import {
+  captionStatusText,
+  hasDisplayableLiveCaptionResponse,
+  nativeYouTubeCaptionLanguage,
+  selectActiveCaption,
+  shouldUseNativeYouTubeCaptions,
+  syncNativeYouTubeCaptions,
+  youtubeCaptionPlayerVars,
+} from './captions';
 import { playlistThumbnailStackFromPosts } from './playlistThumbnailStack';
 import {
   DEFAULT_PLAYLIST_DRAFT_TITLE,
@@ -34,6 +42,11 @@ import {
   findMatchingWatchPlaylistChoice,
   type WatchPlaylistChoice,
 } from './watchLibrary';
+import {
+  hasPostEditorVideoUrl,
+  isPostEditorReadyToSave,
+  videoRegistrationSubmitLabel,
+} from './postEditor';
 import {
   addComment,
   askAgent,
@@ -51,6 +64,7 @@ import {
   fetchTranslatedCaptions,
   fetchVideoSummary,
   fetchMe,
+  isUnauthorizedRequest,
   login,
   signUp,
   updateMe,
@@ -176,6 +190,8 @@ const ACTIVE_PLAYLIST_DRAFT_STORAGE_KEY = 'studytube.activePlaylistDraftId';
 const SESSION_STORAGE_KEY = 'studytube.session';
 const PLAYBACK_RATES = [0.75, 1, 1.25, 1.5, 2];
 const DEFAULT_CAPTION_DURATION_SECONDS = 600;
+const SOURCE_CAPTION_TRANSLATION_POLL_MS = 5000;
+const MAX_SOURCE_CAPTION_TRANSLATION_POLLS = 6;
 const LIVE_CAPTION_PROVIDERS = new Set([
   'youtube-timedtext',
   'yt-dlp-captions',
@@ -247,7 +263,10 @@ function App() {
           path="/board"
           element={
             <ProtectedRoute session={session}>
-              <BoardPage session={session!} />
+              <BoardPage
+                session={session!}
+                onSessionRefresh={handleAuthComplete}
+              />
             </ProtectedRoute>
           }
         />
@@ -750,7 +769,6 @@ function HomePage({ session }: { session: Session }) {
   const navigate = useNavigate();
   const [posts, setPosts] = useState<StudyPost[]>([]);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
-  const [status, setStatus] = useState('학습 데이터를 불러오고 있어요');
   const latestPost = posts[0];
   const latestPlaylist = playlists[0];
   const playlistPosts = latestPlaylist
@@ -762,10 +780,6 @@ function HomePage({ session }: { session: Session }) {
     : '/watch';
   const nextQueuePosts =
     playlistPosts.length > 0 ? playlistPosts.slice(0, 3) : posts.slice(1, 4);
-  const feedbackCount = playlists.reduce(
-    (sum, playlist) => sum + playlist.feedback.length,
-    0,
-  );
 
   function playLatestVideo() {
     if (!latestPost || !latestVideo) {
@@ -787,9 +801,9 @@ function HomePage({ session }: { session: Session }) {
 
         setPosts(postResult.items);
         setPlaylists(playlistResult);
-        setStatus('저장된 학습 데이터가 준비됐어요');
       } catch {
-        setStatus('서버를 실행하면 실제 학습 데이터가 표시돼요');
+        setPosts([]);
+        setPlaylists([]);
       }
     }
 
@@ -800,7 +814,7 @@ function HomePage({ session }: { session: Session }) {
     <main className="page-shell product-home">
       <section className="product-home-hero">
         <div className="product-home-copy">
-          <p className="eyebrow">Today study desk</p>
+          <p className="eyebrow">오늘 학습</p>
           <h1>
             {session.user.name}님,
             <br />
@@ -823,11 +837,6 @@ function HomePage({ session }: { session: Session }) {
             <button type="button" onClick={() => navigate('/search')}>
               다른 코스 보기
             </button>
-          </div>
-          <div className="home-meta-strip" aria-label="학습 데이터 요약">
-            <span>{status}</span>
-            <span>{posts.length}개 영상</span>
-            <span>{playlists.length}개 코스</span>
           </div>
         </div>
 
@@ -853,7 +862,7 @@ function HomePage({ session }: { session: Session }) {
           </article>
         ) : (
           <article className="home-feature-card empty">
-            <div className="home-empty-visual">Course</div>
+            <div className="home-empty-visual">학습</div>
             <div className="home-feature-copy">
               <small>첫 학습 영상 만들기</small>
               <h2>아직 등록한 영상이 없습니다</h2>
@@ -870,7 +879,7 @@ function HomePage({ session }: { session: Session }) {
         <article className="home-queue-card">
           <div className="section-title">
             <div>
-              <small>{latestPlaylist ? 'Recent course' : 'Next step'}</small>
+              <small>{latestPlaylist ? '최근 코스' : '다음 단계'}</small>
               <h2>{latestPlaylist?.title ?? '다음 학습을 준비하세요'}</h2>
             </div>
             <Link to={latestPlaylist ? '/explore' : '/board'}>
@@ -908,32 +917,6 @@ function HomePage({ session }: { session: Session }) {
             </p>
           )}
         </article>
-
-        <aside className="home-stats-card" aria-label="내 학습 현황">
-          <div className="section-title">
-            <div>
-              <small>My study</small>
-              <h2>학습 현황</h2>
-            </div>
-          </div>
-          <div className="home-stats">
-            <span>
-              <strong>{posts.length}</strong>
-              영상
-            </span>
-            <span>
-              <strong>{playlists.length}</strong>
-              코스
-            </span>
-            <span>
-              <strong>{feedbackCount}</strong>
-              피드백
-            </span>
-          </div>
-          <p>
-            숫자는 작게만 확인하고, 홈에서는 바로 볼 영상에 집중합니다.
-          </p>
-        </aside>
       </section>
     </main>
   );
@@ -964,9 +947,11 @@ function ExplorePage({ session }: { session: Session }) {
     filteredPlaylists,
     selectedPlaylistId,
   );
-  const selectedPosts = selectedPlaylist
-    ? postsForPlaylistIds(selectedPlaylist.postIds, posts)
-    : [];
+  const selectedPosts = useMemo(
+    () =>
+      selectedPlaylist ? postsForPlaylistIds(selectedPlaylist.postIds, posts) : [],
+    [posts, selectedPlaylist],
+  );
   const selectedCommentPost = selectExploreCommentPost(selectedPosts, commentPostId);
   const selectedCommentTotal = selectedPosts.reduce(
     (count, post) => count + post.comments.length,
@@ -1280,7 +1265,13 @@ function ExplorePage({ session }: { session: Session }) {
   );
 }
 
-function BoardPage({ session }: { session: Session }) {
+function BoardPage({
+  onSessionRefresh,
+  session,
+}: {
+  onSessionRefresh: (session: Session) => void;
+  session: Session;
+}) {
   const navigate = useNavigate();
   const [posts, setPosts] = useState<StudyPost[]>([]);
   const [selectedPostId, setSelectedPostId] = useState<number | null>(null);
@@ -1321,17 +1312,33 @@ function BoardPage({ session }: { session: Session }) {
   const hasDraftPreview = Boolean(
     editor.title.trim() || editor.summary.trim() || draftThumbnailUrl,
   );
-  const canSaveDraft = Boolean(
-    editor.videoUrl.trim() && editor.title.trim() && editor.summary.trim(),
-  );
+  const canSubmitVideo = hasPostEditorVideoUrl(editor);
+  const isVideoReadyToSave = isPostEditorReadyToSave(editor);
+  const submitVideoLabel = videoRegistrationSubmitLabel({
+    isEditing: Boolean(editingId),
+    isFetchingMetadata,
+    isSaving,
+    readyToSave: isVideoReadyToSave,
+  });
 
   useEffect(() => {
     async function boot() {
       try {
         await loadPosts('', 1);
         setStatus(`${session.user.email} 계정으로 작업 중`);
-      } catch {
-        setStatus('서버를 실행해야 게시판 기능을 사용할 수 있어요');
+      } catch (error) {
+        if (isUnauthorizedRequest(error) && isDemoUserSession(session)) {
+          try {
+            const refreshedSession = await refreshDemoBoardSession();
+            await loadPosts('', 1, refreshedSession.token);
+            setStatus(`${refreshedSession.user.email} 계정으로 작업 중`);
+            return;
+          } catch {
+            // Fall through to the generic message below.
+          }
+        }
+
+        setStatus('서버를 실행하거나 다시 로그인해야 게시판 기능을 사용할 수 있어요');
       }
     }
 
@@ -1339,8 +1346,12 @@ function BoardPage({ session }: { session: Session }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.token]);
 
-  async function loadPosts(nextSearch = search, nextPage = page) {
-    const result = await fetchPosts(session.token, nextSearch, nextPage, 6);
+  async function loadPosts(
+    nextSearch = search,
+    nextPage = page,
+    token = session.token,
+  ) {
+    const result = await fetchPosts(token, nextSearch, nextPage, 6);
     setPosts(result.items);
     setTotal(result.total);
     setSelectedPostId((current) => {
@@ -1350,6 +1361,13 @@ function BoardPage({ session }: { session: Session }) {
 
       return result.items[0]?.id ?? null;
     });
+  }
+
+  async function refreshDemoBoardSession() {
+    const nextSession = await demoSession();
+    onSessionRefresh(nextSession);
+
+    return nextSession;
   }
 
   function commitPlaylistDraftState(
@@ -1403,6 +1421,131 @@ function BoardPage({ session }: { session: Session }) {
     setStatus(`"${activeDraftTitle}" 초안을 삭제했어요.`);
   }
 
+  async function analyzeVideoMetadataForEditor(
+    inputUrl = editor.videoUrl,
+    baseEditor = editor,
+  ): Promise<{ nextEditor: PostEditor; status: string } | null> {
+    const videoUrl = inputUrl.trim();
+    const result = await askMcp({ url: videoUrl, limit: 1 });
+    const metadata = result.result?.videos[0] ?? result.result;
+
+    if (!metadata?.title) {
+      return null;
+    }
+
+    const title = metadata.title;
+    const channelName = metadata.channel || 'YouTube';
+    const sourceUrl = metadata.sourceUrl || videoUrl;
+    const metadataVideoId =
+      'videoId' in metadata && typeof metadata.videoId === 'string'
+        ? metadata.videoId
+        : undefined;
+    const sourceVideoId =
+      metadataVideoId || extractYouTubeId(sourceUrl) || extractYouTubeId(videoUrl);
+    let summary =
+      metadata.summary &&
+      metadata.summary !== 'YouTube oEmbed metadata fetched through the MCP server.'
+        ? metadata.summary
+        : `${channelName} 채널의 YouTube 학습 영상입니다. 제목과 채널 정보를 기준으로 게시글 요약을 자동 생성했습니다.`;
+    let translatedNotes = `${summary}\n\nAI 분석 요약: 핵심 개념, 구간별 학습 포인트, 복습 질문을 정리하세요.`;
+    let nextMetadataStatus = '분석 완료. 미리보기를 확인하고 바로 등록할 수 있어요.';
+
+    if (sourceVideoId) {
+      try {
+        const captions = await fetchTranslatedCaptions({
+          videoId: sourceVideoId,
+          videoUrl: sourceUrl,
+          targetLanguage: 'ko',
+          fallbackText: summary,
+          translateFallback: true,
+        });
+        const detailedSummary = await fetchVideoSummary({
+          videoId: sourceVideoId,
+          title,
+          channelName,
+          language: 'ko',
+          summary,
+          translatedNotes,
+          segments: captions.segments,
+        });
+        const formattedNotes = formatVideoSummarySections(detailedSummary.sections);
+        const firstSummary = detailedSummary.sections.find((section) =>
+          section.body.trim(),
+        )?.body;
+
+        if (formattedNotes) {
+          translatedNotes = formattedNotes;
+        }
+
+        if (firstSummary) {
+          summary = clipText(firstSummary, 280);
+        }
+
+        nextMetadataStatus = `AI 영상 분석 완료. ${detailedSummary.sections.length}개 학습 포인트를 채웠어요.`;
+      } catch {
+        nextMetadataStatus =
+          '영상 기본 정보는 가져왔지만 AI 상세 요약은 만들지 못했어요. 세부 정보에서 직접 보강할 수 있습니다.';
+      }
+    }
+
+    return {
+      nextEditor: {
+        ...baseEditor,
+        title,
+        videoUrl,
+        channelName,
+        thumbnailUrl:
+          metadata.thumbnailUrl ||
+          baseEditor.thumbnailUrl ||
+          (sourceVideoId ? youtubeThumbnailUrl(sourceVideoId) : ''),
+        summary,
+        translatedNotes: baseEditor.translatedNotes || translatedNotes,
+        tags: deriveTags(`${title} ${channelName} ${summary}`).join(', '),
+      },
+      status: nextMetadataStatus,
+    };
+  }
+
+  function postPayloadFromEditor(sourceEditor: PostEditor) {
+    return {
+      title: sourceEditor.title.trim(),
+      videoUrl: sourceEditor.videoUrl.trim(),
+      thumbnailUrl: sourceEditor.thumbnailUrl.trim() || undefined,
+      channelName: sourceEditor.channelName.trim() || 'YouTube',
+      summary: sourceEditor.summary.trim(),
+      translatedNotes:
+        sourceEditor.translatedNotes.trim() || sourceEditor.summary.trim(),
+      tags: sourceEditor.tags
+        .split(',')
+        .map((tag) => tag.trim())
+        .filter(Boolean),
+    };
+  }
+
+  async function savePostWithSessionRecovery(
+    payload: ReturnType<typeof postPayloadFromEditor>,
+  ) {
+    try {
+      const saved = editingId
+        ? await updatePost(session.token, editingId, payload)
+        : await createPost(session.token, payload);
+
+      return { saved, token: session.token };
+    } catch (error) {
+      if (!isUnauthorizedRequest(error) || !isDemoUserSession(session)) {
+        throw error;
+      }
+
+      setStatus('데모 세션을 다시 연결한 뒤 영상을 저장합니다.');
+      const refreshedSession = await refreshDemoBoardSession();
+      const saved = editingId
+        ? await updatePost(refreshedSession.token, editingId, payload)
+        : await createPost(refreshedSession.token, payload);
+
+      return { saved, token: refreshedSession.token };
+    }
+  }
+
   async function submitPost(event: FormEvent) {
     event.preventDefault();
 
@@ -1411,52 +1554,88 @@ function BoardPage({ session }: { session: Session }) {
       return;
     }
 
-    const payload = {
-      title: editor.title.trim(),
-      videoUrl: editor.videoUrl.trim(),
-      thumbnailUrl: editor.thumbnailUrl.trim() || undefined,
-      channelName: editor.channelName.trim() || 'YouTube',
-      summary: editor.summary.trim(),
-      translatedNotes: editor.translatedNotes.trim() || editor.summary.trim(),
-      tags: editor.tags
-        .split(',')
-        .map((tag) => tag.trim())
-        .filter(Boolean),
-    };
-
-    if (!payload.title || !payload.videoUrl || !payload.summary) {
-      setStatus('제목, 영상 URL, AI 분석 요약은 필수예요.');
+    if (!editor.videoUrl.trim()) {
+      setStatus('YouTube 링크를 먼저 입력하세요.');
+      setMetadataStatus('YouTube URL을 먼저 입력하세요.');
       return;
     }
 
-    if (isSaving) {
+    if (isSaving || isFetchingMetadata) {
       return;
     }
 
     setIsSaving(true);
 
     try {
-      const saved = editingId
-        ? await updatePost(session.token, editingId, payload)
-        : await createPost(session.token, payload);
-      const savedVideo = queueVideoFromPost(saved);
-      const nextQueue = mergeVideosIntoQueue(playlistQueue, [savedVideo], savedVideo);
-      updateActiveDraft({ videos: nextQueue });
+      let editorToSave = editor;
 
-      await loadPosts(search, 1);
-      setPage(1);
-      setSelectedPostId(saved.id);
-      setStatus(
-        editingId
-          ? '영상 재료를 수정하고 현재 플레이리스트 초안에도 반영했어요'
-          : '영상 재료를 저장하고 현재 플레이리스트 초안에 담았어요',
-      );
-      setEditor(emptyEditor);
-      setEditingId(null);
-      setIsEditingDetails(false);
-      setMetadataStatus('');
-    } catch {
-      setStatus('게시글 저장에 실패했어요. 서버와 입력값을 확인하세요.');
+      if (!isPostEditorReadyToSave(editorToSave)) {
+        setIsFetchingMetadata(true);
+        setMetadataStatus('영상 정보를 분석한 뒤 바로 저장합니다.');
+
+        try {
+          const analyzed = await analyzeVideoMetadataForEditor(
+            editorToSave.videoUrl,
+            editorToSave,
+          );
+
+          if (!analyzed) {
+            setStatus(
+              '영상 정보를 찾지 못했어요. URL을 확인하거나 세부 정보를 직접 입력해주세요.',
+            );
+            setMetadataStatus('영상 정보를 찾지 못했어요.');
+            setIsEditingDetails(true);
+            return;
+          }
+
+          editorToSave = analyzed.nextEditor;
+          setEditor(editorToSave);
+          setMetadataStatus(analyzed.status);
+        } catch {
+          setStatus(
+            '영상 정보 조회에 실패했어요. URL을 확인하거나 세부 정보를 직접 입력해주세요.',
+          );
+          setMetadataStatus('영상 정보 조회에 실패했어요.');
+          setIsEditingDetails(true);
+          return;
+        } finally {
+          setIsFetchingMetadata(false);
+        }
+      }
+
+      const payload = postPayloadFromEditor(editorToSave);
+
+      if (!payload.title || !payload.videoUrl || !payload.summary) {
+        setStatus('제목, 영상 URL, AI 분석 요약은 필수예요.');
+        setIsEditingDetails(true);
+        return;
+      }
+
+      try {
+        const { saved, token } = await savePostWithSessionRecovery(payload);
+        const savedVideo = queueVideoFromPost(saved);
+        const nextQueue = mergeVideosIntoQueue(
+          playlistQueue,
+          [savedVideo],
+          savedVideo,
+        );
+        updateActiveDraft({ videos: nextQueue });
+
+        await loadPosts(search, 1, token);
+        setPage(1);
+        setSelectedPostId(saved.id);
+        setStatus(
+          editingId
+            ? '영상을 수정하고 현재 플레이리스트 초안에도 반영했어요'
+            : '영상을 저장하고 현재 플레이리스트 초안에 담았어요',
+        );
+        setEditor(emptyEditor);
+        setEditingId(null);
+        setIsEditingDetails(false);
+        setMetadataStatus('');
+      } catch {
+        setStatus('게시글 저장에 실패했어요. 서버와 입력값을 확인하세요.');
+      }
     } finally {
       setIsSaving(false);
     }
@@ -1476,7 +1655,7 @@ function BoardPage({ session }: { session: Session }) {
     setIsEditingDetails(false);
     setMetadataStatus(
       videoUrl.trim()
-        ? '분석하기를 누르면 영상 정보를 가져옵니다.'
+        ? '아래 버튼으로 분석과 추가를 한 번에 진행합니다.'
         : '',
     );
   }
@@ -1493,101 +1672,7 @@ function BoardPage({ session }: { session: Session }) {
       tags: post.tags.join(', '),
     });
     setIsEditingDetails(true);
-    setMetadataStatus('저장된 영상 재료 정보를 수정 중입니다.');
-  }
-
-  async function autofillVideoMetadata(inputUrl = editor.videoUrl) {
-    const videoUrl = inputUrl.trim();
-
-    if (!videoUrl) {
-      setMetadataStatus('YouTube URL을 먼저 입력하세요.');
-      return;
-    }
-
-    setMetadataStatus('영상 정보를 불러오는 중입니다.');
-    setIsFetchingMetadata(true);
-
-    try {
-      const result = await askMcp({ url: videoUrl, limit: 1 });
-      const metadata = result.result?.videos[0] ?? result.result;
-
-      if (!metadata?.title) {
-        setMetadataStatus('영상 정보를 찾지 못했어요.');
-        return;
-      }
-
-      const title = metadata.title;
-      const channelName = metadata.channel || 'YouTube';
-      const sourceUrl = metadata.sourceUrl || videoUrl;
-      const metadataVideoId =
-        'videoId' in metadata && typeof metadata.videoId === 'string'
-          ? metadata.videoId
-          : undefined;
-      const sourceVideoId =
-        metadataVideoId || extractYouTubeId(sourceUrl) || extractYouTubeId(videoUrl);
-      let summary =
-        metadata.summary && metadata.summary !== 'YouTube oEmbed metadata fetched through the MCP server.'
-          ? metadata.summary
-          : `${channelName} 채널의 YouTube 학습 영상입니다. 제목과 채널 정보를 기준으로 게시글 요약을 자동 생성했습니다.`;
-      let translatedNotes = `${summary}\n\nAI 분석 요약: 핵심 개념, 구간별 학습 포인트, 복습 질문을 정리하세요.`;
-      let nextMetadataStatus = '분석 완료. 미리보기를 확인하고 바로 등록할 수 있어요.';
-
-      if (sourceVideoId) {
-        setMetadataStatus('자막을 불러와 AI가 영상 요약을 만드는 중입니다.');
-
-        try {
-          const captions = await fetchTranslatedCaptions({
-            videoId: sourceVideoId,
-            videoUrl: sourceUrl,
-            targetLanguage: 'ko',
-            fallbackText: summary,
-            translateFallback: true,
-          });
-          const detailedSummary = await fetchVideoSummary({
-            videoId: sourceVideoId,
-            title,
-            channelName,
-            language: 'ko',
-            summary,
-            translatedNotes,
-            segments: captions.segments,
-          });
-          const formattedNotes = formatVideoSummarySections(detailedSummary.sections);
-          const firstSummary = detailedSummary.sections.find((section) =>
-            section.body.trim(),
-          )?.body;
-
-          if (formattedNotes) {
-            translatedNotes = formattedNotes;
-          }
-
-          if (firstSummary) {
-            summary = clipText(firstSummary, 280);
-          }
-
-          nextMetadataStatus = `AI 영상 분석 완료. ${detailedSummary.sections.length}개 학습 포인트를 채웠어요.`;
-        } catch {
-          nextMetadataStatus =
-            '영상 기본 정보는 가져왔지만 AI 상세 요약은 만들지 못했어요. 세부 정보에서 직접 보강할 수 있습니다.';
-        }
-      }
-
-      setEditor((current) => ({
-        ...current,
-        title,
-        channelName,
-        thumbnailUrl: metadata.thumbnailUrl,
-        summary,
-        translatedNotes: current.translatedNotes || translatedNotes,
-        tags: deriveTags(`${title} ${channelName} ${summary}`).join(', '),
-      }));
-      setIsEditingDetails(false);
-      setMetadataStatus(nextMetadataStatus);
-    } catch {
-      setMetadataStatus('영상 정보 조회에 실패했어요.');
-    } finally {
-      setIsFetchingMetadata(false);
-    }
+    setMetadataStatus('저장된 영상 정보를 수정 중입니다.');
   }
 
   async function removePost(id: number) {
@@ -1641,7 +1726,7 @@ function BoardPage({ session }: { session: Session }) {
     const postIds = extractPostIds(playlistQueue);
 
     if (postIds.length === 0) {
-      setStatus('플레이리스트로 올릴 영상 재료를 먼저 담아주세요.');
+      setStatus('플레이리스트로 올릴 영상을 먼저 담아주세요.');
       return;
     }
 
@@ -1714,7 +1799,7 @@ function BoardPage({ session }: { session: Session }) {
           학습 플레이리스트를 올리세요
         </h1>
         <p>
-          링크를 분석해 영상 재료를 만들고, <br /> 여러 영상을 초안에 담은 뒤
+          링크를 분석해 영상을 저장하고, <br /> 여러 영상을 초안에 담은 뒤
           플레이리스트 자체를 보드에 공개합니다.
         </p>
         <p className="system-note">{status}</p>
@@ -1723,7 +1808,7 @@ function BoardPage({ session }: { session: Session }) {
       <section className="board-grid">
         <aside className="board-panel post-browser">
           <div className="section-title">
-            <h2>영상 재료 보관함</h2>
+            <h2>저장한 영상</h2>
             <span>{total}개</span>
           </div>
           <input
@@ -1748,7 +1833,7 @@ function BoardPage({ session }: { session: Session }) {
               </button>
             ))}
             {posts.length === 0 && (
-              <p className="empty-copy">공유할 영상 재료가 아직 없어요.</p>
+              <p className="empty-copy">아직 저장한 영상이 없어요.</p>
             )}
           </div>
           <div className="pagination">
@@ -1869,7 +1954,7 @@ function BoardPage({ session }: { session: Session }) {
               <img src={selectedPost.thumbnailUrl} alt="" />
               <div className="section-title">
                 <div>
-                  <small>선택한 영상 재료 · {selectedPost.channelName}</small>
+                  <small>선택한 영상 · {selectedPost.channelName}</small>
                   <h2>{selectedPost.title}</h2>
                 </div>
                 <TagLine tags={selectedPost.tags} />
@@ -1926,12 +2011,12 @@ function BoardPage({ session }: { session: Session }) {
               >
                 {selectedAlreadyInPlaylist
                   ? `이미 "${activeDraftTitle}" 초안에 담긴 영상입니다.`
-                  : '이 영상 재료를 현재 선택된 초안에 담고, 여러 영상을 묶어 플레이리스트로 보드에 올릴 수 있습니다.'}
+                  : '이 영상을 현재 선택된 초안에 담고, 여러 영상을 묶어 플레이리스트로 보드에 올릴 수 있습니다.'}
               </p>
             </>
           ) : (
             <div className="empty-product">
-              <strong>선택된 영상 재료가 없어요</strong>
+              <strong>선택된 영상이 없어요</strong>
               <p>아래 폼에서 학습 코스에 넣을 좋은 강의를 먼저 저장해보세요.</p>
             </div>
           )}
@@ -1940,8 +2025,8 @@ function BoardPage({ session }: { session: Session }) {
         <section className="board-panel editor-panel">
           <div className="register-heading">
             <div>
-              <p className="eyebrow">Add video</p>
-              <h2>{editingId ? '영상 재료 수정' : 'YouTube 영상 재료 추가'}</h2>
+              <p className="eyebrow">영상 등록</p>
+              <h2>{editingId ? '영상 수정' : 'YouTube 영상 추가'}</h2>
               <p>
                 링크를 분석하면 제목, 채널, 썸네일, AI 분석 요약이 먼저 채워집니다.
                 저장하면 현재 선택된 초안에 들어가고, 초안을 코스로 발행합니다.
@@ -1960,13 +2045,6 @@ function BoardPage({ session }: { session: Session }) {
                   placeholder="https://www.youtube.com/watch?v=..."
                   disabled={isSaving}
                 />
-                <button
-                  type="button"
-                  disabled={isFetchingMetadata || isSaving || !editor.videoUrl.trim()}
-                  onClick={() => void autofillVideoMetadata()}
-                >
-                  {isFetchingMetadata ? '분석 중' : '영상 분석하기'}
-                </button>
               </div>
               <span className="metadata-status">
                 {metadataStatus ||
@@ -2011,10 +2089,10 @@ function BoardPage({ session }: { session: Session }) {
               </section>
             ) : (
               <section className="register-empty-preview">
-                <strong>링크를 넣고 영상 분석하기를 눌러주세요</strong>
+                <strong>링크를 넣고 아래 버튼을 눌러주세요</strong>
                 <p>
-                  분석 결과를 먼저 보여준 뒤 등록합니다. 제목이나 태그는 자동으로
-                  채워지고, 마음에 안 드는 부분만 수정하면 됩니다.
+                  버튼 하나로 영상 정보를 분석하고 저장합니다. 제목이나 태그는
+                  자동으로 채워지고, 마음에 안 드는 부분만 수정하면 됩니다.
                 </p>
               </section>
             )}
@@ -2094,12 +2172,11 @@ function BoardPage({ session }: { session: Session }) {
             )}
 
             <div className="register-actions">
-              <button type="submit" disabled={isSaving || !canSaveDraft}>
-                {isSaving
-                  ? '저장 중'
-                  : editingId
-                    ? '수정 저장'
-                    : '영상 재료 추가하기'}
+              <button
+                type="submit"
+                disabled={isSaving || isFetchingMetadata || !canSubmitVideo}
+              >
+                {submitVideoLabel}
               </button>
               {(editingId || hasDraftPreview) && (
                 <button
@@ -2141,7 +2218,7 @@ function PlaylistThumbnailStack({
   if (stack.items.length === 0) {
     return (
       <div className={`${classes} is-empty`} aria-label="플레이리스트 썸네일 없음">
-        <span>Course</span>
+        <span>학습</span>
       </div>
     );
   }
@@ -2305,12 +2382,12 @@ function CoursePage({ session }: { session: Session }) {
 
   async function refreshCourseData() {
     try {
-      const [nextPlaylists, postResult] = await Promise.all([
+      const [nextPlaylists, nextPosts] = await Promise.all([
         fetchPlaylists(session.token),
-        fetchPosts(session.token, '', 1, 60),
+        fetchOwnedPostsForLibrary(session.token),
       ]);
       setPlaylists(nextPlaylists);
-      setPosts(postResult.items);
+      setPosts(nextPosts);
     } catch {
       setStatus('학습 코스 데이터를 불러오지 못했어요. 서버를 확인하세요.');
     }
@@ -2408,16 +2485,17 @@ function CoursePage({ session }: { session: Session }) {
   }
 
   async function saveGeneratedCourse() {
-    const postIds = extractPostIds(generatedVideos);
-
-    if (postIds.length === 0) {
-      setStatus('저장 가능한 기존 영상 재료가 없어요. 새 YouTube 후보는 먼저 영상 등록에 저장해야 코스로 묶을 수 있습니다.');
+    if (generatedVideos.length === 0) {
+      setStatus('저장할 코스 초안이 없어요. 먼저 새 코스를 만들어주세요.');
       return;
     }
 
     setIsSavingPlaylist(true);
+    setStatus('코스를 저장하는 중입니다. 새 영상은 내 보드에 함께 저장합니다.');
 
     try {
+      const postIds = await ensurePostIdsForGeneratedVideos(generatedVideos);
+
       const saved = await createPlaylist(session.token, {
         title: agentResult?.playlistTitle ?? `${query.trim() || initialQuery} 학습 코스`,
         description:
@@ -2426,12 +2504,43 @@ function CoursePage({ session }: { session: Session }) {
         postIds,
       });
       await refreshCourseData();
-      setStatus(`"${saved.title}" 코스를 저장했어요.`);
+      setStatus(`"${saved.title}" 코스를 저장했어요. 학습 화면에서 바로 선택할 수 있습니다.`);
     } catch {
       setStatus('학습 코스 저장에 실패했어요.');
     } finally {
       setIsSavingPlaylist(false);
     }
+  }
+
+  async function ensurePostIdsForGeneratedVideos(videos: QueueVideo[]) {
+    const nextPostIds: number[] = [];
+    const seenPostIds = new Set<number>();
+    let availablePosts = posts;
+
+    for (const video of videos) {
+      const existingPostId = findPostIdForQueueVideo(video, availablePosts);
+
+      if (existingPostId) {
+        if (!seenPostIds.has(existingPostId)) {
+          nextPostIds.push(existingPostId);
+          seenPostIds.add(existingPostId);
+        }
+
+        continue;
+      }
+
+      const savedPost = await createPost(session.token, postPayloadFromQueueVideo(video));
+      availablePosts = [savedPost, ...availablePosts];
+
+      if (!seenPostIds.has(savedPost.id)) {
+        nextPostIds.push(savedPost.id);
+        seenPostIds.add(savedPost.id);
+      }
+    }
+
+    setPosts(availablePosts);
+
+    return nextPostIds;
   }
 
   const existingVideos = ragResult?.relatedPosts.map(queueVideoFromRagPost) ?? [];
@@ -2554,13 +2663,16 @@ function CoursePage({ session }: { session: Session }) {
       {generatedVideos.length > 0 && (
         <section className="course-results">
           <div className="playlist-toolbar">
-            <strong>새 코스 초안 {generatedVideos.length}개 영상</strong>
+            <div>
+              <strong>AI가 만든 코스 초안 {generatedVideos.length}개 영상</strong>
+              <small>저장하면 새 영상도 내 보드에 함께 보관됩니다.</small>
+            </div>
             <button
               type="button"
               disabled={isSavingPlaylist}
               onClick={() => void saveGeneratedCourse()}
             >
-              {isSavingPlaylist ? '저장 중' : '학습 코스로 저장'}
+              {isSavingPlaylist ? '저장 중' : '영상 저장하고 코스 만들기'}
             </button>
           </div>
           {generatedVideos.map((video) => (
@@ -2618,6 +2730,7 @@ function WatchPage({ session }: { session: Session }) {
   );
   const [captionError, setCaptionError] = useState('');
   const [isCaptionLoading, setIsCaptionLoading] = useState(false);
+  const [captionRefreshAttempts, setCaptionRefreshAttempts] = useState(0);
   const [summaryResponse, setSummaryResponse] =
     useState<VideoSummaryResponse | null>(null);
   const [summaryError, setSummaryError] = useState('');
@@ -2630,6 +2743,15 @@ function WatchPage({ session }: { session: Session }) {
     });
   const [noteDraft, setNoteDraft] = useState('');
   const playerRef = useRef<YouTubePlayer | null>(null);
+  const captionSyncStateRef = useRef<{
+    captionsEnabled: boolean;
+    customCaptionsAvailable: boolean;
+    language: string;
+  }>({
+    captionsEnabled: DEFAULT_LEARNING_STATE.captionsEnabled,
+    customCaptionsAvailable: false,
+    language: DEFAULT_LEARNING_STATE.captionLanguage,
+  });
   const activeVideoId = searchParams.get('videoId');
   const currentVideo =
     queue.find((video) => video.videoId === activeVideoId) ?? queue[0] ?? null;
@@ -2654,14 +2776,29 @@ function WatchPage({ session }: { session: Session }) {
   const hasLiveCaptionResponse =
     Boolean(currentVideo) &&
     captionResponseMatchesVideo &&
-    captionResponse.language === captionLanguage &&
-    captionResponse.segments.length > 0 &&
-    LIVE_CAPTION_PROVIDERS.has(captionResponse.provider);
+    hasDisplayableLiveCaptionResponse({
+      captionLanguage,
+      liveCaptionProviders: LIVE_CAPTION_PROVIDERS,
+      response: captionResponse,
+    });
   const liveCaptions = useMemo(
     () => (hasLiveCaptionResponse ? captionResponse!.segments : []),
     [captionResponse, hasLiveCaptionResponse],
   );
   const captions = liveCaptions;
+  const shouldUseNativeCaptionFallback =
+    Boolean(currentVideo) &&
+    captionResponseMatchesVideo &&
+    captionResponse?.provider === 'youtube-native-captions' &&
+    shouldUseNativeYouTubeCaptions({
+      captionsEnabled,
+      customCaptionsAvailable: hasLiveCaptionResponse,
+      nativeFallbackAvailable: true,
+    });
+  const nativeCaptionLanguage = nativeYouTubeCaptionLanguage({
+    fallbackLanguage: captionLanguage,
+    response: captionResponseMatchesVideo ? captionResponse : null,
+  });
   const shouldHoldLastCaption =
     captionResponseMatchesVideo &&
     ['openai-fallback-translation', 'timed-local-fallback'].includes(
@@ -2677,19 +2814,17 @@ function WatchPage({ session }: { session: Session }) {
     Boolean(currentVideo) &&
     (isCaptionLoading || (!captionResponseMatchesVideo && !captionError));
   const isSummaryBusy = isSummaryLoading || isWaitingForSummaryCaptions;
-  const captionStatus = currentVideo
-    ? isCaptionLoading
-      ? 'AI 번역 자막 생성 중'
-      : captionResponseMatchesVideo
-      ? captionResponse.language !== captionLanguage
-        ? '선택한 언어 자막을 불러오는 중'
-        : captionResponse.provider === 'youtube-source-captions'
-          ? `원문 자막 · ${captionResponse.sourceLanguage} → ${captionResponse.language} 번역 대기`
-        : LIVE_CAPTION_PROVIDERS.has(captionResponse.provider)
-          ? `AI 번역 자막 · ${captionResponse.sourceLanguage} → ${captionResponse.language}`
-          : captionError || captionUnavailableStatus(captionResponse.provider)
-      : captionError || '실시간 번역 자막 불러오는 중'
-    : '';
+  const captionStatus = captionStatusText({
+    captionError,
+    captionLanguage,
+    captionResponse,
+    captionResponseMatchesVideo,
+    captionsEnabled,
+    hasCurrentVideo: Boolean(currentVideo),
+    hasLiveCaptionResponse,
+    isCaptionLoading,
+    shouldUseNativeCaptionFallback,
+  });
   const activeCaption = useMemo(() => {
     return selectActiveCaption({
       captionsEnabled,
@@ -2699,6 +2834,11 @@ function WatchPage({ session }: { session: Session }) {
       videoDuration,
     });
   }, [captions, captionsEnabled, currentTime, shouldHoldLastCaption, videoDuration]);
+  captionSyncStateRef.current = {
+    captionsEnabled,
+    customCaptionsAvailable: !shouldUseNativeCaptionFallback,
+    language: nativeCaptionLanguage,
+  };
   const playlistChoices = useMemo(
     () =>
       buildWatchPlaylistChoices({
@@ -2713,6 +2853,13 @@ function WatchPage({ session }: { session: Session }) {
     () => findMatchingWatchPlaylistChoice(playlistChoices, queue, queueVideoKey),
     [playlistChoices, queue],
   );
+
+  const syncPlayerNativeCaptions = useCallback((player: YouTubePlayer) => {
+    syncNativeYouTubeCaptions({
+      ...captionSyncStateRef.current,
+      player,
+    });
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -2848,14 +2995,17 @@ function WatchPage({ session }: { session: Session }) {
             rel: 0,
             modestbranding: 1,
             enablejsapi: 1,
-            cc_load_policy: 0,
-            hl: 'ko',
+            ...youtubeCaptionPlayerVars({
+              captionsEnabled,
+              customCaptionsAvailable: !shouldUseNativeCaptionFallback,
+              language: nativeCaptionLanguage,
+            }),
             playsinline: 1,
             origin: window.location.origin,
           },
           events: {
             onReady: (event) => {
-              disableNativeCaptions(event.target);
+              syncPlayerNativeCaptions(event.target);
               event.target.setPlaybackRate?.(learning.playbackRate);
               updateVideoDuration(
                 event.target,
@@ -2864,6 +3014,8 @@ function WatchPage({ session }: { session: Session }) {
               );
             },
             onStateChange: (event) => {
+              syncPlayerNativeCaptions(event.target);
+
               if (event.data === 0) {
                 playNext();
               }
@@ -2873,7 +3025,7 @@ function WatchPage({ session }: { session: Session }) {
       } else {
         playerRef.current.loadVideoById(currentVideo.videoId);
         playerRef.current.setPlaybackRate?.(learning.playbackRate);
-        disableNativeCaptions(playerRef.current);
+        syncPlayerNativeCaptions(playerRef.current);
       }
     }
 
@@ -2917,6 +3069,24 @@ function WatchPage({ session }: { session: Session }) {
   }, [currentVideo?.videoId, learning.playbackRate]);
 
   useEffect(() => {
+    const player = playerRef.current;
+
+    if (!player) {
+      return;
+    }
+
+    syncPlayerNativeCaptions(player);
+  }, [
+    captionLanguage,
+    captionsEnabled,
+    currentVideo?.videoId,
+    hasLiveCaptionResponse,
+    nativeCaptionLanguage,
+    shouldUseNativeCaptionFallback,
+    syncPlayerNativeCaptions,
+  ]);
+
+  useEffect(() => {
     if (!currentVideo) {
       return;
     }
@@ -2927,6 +3097,7 @@ function WatchPage({ session }: { session: Session }) {
       setCaptionResponse(null);
       setCaptionError('');
       setIsCaptionLoading(true);
+      setCaptionRefreshAttempts(0);
 
       try {
         const response = await fetchTranslatedCaptions({
@@ -2961,6 +3132,57 @@ function WatchPage({ session }: { session: Session }) {
       cancelled = true;
     };
   }, [captionLanguage, currentVideo]);
+
+  useEffect(() => {
+    if (
+      !currentVideo ||
+      !captionResponseMatchesVideo ||
+      captionResponse?.provider !== 'youtube-source-captions' ||
+      captionResponse.language !== captionLanguage ||
+      captionRefreshAttempts >= MAX_SOURCE_CAPTION_TRANSLATION_POLLS
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    const timeout = window.setTimeout(() => {
+      async function refreshTranslatedCaptions() {
+        try {
+          const response = await fetchTranslatedCaptions({
+            videoId: currentVideo.videoId,
+            videoUrl: currentVideo.videoUrl,
+            targetLanguage: captionLanguage,
+            allowFallback: false,
+            translateFallback: false,
+            durationSeconds: DEFAULT_CAPTION_DURATION_SECONDS,
+          });
+
+          if (!cancelled) {
+            setCaptionRefreshAttempts((attempts) => attempts + 1);
+            setCaptionResponse(response);
+            setCaptionError('');
+          }
+        } catch {
+          if (!cancelled) {
+            setCaptionRefreshAttempts((attempts) => attempts + 1);
+          }
+        }
+      }
+
+      void refreshTranslatedCaptions();
+    }, SOURCE_CAPTION_TRANSLATION_POLL_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+    };
+  }, [
+    captionLanguage,
+    captionRefreshAttempts,
+    captionResponse,
+    captionResponseMatchesVideo,
+    currentVideo,
+  ]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -3031,14 +3253,32 @@ function WatchPage({ session }: { session: Session }) {
     if (nextVideo) {
       setSearchParams({ videoId: nextVideo.videoId });
     } else {
+      playerRef.current?.destroy();
+      playerRef.current = null;
+      setCurrentTime(0);
+      setNoteDraft('');
       setSearchParams({});
+      setPlaylistLibraryStatus(
+        playlistChoices.length > 0
+          ? '재생목록을 비웠어요. 보유한 플레이리스트를 다시 선택할 수 있습니다.'
+          : '재생목록을 비웠어요. 새 코스를 찾아 담아보세요.',
+      );
     }
   }
 
   function clearQueue() {
     setQueue([]);
     saveQueue([]);
+    playerRef.current?.destroy();
+    playerRef.current = null;
+    setCurrentTime(0);
+    setNoteDraft('');
     setSearchParams({});
+    setPlaylistLibraryStatus(
+      playlistChoices.length > 0
+        ? '재생목록을 비웠어요. 보유한 플레이리스트를 다시 선택할 수 있습니다.'
+        : '재생목록을 비웠어요. 새 코스를 찾아 담아보세요.',
+    );
   }
 
   function updateCurrentVideoLearning(
@@ -3181,22 +3421,31 @@ function WatchPage({ session }: { session: Session }) {
 
   if (!currentVideo) {
     return (
-      <main className="page-shell simple-page watch-empty-page">
-        <p className="eyebrow">Watch</p>
-        <h1>재생목록이 비어 있어요</h1>
-        <p>
-          내 플레이리스트 중 하나를 골라 바로 학습을 시작하거나,
-          새 코스를 찾아 재생목록에 담아보세요.
-        </p>
-        <WatchPlaylistPicker
-          activeChoiceId={activePlaylistChoice?.id ?? null}
-          choices={playlistChoices}
-          onSelect={playPlaylistChoice}
-          status={playlistLibraryStatus}
-        />
-        <Link className="primary-link" to="/playlists">
-          새 코스 찾으러 가기
-        </Link>
+      <main className="page-shell watch-empty-page">
+        <section className="watch-empty-shell">
+          <div className="watch-empty-copy">
+            <p className="eyebrow">학습</p>
+            <h1>학습할 플레이리스트를 선택하세요</h1>
+            <p>
+              저장한 코스와 작업 중인 초안을 바로 이어서 볼 수 있습니다.
+              선택하면 첫 영상부터 재생목록이 시작됩니다.
+            </p>
+            <div className="watch-empty-actions">
+              <Link className="primary-link" to="/playlists">
+                새 코스 찾기
+              </Link>
+              <Link className="quiet-link" to="/board">
+                등록 화면으로
+              </Link>
+            </div>
+          </div>
+          <WatchPlaylistPicker
+            activeChoiceId={activePlaylistChoice?.id ?? null}
+            choices={playlistChoices}
+            onSelect={playPlaylistChoice}
+            status={playlistLibraryStatus}
+          />
+        </section>
       </main>
     );
   }
@@ -3456,7 +3705,7 @@ function WatchPlaylistPicker({
   return (
     <section className="study-panel playlist-library-panel">
       <div className="section-title">
-        <h2>내 플레이리스트</h2>
+        <h2>보유한 플레이리스트</h2>
         <span>{choices.length}개</span>
       </div>
       <p className="playlist-library-status">{status}</p>
@@ -3469,14 +3718,17 @@ function WatchPlaylistPicker({
               type="button"
               onClick={() => onSelect(choice)}
             >
-              <span className="playlist-choice-kind">
-                {choice.kind === 'saved' ? '저장한 코스' : '작업 초안'}
+              <PlaylistChoiceThumbnail videos={choice.videos} />
+              <span className="playlist-choice-copy">
+                <span className="playlist-choice-kind">
+                  {choice.kind === 'saved' ? '저장한 코스' : '작업 초안'}
+                </span>
+                <strong>{choice.title}</strong>
+                <span className="playlist-choice-description">
+                  {clipText(choice.description, 86)}
+                </span>
+                <em>{choice.metaLabel}</em>
               </span>
-              <strong>{choice.title}</strong>
-              <span className="playlist-choice-description">
-                {clipText(choice.description, 86)}
-              </span>
-              <em>{choice.metaLabel}</em>
             </button>
           ))}
         </div>
@@ -3484,6 +3736,34 @@ function WatchPlaylistPicker({
         <p className="empty-copy">등록 화면에서 플레이리스트를 만들면 여기에 표시됩니다.</p>
       )}
     </section>
+  );
+}
+
+function PlaylistChoiceThumbnail({ videos }: { videos: QueueVideo[] }) {
+  const visibleVideos = videos.slice(0, 3);
+
+  if (visibleVideos.length === 0) {
+    return (
+      <span className="playlist-choice-thumb is-empty">
+        <span>학습</span>
+      </span>
+    );
+  }
+
+  return (
+    <span className={`playlist-choice-thumb count-${visibleVideos.length}`}>
+      {visibleVideos.map((video, index) => (
+        <img
+          alt=""
+          className={`thumb-layer layer-${index + 1}`}
+          key={queueVideoKey(video)}
+          src={video.thumbnailUrl}
+        />
+      ))}
+      {videos.length > visibleVideos.length && (
+        <span className="thumb-overflow">+{videos.length - visibleVideos.length}</span>
+      )}
+    </span>
   );
 }
 
@@ -3653,26 +3933,6 @@ function isVideoInQueue(queue: QueueVideo[], video: QueueVideo) {
   return queue.some((queuedVideo) => queueVideoKey(queuedVideo) === key);
 }
 
-function captionUnavailableStatus(provider: string) {
-  if (provider === 'ai-service-unavailable') {
-    return 'AI 자막 서비스 응답을 받지 못했습니다.';
-  }
-
-  if (provider === 'caption-source-unavailable') {
-    return '실제 자막 데이터를 찾지 못했습니다.';
-  }
-
-  if (provider === 'caption-translation-unavailable') {
-    return '원문 자막은 찾았지만 AI 번역 자막을 만들지 못했습니다.';
-  }
-
-  if (provider === 'local-fallback') {
-    return 'AI 번역 자막을 만들지 못했습니다.';
-  }
-
-  return 'YouTube 자막을 불러오지 못했습니다.';
-}
-
 function estimateRouteMinutes(posts: StudyPost[], fallbackCount: number) {
   const total = posts.reduce((sum, post) => sum + estimateVideoMinutes(post), 0);
 
@@ -3752,6 +4012,47 @@ function extractPostIds(videos: QueueVideo[]) {
         .map((id) => Number(id)),
     ),
   ];
+}
+
+function findPostIdForQueueVideo(video: QueueVideo, posts: StudyPost[]) {
+  const directPostId = video.id.match(/^(?:post|rag)-(\d+)$/)?.[1];
+
+  if (directPostId) {
+    return Number(directPostId);
+  }
+
+  const videoKey = queueVideoKey(video);
+  const matchingPost = posts.find((post) => {
+    const postVideoId = extractYouTubeId(post.videoUrl) ?? String(post.id);
+
+    return (
+      post.videoUrl === video.videoUrl ||
+      postVideoId === video.videoId ||
+      postVideoId === videoKey
+    );
+  });
+
+  return matchingPost?.id ?? null;
+}
+
+function postPayloadFromQueueVideo(video: QueueVideo) {
+  const summary =
+    video.summary.trim() ||
+    `${video.channelName || 'YouTube'} 채널의 추천 학습 영상입니다.`;
+  const translatedNotes =
+    video.translatedNotes.trim() ||
+    `${summary}\n\n이 영상을 코스에 포함해 순서대로 학습하세요.`;
+  const tags = deriveTags(`${video.title} ${video.channelName} ${summary}`);
+
+  return {
+    title: video.title.trim() || '추천 학습 영상',
+    videoUrl: video.videoUrl,
+    thumbnailUrl: video.thumbnailUrl,
+    channelName: video.channelName || video.source || 'YouTube',
+    summary,
+    translatedNotes,
+    tags: tags.length > 0 ? tags : ['추천'],
+  };
 }
 
 function readQueue(): QueueVideo[] {
@@ -3840,6 +4141,10 @@ function saveSession(session: Session) {
     SESSION_STORAGE_KEY,
     JSON.stringify(normalizeSession(session)),
   );
+}
+
+function isDemoUserSession(session: Session) {
+  return session.user.email === 'demo@studytube.local';
 }
 
 function normalizeSession(session: Session): Session {
@@ -4187,7 +4492,7 @@ function buildVideoSummaryDetails(video: QueueVideo) {
     return [
       {
         label: '요약 준비 중',
-        body: '이 영상에는 아직 자세한 요약이 저장되지 않았습니다. 영상 재료의 AI 분석 요약을 보강하면 이 영역에 학습 정리가 표시됩니다.',
+        body: '이 영상에는 아직 자세한 요약이 저장되지 않았습니다. 영상의 AI 분석 요약을 보강하면 이 영역에 학습 정리가 표시됩니다.',
       },
     ];
   }
@@ -4306,14 +4611,6 @@ function clipText(value: string, maxLength: number) {
   }
 
   return `${normalized.slice(0, maxLength).trim()}...`;
-}
-
-function disableNativeCaptions(player: YouTubePlayer) {
-  try {
-    player.unloadModule?.('captions');
-  } catch {
-    // The custom overlay still follows the local caption toggle.
-  }
 }
 
 function updateVideoDuration(

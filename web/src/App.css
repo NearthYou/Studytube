@@ -102,6 +102,10 @@ input {
   font-size: var(--font-15);
   font-weight: 700;
   text-decoration: none;
+  transition:
+    background 160ms ease,
+    color 160ms ease,
+    box-shadow 160ms ease;
 }
 
 .nav-account {
@@ -3178,9 +3182,26 @@ footer {
     grid-row: auto;
   }
 
+  .editor-panel {
+    order: 1;
+  }
+
+  .board-grid > .post-browser {
+    order: 2;
+  }
+
+  .board-grid > .post-detail {
+    order: 3;
+  }
+
+  .board-grid > .playlist-builder-panel {
+    order: 4;
+  }
+
   .board-grid > .post-browser,
   .board-grid > .playlist-builder-panel,
   .board-grid > .post-detail {
+    grid-column: auto;
     grid-row: auto;
   }
 
@@ -3194,8 +3215,25 @@ footer {
 @media (max-width: 760px) {
   .site-nav {
     height: auto;
+    flex-wrap: wrap;
     align-items: flex-start;
-    padding: 16px 20px;
+    gap: 12px;
+    padding: 14px 20px 12px;
+  }
+
+  .brand {
+    line-height: 40px;
+  }
+
+  .nav-account {
+    margin-left: auto;
+  }
+
+  .nav-account a:not(.nav-cta) {
+    max-width: 112px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .product-home-hero {
@@ -3209,7 +3247,37 @@ footer {
   }
 
   .site-nav nav {
+    order: 3;
+    display: flex;
+    gap: 6px;
+    width: 100%;
+    padding: 4px;
+    overflow-x: auto;
+    border-radius: 8px;
+    background: #f6f8fb;
+    scrollbar-width: none;
+  }
+
+  .site-nav nav::-webkit-scrollbar {
     display: none;
+  }
+
+  .site-nav nav a {
+    display: inline-flex;
+    flex: 1 0 auto;
+    align-items: center;
+    justify-content: center;
+    min-height: 34px;
+    padding: 0 10px;
+    border-radius: 6px;
+    font-size: var(--font-13);
+    white-space: nowrap;
+  }
+
+  .site-nav nav a.active {
+    background: #fff;
+    color: var(--blue);
+    box-shadow: 0 6px 16px rgba(25, 31, 40, 0.08);
   }
 
   .hero-section,
@@ -3264,6 +3332,33 @@ footer {
   .explore-search {
     grid-template-columns: 1fr;
     display: grid;
+  }
+
+  .page-shell {
+    min-height: calc(100vh - 116px);
+    padding: 44px 20px 76px;
+  }
+
+  .board-page,
+  .explore-page,
+  .course-page,
+  .watch-page,
+  .tutorial-page {
+    padding-right: 20px;
+    padding-left: 20px;
+  }
+
+  .page-heading {
+    margin-bottom: 28px;
+  }
+
+  .page-heading h1,
+  .simple-page h1,
+  .board-page .page-heading h1,
+  .explore-page .page-heading h1,
+  .course-page .page-heading h1 {
+    font-size: var(--font-34);
+    line-height: 1.18;
   }
 }
 

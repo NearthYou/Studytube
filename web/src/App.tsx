@@ -1,5 +1,11 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Dispatch, FormEvent, ReactNode, SetStateAction } from 'react';
+import type {
+  Dispatch,
+  FormEvent,
+  MouseEvent as ReactMouseEvent,
+  ReactNode,
+  SetStateAction,
+} from 'react';
 import {
   Link,
   Navigate,
@@ -28,6 +34,11 @@ import {
   youtubeCaptionPlayerVars,
 } from './captions';
 import { playlistThumbnailStackFromPosts } from './playlistThumbnailStack';
+import { isPointerInPlayerControlsHoverZone } from './playerControls';
+import {
+  SESSION_STORAGE_KEY,
+  scopedStudyStorageKeyFromStorage,
+} from './localStudyStorage';
 import {
   DEFAULT_PLAYLIST_DRAFT_TITLE,
   createPlaylistDraft,
@@ -42,11 +53,18 @@ import {
   findMatchingWatchPlaylistChoice,
   type WatchPlaylistChoice,
 } from './watchLibrary';
+import { estimateQueueMinutes as estimateWatchQueueMinutes } from './watchMetrics';
 import {
   hasPostEditorVideoUrl,
   isPostEditorReadyToSave,
   videoRegistrationSubmitLabel,
 } from './postEditor';
+import {
+  authCompletionDestination,
+  signupTutorialNextDestination,
+  tutorialNextDestination,
+  type AuthMode,
+} from './onboarding';
 import {
   addComment,
   askAgent,
@@ -187,9 +205,9 @@ const emptyEditor: PostEditor = {
 const QUEUE_STORAGE_KEY = 'studytube.watchQueue';
 const PLAYLIST_DRAFTS_STORAGE_KEY = 'studytube.playlistDrafts';
 const ACTIVE_PLAYLIST_DRAFT_STORAGE_KEY = 'studytube.activePlaylistDraftId';
-const SESSION_STORAGE_KEY = 'studytube.session';
 const PLAYBACK_RATES = [0.75, 1, 1.25, 1.5, 2];
 const DEFAULT_CAPTION_DURATION_SECONDS = 600;
+const MAX_SUMMARY_CAPTION_SEGMENTS = 80;
 const SOURCE_CAPTION_TRANSLATION_POLL_MS = 5000;
 const MAX_SOURCE_CAPTION_TRANSLATION_POLLS = 6;
 const LIVE_CAPTION_PROVIDERS = new Set([
@@ -256,6 +274,14 @@ function App() {
           element={
             <ProtectedRoute session={session}>
               <HomePage session={session!} />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/tutorial"
+          element={
+            <ProtectedRoute session={session}>
+              <TutorialPage session={session!} />
             </ProtectedRoute>
           }
         />
@@ -377,7 +403,7 @@ function AuthPage({
   mode,
   onComplete,
 }: {
-  mode: 'login' | 'signup';
+  mode: AuthMode;
   onComplete: (session: Session) => void;
 }) {
   const navigate = useNavigate();
@@ -450,8 +476,16 @@ function AuthPage({
   }
 
   function completeAuth(nextSession: Session) {
+    const destination = authCompletionDestination({ mode, from });
+
     onComplete(nextSession);
-    navigate(from, { replace: true });
+    navigate(destination, {
+      replace: true,
+      state:
+        mode === 'signup'
+          ? { next: signupTutorialNextDestination(from) }
+          : undefined,
+    });
   }
 
   return (
@@ -511,6 +545,146 @@ function AuthPage({
             <Link to="/login">로그인으로 돌아가기</Link>
           )}
         </div>
+      </section>
+    </main>
+  );
+}
+
+function TutorialPage({ session }: { session: Session }) {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const nextPath = tutorialNextDestination(
+    typeof location.state === 'object' &&
+      location.state &&
+      'next' in location.state
+      ? location.state.next
+      : undefined,
+  );
+  const nextLabel =
+    nextPath === '/board' ? '튜토리얼 마치기' : '가던 곳으로 계속';
+  const tutorialSteps = [
+    {
+      number: '01',
+      title: '유튜브 링크를 학습 자료로 바꿉니다',
+      body: '등록 화면에 영상 링크를 넣으면 제목, 채널, 태그, 요약 노트가 자동으로 정리됩니다.',
+    },
+    {
+      number: '02',
+      title: 'AI 추천으로 코스를 만듭니다',
+      body: '관심 주제를 입력하면 관련 영상을 묶어 작은 플레이리스트로 시작할 수 있습니다.',
+    },
+    {
+      number: '03',
+      title: '학습 화면에서 자막, 메모, 반복 구간을 조절합니다',
+      body: '영상을 보며 중요한 지점을 마킹해 메모하고, 한국어/영어 자막과 재생 속도, 반복 구간을 함께 조절할 수 있습니다.',
+    },
+  ];
+  const tutorialHighlights = [
+    '처음에는 영상 하나만 등록해도 충분합니다.',
+    '보드에 쌓인 영상은 코스와 학습 큐로 다시 이어집니다.',
+    '내 정보에서 관심사와 목표를 바꾸면 추천 맥락도 함께 바뀝니다.',
+  ];
+  const tutorialPreviewItems = [
+    {
+      label: '등록',
+      title: '링크 분석',
+      meta: '요약 · 태그 · 노트',
+    },
+    {
+      label: '코스',
+      title: 'AI 추천',
+      meta: '관심사 기반 큐',
+    },
+    {
+      label: '학습',
+      title: '마킹 메모',
+      meta: '자막 · 반복 구간',
+    },
+  ];
+
+  function finishTutorial(destination: string) {
+    navigate(destination, { replace: true });
+  }
+
+  return (
+    <main className="page-shell tutorial-page">
+      <section className="tutorial-hero">
+        <div className="tutorial-copy">
+          <p className="eyebrow">첫 시작</p>
+          <h1>
+            {session.user.name}님,
+            <br />
+            StudyTube는 영상을 공부 흐름으로 바꿉니다
+          </h1>
+          <p>
+            링크를 모으는 곳에서 끝나지 않고, 요약과 코스 추천, 자막 기반 학습까지
+            한 번에 이어가는 개인 학습 보드입니다.
+          </p>
+          <div className="tutorial-actions">
+            <button type="button" onClick={() => finishTutorial('/board')}>
+              첫 영상 등록
+            </button>
+            <button type="button" onClick={() => finishTutorial('/search')}>
+              AI 추천 보기
+            </button>
+            <button
+              className="quiet-button"
+              type="button"
+              onClick={() => finishTutorial(nextPath)}
+            >
+              {nextLabel}
+            </button>
+          </div>
+        </div>
+
+        <aside className="tutorial-preview" aria-label="StudyTube 핵심 흐름 미리보기">
+          <div className="tutorial-preview-topbar">
+            <span>StudyTube</span>
+            <strong>01</strong>
+          </div>
+          <div className="tutorial-preview-main">
+            <div className="tutorial-preview-card">
+              <small>현재 흐름</small>
+              <strong>영상 하나가 학습 코스로 바뀝니다</strong>
+              <div className="tutorial-preview-bars" aria-hidden="true">
+                <span />
+                <span />
+                <span />
+              </div>
+            </div>
+            <nav className="tutorial-preview-menu" aria-label="튜토리얼 단계">
+              {tutorialPreviewItems.map((item) => (
+                <span key={item.label}>
+                  <b>{item.label}</b>
+                  <strong>{item.title}</strong>
+                  <small>{item.meta}</small>
+                </span>
+              ))}
+            </nav>
+          </div>
+        </aside>
+      </section>
+
+      <section className="tutorial-flow" aria-label="서비스 이용 흐름">
+        {tutorialSteps.map((step) => (
+          <article key={step.number}>
+            <span>{step.number}</span>
+            <h2>{step.title}</h2>
+            <p>{step.body}</p>
+          </article>
+        ))}
+      </section>
+
+      <section className="tutorial-note">
+        <div>
+          <p className="eyebrow">오늘의 시작점</p>
+          <h2>영상 하나를 등록하면 나머지는 이어집니다</h2>
+        </div>
+        <ul>
+          {tutorialHighlights.map((highlight) => (
+            <li key={highlight}>{highlight}</li>
+          ))}
+        </ul>
       </section>
     </main>
   );
@@ -1455,9 +1629,9 @@ function BoardPage({
         const captions = await fetchTranslatedCaptions({
           videoId: sourceVideoId,
           videoUrl: sourceUrl,
-          targetLanguage: 'ko',
+          targetLanguage: 'en',
           fallbackText: summary,
-          translateFallback: true,
+          translateFallback: false,
         });
         const detailedSummary = await fetchVideoSummary({
           videoId: sourceVideoId,
@@ -1466,7 +1640,7 @@ function BoardPage({
           language: 'ko',
           summary,
           translatedNotes,
-          segments: captions.segments,
+          segments: sampleCaptionSegmentsForSummary(captions.segments),
         });
         const formattedNotes = formatVideoSummarySections(detailedSummary.sections);
         const firstSummary = detailedSummary.sections.find((section) =>
@@ -2731,6 +2905,7 @@ function WatchPage({ session }: { session: Session }) {
   const [captionError, setCaptionError] = useState('');
   const [isCaptionLoading, setIsCaptionLoading] = useState(false);
   const [captionRefreshAttempts, setCaptionRefreshAttempts] = useState(0);
+  const [isPlayerControlsHovered, setIsPlayerControlsHovered] = useState(false);
   const [summaryResponse, setSummaryResponse] =
     useState<VideoSummaryResponse | null>(null);
   const [summaryError, setSummaryError] = useState('');
@@ -3402,6 +3577,19 @@ function WatchPage({ session }: { session: Session }) {
     jumpTo(mark.start);
   }
 
+  function updateCaptionControlsHover(event: ReactMouseEvent<HTMLDivElement>) {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const nextHovered = isPointerInPlayerControlsHoverZone({
+      bottom: bounds.bottom,
+      clientY: event.clientY,
+      top: bounds.top,
+    });
+
+    setIsPlayerControlsHovered((current) =>
+      current === nextHovered ? current : nextHovered,
+    );
+  }
+
   function playPlaylistChoice(choice: WatchPlaylistChoice<QueueVideo>) {
     const nextQueue = choice.videos.map((video) => normalizeQueueVideo(video));
     const firstVideo = nextQueue[0];
@@ -3463,10 +3651,22 @@ function WatchPage({ session }: { session: Session }) {
     <main className="page-shell watch-page">
       <section className="watch-layout">
         <article className="watch-player">
-          <div className="youtube-shell">
+          <div
+            className="youtube-shell"
+            onMouseLeave={() => setIsPlayerControlsHovered(false)}
+            onMouseMove={updateCaptionControlsHover}
+          >
             <div id="youtube-player" />
             {activeCaption && (
-              <div className="caption-overlay">{activeCaption.text}</div>
+              <div
+                className={
+                  isPlayerControlsHovered
+                    ? 'caption-overlay raised'
+                    : 'caption-overlay'
+                }
+              >
+                {activeCaption.text}
+              </div>
             )}
           </div>
           <div className="watch-meta">
@@ -3944,15 +4144,21 @@ function estimateRouteMinutes(posts: StudyPost[], fallbackCount: number) {
 }
 
 function estimateQueueMinutes(videos: QueueVideo[]) {
-  const total = videos.reduce((sum, video) => {
-    const textWeight = Math.ceil(
-      `${video.summary} ${video.translatedNotes}`.length / 180,
-    );
+  return estimateWatchQueueMinutes(videos);
+}
 
-    return sum + Math.min(28, Math.max(8, 8 + textWeight * 3));
-  }, 0);
+function sampleCaptionSegmentsForSummary(
+  segments: Array<{ start: number; end: number; text: string }>,
+) {
+  if (segments.length <= MAX_SUMMARY_CAPTION_SEGMENTS) {
+    return segments;
+  }
 
-  return total > 0 ? total : Math.max(1, videos.length) * 14;
+  const step = Math.ceil(segments.length / MAX_SUMMARY_CAPTION_SEGMENTS);
+
+  return segments
+    .filter((_segment, index) => index % step === 0)
+    .slice(0, MAX_SUMMARY_CAPTION_SEGMENTS);
 }
 
 function estimateVideoMinutes(post: StudyPost) {
@@ -4057,7 +4263,7 @@ function postPayloadFromQueueVideo(video: QueueVideo) {
 
 function readQueue(): QueueVideo[] {
   try {
-    const raw = window.localStorage.getItem(QUEUE_STORAGE_KEY);
+    const raw = window.localStorage.getItem(scopedStorageKey(QUEUE_STORAGE_KEY));
     return raw
       ? (JSON.parse(raw) as QueueVideo[]).map((video) => normalizeQueueVideo(video))
       : [];
@@ -4068,7 +4274,7 @@ function readQueue(): QueueVideo[] {
 
 function saveQueue(queue: QueueVideo[]) {
   window.localStorage.setItem(
-    QUEUE_STORAGE_KEY,
+    scopedStorageKey(QUEUE_STORAGE_KEY),
     JSON.stringify(queue.map((video) => normalizeQueueVideo(video))),
   );
 }
@@ -4089,9 +4295,11 @@ async function fetchOwnedPostsForLibrary(token: string) {
 
 function readPlaylistDraftState(): PlaylistDraftState<QueueVideo> {
   try {
-    const raw = window.localStorage.getItem(PLAYLIST_DRAFTS_STORAGE_KEY);
+    const raw = window.localStorage.getItem(
+      scopedStorageKey(PLAYLIST_DRAFTS_STORAGE_KEY),
+    );
     const activeDraftId = window.localStorage.getItem(
-      ACTIVE_PLAYLIST_DRAFT_STORAGE_KEY,
+      scopedStorageKey(ACTIVE_PLAYLIST_DRAFT_STORAGE_KEY),
     );
     const parsed = raw ? (JSON.parse(raw) as unknown) : null;
 
@@ -4112,7 +4320,7 @@ function readPlaylistDraftState(): PlaylistDraftState<QueueVideo> {
 
 function savePlaylistDraftState(state: PlaylistDraftState<QueueVideo>) {
   window.localStorage.setItem(
-    PLAYLIST_DRAFTS_STORAGE_KEY,
+    scopedStorageKey(PLAYLIST_DRAFTS_STORAGE_KEY),
     JSON.stringify(
       state.drafts.map((draft) => ({
         ...draft,
@@ -4121,10 +4329,14 @@ function savePlaylistDraftState(state: PlaylistDraftState<QueueVideo>) {
     ),
   );
   window.localStorage.setItem(
-    ACTIVE_PLAYLIST_DRAFT_STORAGE_KEY,
+    scopedStorageKey(ACTIVE_PLAYLIST_DRAFT_STORAGE_KEY),
     state.activeDraftId,
   );
   saveQueue(selectActivePlaylistDraft(state).videos);
+}
+
+function scopedStorageKey(baseKey: string) {
+  return scopedStudyStorageKeyFromStorage(baseKey, window.localStorage);
 }
 
 function readSession(): Session | null {

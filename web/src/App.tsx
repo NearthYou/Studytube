@@ -17,7 +17,22 @@ import {
   useSearchParams,
 } from 'react-router';
 import './App.css';
+import {
+  isDemoUserSession,
+  normalizeSession,
+  readSession,
+  saveSession,
+} from './authSession';
 import { courseAnalysisSectionsFromPosts } from './courseAnalysis';
+import {
+  courseSummaryFromPosts,
+  createPersonalizedCoursePrompt,
+  createPromptSuggestions,
+  filterPlaylists,
+  findMatchingCourses,
+  postsForPlaylistIds,
+  tagsFromPosts,
+} from './courseDiscovery';
 import {
   EXPLORE_BOARD_PAGE_SIZE,
   paginateExplorePlaylists,
@@ -35,14 +50,18 @@ import {
 } from './captions';
 import { playlistThumbnailStackFromPosts } from './playlistThumbnailStack';
 import { isPointerInPlayerControlsHoverZone } from './playerControls';
+import { SESSION_STORAGE_KEY } from './localStudyStorage';
 import {
-  SESSION_STORAGE_KEY,
-  scopedStudyStorageKeyFromStorage,
-} from './localStudyStorage';
+  audienceLabel,
+  difficultyLabel,
+  estimateQueueMinutes,
+  estimateRouteMinutes,
+  estimateVideoMinutes,
+  sampleCaptionSegmentsForSummary,
+} from './learningRouteMetrics';
 import {
   DEFAULT_PLAYLIST_DRAFT_TITLE,
   createPlaylistDraft,
-  normalizePlaylistDraftState,
   patchActivePlaylistDraft,
   removePlaylistDraft,
   selectActivePlaylistDraft,
@@ -53,7 +72,6 @@ import {
   findMatchingWatchPlaylistChoice,
   type WatchPlaylistChoice,
 } from './watchLibrary';
-import { estimateQueueMinutes as estimateWatchQueueMinutes } from './watchMetrics';
 import {
   hasPostEditorVideoUrl,
   isPostEditorReadyToSave,
@@ -65,6 +83,46 @@ import {
   tutorialNextDestination,
   type AuthMode,
 } from './onboarding';
+import {
+  DEFAULT_LEARNING_STATE,
+  PLAYBACK_RATES,
+  extractPostIds,
+  findPostIdForQueueVideo,
+  getVideoLearningState,
+  isVideoInQueue,
+  mergeVideosIntoQueue,
+  normalizeQueueVideo,
+  postPayloadFromQueueVideo,
+  queueVideoFromMcpVideo,
+  queueVideoFromPost,
+  queueVideoFromRagPost,
+  queueVideoFromRecommendation,
+  queueVideoKey,
+  uniqueVideos,
+  type CaptionLanguage,
+  type LearningMark,
+  type LoopRange,
+  type QueueVideo,
+  type VideoLearningState,
+} from './watchQueue';
+import {
+  addVideosToQueue,
+  readPlaylistDraftState,
+  readWatchQueue,
+  savePlaylistDraftState,
+  saveWatchQueue,
+} from './watchQueueStorage';
+import {
+  deriveTags,
+  extractYouTubeId,
+  youtubeThumbnailUrl,
+} from './videoMetadata';
+import {
+  buildVideoSummaryDetails,
+  clipText,
+  formatTime,
+  formatVideoSummarySections,
+} from './videoSummaryDetails';
 import {
   addComment,
   askAgent,
@@ -91,7 +149,6 @@ import {
 import type {
   AgentResponse,
   CaptionResponse,
-  LearningPreferences,
   McpResponse,
   Playlist,
   RagResponse,
@@ -110,48 +167,6 @@ type PostEditor = {
   translatedNotes: string;
   tags: string;
 };
-
-type QueueVideo = {
-  id: string;
-  title: string;
-  videoId: string;
-  videoUrl: string;
-  thumbnailUrl: string;
-  channelName: string;
-  summary: string;
-  translatedNotes: string;
-  source: string;
-  evidenceSnippet?: string;
-  learning?: VideoLearningState;
-};
-
-type CaptionLanguage = 'ko' | 'en';
-
-type LoopRange = {
-  enabled: boolean;
-  manual?: boolean;
-  start: number;
-  end: number;
-};
-
-type LearningMark = {
-  id: string;
-  start: number;
-  end: number;
-  note: string;
-  caption: string;
-  createdAt: string;
-};
-
-type VideoLearningState = {
-  captionLanguage: CaptionLanguage;
-  captionsEnabled: boolean;
-  playbackRate: number;
-  loop: LoopRange;
-  marks: LearningMark[];
-};
-
-type PreferenceProfile = LearningPreferences;
 
 type YouTubePlayer = {
   loadVideoById: (videoId: string) => void;
@@ -202,12 +217,7 @@ const emptyEditor: PostEditor = {
   tags: '',
 };
 
-const QUEUE_STORAGE_KEY = 'studytube.watchQueue';
-const PLAYLIST_DRAFTS_STORAGE_KEY = 'studytube.playlistDrafts';
-const ACTIVE_PLAYLIST_DRAFT_STORAGE_KEY = 'studytube.activePlaylistDraftId';
-const PLAYBACK_RATES = [0.75, 1, 1.25, 1.5, 2];
 const DEFAULT_CAPTION_DURATION_SECONDS = 600;
-const MAX_SUMMARY_CAPTION_SEGMENTS = 80;
 const SOURCE_CAPTION_TRANSLATION_POLL_MS = 5000;
 const MAX_SOURCE_CAPTION_TRANSLATION_POLLS = 6;
 const LIVE_CAPTION_PROVIDERS = new Set([
@@ -217,19 +227,6 @@ const LIVE_CAPTION_PROVIDERS = new Set([
   'youtube-transcript-api',
   'youtube-source-captions',
 ]);
-const DEFAULT_LEARNING_STATE: VideoLearningState = {
-  captionLanguage: 'ko',
-  captionsEnabled: true,
-  playbackRate: 1,
-  loop: {
-    enabled: false,
-    manual: false,
-    start: 0,
-    end: 15,
-  },
-  marks: [],
-};
-
 function App() {
   const [session, setSession] = useState<Session | null>(() => readSession());
 
@@ -1107,7 +1104,9 @@ function ExplorePage({ session }: { session: Session }) {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState('공개 학습 플레이리스트를 불러오는 중입니다.');
-  const [playlistQueue, setPlaylistQueue] = useState<QueueVideo[]>(() => readQueue());
+  const [playlistQueue, setPlaylistQueue] = useState<QueueVideo[]>(() =>
+    readWatchQueue(),
+  );
   const filteredPlaylists = useMemo(
     () => filterPlaylists(playlists, posts, search),
     [playlists, posts, search],
@@ -1890,7 +1889,7 @@ function BoardPage({
     const firstVideo = playlistQueue[0];
 
     if (firstVideo) {
-      saveQueue(playlistQueue);
+      saveWatchQueue(playlistQueue);
       navigate(`/watch?videoId=${firstVideo.videoId}`);
     }
   }
@@ -2891,7 +2890,7 @@ function CoursePage({ session }: { session: Session }) {
 
 function WatchPage({ session }: { session: Session }) {
   const [searchParams, setSearchParams] = useSearchParams();
-  const [queue, setQueue] = useState<QueueVideo[]>(() => readQueue());
+  const [queue, setQueue] = useState<QueueVideo[]>(() => readWatchQueue());
   const [savedPlaylists, setSavedPlaylists] = useState<Playlist[]>([]);
   const [libraryPosts, setLibraryPosts] = useState<StudyPost[]>([]);
   const [playlistDraftState, setPlaylistDraftState] =
@@ -3418,7 +3417,7 @@ function WatchPage({ session }: { session: Session }) {
   function removeVideo(video: QueueVideo) {
     const nextQueue = queue.filter((item) => item.id !== video.id);
     setQueue(nextQueue);
-    saveQueue(nextQueue);
+    saveWatchQueue(nextQueue);
 
     if (video.id !== currentVideo?.id) {
       return;
@@ -3443,7 +3442,7 @@ function WatchPage({ session }: { session: Session }) {
 
   function clearQueue() {
     setQueue([]);
-    saveQueue([]);
+    saveWatchQueue([]);
     playerRef.current?.destroy();
     playerRef.current = null;
     setCurrentTime(0);
@@ -3472,7 +3471,7 @@ function WatchPage({ session }: { session: Session }) {
             }
           : video,
       );
-      saveQueue(nextQueue);
+      saveWatchQueue(nextQueue);
 
       return nextQueue;
     });
@@ -3600,7 +3599,7 @@ function WatchPage({ session }: { session: Session }) {
     }
 
     setQueue(nextQueue);
-    saveQueue(nextQueue);
+    saveWatchQueue(nextQueue);
     setCurrentTime(0);
     setNoteDraft('');
     setSearchParams({ videoId: firstVideo.videoId });
@@ -4039,246 +4038,6 @@ function PlaylistPreview({
   );
 }
 
-function queueVideoFromPost(post: StudyPost): QueueVideo {
-  return {
-    id: `post-${post.id}`,
-    title: post.title,
-    videoId: extractYouTubeId(post.videoUrl) ?? String(post.id),
-    videoUrl: post.videoUrl,
-    thumbnailUrl: post.thumbnailUrl,
-    channelName: post.channelName,
-    summary: post.summary,
-    translatedNotes: post.translatedNotes,
-    source: 'board',
-  };
-}
-
-function queueVideoFromRagPost(post: RagResponse['relatedPosts'][number]) {
-  return {
-    id: `rag-${post.id}`,
-    title: post.title,
-    videoId: extractYouTubeId(post.videoUrl) ?? String(post.id),
-    videoUrl: post.videoUrl,
-    thumbnailUrl: post.thumbnailUrl,
-    channelName: post.channelName,
-    summary: post.summary,
-    translatedNotes: post.translatedNotes,
-    source: `AI 분석 매칭 ${post.score}`,
-    evidenceSnippet: post.evidenceSnippet,
-  };
-}
-
-function queueVideoFromRecommendation(
-  item: AgentResponse['recommendations'][number],
-): QueueVideo {
-  const videoId = extractYouTubeId(item.url) ?? slugify(item.title);
-
-  return {
-    id: `agent-${videoId}-${slugify(item.title)}`,
-    title: item.title,
-    videoId,
-    videoUrl: item.url,
-    thumbnailUrl: item.thumbnailUrl,
-    channelName: item.source,
-    summary: item.why,
-    translatedNotes: item.why,
-    source: item.source,
-  };
-}
-
-function queueVideoFromMcpVideo(
-  item: NonNullable<McpResponse['result']>['videos'][number],
-): QueueVideo | null {
-  const videoId = item.videoId ?? extractYouTubeId(item.sourceUrl);
-
-  if (!videoId) {
-    return null;
-  }
-
-  return {
-    id: `mcp-${videoId}`,
-    title: item.title,
-    videoId,
-    videoUrl: item.sourceUrl,
-    thumbnailUrl: item.thumbnailUrl,
-    channelName: item.channel,
-    summary: item.summary,
-    translatedNotes: item.summary,
-    source: item.provider,
-  };
-}
-
-function uniqueVideos(videos: QueueVideo[]) {
-  const seen = new Set<string>();
-
-  return videos.filter((video) => {
-    const key = queueVideoKey(video);
-
-    if (seen.has(key)) {
-      return false;
-    }
-
-    seen.add(key);
-    return true;
-  });
-}
-
-function queueVideoKey(video: QueueVideo) {
-  return video.videoId || video.videoUrl || video.id;
-}
-
-function isVideoInQueue(queue: QueueVideo[], video: QueueVideo) {
-  const key = queueVideoKey(video);
-
-  return queue.some((queuedVideo) => queueVideoKey(queuedVideo) === key);
-}
-
-function estimateRouteMinutes(posts: StudyPost[], fallbackCount: number) {
-  const total = posts.reduce((sum, post) => sum + estimateVideoMinutes(post), 0);
-
-  if (total > 0) {
-    return total;
-  }
-
-  return Math.max(1, fallbackCount) * 14;
-}
-
-function estimateQueueMinutes(videos: QueueVideo[]) {
-  return estimateWatchQueueMinutes(videos);
-}
-
-function sampleCaptionSegmentsForSummary(
-  segments: Array<{ start: number; end: number; text: string }>,
-) {
-  if (segments.length <= MAX_SUMMARY_CAPTION_SEGMENTS) {
-    return segments;
-  }
-
-  const step = Math.ceil(segments.length / MAX_SUMMARY_CAPTION_SEGMENTS);
-
-  return segments
-    .filter((_segment, index) => index % step === 0)
-    .slice(0, MAX_SUMMARY_CAPTION_SEGMENTS);
-}
-
-function estimateVideoMinutes(post: StudyPost) {
-  const textWeight = Math.ceil(
-    `${post.summary} ${post.translatedNotes}`.length / 180,
-  );
-
-  return Math.min(28, Math.max(8, 8 + textWeight * 3));
-}
-
-function difficultyLabel(tags: string[]) {
-  const normalized = tags.map((tag) => tag.toLowerCase());
-
-  if (normalized.some((tag) => ['입문', '기초', 'beginner', 'intro'].includes(tag))) {
-    return '입문';
-  }
-
-  if (
-    normalized.some((tag) =>
-      ['advanced', '심화', 'pgvector', 'agent', 'nestjs'].includes(tag),
-    )
-  ) {
-    return '실전';
-  }
-
-  return '중급';
-}
-
-function audienceLabel(tags: string[]) {
-  const normalized = tags.map((tag) => tag.toLowerCase());
-
-  if (normalized.some((tag) => ['react', 'frontend', 'hooks'].includes(tag))) {
-    return '프론트 학습자';
-  }
-
-  if (
-    normalized.some((tag) =>
-      ['fastapi', 'nestjs', 'backend', 'springboot'].includes(tag),
-    )
-  ) {
-    return '실습형 학습자';
-  }
-
-  if (normalized.some((tag) => ['ai', 'rag', 'agent', 'mcp'].includes(tag))) {
-    return 'AI 서비스 빌더';
-  }
-
-  return '새 주제 입문자';
-}
-
-function extractPostIds(videos: QueueVideo[]) {
-  return [
-    ...new Set(
-      videos
-        .map((video) => video.id.match(/^(?:post|rag)-(\d+)$/)?.[1])
-        .filter((id): id is string => Boolean(id))
-        .map((id) => Number(id)),
-    ),
-  ];
-}
-
-function findPostIdForQueueVideo(video: QueueVideo, posts: StudyPost[]) {
-  const directPostId = video.id.match(/^(?:post|rag)-(\d+)$/)?.[1];
-
-  if (directPostId) {
-    return Number(directPostId);
-  }
-
-  const videoKey = queueVideoKey(video);
-  const matchingPost = posts.find((post) => {
-    const postVideoId = extractYouTubeId(post.videoUrl) ?? String(post.id);
-
-    return (
-      post.videoUrl === video.videoUrl ||
-      postVideoId === video.videoId ||
-      postVideoId === videoKey
-    );
-  });
-
-  return matchingPost?.id ?? null;
-}
-
-function postPayloadFromQueueVideo(video: QueueVideo) {
-  const summary =
-    video.summary.trim() ||
-    `${video.channelName || 'YouTube'} 채널의 추천 학습 영상입니다.`;
-  const translatedNotes =
-    video.translatedNotes.trim() ||
-    `${summary}\n\n이 영상을 코스에 포함해 순서대로 학습하세요.`;
-  const tags = deriveTags(`${video.title} ${video.channelName} ${summary}`);
-
-  return {
-    title: video.title.trim() || '추천 학습 영상',
-    videoUrl: video.videoUrl,
-    thumbnailUrl: video.thumbnailUrl,
-    channelName: video.channelName || video.source || 'YouTube',
-    summary,
-    translatedNotes,
-    tags: tags.length > 0 ? tags : ['추천'],
-  };
-}
-
-function readQueue(): QueueVideo[] {
-  try {
-    const raw = window.localStorage.getItem(scopedStorageKey(QUEUE_STORAGE_KEY));
-    return raw
-      ? (JSON.parse(raw) as QueueVideo[]).map((video) => normalizeQueueVideo(video))
-      : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveQueue(queue: QueueVideo[]) {
-  window.localStorage.setItem(
-    scopedStorageKey(QUEUE_STORAGE_KEY),
-    JSON.stringify(queue.map((video) => normalizeQueueVideo(video))),
-  );
-}
-
 async function fetchOwnedPostsForLibrary(token: string) {
   const pageSize = 24;
   const firstPage = await fetchPosts(token, '', 1, pageSize);
@@ -4293,505 +4052,6 @@ async function fetchOwnedPostsForLibrary(token: string) {
   return posts;
 }
 
-function readPlaylistDraftState(): PlaylistDraftState<QueueVideo> {
-  try {
-    const raw = window.localStorage.getItem(
-      scopedStorageKey(PLAYLIST_DRAFTS_STORAGE_KEY),
-    );
-    const activeDraftId = window.localStorage.getItem(
-      scopedStorageKey(ACTIVE_PLAYLIST_DRAFT_STORAGE_KEY),
-    );
-    const parsed = raw ? (JSON.parse(raw) as unknown) : null;
-
-    return normalizePlaylistDraftState(parsed, {
-      activeDraftId,
-      fallbackVideos: readQueue(),
-      normalizeVideo: (video) =>
-        isQueueVideoLike(video) ? normalizeQueueVideo(video) : null,
-    });
-  } catch {
-    return normalizePlaylistDraftState(null, {
-      fallbackVideos: readQueue(),
-      normalizeVideo: (video) =>
-        isQueueVideoLike(video) ? normalizeQueueVideo(video) : null,
-    });
-  }
-}
-
-function savePlaylistDraftState(state: PlaylistDraftState<QueueVideo>) {
-  window.localStorage.setItem(
-    scopedStorageKey(PLAYLIST_DRAFTS_STORAGE_KEY),
-    JSON.stringify(
-      state.drafts.map((draft) => ({
-        ...draft,
-        videos: draft.videos.map((video) => normalizeQueueVideo(video)),
-      })),
-    ),
-  );
-  window.localStorage.setItem(
-    scopedStorageKey(ACTIVE_PLAYLIST_DRAFT_STORAGE_KEY),
-    state.activeDraftId,
-  );
-  saveQueue(selectActivePlaylistDraft(state).videos);
-}
-
-function scopedStorageKey(baseKey: string) {
-  return scopedStudyStorageKeyFromStorage(baseKey, window.localStorage);
-}
-
-function readSession(): Session | null {
-  try {
-    const raw = window.localStorage.getItem(SESSION_STORAGE_KEY);
-    return raw ? normalizeSession(JSON.parse(raw) as Session) : null;
-  } catch {
-    return null;
-  }
-}
-
-function saveSession(session: Session) {
-  window.localStorage.setItem(
-    SESSION_STORAGE_KEY,
-    JSON.stringify(normalizeSession(session)),
-  );
-}
-
-function isDemoUserSession(session: Session) {
-  return session.user.email === 'demo@studytube.local';
-}
-
-function normalizeSession(session: Session): Session {
-  return {
-    ...session,
-    user: normalizeUser(session.user),
-  };
-}
-
-function normalizeUser(user: User): User {
-  return {
-    ...user,
-    preferences: normalizePreferences(user.preferences),
-  };
-}
-
-function normalizePreferences(
-  preferences: Partial<LearningPreferences> | undefined,
-): LearningPreferences {
-  const interests = Array.isArray(preferences?.interests)
-    ? preferences.interests.filter((item): item is string => Boolean(item?.trim()))
-    : [];
-
-  return {
-    interests: interests.length > 0 ? interests : ['YouTube 학습', '프론트엔드'],
-    pace: preferences?.pace?.trim() || '하루 20분',
-    goal: preferences?.goal?.trim() || '짧은 영상으로 꾸준히 복습하기',
-  };
-}
-
-function createPersonalizedCoursePrompt(profile: PreferenceProfile | null) {
-  if (!profile) {
-    return '퇴근 후 20분씩 영어 회화를 배우고 싶어';
-  }
-
-  const interests = profile.interests.slice(0, 2).join('와 ');
-  return `${interests}를 ${profile.pace} 배울 수 있는 코스 추천해줘`;
-}
-
-function createPromptSuggestions(profile: PreferenceProfile | null) {
-  if (profile) {
-    return [
-      `${profile.interests[0]} 입문 코스`,
-      `${profile.goal}`,
-      `${profile.pace} 따라갈 수 있는 취미 코스`,
-    ];
-  }
-
-  return [
-    '퇴근 후 영어 회화',
-    '집에서 하는 20분 운동',
-    '요리 기초부터 배우기',
-    '재테크 처음 시작하기',
-  ];
-}
-
-function findMatchingCourses(
-  playlists: Playlist[],
-  posts: StudyPost[],
-  query: string,
-) {
-  const tokens = tokenizeForMatch(query);
-
-  if (tokens.length === 0) {
-    return [];
-  }
-
-  return playlists
-    .map((playlist) => {
-      const coursePosts = playlist.postIds
-        .map((postId) => posts.find((post) => post.id === postId))
-        .filter((post): post is StudyPost => Boolean(post));
-      const haystack = [
-        playlist.title,
-        playlist.description,
-        ...coursePosts.flatMap((post) => [
-          post.title,
-          post.summary,
-          post.translatedNotes,
-          post.channelName,
-          ...post.tags,
-        ]),
-      ]
-        .join(' ')
-        .toLowerCase();
-      const score = tokens.filter((token) => haystack.includes(token)).length;
-
-      return { playlist, score };
-    })
-    .filter((item) => item.score > 0)
-    .sort((left, right) => right.score - left.score)
-    .map((item) => item.playlist)
-    .slice(0, 3);
-}
-
-function filterPlaylists(
-  playlists: Playlist[],
-  posts: StudyPost[],
-  query: string,
-) {
-  const normalized = query.trim().toLowerCase();
-
-  if (!normalized) {
-    return playlists;
-  }
-
-  return playlists.filter((playlist) => {
-    const playlistPosts = postsForPlaylistIds(playlist.postIds, posts);
-    const haystack = [
-      playlist.title,
-      playlist.description,
-      ...playlistPosts.flatMap((post) => [
-        post.title,
-        post.channelName,
-        post.summary,
-        post.translatedNotes,
-        ...post.tags,
-      ]),
-    ]
-      .join(' ')
-      .toLowerCase();
-
-    return haystack.includes(normalized);
-  });
-}
-
-function postsForPlaylistIds(postIds: number[], posts: StudyPost[]) {
-  return postIds
-    .map((postId) => posts.find((post) => post.id === postId))
-    .filter((post): post is StudyPost => Boolean(post));
-}
-
-function tagsFromPosts(posts: StudyPost[]) {
-  return [...new Set(posts.flatMap((post) => post.tags))];
-}
-
-function courseSummaryFromPosts(posts: StudyPost[]) {
-  if (posts.length === 0) {
-    return '아직 영상 정보가 연결되지 않은 학습 코스입니다.';
-  }
-
-  return posts
-    .slice(0, 3)
-    .map((post, index) => `${index + 1}. ${post.title}`)
-    .join(' · ');
-}
-
-function tokenizeForMatch(value: string) {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9가-힣\s]/g, ' ')
-    .split(/\s+/)
-    .map((token) => token.trim())
-    .filter((token) => token.length >= 2)
-    .filter((token) => !['코스', '추천', '배우고', '싶어'].includes(token));
-}
-
-function addVideosToQueue(videos: QueueVideo[], selectedVideo: QueueVideo) {
-  const existingQueue = readQueue();
-  const nextQueue = mergeVideosIntoQueue(existingQueue, videos, selectedVideo);
-
-  saveQueue(nextQueue);
-
-  return nextQueue;
-}
-
-function mergeVideosIntoQueue(
-  existingQueue: QueueVideo[],
-  videos: QueueVideo[],
-  selectedVideo: QueueVideo,
-) {
-  const existingById = new Map(existingQueue.map((video) => [video.id, video]));
-  const selectedFirst = [
-    selectedVideo,
-    ...videos.filter((video) => video.id !== selectedVideo.id),
-  ].map((video) => mergeVideoLearning(video, existingById.get(video.id)));
-  const selectedIds = new Set(selectedFirst.map((video) => video.id));
-  const existing = existingQueue.filter((video) => !selectedIds.has(video.id));
-  const nextQueue = uniqueVideos([...selectedFirst, ...existing]);
-
-  return nextQueue;
-}
-
-function normalizeQueueVideo(video: QueueVideo): QueueVideo {
-  return {
-    ...video,
-    learning: getVideoLearningState(video),
-  };
-}
-
-function isQueueVideoLike(video: unknown): video is QueueVideo {
-  return (
-    Boolean(video) &&
-    typeof video === 'object' &&
-    typeof (video as QueueVideo).id === 'string' &&
-    typeof (video as QueueVideo).title === 'string' &&
-    typeof (video as QueueVideo).videoId === 'string' &&
-    typeof (video as QueueVideo).videoUrl === 'string'
-  );
-}
-
-function mergeVideoLearning(video: QueueVideo, existing?: QueueVideo): QueueVideo {
-  return {
-    ...normalizeQueueVideo(video),
-    learning: existing
-      ? getVideoLearningState(existing)
-      : getVideoLearningState(video),
-  };
-}
-
-function getVideoLearningState(video: QueueVideo): VideoLearningState {
-  const learning = video.learning;
-  const loop = learning?.loop ?? DEFAULT_LEARNING_STATE.loop;
-  const loopWasExplicitlyEnabled = Boolean(loop.manual);
-
-  return {
-    captionLanguage:
-      learning?.captionLanguage === 'en' || learning?.captionLanguage === 'ko'
-        ? learning.captionLanguage
-        : DEFAULT_LEARNING_STATE.captionLanguage,
-    captionsEnabled:
-      typeof learning?.captionsEnabled === 'boolean'
-        ? learning.captionsEnabled
-        : DEFAULT_LEARNING_STATE.captionsEnabled,
-    playbackRate: PLAYBACK_RATES.includes(learning?.playbackRate ?? 0)
-      ? learning!.playbackRate
-      : DEFAULT_LEARNING_STATE.playbackRate,
-    loop: {
-      enabled:
-        typeof loop.enabled === 'boolean'
-          ? loop.enabled && loopWasExplicitlyEnabled
-          : DEFAULT_LEARNING_STATE.loop.enabled,
-      manual: loopWasExplicitlyEnabled,
-      start: typeof loop.start === 'number' ? loop.start : DEFAULT_LEARNING_STATE.loop.start,
-      end: typeof loop.end === 'number' ? loop.end : DEFAULT_LEARNING_STATE.loop.end,
-    },
-    marks: Array.isArray(learning?.marks)
-      ? learning.marks
-          .filter((mark) => typeof mark.note === 'string')
-          .map((mark) => ({
-            id: mark.id || `${mark.start}-${mark.createdAt || Date.now()}`,
-            start: typeof mark.start === 'number' ? mark.start : 0,
-            end:
-              typeof mark.end === 'number'
-                ? Math.max(mark.end, (mark.start ?? 0) + 1)
-                : 4,
-            note: mark.note,
-            caption: mark.caption || '',
-            createdAt: mark.createdAt || new Date().toISOString(),
-          }))
-      : [],
-  };
-}
-
-function deriveTags(source: string) {
-  const tokens = source
-    .toLowerCase()
-    .replace(/[^a-z0-9가-힣#+\s]/g, ' ')
-    .split(/\s+/)
-    .map((token) => token.trim())
-    .filter((token) => token.length >= 2)
-    .filter(
-      (token) =>
-        ![
-          'the',
-          'and',
-          'with',
-          'course',
-          'video',
-          'youtube',
-          '학습',
-          '영상',
-          '채널의',
-        ].includes(token),
-    );
-
-  return [...new Set(tokens)].slice(0, 5);
-}
-
-function extractYouTubeId(url: string): string | null {
-  const patterns = [
-    /youtube\.com\/watch\?v=([^&]+)/,
-    /youtu\.be\/([^?]+)/,
-    /youtube\.com\/embed\/([^?]+)/,
-  ];
-
-  for (const pattern of patterns) {
-    const match = url.match(pattern);
-    if (match?.[1]) {
-      return match[1];
-    }
-  }
-
-  return null;
-}
-
-function youtubeThumbnailUrl(videoId: string) {
-  return `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
-}
-
-function formatVideoSummarySections(sections: VideoSummaryResponse['sections']) {
-  return sections
-    .map((section) => {
-      const label = section.label.trim();
-      const body = section.body.trim();
-
-      if (!label || !body) {
-        return '';
-      }
-
-      return `${label}\n${body}`;
-    })
-    .filter(Boolean)
-    .join('\n\n');
-}
-
-function buildVideoSummaryDetails(video: QueueVideo) {
-  const details: Array<{ label: string; body: string }> = [];
-  const summary = normalizeCaptionSource(video.summary);
-  const notes = normalizeCaptionSource(video.translatedNotes);
-
-  if (isReadableCaptionSource(summary)) {
-    details.push({
-      label: '핵심 요약',
-      body: summary,
-    });
-  }
-
-  if (isReadableCaptionSource(notes) && notes !== summary) {
-    const timedBlocks = extractTimedSummaryBlocks(notes);
-
-    if (timedBlocks.length > 0) {
-      details.push(...timedBlocks);
-    } else {
-      details.push(
-        ...splitSummaryParagraphs(notes).map((body, index) => ({
-          label: index === 0 ? '학습 포인트' : `추가 정리 ${index + 1}`,
-          body,
-        })),
-      );
-    }
-  }
-
-  if (details.length === 0) {
-    return [
-      {
-        label: '요약 준비 중',
-        body: '이 영상에는 아직 자세한 요약이 저장되지 않았습니다. 영상의 AI 분석 요약을 보강하면 이 영역에 학습 정리가 표시됩니다.',
-      },
-    ];
-  }
-
-  return details.slice(0, 12);
-}
-
-function extractTimedSummaryBlocks(text: string) {
-  const matches = [
-    ...text.matchAll(/(?:(\d{1,2}):)?(\d{1,2}):(\d{2})/g),
-  ];
-
-  return matches
-    .map((match, index) => {
-      const nextMatch = matches[index + 1];
-      const body = text
-        .slice(match.index! + match[0].length, nextMatch?.index ?? text.length)
-        .replace(/\s+/g, ' ')
-        .trim();
-
-      return isReadableCaptionSource(body)
-        ? {
-            label: formatTime(captionTimestampToSeconds(match)),
-            body,
-          }
-        : null;
-    })
-    .filter((block): block is { label: string; body: string } => Boolean(block));
-}
-
-function splitSummaryParagraphs(text: string) {
-  const sentences = text
-    .split(/(?<=[.!?。]|다\.)\s+/)
-    .map((sentence) => sentence.trim())
-    .filter((sentence) => isReadableCaptionSource(sentence));
-  const chunks: string[] = [];
-
-  for (let index = 0; index < sentences.length; index += 2) {
-    chunks.push(sentences.slice(index, index + 2).join(' '));
-  }
-
-  return chunks.length > 0 ? chunks : [text];
-}
-
-function normalizeCaptionSource(value: string) {
-  return value
-    .split(/\n+/)
-    .map((line) => line.trim())
-    .filter((line) => line && !line.startsWith('AI 분석 요약:'))
-    .join(' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function isReadableCaptionSource(value: string) {
-  const compact = value.replace(/\s+/g, '');
-
-  if (compact.length < 3) {
-    return false;
-  }
-
-  if (/[�\uF900-\uFAFF]/.test(compact)) {
-    return false;
-  }
-
-  const questionMarks = compact.match(/\?/g)?.length ?? 0;
-
-  if (
-    /\?{2,}/.test(compact) ||
-    (questionMarks >= 2 && questionMarks / compact.length > 0.12)
-  ) {
-    return false;
-  }
-
-  return /[a-zA-Z가-힣0-9]/.test(compact);
-}
-
-function captionTimestampToSeconds(match: RegExpMatchArray) {
-  const hoursOrMinutes = Number(match[1] ?? 0);
-  const minutesOrSeconds = Number(match[2]);
-  const seconds = Number(match[3]);
-
-  return match[1]
-    ? hoursOrMinutes * 3600 + minutesOrSeconds * 60 + seconds
-    : minutesOrSeconds * 60 + seconds;
-}
-
 function formatDate(value: string) {
   const date = new Date(value);
 
@@ -4804,25 +4064,6 @@ function formatDate(value: string) {
     month: 'long',
     day: 'numeric',
   }).format(date);
-}
-
-function formatTime(totalSeconds: number) {
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = Math.floor(totalSeconds % 60)
-    .toString()
-    .padStart(2, '0');
-
-  return `${minutes}:${seconds}`;
-}
-
-function clipText(value: string, maxLength: number) {
-  const normalized = value.replace(/\s+/g, ' ').trim();
-
-  if (normalized.length <= maxLength) {
-    return normalized;
-  }
-
-  return `${normalized.slice(0, maxLength).trim()}...`;
 }
 
 function updateVideoDuration(
@@ -4873,13 +4114,6 @@ function loadYouTubeApi(): Promise<YouTubeApi> {
       document.body.appendChild(script);
     }
   });
-}
-
-function slugify(value: string) {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9가-힣]+/g, '-')
-    .replace(/(^-|-$)/g, '');
 }
 
 export default App;

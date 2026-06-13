@@ -82,17 +82,20 @@ load_dotenv(AI_DIR / ".env", override=True)
 DEFAULT_DATABASE_URL = "postgresql://app:app@localhost:5432/app_dev"
 EMBEDDING_DIMENSIONS = 64
 DEFAULT_FALLBACK_CAPTION_DURATION_SECONDS = 600
-CAPTION_TRANSLATION_BATCH_SIZE = 4
-CAPTION_TRANSLATION_MAX_WORKERS = 4
+CAPTION_TRANSLATION_BATCH_SIZE = 32
+CAPTION_TRANSLATION_MAX_WORKERS = 8
 CAPTION_TRANSLATION_COMPACT_THRESHOLD = 240
 CAPTION_TRANSLATION_COMPACT_MAX_DURATION_SECONDS = 8.0
 CAPTION_TRANSLATION_COMPACT_MAX_CHARS = 220
-CAPTION_TRANSLATION_TARGET_SEGMENTS = 20
-CAPTION_TRANSLATION_INLINE_MAX_SEGMENTS = 20
+CAPTION_TRANSLATION_TARGET_SEGMENTS = 720
+CAPTION_TRANSLATION_INLINE_MAX_SEGMENTS = 720
 CAPTION_TRANSLATION_REQUEST_TIMEOUT_SECONDS = 45
+CAPTION_CACHE_POLICY_VERSION = "translation-window-v3"
 CAPTION_RESPONSE_CACHE_TTL_SECONDS = 10 * 60
 CAPTION_RESPONSE_CACHE_MAX_SIZE = 64
 CAPTION_RESPONSE_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+YOUTUBE_SUBTITLE_PO_TOKEN_CACHE_TTL_SECONDS = 5 * 60 * 60
+YOUTUBE_SUBTITLE_PO_TOKEN_CACHE: dict[str, tuple[float, tuple[str, str]]] = {}
 CAPTION_TRANSLATION_JOBS: set[str] = set()
 CAPTION_TRANSLATION_JOB_LOCK = Lock()
 
@@ -860,6 +863,7 @@ def caption_response_cache_key(payload: dict[str, Any]) -> str:
         "durationSeconds": duration_seconds,
         "fallbackTextHash": hashlib.sha256(fallback_text.encode("utf-8")).hexdigest(),
         "openaiEnabled": openai_enabled,
+        "policyVersion": CAPTION_CACHE_POLICY_VERSION,
     }
 
     return json.dumps(cache_parts, sort_keys=True)
@@ -1260,8 +1264,7 @@ def fetch_youtube_caption_tracks(video_id: str) -> list[dict[str, Any]]:
                 "(educational caption retrieval)"
             )
         },
-        timeout=8.0,
-        follow_redirects=True,
+        **youtube_httpx_request_kwargs(timeout=8.0, follow_redirects=True),
     )
     response.raise_for_status()
     player_response = parse_yt_initial_player_response(response.text)
@@ -1383,11 +1386,11 @@ def fetch_caption_segments_from_urls(
 
     for caption_url in urls:
         try:
+            request_url = caption_url_with_recovery_params(caption_url, video_id)
             response = httpx.get(
-                caption_url,
+                request_url,
                 headers=caption_request_headers(video_id),
-                timeout=8.0,
-                follow_redirects=True,
+                **youtube_httpx_request_kwargs(timeout=8.0, follow_redirects=True),
             )
             response.raise_for_status()
             segments = parse_timedtext_response(response)
@@ -1395,7 +1398,7 @@ def fetch_caption_segments_from_urls(
             if segments:
                 return segments, None
         except Exception as exc:
-            last_error = exc
+            last_error = sanitized_caption_exception(exc)
 
     return [], last_error
 
@@ -1700,12 +1703,26 @@ def yt_dlp_recovery_args() -> list[str]:
     if visitor_data:
         extractor_settings.append(f"visitor_data={visitor_data}")
 
+    if youtube_bgutil_server_home():
+        extractor_settings.append(
+            f"fetch_pot={os.getenv('YT_DLP_FETCH_PO_TOKEN', 'always').strip() or 'always'}"
+        )
+
     extra_extractor_args = os.getenv("YT_DLP_YOUTUBE_EXTRACTOR_ARGS", "").strip()
     if extra_extractor_args:
         extractor_settings.append(extra_extractor_args)
 
     if extractor_settings:
         args.extend(["--extractor-args", f"youtube:{';'.join(extractor_settings)}"])
+
+    bgutil_server_home = youtube_bgutil_server_home()
+    if bgutil_server_home:
+        args.extend(
+            [
+                "--extractor-args",
+                f"youtubepot-bgutilscript:server_home={bgutil_server_home}",
+            ]
+        )
 
     cookies_file = os.getenv("YOUTUBE_COOKIES_FILE", "").strip()
     if cookies_file:
@@ -1722,6 +1739,169 @@ def yt_dlp_recovery_args() -> list[str]:
     return args
 
 
+def youtube_httpx_request_kwargs(**kwargs: Any) -> dict[str, Any]:
+    proxy_url = os.getenv("YOUTUBE_PROXY_URL", "").strip()
+    if proxy_url:
+        kwargs["proxy"] = proxy_url
+
+    return kwargs
+
+
+def caption_url_with_recovery_params(caption_url: str, video_id: str = "") -> str:
+    subtitle_po_token = youtube_subtitle_po_token(video_id)
+    if not subtitle_po_token:
+        return caption_url
+
+    parsed = urlparse(caption_url)
+    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+
+    if query.get("pot"):
+        return caption_url
+
+    client, token = subtitle_po_token
+
+    return append_query_params(
+        caption_url,
+        {
+            "c": client,
+            "pot": token,
+            "potc": "1",
+        },
+    )
+
+
+def youtube_subtitle_po_token(video_id: str = "") -> tuple[str, str] | None:
+    explicit_token = explicit_youtube_subtitle_po_token()
+    if explicit_token:
+        return explicit_token
+
+    return generated_youtube_subtitle_po_token(video_id)
+
+
+def explicit_youtube_subtitle_po_token() -> tuple[str, str] | None:
+    for po_token in split_env_values(os.getenv("YOUTUBE_PO_TOKEN")):
+        metadata, separator, token = po_token.partition("+")
+
+        if not separator:
+            return "WEB", po_token
+
+        if not token:
+            continue
+
+        metadata_parts = [part for part in metadata.split(".") if part]
+        client = metadata_parts[0] if metadata_parts else "web"
+        contexts = {part.lower() for part in metadata_parts[1:]}
+
+        if contexts and "subs" not in contexts:
+            continue
+
+        return client.upper(), token
+
+    return None
+
+
+def generated_youtube_subtitle_po_token(video_id: str) -> tuple[str, str] | None:
+    normalized_video_id = str(video_id or "").strip()
+    if not normalized_video_id or not truthy_env_default(
+        "YOUTUBE_AUTO_SUBTITLE_PO_TOKEN",
+        True,
+    ):
+        return None
+
+    cached = YOUTUBE_SUBTITLE_PO_TOKEN_CACHE.get(normalized_video_id)
+    if cached and time.time() - cached[0] < YOUTUBE_SUBTITLE_PO_TOKEN_CACHE_TTL_SECONDS:
+        return cached[1]
+
+    token = generate_bgutil_subtitle_po_token(normalized_video_id)
+    if not token:
+        return None
+
+    response = ("WEB", token)
+    YOUTUBE_SUBTITLE_PO_TOKEN_CACHE[normalized_video_id] = (time.time(), response)
+
+    return response
+
+
+def generate_bgutil_subtitle_po_token(video_id: str) -> str:
+    server_home = youtube_bgutil_server_home()
+    if not server_home:
+        return ""
+
+    node_path = youtube_node_runtime_path()
+    script_path = Path(server_home) / "build" / "generate_once.js"
+    if not node_path or not script_path.exists():
+        return ""
+
+    command = [node_path, str(script_path), "-c", video_id]
+    proxy_url = os.getenv("YOUTUBE_PROXY_URL", "").strip()
+    if proxy_url:
+        command.extend(["-p", proxy_url])
+
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=45,
+            check=False,
+        )
+    except Exception:
+        return ""
+
+    if result.returncode:
+        return ""
+
+    for line in reversed(result.stdout.splitlines()):
+        candidate = line.strip()
+        if not candidate.startswith("{"):
+            continue
+
+        try:
+            data = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+
+        token = data.get("poToken")
+        if isinstance(token, str) and token:
+            return token
+
+    return ""
+
+
+def youtube_bgutil_server_home() -> str:
+    configured = os.getenv("YOUTUBE_BGUTIL_SERVER_HOME", "").strip()
+    candidates = [Path(configured)] if configured else []
+    candidates.append(ROOT_DIR / ".tools" / "bgutil-ytdlp-pot-provider" / "server")
+
+    for candidate in candidates:
+        if candidate and (candidate / "build" / "generate_once.js").exists():
+            return str(candidate)
+
+    return ""
+
+
+def youtube_node_runtime_path() -> str:
+    js_runtime = os.getenv("YT_DLP_JS_RUNTIME", "").strip()
+    if js_runtime:
+        _runtime, _separator, runtime_path = js_runtime.partition(":")
+        if runtime_path:
+            return runtime_path
+
+    return shutil.which("node") or ""
+
+
+def sanitized_caption_exception(exc: Exception) -> Exception:
+    return RuntimeError(redact_sensitive_youtube_text(str(exc)))
+
+
+def redact_sensitive_youtube_text(text: str) -> str:
+    return re.sub(
+        r"([?&](?:pot|poToken)=)[^&\s'\"]+",
+        r"\1[REDACTED]",
+        str(text),
+    )
+
+
 def split_env_values(value: str | None) -> list[str]:
     if not value:
         return []
@@ -1731,6 +1911,14 @@ def split_env_values(value: str | None) -> list[str]:
 
 def truthy_env(name: str) -> bool:
     return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def truthy_env_default(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+
+    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def ffmpeg_location_args() -> list[str]:
@@ -1996,10 +2184,10 @@ def translate_caption_segments(
 def compact_caption_segments_for_translation(
     segments: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    if len(segments) <= CAPTION_TRANSLATION_TARGET_SEGMENTS:
-        return segments
-
     if len(segments) < CAPTION_TRANSLATION_COMPACT_THRESHOLD:
+        if len(segments) <= CAPTION_TRANSLATION_TARGET_SEGMENTS:
+            return segments
+
         return compact_caption_segments_to_budget(
             segments,
             CAPTION_TRANSLATION_TARGET_SEGMENTS,

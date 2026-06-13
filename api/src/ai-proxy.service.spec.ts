@@ -22,8 +22,28 @@ describe('AiProxyService', () => {
     );
   });
 
+  it('allows agent study plans to run longer than the generic AI timeout', async () => {
+    const post = jest.fn().mockReturnValue(of({ data: { mode: 'agent' } }));
+    const service = new AiProxyService(
+      {
+        get: jest.fn((key: string) =>
+          key === 'AI_SERVICE_URL' ? 'http://ai.local' : undefined,
+        ),
+      } as never,
+      { post } as never,
+    );
+
+    await service.plan({ goal: 'React hooks study course' });
+
+    expect(post).toHaveBeenCalledWith(
+      'http://ai.local/agent/study-plan',
+      { goal: 'React hooks study course' },
+      expect.objectContaining({ timeout: 60000 }),
+    );
+  });
+
   it('keeps the requested caption language in the timeout fallback', async () => {
-    const post = jest.fn().mockImplementation((_url, _body, _options) => {
+    const post = jest.fn().mockImplementation(() => {
       throw new Error('timeout');
     });
     const service = new AiProxyService(

@@ -78,14 +78,19 @@ export class AiProxyService {
   }
 
   plan(body: unknown): Promise<unknown> {
-    return this.post('/agent/study-plan', body, {
-      mode: 'ai-service-unavailable',
-      goal: '',
-      recommendations: [],
-      rationale:
-        'FastAPI agent service is offline. Start the AI service to run the full bounded tool loop.',
-      trace: [],
-    });
+    return this.post(
+      '/agent/study-plan',
+      body,
+      {
+        mode: 'ai-service-unavailable',
+        goal: '',
+        recommendations: [],
+        rationale:
+          'FastAPI agent service is offline. Start the AI service to run the full bounded tool loop.',
+        trace: [],
+      },
+      Number(this.configService.get<string>('AI_AGENT_TIMEOUT_MS')) || 60000,
+    );
   }
 
   private async get(path: string, fallback: unknown): Promise<unknown> {

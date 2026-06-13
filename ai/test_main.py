@@ -116,7 +116,7 @@ class AiServiceTest(unittest.TestCase):
         os.environ["OPENAI_API_KEY"] = "test-key"
         source_segments = [
             {"start": index * 2, "end": index * 2 + 2, "text": f"caption {index}"}
-            for index in range(12)
+            for index in range(40)
         ]
 
         try:
@@ -128,9 +128,9 @@ class AiServiceTest(unittest.TestCase):
             else:
                 os.environ["OPENAI_API_KEY"] = original_key
 
-        self.assertEqual(len(translated), 12)
+        self.assertEqual(len(translated), 40)
         self.assertGreater(FakeOpenAI.calls, 1)
-        self.assertEqual(translated[-1]["start"], 22)
+        self.assertEqual(translated[-1]["start"], 78)
 
     def test_caption_segment_translation_compacts_long_word_level_captions(self):
         class FakeOpenAI:
@@ -186,6 +186,10 @@ class AiServiceTest(unittest.TestCase):
         self.assertLess(len(translated), len(source_segments))
         self.assertEqual(translated[0]["start"], 0)
         self.assertEqual(translated[-1]["end"], 300)
+        self.assertLessEqual(
+            max(segment["end"] - segment["start"] for segment in translated),
+            main.CAPTION_TRANSLATION_COMPACT_MAX_DURATION_SECONDS,
+        )
         self.assertIn("word0", translated[0]["text"])
         self.assertIn("translated", translated[0]["text"])
 
@@ -203,6 +207,10 @@ class AiServiceTest(unittest.TestCase):
         )
         self.assertEqual(compacted[0]["start"], 0)
         self.assertEqual(compacted[-1]["end"], 5400)
+        self.assertLessEqual(
+            max(segment["end"] - segment["start"] for segment in compacted),
+            main.CAPTION_TRANSLATION_COMPACT_MAX_DURATION_SECONDS,
+        )
         self.assertIn("caption 0", compacted[0]["text"])
         self.assertIn("caption 2699", compacted[-1]["text"])
 
@@ -259,6 +267,11 @@ class AiServiceTest(unittest.TestCase):
                 os.environ["OPENAI_API_KEY"] = original_key
 
         self.assertLessEqual(len(translated), main.CAPTION_TRANSLATION_TARGET_SEGMENTS)
+        self.assertGreater(len(translated), 20)
+        self.assertLessEqual(
+            max(segment["end"] - segment["start"] for segment in translated),
+            main.CAPTION_TRANSLATION_COMPACT_MAX_DURATION_SECONDS,
+        )
         self.assertIn("Condense each item", FakeOpenAI.system_prompt)
 
     def test_concise_caption_prompt_uses_requested_english_target(self):
@@ -1394,10 +1407,14 @@ class AiServiceTest(unittest.TestCase):
         self.assertIn("--proxy", args)
         self.assertIn("http://127.0.0.1:8888", args)
         self.assertIn("--extractor-args", args)
-        self.assertIn(
-            "youtube:po_token=web.subs+TEST_TOKEN;visitor_data=TEST_VISITOR",
-            args,
-        )
+        youtube_extractor_args = [
+            args[index + 1]
+            for index, arg in enumerate(args[:-1])
+            if arg == "--extractor-args" and args[index + 1].startswith("youtube:")
+        ]
+        self.assertTrue(youtube_extractor_args)
+        self.assertIn("po_token=web.subs+TEST_TOKEN", youtube_extractor_args[0])
+        self.assertIn("visitor_data=TEST_VISITOR", youtube_extractor_args[0])
 
     def test_caption_url_with_recovery_params_adds_subtitle_po_token(self):
         original_token = os.environ.get("YOUTUBE_PO_TOKEN")
@@ -1417,6 +1434,49 @@ class AiServiceTest(unittest.TestCase):
         self.assertEqual(query["pot"], "TEST_TOKEN")
         self.assertEqual(query["potc"], "1")
         self.assertEqual(query["c"], "WEB")
+
+    def test_caption_url_with_recovery_params_generates_video_bound_po_token(self):
+        original_token = os.environ.get("YOUTUBE_PO_TOKEN")
+        original_auto = os.environ.get("YOUTUBE_AUTO_SUBTITLE_PO_TOKEN")
+        original_generate = main.generate_bgutil_subtitle_po_token
+        os.environ.pop("YOUTUBE_PO_TOKEN", None)
+        os.environ["YOUTUBE_AUTO_SUBTITLE_PO_TOKEN"] = "true"
+        main.YOUTUBE_SUBTITLE_PO_TOKEN_CACHE.clear()
+        main.generate_bgutil_subtitle_po_token = lambda video_id: (
+            "GENERATED_TOKEN" if video_id == "abc123" else ""
+        )
+
+        try:
+            url = main.caption_url_with_recovery_params(
+                "https://www.youtube.com/api/timedtext?v=abc123&lang=en",
+                "abc123",
+            )
+        finally:
+            main.generate_bgutil_subtitle_po_token = original_generate
+            main.YOUTUBE_SUBTITLE_PO_TOKEN_CACHE.clear()
+            if original_token is None:
+                os.environ.pop("YOUTUBE_PO_TOKEN", None)
+            else:
+                os.environ["YOUTUBE_PO_TOKEN"] = original_token
+            if original_auto is None:
+                os.environ.pop("YOUTUBE_AUTO_SUBTITLE_PO_TOKEN", None)
+            else:
+                os.environ["YOUTUBE_AUTO_SUBTITLE_PO_TOKEN"] = original_auto
+
+        query = dict(parse_qsl(urlparse(url).query, keep_blank_values=True))
+        self.assertEqual(query["pot"], "GENERATED_TOKEN")
+        self.assertEqual(query["potc"], "1")
+        self.assertEqual(query["c"], "WEB")
+
+    def test_sanitized_caption_exception_redacts_po_token_query_values(self):
+        error = main.sanitized_caption_exception(
+            RuntimeError(
+                "HTTP 429 for https://www.youtube.com/api/timedtext?v=abc&pot=SECRET&potc=1"
+            )
+        )
+
+        self.assertNotIn("SECRET", str(error))
+        self.assertIn("pot=[REDACTED]", str(error))
 
     def test_fetch_caption_segments_uses_recovery_url_and_proxy(self):
         class FakeResponse:

@@ -7,4 +7,6 @@ httpx
 pydantic
 youtube-transcript-api
 yt-dlp
+yt-dlp-ejs
+bgutil-ytdlp-pot-provider
 imageio-ffmpeg

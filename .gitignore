@@ -28,6 +28,8 @@ lerna-debug.log*
 
 # Agent/local generated artifacts
 .superpowers/
+.tools/
+api/.data/
 docs/study/*.html
 
 # Environment files

@@ -7,6 +7,7 @@ import {
   nativeYouTubeCaptionLanguage,
   selectActiveCaption,
   shouldUseNativeYouTubeCaptions,
+  sourceCaptionTranslationPollDelay,
   syncNativeYouTubeCaptions,
   youtubeCaptionPlayerVars,
 } from '../src/captions.ts';
@@ -177,6 +178,11 @@ test('displays translated captions in the selected language', () => {
   });
 
   assert.equal(displayable, true);
+});
+
+test('checks background translated captions quickly after source captions load', () => {
+  assert.equal(sourceCaptionTranslationPollDelay(0), 1200);
+  assert.equal(sourceCaptionTranslationPollDelay(1), 2500);
 });
 
 test('disables native YouTube captions instead of leaving auto-translate active', () => {

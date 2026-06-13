@@ -5,6 +5,8 @@ const VIDEO_END_TOLERANCE_SECONDS = 0.75;
 const MIN_CAPTION_DISPLAY_CHARS = 24;
 const MAX_CAPTION_DISPLAY_CHARS = 48;
 const CAPTION_DISPLAY_CHARS_PER_SECOND = 12;
+const SOURCE_CAPTION_TRANSLATION_INITIAL_POLL_MS = 1200;
+const SOURCE_CAPTION_TRANSLATION_POLL_MS = 2500;
 const DANGLING_CAPTION_END_WORDS = new Set([
   'a',
   'an',
@@ -21,6 +23,12 @@ const DANGLING_CAPTION_END_WORDS = new Set([
   '또는',
   '및',
 ]);
+
+export function sourceCaptionTranslationPollDelay(attempts: number) {
+  return attempts <= 0
+    ? SOURCE_CAPTION_TRANSLATION_INITIAL_POLL_MS
+    : SOURCE_CAPTION_TRANSLATION_POLL_MS;
+}
 
 export type NativeYouTubeCaptionPlayer = {
   loadModule?: (module: string) => void;

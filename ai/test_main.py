@@ -193,7 +193,7 @@ class AiServiceTest(unittest.TestCase):
         self.assertIn("word0", translated[0]["text"])
         self.assertIn("translated", translated[0]["text"])
 
-    def test_caption_segment_translation_keeps_long_videos_within_inline_budget(self):
+    def test_caption_segment_translation_keeps_long_videos_within_background_budget(self):
         source_segments = [
             {"start": index * 2, "end": index * 2 + 2, "text": f"caption {index}"}
             for index in range(2700)
@@ -203,7 +203,7 @@ class AiServiceTest(unittest.TestCase):
 
         self.assertLessEqual(
             len(compacted),
-            main.CAPTION_TRANSLATION_INLINE_MAX_SEGMENTS,
+            main.CAPTION_TRANSLATION_TARGET_SEGMENTS,
         )
         self.assertEqual(compacted[0]["start"], 0)
         self.assertEqual(compacted[-1]["end"], 5400)
@@ -213,6 +213,34 @@ class AiServiceTest(unittest.TestCase):
         )
         self.assertIn("caption 0", compacted[0]["text"])
         self.assertIn("caption 2699", compacted[-1]["text"])
+
+    def test_caption_segment_translation_does_not_inline_long_video_jobs(self):
+        class FakeOpenAI:
+            pass
+
+        source_segments = [
+            {"start": index * 2, "end": index * 2 + 2, "text": f"caption {index}"}
+            for index in range(2700)
+        ]
+        original_openai = main.OpenAI
+        original_key = os.environ.get("OPENAI_API_KEY")
+        main.OpenAI = FakeOpenAI
+        os.environ["OPENAI_API_KEY"] = "test-key"
+
+        try:
+            compacted = main.compact_caption_segments_for_translation(source_segments)
+
+            self.assertFalse(main.should_translate_caption_segments_inline(source_segments))
+            self.assertGreater(
+                len(compacted),
+                main.CAPTION_TRANSLATION_INLINE_MAX_SEGMENTS,
+            )
+        finally:
+            main.OpenAI = original_openai
+            if original_key is None:
+                os.environ.pop("OPENAI_API_KEY", None)
+            else:
+                os.environ["OPENAI_API_KEY"] = original_key
 
     def test_caption_segment_translation_uses_concise_prompt_for_compacted_captions(self):
         class FakeOpenAI:

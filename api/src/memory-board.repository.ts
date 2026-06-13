@@ -14,6 +14,19 @@ import {
 } from './study-board.types';
 
 type StoredUser = User & { passwordHash: string };
+export type MemoryBoardState = {
+  users: StoredUser[];
+  sessions: { token: string; userId: number }[];
+  posts: StudyPost[];
+  playlists: Playlist[];
+  nextIds: {
+    user: number;
+    post: number;
+    comment: number;
+    playlist: number;
+    feedback: number;
+  };
+};
 
 const nowIso = () => new Date().toISOString();
 
@@ -158,6 +171,7 @@ export class MemoryBoardRepository implements BoardRepository {
       createdAt: nowIso(),
     };
     this.users.push(user);
+    await this.persistState();
 
     return this.toPublicUser(user);
   }
@@ -210,6 +224,7 @@ export class MemoryBoardRepository implements BoardRepository {
         })),
       }));
     }
+    await this.persistState();
 
     return this.toPublicUser(next);
   }
@@ -224,6 +239,7 @@ export class MemoryBoardRepository implements BoardRepository {
     }
 
     this.sessions.push({ token, userId });
+    await this.persistState();
 
     return {
       token,
@@ -332,6 +348,7 @@ export class MemoryBoardRepository implements BoardRepository {
       updatedAt: timestamp,
     };
     this.posts.unshift(post);
+    await this.persistState();
 
     return { ...post, comments: [], tags: [...post.tags] };
   }
@@ -356,6 +373,7 @@ export class MemoryBoardRepository implements BoardRepository {
       updatedAt: nowIso(),
     };
     this.posts[index] = next;
+    await this.persistState();
 
     return { ...next, comments: [...next.comments], tags: [...next.tags] };
   }
@@ -369,6 +387,9 @@ export class MemoryBoardRepository implements BoardRepository {
       ...playlist,
       postIds: playlist.postIds.filter((postId) => postId !== id),
     }));
+    if (this.posts.length !== before) {
+      await this.persistState();
+    }
 
     return this.posts.length !== before;
   }
@@ -398,6 +419,7 @@ export class MemoryBoardRepository implements BoardRepository {
       createdAt: nowIso(),
     };
     post.comments.push(comment);
+    await this.persistState();
 
     return comment;
   }
@@ -413,6 +435,9 @@ export class MemoryBoardRepository implements BoardRepository {
 
     const before = post.comments.length;
     post.comments = post.comments.filter((comment) => comment.id !== commentId);
+    if (post.comments.length !== before) {
+      await this.persistState();
+    }
 
     return post.comments.length !== before;
   }
@@ -443,6 +468,7 @@ export class MemoryBoardRepository implements BoardRepository {
       createdAt: nowIso(),
     };
     this.playlists.unshift(playlist);
+    await this.persistState();
 
     return this.clonePlaylist(playlist);
   }
@@ -463,6 +489,7 @@ export class MemoryBoardRepository implements BoardRepository {
 
     if (!playlist.postIds.includes(postId)) {
       playlist.postIds.push(postId);
+      await this.persistState();
     }
 
     return this.clonePlaylist(playlist);
@@ -493,6 +520,7 @@ export class MemoryBoardRepository implements BoardRepository {
       createdAt: nowIso(),
     };
     playlist.feedback.push(feedback);
+    await this.persistState();
 
     return feedback;
   }
@@ -527,6 +555,32 @@ export class MemoryBoardRepository implements BoardRepository {
           .filter((tag) => tag.length > 0),
       ),
     ];
+  }
+
+  protected snapshotState(): MemoryBoardState {
+    return this.cloneState({
+      users: this.users,
+      sessions: this.sessions,
+      posts: this.posts,
+      playlists: this.playlists,
+      nextIds: this.nextIds,
+    });
+  }
+
+  protected restoreState(state: MemoryBoardState) {
+    this.users = this.cloneState(state.users);
+    this.sessions = this.cloneState(state.sessions);
+    this.posts = this.cloneState(state.posts);
+    this.playlists = this.cloneState(state.playlists);
+    this.nextIds = this.cloneState(state.nextIds);
+  }
+
+  protected persistState(): Promise<void> {
+    return Promise.resolve();
+  }
+
+  private cloneState<T>(value: T): T {
+    return JSON.parse(JSON.stringify(value)) as T;
   }
 
   private idle(): Promise<void> {

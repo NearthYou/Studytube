@@ -6,8 +6,13 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash } from 'node:crypto';
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { basename, dirname, resolve } from 'node:path';
 import { Pool, PoolClient } from 'pg';
-import { MemoryBoardRepository } from './memory-board.repository';
+import {
+  MemoryBoardRepository,
+  type MemoryBoardState,
+} from './memory-board.repository';
 import {
   Comment,
   CreatePostInput,
@@ -51,10 +56,15 @@ export class DatabaseService
 {
   private readonly logger = new Logger(DatabaseService.name);
   private readonly pool: Pool;
+  private readonly fallbackDataPath: string;
   private databaseAvailable = false;
 
   constructor(configService: ConfigService) {
     super();
+    this.fallbackDataPath = resolve(
+      configService.get<string>('BOARD_FALLBACK_DATA_PATH') ??
+        this.defaultFallbackDataPath(),
+    );
     this.pool = new Pool({
       connectionString:
         configService.get<string>('DATABASE_URL') ??
@@ -70,8 +80,9 @@ export class DatabaseService
       this.databaseAvailable = true;
     } catch (error) {
       this.databaseAvailable = false;
+      await this.loadFallbackState();
       this.logger.warn(
-        `PostgreSQL unavailable, using in-memory demo data: ${this.toErrorMessage(
+        `PostgreSQL unavailable, using file-backed fallback data: ${this.toErrorMessage(
           error,
         )}`,
       );
@@ -87,7 +98,7 @@ export class DatabaseService
       return {
         service: 'api',
         status: 'degraded',
-        database: 'in-memory fallback',
+        database: 'file-backed fallback',
         timestamp: new Date().toISOString(),
       };
     }
@@ -107,7 +118,7 @@ export class DatabaseService
       return {
         service: 'api',
         status: 'degraded',
-        database: 'in-memory fallback',
+        database: 'file-backed fallback',
         message: this.toErrorMessage(error),
       };
     }
@@ -1059,10 +1070,64 @@ export class DatabaseService
   private fallback(error: unknown) {
     this.databaseAvailable = false;
     this.logger.warn(
-      `Database operation failed, switching to in-memory fallback: ${this.toErrorMessage(
+      `Database operation failed, switching to file-backed fallback: ${this.toErrorMessage(
         error,
       )}`,
     );
+  }
+
+  protected async loadFallbackState() {
+    try {
+      const raw = await readFile(this.fallbackDataPath, 'utf8');
+      this.restoreState(JSON.parse(raw) as MemoryBoardState);
+    } catch (error) {
+      if (this.isMissingFallbackFile(error)) {
+        await this.persistState();
+        return;
+      }
+
+      this.logger.warn(
+        `Could not load fallback data file, using demo seed data: ${this.toErrorMessage(
+          error,
+        )}`,
+      );
+    }
+  }
+
+  protected override async persistState() {
+    if (this.databaseAvailable) {
+      return;
+    }
+
+    try {
+      await mkdir(dirname(this.fallbackDataPath), { recursive: true });
+      const temporaryPath = `${this.fallbackDataPath}.tmp`;
+      await writeFile(
+        temporaryPath,
+        JSON.stringify(this.snapshotState(), null, 2),
+        'utf8',
+      );
+      await rename(temporaryPath, this.fallbackDataPath);
+    } catch (error) {
+      this.logger.warn(
+        `Could not persist fallback data file: ${this.toErrorMessage(error)}`,
+      );
+    }
+  }
+
+  private isMissingFallbackFile(error: unknown) {
+    return (
+      error &&
+      typeof error === 'object' &&
+      'code' in error &&
+      error.code === 'ENOENT'
+    );
+  }
+
+  private defaultFallbackDataPath() {
+    return basename(process.cwd()).toLowerCase() === 'api'
+      ? '.data/board-fallback.json'
+      : 'api/.data/board-fallback.json';
   }
 
   private toErrorMessage(error: unknown): string {

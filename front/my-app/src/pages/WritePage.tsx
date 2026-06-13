@@ -3,6 +3,8 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
 import { FilterSelect } from '../components/FilterSelect'
 import type { Filters } from '../types/community'
+import { localizeLookupOptions } from '../utils/i18n'
+import type { Language } from '../utils/language'
 import { fetchPostFilters, type PostFilterLookups } from '../utils/lookupsApi'
 import { fetchPostById } from '../utils/postsApi'
 import '../styles/pages/WritePage.css'
@@ -22,6 +24,7 @@ type PostFormPayload = {
 type WritePageProps = {
   onCreatePost: (payload: PostFormPayload) => Promise<boolean>
   onUpdatePost: (postId: number, payload: PostFormPayload) => Promise<boolean>
+  language: Language
 }
 
 const EMPTY_LOOKUPS: PostFilterLookups = {
@@ -32,7 +35,65 @@ const EMPTY_LOOKUPS: PostFilterLookups = {
   companions: [],
 }
 
-export function WritePage({ onCreatePost, onUpdatePost }: WritePageProps) {
+const COPY = {
+  ko: {
+    loading: '작성 화면을 불러오는 중입니다...',
+    editEyebrow: '게시글 수정',
+    createEyebrow: '게시글 작성',
+    editTitle: '게시글 수정하기',
+    createTitle: '새 게시글 작성하기',
+    body: '여행 정보를 입력하고 게시판에 공유해보세요.',
+    title: '제목',
+    travelDate: '여행일자',
+    imageUpload: '사진 업로드',
+    companion: '동행',
+    region: '지역',
+    budget: '예산',
+    theme: '테마',
+    season: '계절',
+    content: '여행 내용',
+    contentPlaceholder: '동선, 예산, 추천 포인트를 자유롭게 적어주세요.',
+    submitCreate: '등록하기',
+    submitEdit: '수정 완료',
+    submitting: '저장 중...',
+    required: '필수 항목을 모두 입력해주세요.',
+    createDone: '게시글이 등록되었습니다.',
+    editDone: '게시글이 수정되었습니다.',
+    lookupError: '옵션을 불러오지 못했습니다.',
+    loadPostError: '게시글을 불러오지 못했습니다.',
+    all: '전체',
+  },
+  en: {
+    loading: 'Loading the editor...',
+    editEyebrow: 'Edit post',
+    createEyebrow: 'Create post',
+    editTitle: 'Edit your post',
+    createTitle: 'Create a new post',
+    body: 'Fill in your trip details and share them on the board.',
+    title: 'Title',
+    travelDate: 'Travel date',
+    imageUpload: 'Upload image',
+    companion: 'Companion',
+    region: 'Region',
+    budget: 'Budget',
+    theme: 'Theme',
+    season: 'Season',
+    content: 'Trip story',
+    contentPlaceholder: 'Write about your route, budget, and recommended highlights.',
+    submitCreate: 'Publish',
+    submitEdit: 'Save changes',
+    submitting: 'Saving...',
+    required: 'Fill in every required field.',
+    createDone: 'Post created.',
+    editDone: 'Post updated.',
+    lookupError: 'Failed to load options.',
+    loadPostError: 'Failed to load the post.',
+    all: 'All',
+  },
+} satisfies Record<Language, Record<string, string>>
+
+export function WritePage({ onCreatePost, onUpdatePost, language }: WritePageProps) {
+  const copy = COPY[language]
   const navigate = useNavigate()
   const params = useParams()
   const postId = Number(params.postId)
@@ -68,7 +129,7 @@ export function WritePage({ onCreatePost, onUpdatePost }: WritePageProps) {
         setLookupOptions(data)
       } catch (error) {
         if (isMounted) {
-          window.alert(error instanceof Error ? error.message : '옵션을 불러오지 못했습니다.')
+          window.alert(error instanceof Error ? error.message : copy.lookupError)
         }
       } finally {
         if (isMounted) {
@@ -82,7 +143,7 @@ export function WritePage({ onCreatePost, onUpdatePost }: WritePageProps) {
     return () => {
       isMounted = false
     }
-  }, [])
+  }, [copy.lookupError])
 
   useEffect(() => {
     if (!isEditMode) {
@@ -116,7 +177,7 @@ export function WritePage({ onCreatePost, onUpdatePost }: WritePageProps) {
         setPreviewUrl(response.post.imageUrl)
       } catch (error) {
         if (isMounted) {
-          window.alert(error instanceof Error ? error.message : '게시글을 불러오지 못했습니다.')
+          window.alert(error instanceof Error ? error.message : copy.loadPostError)
           navigate('/main')
         }
       } finally {
@@ -131,7 +192,15 @@ export function WritePage({ onCreatePost, onUpdatePost }: WritePageProps) {
     return () => {
       isMounted = false
     }
-  }, [isEditMode, navigate, postId])
+  }, [copy.loadPostError, isEditMode, navigate, postId])
+
+  const localizedLookups: PostFilterLookups = {
+    regions: localizeLookupOptions('region', lookupOptions.regions, language),
+    themes: localizeLookupOptions('theme', lookupOptions.themes, language),
+    budgetRanges: localizeLookupOptions('budget', lookupOptions.budgetRanges, language),
+    seasons: localizeLookupOptions('season', lookupOptions.seasons, language),
+    companions: localizeLookupOptions('companion', lookupOptions.companions, language),
+  }
 
   const updateSelect = (key: keyof Filters, value: string) => {
     setForm((current) => ({ ...current, [key]: value }))
@@ -157,7 +226,7 @@ export function WritePage({ onCreatePost, onUpdatePost }: WritePageProps) {
     return (
       <main className="page">
         <section className="empty-state">
-          <h1>작성 화면을 불러오는 중입니다...</h1>
+          <h1>{copy.loading}</h1>
         </section>
       </main>
     )
@@ -167,9 +236,9 @@ export function WritePage({ onCreatePost, onUpdatePost }: WritePageProps) {
     <main className="page form-page">
       <section className="form-card">
         <div className="form-card__header">
-          <span>{isEditMode ? '게시글 수정' : '게시글 작성'}</span>
-          <h1>{isEditMode ? '게시글 수정하기' : '새 게시글 작성하기'}</h1>
-          <p>여행 정보를 입력하고 게시판에 저장하세요.</p>
+          <span>{isEditMode ? copy.editEyebrow : copy.createEyebrow}</span>
+          <h1>{isEditMode ? copy.editTitle : copy.createTitle}</h1>
+          <p>{copy.body}</p>
         </div>
         <form
           className="write-form"
@@ -186,7 +255,7 @@ export function WritePage({ onCreatePost, onUpdatePost }: WritePageProps) {
               !form.companion ||
               !form.content.trim()
             ) {
-              window.alert('필수 항목을 모두 입력해주세요.')
+              window.alert(copy.required)
               return
             }
 
@@ -213,7 +282,7 @@ export function WritePage({ onCreatePost, onUpdatePost }: WritePageProps) {
                 return
               }
 
-              window.alert(isEditMode ? '게시글이 수정되었습니다.' : '게시글이 등록되었습니다.')
+              window.alert(isEditMode ? copy.editDone : copy.createDone)
               navigate(isEditMode ? `/posts/${postId}` : '/main')
             } finally {
               setIsSubmitting(false)
@@ -221,14 +290,14 @@ export function WritePage({ onCreatePost, onUpdatePost }: WritePageProps) {
           }}
         >
           <label>
-            제목
+            {copy.title}
             <input
               value={form.title}
               onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
             />
           </label>
           <label>
-            여행일자
+            {copy.travelDate}
             <input
               type="date"
               value={form.travelDate}
@@ -238,7 +307,7 @@ export function WritePage({ onCreatePost, onUpdatePost }: WritePageProps) {
             />
           </label>
           <label>
-            사진 업로드
+            {copy.imageUpload}
             <input accept="image/*" type="file" onChange={handleFileChange} />
           </label>
           {previewUrl ? (
@@ -248,46 +317,51 @@ export function WritePage({ onCreatePost, onUpdatePost }: WritePageProps) {
           ) : null}
           <div className="filter-grid form-filter-grid">
             <FilterSelect
-              label="동행"
-              options={lookupOptions.companions}
+              label={copy.companion}
+              options={localizedLookups.companions}
+              placeholder={copy.all}
               value={form.companion}
               onChange={(value) => updateSelect('companion', value)}
             />
             <FilterSelect
-              label="지역"
-              options={lookupOptions.regions}
+              label={copy.region}
+              options={localizedLookups.regions}
+              placeholder={copy.all}
               value={form.region}
               onChange={(value) => updateSelect('region', value)}
             />
             <FilterSelect
-              label="예산"
-              options={lookupOptions.budgetRanges}
+              label={copy.budget}
+              options={localizedLookups.budgetRanges}
+              placeholder={copy.all}
               value={form.budget}
               onChange={(value) => updateSelect('budget', value)}
             />
             <FilterSelect
-              label="테마"
-              options={lookupOptions.themes}
+              label={copy.theme}
+              options={localizedLookups.themes}
+              placeholder={copy.all}
               value={form.theme}
               onChange={(value) => updateSelect('theme', value)}
             />
             <FilterSelect
-              label="계절"
-              options={lookupOptions.seasons}
+              label={copy.season}
+              options={localizedLookups.seasons}
+              placeholder={copy.all}
               value={form.season}
               onChange={(value) => updateSelect('season', value)}
             />
           </div>
           <label>
-            여행 내용
+            {copy.content}
             <textarea
-              placeholder="동선, 예산, 추천 포인트를 자유롭게 적어주세요."
+              placeholder={copy.contentPlaceholder}
               value={form.content}
               onChange={(event) => setForm((current) => ({ ...current, content: event.target.value }))}
             />
           </label>
           <button className="primary-button" disabled={isSubmitting} type="submit">
-            {isSubmitting ? '저장 중...' : isEditMode ? '수정 완료' : '등록하기'}
+            {isSubmitting ? copy.submitting : isEditMode ? copy.submitEdit : copy.submitCreate}
           </button>
         </form>
       </section>

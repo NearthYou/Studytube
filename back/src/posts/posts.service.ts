@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { AiSyncService } from '../ai-sync/ai-sync.service';
 import { AuthUser } from '../common/types/auth-user.type';
 import { CreatePostDto } from './dto/create-post.dto';
 import { GetPostsQueryDto } from './dto/get-posts.query.dto';
@@ -12,7 +13,10 @@ import { PostsRepository } from './repositories/posts.repository';
 
 @Injectable()
 export class PostsService {
-  constructor(private readonly postsRepository: PostsRepository) {}
+  constructor(
+    private readonly postsRepository: PostsRepository,
+    private readonly aiSyncService: AiSyncService,
+  ) {}
 
   async getPosts(query: GetPostsQueryDto) {
     const result = await this.postsRepository.findPosts({
@@ -101,6 +105,8 @@ export class PostsService {
       throw new NotFoundException('Created post not found.');
     }
 
+    await this.aiSyncService.syncPost(post.id);
+
     return {
       message: 'Post created.',
       post,
@@ -173,6 +179,8 @@ export class PostsService {
       throw new NotFoundException('Updated post not found.');
     }
 
+    await this.aiSyncService.syncPost(post.id);
+
     return {
       message: 'Post updated.',
       post,
@@ -191,6 +199,7 @@ export class PostsService {
     }
 
     await this.postsRepository.deletePost(postId);
+    await this.aiSyncService.syncPost(postId);
 
     return {
       message: 'Post deleted.',

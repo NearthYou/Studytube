@@ -7,30 +7,46 @@
 .post-card__stats button,
 .detail-card__actions button,
 .mypage-tabs button {
-  border: 1px solid rgba(56, 45, 28, 0.14);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 46px;
+  padding: 0.85rem 1.15rem;
+  border: 1px solid transparent;
   border-radius: 999px;
-  background: linear-gradient(135deg, #211d18 0%, #3a342d 100%);
-  box-shadow:
-    0 14px 30px rgba(27, 27, 27, 0.12),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
-  color: #fff;
   cursor: pointer;
   font: inherit;
-  font-size: 0.9rem;
-  font-weight: 600;
-  letter-spacing: 0.015em;
+  font-size: 0.92rem;
+  font-weight: 700;
   line-height: 1;
-  white-space: nowrap;
-  min-height: 46px;
-  padding: 0.9rem 1.24rem;
-  text-decoration: none;
   text-align: center;
+  text-decoration: none;
+  white-space: nowrap;
   transition:
-    background 160ms ease,
+    background-color 160ms ease,
     border-color 160ms ease,
     box-shadow 160ms ease,
     color 160ms ease,
     transform 160ms ease;
+}
+
+.primary-button {
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-strong) 100%);
+  box-shadow: 0 14px 26px rgba(8, 145, 178, 0.18);
+  color: #fff;
+}
+
+.secondary-button,
+.ghost-button,
+.toggle-button,
+.sort-group button,
+.pagination button,
+.post-card__stats button,
+.detail-card__actions button,
+.mypage-tabs button {
+  background: #fff;
+  border-color: rgba(148, 163, 184, 0.24);
+  color: var(--text-body);
 }
 
 .primary-button:hover,
@@ -42,37 +58,16 @@
 .post-card__stats button:hover,
 .detail-card__actions button:hover,
 .mypage-tabs button:hover {
-  box-shadow:
-    0 18px 34px rgba(27, 27, 27, 0.16),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
-  transform: translateY(-2px) scale(1.01);
-}
-
-.secondary-button,
-.ghost-button,
-.toggle-button,
-.sort-group button,
-.pagination button,
-.post-card__stats button,
-.detail-card__actions button,
-.mypage-tabs button {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92) 0%, rgba(249, 244, 237, 0.96) 100%);
-  box-shadow:
-    0 10px 22px rgba(121, 109, 89, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.9);
-  color: #221f1a;
+  transform: translateY(-1px);
 }
 
 .toggle-button.active,
 .sort-group button.active,
 .pagination button.active,
 .mypage-tabs button.active {
-  border-color: transparent;
-  background: linear-gradient(135deg, #211d18 0%, #3a342d 100%);
-  box-shadow:
-    0 16px 32px rgba(27, 27, 27, 0.16),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
-  color: #fff;
+  background: rgba(14, 116, 144, 0.12);
+  border-color: rgba(14, 116, 144, 0.2);
+  color: var(--accent-strong);
 }
 
 .primary-button:active,
@@ -85,7 +80,6 @@
 .detail-card__actions button:active,
 .mypage-tabs button:active {
   transform: translateY(0);
-  box-shadow: 0 8px 18px rgba(27, 27, 27, 0.12);
 }
 
 .primary-button:focus-visible,
@@ -96,8 +90,18 @@
 .pagination button:focus-visible,
 .post-card__stats button:focus-visible,
 .detail-card__actions button:focus-visible,
-.mypage-tabs button:focus-visible {
-  outline: 3px solid rgba(122, 109, 89, 0.18);
+.mypage-tabs button:focus-visible,
+.auth-form input:focus,
+.signup-form input:focus,
+.write-form input:focus,
+.write-form textarea:focus,
+.profile-edit-form input:focus,
+.comment-form textarea:focus,
+.reply-form input:focus,
+.chat-form textarea:focus,
+.filter-field select:focus,
+.search-input:focus {
+  outline: 3px solid rgba(56, 189, 248, 0.22);
   outline-offset: 2px;
 }
 
@@ -119,8 +123,8 @@
   display: grid;
   gap: 0.5rem;
   color: var(--text-body);
-  font-size: 0.91rem;
-  font-weight: 500;
+  font-size: 0.92rem;
+  font-weight: 600;
 }
 
 .auth-form input,
@@ -134,15 +138,13 @@
 .filter-field select,
 .search-input {
   width: 100%;
-  border: 1px solid rgba(114, 94, 67, 0.16);
+  border: 1px solid rgba(148, 163, 184, 0.22);
   border-radius: 18px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(253, 250, 245, 0.98) 100%);
+  background: rgba(255, 255, 255, 0.96);
   color: var(--text-strong);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.78),
-    0 8px 18px rgba(121, 109, 89, 0.05);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
   font: inherit;
-  padding: 0.98rem 1.08rem;
+  padding: 0.98rem 1.05rem;
 }
 
 .write-form textarea,
@@ -150,23 +152,6 @@
 .chat-form textarea {
   min-height: 160px;
   resize: vertical;
-}
-
-.auth-form input:focus,
-.signup-form input:focus,
-.write-form input:focus,
-.write-form textarea:focus,
-.profile-edit-form input:focus,
-.comment-form textarea:focus,
-.reply-form input:focus,
-.chat-form textarea:focus,
-.filter-field select:focus,
-.search-input:focus {
-  outline: 2px solid rgba(101, 90, 67, 0.15);
-  border-color: #9a8e7a;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.86),
-    0 12px 22px rgba(121, 109, 89, 0.08);
 }
 
 .filter-grid,
@@ -191,8 +176,27 @@
 }
 
 .pagination button:disabled {
-  opacity: 0.35;
+  opacity: 0.4;
   cursor: not-allowed;
+}
+
+.status-note {
+  margin: 0;
+  padding: 0.85rem 0.95rem;
+  border-radius: 16px;
+  background: rgba(226, 232, 240, 0.45);
+  color: var(--text-body);
+  font-size: 0.92rem;
+}
+
+.status-note--error {
+  background: rgba(254, 226, 226, 0.85);
+  color: #991b1b;
+}
+
+.status-note--success {
+  background: rgba(220, 252, 231, 0.92);
+  color: #166534;
 }
 
 @media (max-width: 760px) {

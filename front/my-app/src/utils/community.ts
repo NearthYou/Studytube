@@ -1,4 +1,5 @@
 import type { Comment, User } from '../types/community'
+import type { Language } from './language'
 
 export const PAGE_SIZE = 15
 
@@ -6,8 +7,8 @@ export function countDiscussion(comments: Comment[]) {
   return comments.reduce((total, comment) => total + 1 + comment.replies.length, 0)
 }
 
-export function formatDate(date: string) {
-  return new Intl.DateTimeFormat('ko-KR', {
+export function formatDate(date: string, language: Language = 'ko') {
+  return new Intl.DateTimeFormat(language === 'ko' ? 'ko-KR' : 'en-US', {
     month: 'long',
     day: 'numeric',
   }).format(new Date(date))
@@ -21,6 +22,6 @@ export function getSummary(content: string) {
   return `${content.slice(0, 96)}...`
 }
 
-export function getUserLabel(users: User[], userId: number) {
-  return users.find((user) => user.id === userId)?.nickname ?? '알 수 없음'
+export function getUserLabel(users: User[], userId: number, language: Language = 'ko') {
+  return users.find((user) => user.id === userId)?.nickname ?? (language === 'ko' ? '알 수 없음' : 'Unknown')
 }

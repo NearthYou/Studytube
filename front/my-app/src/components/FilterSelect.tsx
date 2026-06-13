@@ -14,7 +14,7 @@ export function FilterSelect({
   options,
   value,
   onChange,
-  placeholder = '전체',
+  placeholder = 'All',
 }: FilterSelectProps) {
   return (
     <label className="filter-field">

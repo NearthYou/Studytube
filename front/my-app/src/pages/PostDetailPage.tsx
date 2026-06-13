@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { FilterSelect } from '../components/FilterSelect'
 import type { Comment, PostWithMeta, User } from '../types/community'
@@ -12,6 +12,8 @@ import {
   updateReply,
 } from '../utils/commentsApi'
 import { formatDate, getUserLabel } from '../utils/community'
+import { localizeLookupOptions, localizeLookupValue } from '../utils/i18n'
+import type { Language } from '../utils/language'
 import { fetchPostFilters, type PostFilterLookups } from '../utils/lookupsApi'
 import { fetchPostById } from '../utils/postsApi'
 import '../styles/pages/PostDetailPage.css'
@@ -41,6 +43,7 @@ type PostDetailPageProps = {
       content: string
     },
   ) => Promise<boolean>
+  language: Language
 }
 
 const EMPTY_LOOKUPS: PostFilterLookups = {
@@ -50,6 +53,135 @@ const EMPTY_LOOKUPS: PostFilterLookups = {
   seasons: [],
   companions: [],
 }
+
+const COPY = {
+  ko: {
+    invalidAddress: '잘못된 게시글 주소입니다.',
+    loadFailed: '게시글을 불러오지 못했습니다.',
+    loading: '게시글을 불러오는 중입니다...',
+    notFound: '게시글을 찾을 수 없습니다.',
+    backToMain: '메인으로 돌아가기',
+    required: '필수 항목을 모두 입력해주세요.',
+    title: '제목',
+    travelDate: '여행일자',
+    imageUrl: '이미지 URL',
+    region: '지역',
+    budget: '예산',
+    theme: '테마',
+    season: '계절',
+    companion: '동행',
+    content: '내용',
+    savePost: '게시글 저장',
+    savingPost: '저장 중...',
+    cancel: '취소',
+    author: '작성자',
+    noContent: '내용이 없습니다.',
+    like: '찜하기',
+    unlike: '찜 취소',
+    followAuthor: '작성자 팔로우',
+    unfollowAuthor: '팔로우 취소',
+    openChat: '추천 챗봇',
+    openPlanner: '여행 플래너',
+    editPost: '게시글 수정',
+    closeEdit: '수정 닫기',
+    deletePost: '게시글 삭제',
+    confirmDeletePost: '이 게시글을 삭제할까요?',
+    comments: '댓글',
+    commentIntro: '이 게시글의 댓글과 답글을 확인하고 작성할 수 있습니다.',
+    commentPlaceholder: '댓글을 입력하세요',
+    submitComment: '댓글 등록',
+    submitting: '저장 중...',
+    edited: '수정됨',
+    edit: '수정',
+    delete: '삭제',
+    save: '저장',
+    confirmDeleteComment: '이 댓글을 삭제할까요?',
+    confirmDeleteReply: '이 답글을 삭제할까요?',
+    replyPlaceholder: '답글을 입력하세요',
+    submitReply: '답글 등록',
+    noComments: '아직 댓글이 없습니다.',
+    shortcuts: '바로가기',
+    shortcutsBody: '이 게시글을 기준으로 추천 챗봇과 플래너로 바로 이동할 수 있습니다.',
+    openChatTitle: '추천 챗봇 열기',
+    openChatBody: '이 게시글을 기준으로 여행지를 추천받습니다.',
+    openPlannerTitle: '플래너 열기',
+    openPlannerBody: '이 게시글을 바탕으로 일정 초안을 만듭니다.',
+    relatedPosts: '연관 게시글',
+    relatedPostsBody: '지역의 다른 게시글',
+    noRelatedPosts: '연관 게시글이 아직 없습니다.',
+    views: '조회',
+    discussion: '댓글',
+    commentCreateFailed: '댓글을 등록하지 못했습니다.',
+    commentUpdateFailed: '댓글을 수정하지 못했습니다.',
+    commentDeleteFailed: '댓글을 삭제하지 못했습니다.',
+    replyCreateFailed: '답글을 등록하지 못했습니다.',
+    replyUpdateFailed: '답글을 수정하지 못했습니다.',
+    replyDeleteFailed: '답글을 삭제하지 못했습니다.',
+  },
+  en: {
+    invalidAddress: 'Invalid post address.',
+    loadFailed: 'Failed to load the post.',
+    loading: 'Loading post...',
+    notFound: 'Post not found.',
+    backToMain: 'Back to home',
+    required: 'Fill in every required field.',
+    title: 'Title',
+    travelDate: 'Travel date',
+    imageUrl: 'Image URL',
+    region: 'Region',
+    budget: 'Budget',
+    theme: 'Theme',
+    season: 'Season',
+    companion: 'Companion',
+    content: 'Content',
+    savePost: 'Save post',
+    savingPost: 'Saving...',
+    cancel: 'Cancel',
+    author: 'Author',
+    noContent: 'No content yet.',
+    like: 'Save',
+    unlike: 'Unsave',
+    followAuthor: 'Follow author',
+    unfollowAuthor: 'Unfollow',
+    openChat: 'Chat',
+    openPlanner: 'Planner',
+    editPost: 'Edit post',
+    closeEdit: 'Close editor',
+    deletePost: 'Delete post',
+    confirmDeletePost: 'Delete this post?',
+    comments: 'Comments',
+    commentIntro: 'Read and write comments and replies for this post.',
+    commentPlaceholder: 'Write a comment',
+    submitComment: 'Post comment',
+    submitting: 'Saving...',
+    edited: 'Edited',
+    edit: 'Edit',
+    delete: 'Delete',
+    save: 'Save',
+    confirmDeleteComment: 'Delete this comment?',
+    confirmDeleteReply: 'Delete this reply?',
+    replyPlaceholder: 'Write a reply',
+    submitReply: 'Post reply',
+    noComments: 'No comments yet.',
+    shortcuts: 'Shortcuts',
+    shortcutsBody: 'Jump to the chatbot or planner with this post as the context.',
+    openChatTitle: 'Open chatbot',
+    openChatBody: 'Get destination recommendations based on this post.',
+    openPlannerTitle: 'Open planner',
+    openPlannerBody: 'Generate a draft itinerary from this post.',
+    relatedPosts: 'Related posts',
+    relatedPostsBody: 'other posts in this region',
+    noRelatedPosts: 'No related posts yet.',
+    views: 'Views',
+    discussion: 'Comments',
+    commentCreateFailed: 'Failed to create the comment.',
+    commentUpdateFailed: 'Failed to update the comment.',
+    commentDeleteFailed: 'Failed to delete the comment.',
+    replyCreateFailed: 'Failed to create the reply.',
+    replyUpdateFailed: 'Failed to update the reply.',
+    replyDeleteFailed: 'Failed to delete the reply.',
+  },
+} satisfies Record<Language, Record<string, string>>
 
 function isEdited(createdAt?: string, updatedAt?: string) {
   if (!createdAt || !updatedAt) {
@@ -71,7 +203,9 @@ export function PostDetailPage({
   onHydratePosts,
   onDeletePost,
   onUpdatePost,
+  language,
 }: PostDetailPageProps) {
+  const copy = COPY[language]
   const params = useParams()
   const navigate = useNavigate()
   const [post, setPost] = useState<PostWithMeta | null>(null)
@@ -132,7 +266,7 @@ export function PostDetailPage({
   useEffect(() => {
     if (!Number.isFinite(postId)) {
       setIsLoading(false)
-      setErrorMessage('?섎せ??寃뚯떆湲 二쇱냼?낅땲??')
+      setErrorMessage(copy.invalidAddress)
       return
     }
 
@@ -171,7 +305,7 @@ export function PostDetailPage({
           return
         }
 
-        setErrorMessage(error instanceof Error ? error.message : '寃뚯떆湲??遺덈윭?ㅼ? 紐삵뻽?듬땲??')
+        setErrorMessage(error instanceof Error ? error.message : copy.loadFailed)
       } finally {
         if (isMounted) {
           setIsLoading(false)
@@ -184,7 +318,7 @@ export function PostDetailPage({
     return () => {
       isMounted = false
     }
-  }, [onHydratePosts, postId])
+  }, [copy.invalidAddress, copy.loadFailed, onHydratePosts, postId])
 
   useEffect(() => {
     if (!post || viewedPostIdsRef.current.has(post.id)) {
@@ -199,7 +333,7 @@ export function PostDetailPage({
     return (
       <main className="page">
         <section className="empty-state">
-          <h1>寃뚯떆湲??遺덈윭?ㅻ뒗 以묒엯?덈떎...</h1>
+          <h1>{copy.loading}</h1>
         </section>
       </main>
     )
@@ -209,32 +343,52 @@ export function PostDetailPage({
     return (
       <main className="page">
         <section className="empty-state">
-          <h1>{errorMessage || '寃뚯떆湲??李얠쓣 ???놁뒿?덈떎.'}</h1>
+          <h1>{errorMessage || copy.notFound}</h1>
           <Link className="secondary-button" to="/main">
-            硫붿씤?쇰줈 ?뚯븘媛湲?          </Link>
+            {copy.backToMain}
+          </Link>
         </section>
       </main>
     )
   }
 
+  const localizedLookups: PostFilterLookups = {
+    regions: localizeLookupOptions('region', lookupOptions.regions, language),
+    themes: localizeLookupOptions('theme', lookupOptions.themes, language),
+    budgetRanges: localizeLookupOptions('budget', lookupOptions.budgetRanges, language),
+    seasons: localizeLookupOptions('season', lookupOptions.seasons, language),
+    companions: localizeLookupOptions('companion', lookupOptions.companions, language),
+  }
+
   const isAuthor = currentUser.id === post.author.id
   const relatedPosts = posts.filter((item) => item.region === post.region && item.id !== post.id).slice(0, 3)
+  const region = localizeLookupValue('region', post.region, language, post.regionCode)
+  const budget = localizeLookupValue('budget', post.budget, language, post.budgetCode)
+  const theme = localizeLookupValue('theme', post.theme, language, post.themeCode)
+  const season = localizeLookupValue('season', post.season, language)
+  const companion = localizeLookupValue('companion', post.companion, language)
   const chatHref = `/chat?${new URLSearchParams({
-    q: `${post.region} ${post.theme} ${post.companion} recommendation`,
-    region: post.region,
-    budget: post.budget,
-    theme: post.theme,
-    season: post.season,
-    companion: post.companion,
+    q:
+      language === 'ko'
+        ? `${region} ${theme} ${companion} 여행 추천`
+        : `Recommend a ${theme.toLowerCase()} trip in ${region} for ${companion.toLowerCase()}.`,
+    region,
+    budget,
+    theme,
+    season,
+    companion,
     travelDate: post.travelDate,
   }).toString()}`
   const plannerHref = `/planner?${new URLSearchParams({
-    q: `${post.region} planner`,
-    region: post.region,
-    budget: post.budget,
-    theme: post.theme,
-    season: post.season,
-    companion: post.companion,
+    q:
+      language === 'ko'
+        ? `${region} 여행 일정`
+        : `Plan a trip in ${region}.`,
+    region,
+    budget,
+    theme,
+    season,
+    companion,
     travelDate: post.travelDate,
     duration: '3',
   }).toString()}`
@@ -249,8 +403,8 @@ export function PostDetailPage({
         </div>
         <div className="detail-card__content">
           <div className="detail-card__meta">
-            <span>{formatDate(post.createdAt)}</span>
-            <span>{post.region}</span>
+            <span>{formatDate(post.createdAt, language)}</span>
+            <span>{region}</span>
             <span>{post.travelDate}</span>
           </div>
 
@@ -270,7 +424,7 @@ export function PostDetailPage({
                   !editPostForm.companion ||
                   !editPostForm.content.trim()
                 ) {
-                  window.alert('?꾩닔 ??ぉ??紐⑤몢 ?낅젰?댁＜?몄슂.')
+                  window.alert(copy.required)
                   return
                 }
 
@@ -314,7 +468,7 @@ export function PostDetailPage({
               }}
             >
               <label>
-                ?쒕ぉ
+                {copy.title}
                 <input
                   value={editPostForm.title}
                   onChange={(event) =>
@@ -323,7 +477,7 @@ export function PostDetailPage({
                 />
               </label>
               <label>
-                ?ы뻾?쇱옄
+                {copy.travelDate}
                 <input
                   type="date"
                   value={editPostForm.travelDate}
@@ -333,7 +487,7 @@ export function PostDetailPage({
                 />
               </label>
               <label>
-                ?대?吏 URL
+                {copy.imageUrl}
                 <input
                   value={editPostForm.imageUrl}
                   onChange={(event) =>
@@ -343,40 +497,40 @@ export function PostDetailPage({
               </label>
               <div className="detail-edit-grid">
                 <FilterSelect
-                  label="지역"
-                  options={lookupOptions.regions}
+                  label={copy.region}
+                  options={localizedLookups.regions}
                   value={editPostForm.regionCode}
                   onChange={(value) =>
                     setEditPostForm((current) => ({ ...current, regionCode: value }))
                   }
                 />
                 <FilterSelect
-                  label="예산"
-                  options={lookupOptions.budgetRanges}
+                  label={copy.budget}
+                  options={localizedLookups.budgetRanges}
                   value={editPostForm.budgetCode}
                   onChange={(value) =>
                     setEditPostForm((current) => ({ ...current, budgetCode: value }))
                   }
                 />
                 <FilterSelect
-                  label="테마"
-                  options={lookupOptions.themes}
+                  label={copy.theme}
+                  options={localizedLookups.themes}
                   value={editPostForm.themeCode}
                   onChange={(value) =>
                     setEditPostForm((current) => ({ ...current, themeCode: value }))
                   }
                 />
                 <FilterSelect
-                  label="계절"
-                  options={lookupOptions.seasons}
+                  label={copy.season}
+                  options={localizedLookups.seasons}
                   value={editPostForm.season}
                   onChange={(value) =>
                     setEditPostForm((current) => ({ ...current, season: value }))
                   }
                 />
                 <FilterSelect
-                  label="동행"
-                  options={lookupOptions.companions}
+                  label={copy.companion}
+                  options={localizedLookups.companions}
                   value={editPostForm.companion}
                   onChange={(value) =>
                     setEditPostForm((current) => ({ ...current, companion: value }))
@@ -384,7 +538,7 @@ export function PostDetailPage({
                 />
               </div>
               <label>
-                ?댁슜
+                {copy.content}
                 <textarea
                   value={editPostForm.content}
                   onChange={(event) =>
@@ -394,7 +548,7 @@ export function PostDetailPage({
               </label>
               <div className="detail-inline-actions">
                 <button className="primary-button" disabled={isSavingPostEdit} type="submit">
-                  {isSavingPostEdit ? '저장 중...' : '게시글 저장'}
+                  {isSavingPostEdit ? copy.savingPost : copy.savePost}
                 </button>
                 <button
                   type="button"
@@ -413,7 +567,7 @@ export function PostDetailPage({
                     setIsEditingPost(false)
                   }}
                 >
-                  痍⑥냼
+                  {copy.cancel}
                 </button>
               </div>
             </form>
@@ -421,22 +575,22 @@ export function PostDetailPage({
             <>
               <h1>{post.title}</h1>
               <p className="detail-card__author">
-                ?묒꽦??<Link to={`/profile/${post.author.id}`}>{post.author.nickname}</Link>
+                {copy.author} <Link to={`/profile/${post.author.id}`}>{post.author.nickname}</Link>
               </p>
               <div className="detail-card__tags">
                 {post.tags.map((tag) => (
                   <span key={tag}>{tag}</span>
                 ))}
               </div>
-              <p className="detail-card__body">{post.content || '?댁슜???놁뒿?덈떎.'}</p>
+              <p className="detail-card__body">{post.content || copy.noContent}</p>
             </>
           )}
 
           <div className="detail-card__actions">
             <button
-              aria-label={likedPostIds.has(post.id) ? '찜 취소' : '찜하기'}
+              aria-label={likedPostIds.has(post.id) ? copy.unlike : copy.like}
               className={`like-button ${likedPostIds.has(post.id) ? 'active' : ''}`}
-              title={likedPostIds.has(post.id) ? '찜 취소' : '찜하기'}
+              title={likedPostIds.has(post.id) ? copy.unlike : copy.like}
               type="button"
               onClick={() => void onToggleLike(post.id)}
             >
@@ -445,23 +599,23 @@ export function PostDetailPage({
               </span>
             </button>
             <button type="button" onClick={() => void onToggleFollow(post.author.id)}>
-              {followedAuthorIds.has(post.author.id) ? '팔로우 취소' : '작성자 팔로우'}
+              {followedAuthorIds.has(post.author.id) ? copy.unfollowAuthor : copy.followAuthor}
             </button>
             <Link className="secondary-button" to={chatHref}>
-              추천 챗봇
+              {copy.openChat}
             </Link>
             <Link className="secondary-button" to={plannerHref}>
-              여행 플래너
+              {copy.openPlanner}
             </Link>
             {isAuthor ? (
               <>
                 <button type="button" onClick={() => setIsEditingPost((current) => !current)}>
-                  {isEditingPost ? '?섏젙 ?リ린' : '寃뚯떆湲 ?섏젙'}
+                  {isEditingPost ? copy.closeEdit : copy.editPost}
                 </button>
                 <button
                   type="button"
                   onClick={async () => {
-                    if (!window.confirm('??寃뚯떆湲????젣?좉퉴??')) {
+                    if (!window.confirm(copy.confirmDeletePost)) {
                       return
                     }
 
@@ -472,7 +626,7 @@ export function PostDetailPage({
                     }
                   }}
                 >
-                  寃뚯떆湲 ??젣
+                  {copy.deletePost}
                 </button>
               </>
             ) : null}
@@ -482,8 +636,8 @@ export function PostDetailPage({
 
       <section className="detail-section">
         <div className="detail-section__heading">
-          <h2>?볤? {renderedDiscussionCount}</h2>
-          <span>??寃뚯떆湲???볤?怨???볤????뺤씤?섍퀬 ?묒꽦?????덉뒿?덈떎.</span>
+          <h2>{copy.comments} {renderedDiscussionCount}</h2>
+          <span>{copy.commentIntro}</span>
         </div>
         <form
           className="comment-form"
@@ -502,30 +656,30 @@ export function PostDetailPage({
               setComments((current) => [response.comment, ...current])
               setCommentText('')
             } catch (error) {
-              window.alert(error instanceof Error ? error.message : '?볤????깅줉?섏? 紐삵뻽?듬땲??')
+              window.alert(error instanceof Error ? error.message : copy.commentCreateFailed)
             } finally {
               setIsSubmittingComment(false)
             }
           }}
         >
           <textarea
-            placeholder="?볤????낅젰?섏꽭??"
+            placeholder={copy.commentPlaceholder}
             value={commentText}
             onChange={(event) => setCommentText(event.target.value)}
           />
           <button className="primary-button" disabled={isSubmittingComment} type="submit">
-            {isSubmittingComment ? '???以?..' : '?볤? ?깅줉'}
+            {isSubmittingComment ? copy.submitting : copy.submitComment}
           </button>
         </form>
         <div className="comment-list">
           {comments.map((comment) => (
             <article className="comment-card" key={comment.id}>
               <div className="comment-card__head">
-                <strong>{comment.author?.nickname ?? getUserLabel(users, comment.authorId)}</strong>
+                <strong>{comment.author?.nickname ?? getUserLabel(users, comment.authorId, language)}</strong>
                 <span>
-                  {formatDate(comment.createdAt)}
+                  {formatDate(comment.createdAt, language)}
                   {isEdited(comment.createdAt, comment.updatedAt) ? (
-                    <em className="detail-edited-badge">수정됨</em>
+                    <em className="detail-edited-badge">{copy.edited}</em>
                   ) : null}
                 </span>
               </div>
@@ -549,7 +703,7 @@ export function PostDetailPage({
                       setEditingCommentId(null)
                       setEditingCommentText('')
                     } catch (error) {
-                      window.alert(error instanceof Error ? error.message : '?볤????섏젙?섏? 紐삵뻽?듬땲??')
+                      window.alert(error instanceof Error ? error.message : copy.commentUpdateFailed)
                     }
                   }}
                 >
@@ -559,7 +713,8 @@ export function PostDetailPage({
                   />
                   <div className="detail-inline-actions">
                     <button className="ghost-button" type="submit">
-                      ???                    </button>
+                      {copy.save}
+                    </button>
                     <button
                       type="button"
                       onClick={() => {
@@ -567,7 +722,7 @@ export function PostDetailPage({
                         setEditingCommentText('')
                       }}
                     >
-                      痍⑥냼
+                      {copy.cancel}
                     </button>
                   </div>
                 </form>
@@ -584,12 +739,12 @@ export function PostDetailPage({
                       setEditingCommentText(comment.content)
                     }}
                   >
-                    ?섏젙
+                    {copy.edit}
                   </button>
                   <button
                     type="button"
                     onClick={async () => {
-                      if (!window.confirm('???볤?????젣?좉퉴??')) {
+                      if (!window.confirm(copy.confirmDeleteComment)) {
                         return
                       }
 
@@ -597,11 +752,11 @@ export function PostDetailPage({
                         await deleteComment(comment.id)
                         setComments((current) => current.filter((item) => item.id !== comment.id))
                       } catch (error) {
-                        window.alert(error instanceof Error ? error.message : '?볤?????젣?섏? 紐삵뻽?듬땲??')
+                        window.alert(error instanceof Error ? error.message : copy.commentDeleteFailed)
                       }
                     }}
                   >
-                    ??젣
+                    {copy.delete}
                   </button>
                 </div>
               ) : null}
@@ -609,11 +764,11 @@ export function PostDetailPage({
               <div className="reply-list">
                 {comment.replies.map((reply) => (
                   <div className="reply-card" key={reply.id}>
-                    <strong>{reply.author?.nickname ?? getUserLabel(users, reply.authorId)}</strong>
+                    <strong>{reply.author?.nickname ?? getUserLabel(users, reply.authorId, language)}</strong>
                     <span>
-                      {formatDate(reply.createdAt)}
+                      {formatDate(reply.createdAt, language)}
                       {isEdited(reply.createdAt, reply.updatedAt) ? (
-                        <em className="detail-edited-badge">수정됨</em>
+                        <em className="detail-edited-badge">{copy.edited}</em>
                       ) : null}
                     </span>
 
@@ -645,7 +800,7 @@ export function PostDetailPage({
                             setEditingReplyId(null)
                             setEditingReplyText('')
                           } catch (error) {
-                            window.alert(error instanceof Error ? error.message : '??볤????섏젙?섏? 紐삵뻽?듬땲??')
+                            window.alert(error instanceof Error ? error.message : copy.replyUpdateFailed)
                           }
                         }}
                       >
@@ -655,7 +810,8 @@ export function PostDetailPage({
                         />
                         <div className="detail-inline-actions">
                           <button className="ghost-button" type="submit">
-                            ???                          </button>
+                            {copy.save}
+                          </button>
                           <button
                             type="button"
                             onClick={() => {
@@ -663,7 +819,7 @@ export function PostDetailPage({
                               setEditingReplyText('')
                             }}
                           >
-                            痍⑥냼
+                            {copy.cancel}
                           </button>
                         </div>
                       </form>
@@ -680,12 +836,12 @@ export function PostDetailPage({
                             setEditingReplyText(reply.content)
                           }}
                         >
-                          ?섏젙
+                          {copy.edit}
                         </button>
                         <button
                           type="button"
                           onClick={async () => {
-                            if (!window.confirm('????볤?????젣?좉퉴??')) {
+                            if (!window.confirm(copy.confirmDeleteReply)) {
                               return
                             }
 
@@ -702,11 +858,11 @@ export function PostDetailPage({
                                 ),
                               )
                             } catch (error) {
-                              window.alert(error instanceof Error ? error.message : '??볤?????젣?섏? 紐삵뻽?듬땲??')
+                              window.alert(error instanceof Error ? error.message : copy.replyDeleteFailed)
                             }
                           }}
                         >
-                          ??젣
+                          {copy.delete}
                         </button>
                       </div>
                     ) : null}
@@ -739,14 +895,14 @@ export function PostDetailPage({
                     )
                     setReplyDrafts((current) => ({ ...current, [comment.id]: '' }))
                   } catch (error) {
-                    window.alert(error instanceof Error ? error.message : '??볤????깅줉?섏? 紐삵뻽?듬땲??')
+                    window.alert(error instanceof Error ? error.message : copy.replyCreateFailed)
                   } finally {
                     setSubmittingReplyFor(null)
                   }
                 }}
               >
                 <input
-                  placeholder="??볤????낅젰?섏꽭??"
+                  placeholder={copy.replyPlaceholder}
                   value={replyDrafts[comment.id] ?? ''}
                   onChange={(event) =>
                     setReplyDrafts((current) => ({
@@ -756,47 +912,47 @@ export function PostDetailPage({
                   }
                 />
                 <button className="ghost-button" disabled={submittingReplyFor === comment.id} type="submit">
-                  {submittingReplyFor === comment.id ? '???以?..' : '??볤? ?깅줉'}
+                  {submittingReplyFor === comment.id ? copy.submitting : copy.submitReply}
                 </button>
               </form>
             </article>
           ))}
-          {!comments.length ? <p className="muted-copy">?꾩쭅 ?볤????놁뒿?덈떎.</p> : null}
+          {!comments.length ? <p className="muted-copy">{copy.noComments}</p> : null}
         </div>
       </section>
 
       <section className="detail-section">
         <div className="detail-section__heading">
-          <h2>바로가기</h2>
-          <span>이 게시글을 기준으로 추천 챗봇과 플래너로 바로 이동할 수 있습니다.</span>
+          <h2>{copy.shortcuts}</h2>
+          <span>{copy.shortcutsBody}</span>
         </div>
         <div className="detail-ai-links">
           <Link className="detail-ai-card" to={chatHref}>
-            <strong>추천 챗봇 열기</strong>
-            <p>이 게시글을 기준으로 여행지를 추천받습니다.</p>
+            <strong>{copy.openChatTitle}</strong>
+            <p>{copy.openChatBody}</p>
           </Link>
           <Link className="detail-ai-card" to={plannerHref}>
-            <strong>플래너 열기</strong>
-            <p>이 게시글을 바탕으로 일정 초안을 만듭니다.</p>
+            <strong>{copy.openPlannerTitle}</strong>
+            <p>{copy.openPlannerBody}</p>
           </Link>
         </div>
       </section>
 
       <section className="detail-section">
         <div className="detail-section__heading">
-          <h2>연관 게시글</h2>
-          <span>{post.region} 지역의 다른 게시글</span>
+          <h2>{copy.relatedPosts}</h2>
+          <span>{region} {copy.relatedPostsBody}</span>
         </div>
         <div className="related-posts">
           {relatedPosts.map((relatedPost) => (
             <Link className="related-post" key={relatedPost.id} to={`/posts/${relatedPost.id}`}>
               <strong>{relatedPost.title}</strong>
               <span>
-                조회 {relatedPost.views} | 댓글 {relatedPost.discussionCount}
+                {copy.views} {relatedPost.views} | {copy.discussion} {relatedPost.discussionCount}
               </span>
             </Link>
           ))}
-          {!relatedPosts.length ? <p className="muted-copy">연관 게시글이 아직 없습니다.</p> : null}
+          {!relatedPosts.length ? <p className="muted-copy">{copy.noRelatedPosts}</p> : null}
         </div>
       </section>
     </main>

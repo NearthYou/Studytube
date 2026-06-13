@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { AiSyncService } from '../ai-sync/ai-sync.service';
 import { AuthUser } from '../common/types/auth-user.type';
 import { CreateCommentDto } from './dto/create-comment.dto';
 import { CreateReplyDto } from './dto/create-reply.dto';
@@ -13,7 +14,10 @@ import { CommentsRepository } from './repositories/comments.repository';
 
 @Injectable()
 export class CommentsService {
-  constructor(private readonly commentsRepository: CommentsRepository) {}
+  constructor(
+    private readonly commentsRepository: CommentsRepository,
+    private readonly aiSyncService: AiSyncService,
+  ) {}
 
   async getPostComments(postId: number) {
     const postExists = await this.commentsRepository.existsPost(postId);
@@ -52,6 +56,8 @@ export class CommentsService {
       throw new NotFoundException('Created comment not found.');
     }
 
+    await this.aiSyncService.syncPost(postId);
+
     return {
       message: 'Comment created.',
       comment,
@@ -82,6 +88,8 @@ export class CommentsService {
     if (!reply) {
       throw new NotFoundException('Created reply not found.');
     }
+
+    await this.aiSyncService.syncPost(postId);
 
     return {
       message: 'Reply created.',
@@ -121,6 +129,8 @@ export class CommentsService {
       throw new NotFoundException('Updated comment not found.');
     }
 
+    await this.aiSyncService.syncPost(comment.post_id);
+
     return {
       message: 'Comment updated.',
       comment: updatedComment,
@@ -142,6 +152,7 @@ export class CommentsService {
     }
 
     await this.commentsRepository.deleteComment(commentId);
+    await this.aiSyncService.syncPost(comment.post_id);
 
     return {
       message: 'Comment deleted.',
@@ -184,6 +195,10 @@ export class CommentsService {
       reply.comment_id,
     );
 
+    if (postId) {
+      await this.aiSyncService.syncPost(postId);
+    }
+
     return {
       message: 'Reply updated.',
       reply: updatedReply,
@@ -209,6 +224,10 @@ export class CommentsService {
     const postId = await this.commentsRepository.findCommentPostId(
       reply.comment_id,
     );
+
+    if (postId) {
+      await this.aiSyncService.syncPost(postId);
+    }
 
     return {
       message: 'Reply deleted.',

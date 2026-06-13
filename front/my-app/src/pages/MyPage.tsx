@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import type { CommentActivity, PostWithMeta, User } from '../types/community'
+import type { Language } from '../utils/language'
 import {
   fetchMyBookmarks,
   fetchMyComments,
@@ -18,6 +19,7 @@ type MyPageProps = {
     bio: string
     location: string
   }) => Promise<boolean>
+  language: Language
 }
 
 type MyPageTab = 'posts' | 'likes' | 'comments' | 'follows' | 'profile'
@@ -26,7 +28,73 @@ const POST_LIMIT = 15
 const COMMENT_LIMIT = 20
 const FOLLOW_LIMIT = 20
 
-export function MyPage({ currentUser, onUpdateProfile }: MyPageProps) {
+const COPY = {
+  ko: {
+    banner: '마이페이지',
+    noBio: '아직 소개글이 없습니다.',
+    posts: '내가 쓴 글',
+    likes: '찜한 글',
+    comments: '내가 쓴 댓글',
+    follows: '팔로우 목록',
+    profile: '내 정보 수정',
+    loading: '불러오는 중...',
+    noPosts: '아직 작성한 글이 없습니다.',
+    noLikes: '아직 찜한 글이 없습니다.',
+    noComments: '아직 작성한 댓글이 없습니다.',
+    noFollows: '아직 팔로우한 사용자가 없습니다.',
+    views: '조회',
+    commentType: '댓글',
+    replyType: '답글',
+    previous: '이전',
+    next: '다음',
+    nickname: '닉네임',
+    newPassword: '새 비밀번호',
+    passwordPlaceholder: '변경하지 않으려면 비워두세요.',
+    bio: '소개글',
+    location: '지역',
+    save: '저장하기',
+    saving: '저장 중...',
+    name: '이름',
+    email: '이메일',
+    enterNickname: '닉네임을 입력해주세요.',
+    profileSaved: '회원 정보가 수정되었습니다.',
+    loadFailed: '마이페이지 정보를 불러오지 못했습니다.',
+  },
+  en: {
+    banner: 'My Page',
+    noBio: 'No bio yet.',
+    posts: 'My posts',
+    likes: 'Saved posts',
+    comments: 'My comments',
+    follows: 'Following',
+    profile: 'Edit profile',
+    loading: 'Loading...',
+    noPosts: 'No posts yet.',
+    noLikes: 'No saved posts yet.',
+    noComments: 'No comments yet.',
+    noFollows: 'You are not following anyone yet.',
+    views: 'Views',
+    commentType: 'Comment',
+    replyType: 'Reply',
+    previous: 'Previous',
+    next: 'Next',
+    nickname: 'Nickname',
+    newPassword: 'New password',
+    passwordPlaceholder: 'Leave blank to keep the current password.',
+    bio: 'Bio',
+    location: 'Location',
+    save: 'Save',
+    saving: 'Saving...',
+    name: 'Name',
+    email: 'Email',
+    enterNickname: 'Enter a nickname.',
+    profileSaved: 'Profile updated.',
+    loadFailed: 'Failed to load My Page data.',
+  },
+} satisfies Record<Language, Record<string, string>>
+
+export function MyPage({ currentUser, onUpdateProfile, language }: MyPageProps) {
+  const copy = COPY[language]
   const [tab, setTab] = useState<MyPageTab>('posts')
   const [nickname, setNickname] = useState(currentUser.nickname)
   const [password, setPassword] = useState('')
@@ -126,7 +194,7 @@ export function MyPage({ currentUser, onUpdateProfile }: MyPageProps) {
         }
       } catch (error) {
         if (isMounted) {
-          window.alert(error instanceof Error ? error.message : '마이페이지 정보를 불러오지 못했습니다.')
+          window.alert(error instanceof Error ? error.message : copy.loadFailed)
         }
       } finally {
         if (isMounted) {
@@ -140,7 +208,7 @@ export function MyPage({ currentUser, onUpdateProfile }: MyPageProps) {
     return () => {
       isMounted = false
     }
-  }, [pages.comments, pages.follows, pages.likes, pages.posts, tab])
+  }, [copy.loadFailed, pages.comments, pages.follows, pages.likes, pages.posts, tab])
 
   const renderPagination = (key: 'posts' | 'likes' | 'comments' | 'follows') => {
     const currentPage = pages[key]
@@ -162,7 +230,7 @@ export function MyPage({ currentUser, onUpdateProfile }: MyPageProps) {
             }))
           }
         >
-          이전
+          {copy.previous}
         </button>
         <span>
           {currentPage} / {currentTotalPages}
@@ -177,7 +245,7 @@ export function MyPage({ currentUser, onUpdateProfile }: MyPageProps) {
             }))
           }
         >
-          다음
+          {copy.next}
         </button>
       </div>
     )
@@ -186,32 +254,32 @@ export function MyPage({ currentUser, onUpdateProfile }: MyPageProps) {
   return (
     <main className="page mypage-page">
       <section className="profile-banner">
-        <span>마이페이지</span>
+        <span>{copy.banner}</span>
         <h1>{currentUser.nickname}</h1>
-        <p>{currentUser.bio || '아직 소개글이 없습니다.'}</p>
+        <p>{currentUser.bio || copy.noBio}</p>
       </section>
 
       <section className="mypage-tabs">
         <button className={tab === 'posts' ? 'active' : ''} type="button" onClick={() => setTab('posts')}>
-          내가 쓴 글
+          {copy.posts}
         </button>
         <button className={tab === 'likes' ? 'active' : ''} type="button" onClick={() => setTab('likes')}>
-          찜한 글
+          {copy.likes}
         </button>
         <button className={tab === 'comments' ? 'active' : ''} type="button" onClick={() => setTab('comments')}>
-          내가 쓴 댓글
+          {copy.comments}
         </button>
         <button className={tab === 'follows' ? 'active' : ''} type="button" onClick={() => setTab('follows')}>
-          팔로우 목록
+          {copy.follows}
         </button>
         <button className={tab === 'profile' ? 'active' : ''} type="button" onClick={() => setTab('profile')}>
-          내 정보 수정
+          {copy.profile}
         </button>
       </section>
 
       {tab === 'posts' ? (
         <section className="mypage-panel">
-          {isLoading ? <p className="muted-copy">불러오는 중...</p> : null}
+          {isLoading ? <p className="muted-copy">{copy.loading}</p> : null}
           {!isLoading && myPosts.length
             ? myPosts.map((post) => (
                 <Link className="mypage-item" key={post.id} to={`/posts/${post.id}`}>
@@ -222,36 +290,36 @@ export function MyPage({ currentUser, onUpdateProfile }: MyPageProps) {
                 </Link>
               ))
             : null}
-          {!isLoading && !myPosts.length ? <p className="muted-copy">아직 작성한 글이 없습니다.</p> : null}
+          {!isLoading && !myPosts.length ? <p className="muted-copy">{copy.noPosts}</p> : null}
           {renderPagination('posts')}
         </section>
       ) : null}
 
       {tab === 'likes' ? (
         <section className="mypage-panel">
-          {isLoading ? <p className="muted-copy">불러오는 중...</p> : null}
+          {isLoading ? <p className="muted-copy">{copy.loading}</p> : null}
           {!isLoading && likedPosts.length
             ? likedPosts.map((post) => (
                 <Link className="mypage-item" key={post.id} to={`/posts/${post.id}`}>
                   <strong>{post.title}</strong>
                   <span>
-                    {post.author.nickname} | 조회 {post.views}
+                    {post.author.nickname} | {copy.views} {post.views}
                   </span>
                 </Link>
               ))
             : null}
-          {!isLoading && !likedPosts.length ? <p className="muted-copy">아직 찜한 글이 없습니다.</p> : null}
+          {!isLoading && !likedPosts.length ? <p className="muted-copy">{copy.noLikes}</p> : null}
           {renderPagination('likes')}
         </section>
       ) : null}
 
       {tab === 'comments' ? (
         <section className="mypage-panel">
-          {isLoading ? <p className="muted-copy">불러오는 중...</p> : null}
+          {isLoading ? <p className="muted-copy">{copy.loading}</p> : null}
           {!isLoading && myComments.length
             ? myComments.map((entry) => (
                 <Link className="mypage-item" key={`${entry.type}-${entry.id}`} to={`/posts/${entry.postId}`}>
-                  <strong>{entry.type === 'comment' ? '댓글' : '대댓글'}</strong>
+                  <strong>{entry.type === 'comment' ? copy.commentType : copy.replyType}</strong>
                   <span>{entry.content}</span>
                   <small>
                     {entry.postTitle} | {entry.createdAt}
@@ -259,14 +327,14 @@ export function MyPage({ currentUser, onUpdateProfile }: MyPageProps) {
                 </Link>
               ))
             : null}
-          {!isLoading && !myComments.length ? <p className="muted-copy">아직 작성한 댓글이 없습니다.</p> : null}
+          {!isLoading && !myComments.length ? <p className="muted-copy">{copy.noComments}</p> : null}
           {renderPagination('comments')}
         </section>
       ) : null}
 
       {tab === 'follows' ? (
         <section className="mypage-panel">
-          {isLoading ? <p className="muted-copy">불러오는 중...</p> : null}
+          {isLoading ? <p className="muted-copy">{copy.loading}</p> : null}
           {!isLoading && followUsers.length
             ? followUsers.map((user) => (
                 <Link className="mypage-item" key={user.id} to={`/profile/${user.id}`}>
@@ -275,7 +343,7 @@ export function MyPage({ currentUser, onUpdateProfile }: MyPageProps) {
                 </Link>
               ))
             : null}
-          {!isLoading && !followUsers.length ? <p className="muted-copy">아직 팔로우한 사용자가 없습니다.</p> : null}
+          {!isLoading && !followUsers.length ? <p className="muted-copy">{copy.noFollows}</p> : null}
           {renderPagination('follows')}
         </section>
       ) : null}
@@ -288,7 +356,7 @@ export function MyPage({ currentUser, onUpdateProfile }: MyPageProps) {
               event.preventDefault()
 
               if (!nickname.trim()) {
-                window.alert('닉네임을 입력해주세요.')
+                window.alert(copy.enterNickname)
                 return
               }
 
@@ -307,43 +375,43 @@ export function MyPage({ currentUser, onUpdateProfile }: MyPageProps) {
                 }
 
                 setPassword('')
-                window.alert('회원 정보가 수정되었습니다.')
+                window.alert(copy.profileSaved)
               } finally {
                 setIsSubmitting(false)
               }
             }}
           >
             <label>
-              이름
+              {copy.name}
               <input disabled value={currentUser.name} />
             </label>
             <label>
-              이메일
+              {copy.email}
               <input disabled value={currentUser.email} />
             </label>
             <label>
-              닉네임
+              {copy.nickname}
               <input value={nickname} onChange={(event) => setNickname(event.target.value)} />
             </label>
             <label>
-              새 비밀번호
+              {copy.newPassword}
               <input
-                placeholder="변경하지 않으려면 비워두세요"
+                placeholder={copy.passwordPlaceholder}
                 type="password"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
               />
             </label>
             <label>
-              소개글
+              {copy.bio}
               <textarea value={bio} onChange={(event) => setBio(event.target.value)} />
             </label>
             <label>
-              지역
+              {copy.location}
               <input value={location} onChange={(event) => setLocation(event.target.value)} />
             </label>
             <button className="primary-button" disabled={isSubmitting} type="submit">
-              {isSubmitting ? '저장 중...' : '저장하기'}
+              {isSubmitting ? copy.saving : copy.save}
             </button>
           </form>
         </section>

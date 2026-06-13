@@ -8,6 +8,7 @@ import { FollowsModule } from './follows/follows.module';
 import { LookupsModule } from './lookups/lookups.module';
 import { MeModule } from './me/me.module';
 import { PostsModule } from './posts/posts.module';
+import { AiSyncModule } from './ai-sync/ai-sync.module';
 import { UsersModule } from './users/users.module';
 
 @Module({
@@ -17,6 +18,7 @@ import { UsersModule } from './users/users.module';
       envFilePath: '.env',
     }),
     DatabaseModule,
+    AiSyncModule,
     AuthModule,
     PostsModule,
     LookupsModule,

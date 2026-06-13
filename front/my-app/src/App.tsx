@@ -29,6 +29,7 @@ import {
   signupUser,
   type AuthApiUser,
 } from './utils/authApi'
+import { getInitialLanguage, type Language } from './utils/language'
 import { fetchMyBookmarks, fetchMyFollows, updateMyProfile as updateMyProfileApi } from './utils/meApi'
 import {
   createPost as createPostApi,
@@ -46,6 +47,29 @@ type SignupPayload = {
   email: string
   nickname: string
 }
+
+const COPY = {
+  ko: {
+    loginFallback: '아이디와 비밀번호를 확인해주세요.',
+    signupFallback: '회원가입에 실패했습니다.',
+    likeFallback: '찜 상태를 변경하지 못했습니다.',
+    followFallback: '팔로우 상태를 변경하지 못했습니다.',
+    createPostFallback: '게시글 등록에 실패했습니다.',
+    updatePostFallback: '게시글을 수정하지 못했습니다.',
+    deletePostFallback: '게시글을 삭제하지 못했습니다.',
+    profileFallback: '회원 정보를 수정하지 못했습니다.',
+  },
+  en: {
+    loginFallback: 'Check your user ID and password.',
+    signupFallback: 'Sign-up failed.',
+    likeFallback: 'Failed to update the saved state.',
+    followFallback: 'Failed to update the follow state.',
+    createPostFallback: 'Failed to create the post.',
+    updatePostFallback: 'Failed to update the post.',
+    deletePostFallback: 'Failed to delete the post.',
+    profileFallback: 'Failed to update the profile.',
+  },
+} satisfies Record<Language, Record<string, string>>
 
 function mapAuthUserToCommunityUser(user: AuthApiUser): User {
   return {
@@ -151,6 +175,13 @@ function App() {
   const [likedByUser, setLikedByUser] = useState<Record<number, number[]>>(INITIAL_LIKED_BY_USER)
   const [followedByUser, setFollowedByUser] = useState<Record<number, number[]>>(INITIAL_FOLLOWED_BY_USER)
   const [boardRefreshToken, setBoardRefreshToken] = useState(0)
+  const [language, setLanguage] = useState<Language>(getInitialLanguage)
+  const copy = COPY[language]
+
+  useEffect(() => {
+    window.localStorage.setItem('tripy-language', language)
+    document.documentElement.lang = language
+  }, [language])
 
   useEffect(() => {
     const token = getAuthToken()
@@ -256,6 +287,10 @@ function App() {
     void syncSocialState(currentUserId)
   }, [currentUserId, syncSocialState])
 
+  const toggleLanguage = () => {
+    setLanguage((current) => (current === 'ko' ? 'en' : 'ko'))
+  }
+
   const handleLogin = async (userId: string, password: string) => {
     try {
       const response = await loginUser({
@@ -268,7 +303,7 @@ function App() {
       setCurrentUserId(nextUser.id)
       navigate('/main')
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : '아이디/비밀번호를 확인해주세요.')
+      window.alert(error instanceof Error ? error.message : copy.loginFallback)
     }
   }
 
@@ -285,7 +320,7 @@ function App() {
 
       return true
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : '회원가입에 실패했습니다.')
+      window.alert(error instanceof Error ? error.message : copy.signupFallback)
       return false
     }
   }
@@ -352,7 +387,7 @@ function App() {
         }
       })
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : '찜 상태를 변경하지 못했습니다.')
+      window.alert(error instanceof Error ? error.message : copy.likeFallback)
     }
   }
 
@@ -382,7 +417,7 @@ function App() {
         }
       })
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : '팔로우 상태를 변경하지 못했습니다.')
+      window.alert(error instanceof Error ? error.message : copy.followFallback)
     }
   }
 
@@ -418,7 +453,7 @@ function App() {
       refreshBoard()
       return true
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : '게시글 등록에 실패했습니다.')
+      window.alert(error instanceof Error ? error.message : copy.createPostFallback)
       return false
     }
   }
@@ -458,7 +493,7 @@ function App() {
       refreshBoard()
       return true
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : '게시글을 수정하지 못했습니다.')
+      window.alert(error instanceof Error ? error.message : copy.updatePostFallback)
       return false
     }
   }
@@ -474,7 +509,7 @@ function App() {
       refreshBoard()
       return true
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : '게시글을 삭제하지 못했습니다.')
+      window.alert(error instanceof Error ? error.message : copy.deletePostFallback)
       return false
     }
   }
@@ -519,7 +554,7 @@ function App() {
 
       return true
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : '회원 정보를 수정하지 못했습니다.')
+      window.alert(error instanceof Error ? error.message : copy.profileFallback)
       return false
     }
   }
@@ -530,12 +565,18 @@ function App() {
 
   return (
     <div className="app-shell">
-      <AppShell currentUser={currentUser} onSignOut={handleSignOut} />
+      <AppShell currentUser={currentUser} language={language} onSignOut={handleSignOut} onToggleLanguage={toggleLanguage} />
       <Routes>
         <Route path="/" element={<Navigate replace to={currentUser ? '/main' : '/login'} />} />
         <Route
           path="/login"
-          element={currentUser ? <Navigate replace to="/main" /> : <LoginPage onLogin={handleLogin} />}
+          element={
+            currentUser ? (
+              <Navigate replace to="/main" />
+            ) : (
+              <LoginPage language={language} onLogin={handleLogin} onToggleLanguage={toggleLanguage} />
+            )
+          }
         />
         <Route
           path="/signup"
@@ -544,10 +585,12 @@ function App() {
               <Navigate replace to="/main" />
             ) : (
               <SignupPage
-                onRequestEmailVerification={requestEmailVerification}
+                language={language}
                 onCheckLoginId={isLoginIdAvailable}
                 onCheckNickname={isNicknameAvailable}
+                onRequestEmailVerification={requestEmailVerification}
                 onSignup={handleSignup}
+                onToggleLanguage={toggleLanguage}
               />
             )
           }
@@ -558,10 +601,11 @@ function App() {
             currentUser ? (
               <BoardPage
                 currentUser={currentUser}
+                language={language}
                 likedPostIds={likedPostIds}
                 onHydratePosts={hydratePosts}
-                refreshToken={boardRefreshToken}
                 onToggleLike={toggleLike}
+                refreshToken={boardRefreshToken}
               />
             ) : (
               <Navigate replace to="/login" />
@@ -575,13 +619,14 @@ function App() {
               <PostDetailPage
                 currentUser={currentUser}
                 followedAuthorIds={followedAuthorIds}
+                language={language}
                 likedPostIds={likedPostIds}
-                onUpdatePost={updatePost}
                 onDeletePost={deletePost}
                 onHydratePosts={hydratePosts}
                 onIncrementView={incrementView}
                 onToggleFollow={toggleFollow}
                 onToggleLike={toggleLike}
+                onUpdatePost={updatePost}
                 posts={postsWithMeta}
                 users={users}
               />
@@ -594,7 +639,7 @@ function App() {
           path="/posts/:postId/edit"
           element={
             currentUser ? (
-              <WritePage onCreatePost={createPost} onUpdatePost={updatePost} />
+              <WritePage language={language} onCreatePost={createPost} onUpdatePost={updatePost} />
             ) : (
               <Navigate replace to="/login" />
             )
@@ -606,6 +651,7 @@ function App() {
             currentUser ? (
               <ProfilePage
                 followedAuthorIds={followedAuthorIds}
+                language={language}
                 likedPostIds={likedPostIds}
                 onHydratePosts={hydratePosts}
                 onToggleFollow={toggleFollow}
@@ -620,10 +666,7 @@ function App() {
           path="/mypage"
           element={
             currentUser ? (
-              <MyPage
-                currentUser={currentUser}
-                onUpdateProfile={updateProfile}
-              />
+              <MyPage currentUser={currentUser} language={language} onUpdateProfile={updateProfile} />
             ) : (
               <Navigate replace to="/login" />
             )
@@ -633,7 +676,7 @@ function App() {
           path="/write"
           element={
             currentUser ? (
-              <WritePage onCreatePost={createPost} onUpdatePost={updatePost} />
+              <WritePage language={language} onCreatePost={createPost} onUpdatePost={updatePost} />
             ) : (
               <Navigate replace to="/login" />
             )
@@ -641,13 +684,15 @@ function App() {
         />
         <Route
           path="/chat"
-          element={currentUser ? <ChatPage posts={postsWithMeta} /> : <Navigate replace to="/login" />}
+          element={
+            currentUser ? <ChatPage language={language} posts={postsWithMeta} /> : <Navigate replace to="/login" />
+          }
         />
         <Route
           path="/planner"
           element={
             currentUser ? (
-              <PlannerPage currentUser={currentUser} posts={postsWithMeta} />
+              <PlannerPage currentUser={currentUser} language={language} posts={postsWithMeta} />
             ) : (
               <Navigate replace to="/login" />
             )

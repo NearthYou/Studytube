@@ -67,7 +67,7 @@ test('tablet board panels reset explicit grid placement for one-column layout', 
   );
 });
 
-test('narrow board layout keeps video registration first', () => {
+test('narrow board layout keeps registration and active course first', () => {
   const tabletCss = mediaBlock(1020);
 
   assert.match(
@@ -76,6 +76,10 @@ test('narrow board layout keeps video registration first', () => {
   );
   assert.match(
     tabletCss,
-    /\.board-grid > \.post-browser\s*\{[\s\S]*?order:\s*2;/,
+    /\.board-grid > \.playlist-builder-panel\s*\{[\s\S]*?order:\s*2;/,
+  );
+  assert.match(
+    tabletCss,
+    /\.board-grid > \.post-browser\s*\{[\s\S]*?order:\s*3;/,
   );
 });

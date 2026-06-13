@@ -1579,13 +1579,13 @@ function BoardPage({
 
   function createNewPlaylistDraft() {
     const draft = createPlaylistDraft<QueueVideo>({
-      title: `학습 코스 초안 ${playlistDrafts.length + 1}`,
+      title: `작업 코스 ${playlistDrafts.length + 1}`,
     });
     commitPlaylistDraftState((current) => ({
       drafts: [draft, ...current.drafts],
       activeDraftId: draft.id,
     }));
-    setStatus('새 플레이리스트 초안을 만들었어요.');
+    setStatus('새 작업 코스를 만들었어요.');
   }
 
   function switchPlaylistDraft(draftId: string) {
@@ -1594,7 +1594,7 @@ function BoardPage({
       ...current,
       activeDraftId: draftId,
     }));
-    setStatus(`"${nextDraft?.title || '선택한 초안'}" 초안을 편집 중입니다.`);
+    setStatus(`"${nextDraft?.title || '선택한 코스'}" 코스를 편집 중입니다.`);
   }
 
   function deleteActivePlaylistDraft() {
@@ -1602,7 +1602,7 @@ function BoardPage({
     commitPlaylistDraftState((current) =>
       removePlaylistDraft(current, activeDraft.id, replacementDraft),
     );
-    setStatus(`"${activeDraftTitle}" 초안을 삭제했어요.`);
+    setStatus(`"${activeDraftTitle}" 코스를 삭제했어요.`);
   }
 
   async function analyzeVideoMetadataForEditor(
@@ -1833,8 +1833,8 @@ function BoardPage({
         setSelectedPostId(saved.id);
         setStatus(
           editingId
-            ? '영상을 수정하고 현재 플레이리스트 초안에도 반영했어요'
-            : '영상을 저장하고 현재 플레이리스트 초안에 담았어요',
+            ? '영상을 수정하고 작업 중인 코스에도 반영했어요.'
+            : '영상을 저장하고 작업 중인 코스에 담았어요.',
         );
         setEditor(emptyEditor);
         setEditingId(null);
@@ -1910,7 +1910,7 @@ function BoardPage({
     const video = queueVideoFromPost(post);
 
     if (isVideoInQueue(playlistQueue, video)) {
-      setStatus(`"${post.title}" 영상은 이미 "${activeDraftTitle}" 초안에 있어요.`);
+      setStatus(`"${post.title}" 영상은 이미 "${activeDraftTitle}" 코스에 있어요.`);
 
       if (watchAfterAdd) {
         navigate(`/watch?videoId=${video.videoId}`);
@@ -1921,7 +1921,7 @@ function BoardPage({
 
     const nextQueue = mergeVideosIntoQueue(playlistQueue, [video], video);
     updateActiveDraft({ videos: nextQueue });
-    setStatus(`"${post.title}" 영상을 "${activeDraftTitle}" 초안에 담았어요.`);
+    setStatus(`"${post.title}" 영상을 "${activeDraftTitle}" 코스에 담았어요.`);
 
     if (watchAfterAdd) {
       navigate(`/watch?videoId=${video.videoId}`);
@@ -1942,12 +1942,12 @@ function BoardPage({
     const postIds = extractPostIds(playlistQueue);
 
     if (postIds.length === 0) {
-      setStatus('플레이리스트로 올릴 영상을 먼저 담아주세요.');
+      setStatus('공개할 코스에 영상을 먼저 담아주세요.');
       return;
     }
 
     if (!courseTitle.trim()) {
-      setStatus('플레이리스트 제목을 입력하세요.');
+      setStatus('코스 제목을 입력하세요.');
       return;
     }
 
@@ -1964,9 +1964,9 @@ function BoardPage({
       commitPlaylistDraftState((current) =>
         removePlaylistDraft(current, activeDraft.id, createPlaylistDraft<QueueVideo>()),
       );
-      setStatus(`"${saved.title}" 플레이리스트를 보드에 올렸어요.`);
+      setStatus(`"${saved.title}" 코스를 보드에 올렸어요.`);
     } catch {
-      setStatus('플레이리스트 저장에 실패했어요.');
+      setStatus('코스 공개에 실패했어요.');
     } finally {
       setIsPublishingCourse(false);
     }
@@ -1977,12 +1977,12 @@ function BoardPage({
       (item) => queueVideoKey(item) !== queueVideoKey(video),
     );
     updateActiveDraft({ videos: nextQueue });
-    setStatus(`"${video.title}" 영상을 현재 초안에서 뺐어요.`);
+    setStatus(`"${video.title}" 영상을 작업 중인 코스에서 뺐어요.`);
   }
 
   function clearDraftPlaylist() {
     updateActiveDraft({ videos: [] });
-    setStatus('현재 플레이리스트 초안을 비웠어요.');
+    setStatus('작업 중인 코스를 비웠어요.');
   }
 
   async function changeSearch(value: string) {
@@ -2013,13 +2013,13 @@ function BoardPage({
     },
     {
       number: '02',
-      title: '초안 확인',
-      body: '제목, 요약, 태그',
+      title: '영상 보관함 저장',
+      body: '제목, 요약, 태그 자동 정리',
     },
     {
       number: '03',
-      title: editingId ? '수정 저장' : '초안에 추가',
-      body: editingId ? '기존 카드 업데이트' : '현재 플레이리스트',
+      title: editingId ? '수정 반영' : '작업 코스에 담김',
+      body: editingId ? '기존 카드 업데이트' : activeDraftTitle,
     },
   ];
   const detailToggleLabel = isEditingDetails
@@ -2030,247 +2030,31 @@ function BoardPage({
     <main className="page-shell board-page">
       <section className="page-heading">
         <p className="eyebrow">Playlist board studio</p>
-        <h1>유튜브 영상을 학습 코스로 묶으세요</h1>
+        <h1>영상 추가부터 코스 공개까지</h1>
         <p>
-          링크를 저장하면 현재 초안에 바로 들어갑니다. 초안에서 순서를 정한 뒤
-          플레이리스트를 보드에 공개하세요.
+          링크를 넣으면 영상 보관함에 저장되고, 바로 작업 중인 코스에 담깁니다.
+          필요한 영상만 모아 순서를 정한 뒤 보드에 공개하세요.
         </p>
         <p className="system-note">{status}</p>
       </section>
 
       <section className="board-grid">
-        <aside className="board-panel post-browser">
-          <div className="section-title">
-            <h2>저장한 영상</h2>
-            <span>{total}개</span>
-          </div>
-          <input
-            value={search}
-            onChange={(event) => void changeSearch(event.target.value)}
-            placeholder="코스 주제, 채널, 태그로 검색"
-          />
-          <div className="board-post-list">
-            {posts.map((post) => (
-              <button
-                className={post.id === selectedPostId ? 'active' : ''}
-                key={post.id}
-                type="button"
-                onClick={() => setSelectedPostId(post.id)}
-              >
-                <img src={post.thumbnailUrl} alt="" />
-                <span>
-                  <strong>{post.title}</strong>
-                  <small>{post.channelName}</small>
-                  <TagLine tags={post.tags.slice(0, 3)} />
-                </span>
-              </button>
-            ))}
-            {posts.length === 0 && (
-              <p className="empty-copy">아직 저장한 영상이 없어요.</p>
-            )}
-          </div>
-          <div className="pagination">
-            <button type="button" onClick={() => void changePage(page - 1)}>
-              이전
-            </button>
-            <span>
-              {page} / {totalPages}
-            </span>
-            <button type="button" onClick={() => void changePage(page + 1)}>
-              다음
-            </button>
-          </div>
-        </aside>
-
-        <section className="board-panel playlist-builder-panel">
-          <div className="section-title">
-            <div>
-              <small>보드에 공개될 단위</small>
-              <h2>플레이리스트 초안들</h2>
-            </div>
-            <span>{playlistDrafts.length}개 초안</span>
-          </div>
-          <section className="draft-switcher" aria-label="플레이리스트 초안 선택">
-            <div className="draft-switcher-header">
-              <div>
-                <small>현재 작업 초안</small>
-                <strong>{activeDraftTitle}</strong>
-              </div>
-              <span>{playlistQueue.length}개 영상</span>
-            </div>
-            <div className="draft-tabs">
-              {playlistDrafts.map((draft, index) => (
-                <button
-                  className={draft.id === activeDraft.id ? 'active' : ''}
-                  key={draft.id}
-                  type="button"
-                  onClick={() => switchPlaylistDraft(draft.id)}
-                >
-                  <small>초안 {index + 1}</small>
-                  <strong>{draft.title || DEFAULT_PLAYLIST_DRAFT_TITLE}</strong>
-                  <span>{draft.videos.length}개 영상</span>
-                </button>
-              ))}
-            </div>
-            <div className="draft-actions">
-              <button type="button" onClick={createNewPlaylistDraft}>
-                새 초안
-              </button>
-              <button
-                className="danger-light"
-                type="button"
-                onClick={deleteActivePlaylistDraft}
-              >
-                현재 초안 삭제
-              </button>
-            </div>
-          </section>
-          <p className="builder-copy">
-            보드는 영상 하나가 아니라 여러 영상이 순서대로 묶인 학습 코스입니다.
-            원하는 초안을 먼저 선택한 뒤 영상을 담고, 코스 정보를 채워 보드에 올리세요.
-          </p>
-          <div className="playlist-builder-stats">
-            <span>
-              <b>{playlistQueue.length}</b>
-              담긴 영상
-            </span>
-            <span>
-              <b>{playlistMinutes}분</b>
-              예상 학습
-            </span>
-            <span>
-              <b>{playlistPostIds.length}</b>
-              발행 가능
-            </span>
-          </div>
-          <PlaylistPreview
-            videos={playlistQueue}
-            onOpen={openPlaylist}
-            onRemove={removeVideoFromDraft}
-            title="초안 영상 순서"
-            emptyText="아직 초안에 담긴 영상이 없어요. 오른쪽 선택 영상이나 왼쪽 보관함에서 영상을 추가하세요."
-          />
-          <form className="playlist-publish-form" onSubmit={publishCurrentPlaylist}>
-            <strong>플레이리스트로 보드에 올리기</strong>
-            <input
-              value={courseTitle}
-              onChange={(event) => updateActiveDraft({ title: event.target.value })}
-              placeholder="플레이리스트 제목"
-            />
-            <textarea
-              value={courseDescription}
-              onChange={(event) =>
-                updateActiveDraft({ description: event.target.value })
-              }
-              placeholder="이 코스가 어떤 순서로 무엇을 학습하는지"
-            />
-            <button
-              type="submit"
-              disabled={isPublishingCourse || playlistPostIds.length === 0}
-            >
-              {isPublishingCourse ? '올리는 중' : '플레이리스트 올리기'}
-            </button>
-          </form>
-          <button
-            className="wide-button subtle"
-            type="button"
-            disabled={playlistQueue.length === 0}
-            onClick={clearDraftPlaylist}
-          >
-            초안 비우기
-          </button>
-        </section>
-
-        <section className="board-panel post-detail">
-          {selectedPost ? (
-            <>
-              <img src={selectedPost.thumbnailUrl} alt="" />
-              <div className="section-title">
-                <div>
-                  <small>선택한 영상 · {selectedPost.channelName}</small>
-                  <h2>{selectedPost.title}</h2>
-                </div>
-                <TagLine tags={selectedPost.tags} />
-              </div>
-              <p>{selectedPost.summary}</p>
-              <div className="curation-meta" aria-label="curation fit">
-                <span>
-                  <b>{estimateVideoMinutes(selectedPost)}분</b>
-                  예상 학습
-                </span>
-                <span>
-                  <b>{difficultyLabel(selectedPost.tags)}</b>
-                  추천 난이도
-                </span>
-                <span>
-                  <b>{audienceLabel(selectedPost.tags)}</b>
-                  맞는 사람
-                </span>
-              </div>
-              <div className="note-panel">
-                <span>AI 영상 분석 요약</span>
-                <p>{selectedPost.translatedNotes}</p>
-              </div>
-              <div className="row-actions">
-                <button
-                  className={selectedAlreadyInPlaylist ? 'added-action' : undefined}
-                  type="button"
-                  disabled={selectedAlreadyInPlaylist}
-                  onClick={() => addSelectedPostToQueue(selectedPost)}
-                >
-                  {selectedAlreadyInPlaylist ? '이미 담김' : '현재 초안에 담기'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => addSelectedPostToQueue(selectedPost, true)}
-                >
-                  {selectedAlreadyInPlaylist ? '영상 보기' : '담고 영상 보기'}
-                </button>
-                <button type="button" onClick={() => startEdit(selectedPost)}>
-                  수정
-                </button>
-                <button
-                  className="danger"
-                  type="button"
-                  onClick={() => void removePost(selectedPost.id)}
-                >
-                  삭제
-                </button>
-              </div>
-              <p
-                className={
-                  selectedAlreadyInPlaylist ? 'playlist-state active' : 'playlist-state'
-                }
-              >
-                {selectedAlreadyInPlaylist
-                  ? `이미 "${activeDraftTitle}" 초안에 담긴 영상입니다.`
-                  : '이 영상을 현재 선택된 초안에 담고, 여러 영상을 묶어 플레이리스트로 보드에 올릴 수 있습니다.'}
-              </p>
-            </>
-          ) : (
-            <div className="empty-product">
-              <strong>선택된 영상이 없어요</strong>
-              <p>아래 폼에서 학습 코스에 넣을 좋은 강의를 먼저 저장해보세요.</p>
-            </div>
-          )}
-        </section>
-
         <section className="board-panel editor-panel">
           <div className="register-heading">
             <div className="register-title-copy">
-              <p className="eyebrow">영상 등록</p>
-              <h2>{editingId ? '영상 정보 정리' : '링크로 영상 추가'}</h2>
+              <p className="eyebrow">1. 영상 추가</p>
+              <h2>{editingId ? '영상 정보 수정' : 'YouTube 링크 저장'}</h2>
               <p>
-                URL 하나로 영상 카드 초안을 만들고 현재 플레이리스트 초안에 바로 담습니다.
+                URL 하나면 보관함 저장과 작업 코스 담기를 한 번에 처리합니다.
               </p>
             </div>
             <aside className="register-destination" aria-label="등록 저장 위치">
-              <span>{editingId ? '수정 대상' : '저장 위치'}</span>
+              <span>{editingId ? '수정 대상' : '저장 후 들어갈 곳'}</span>
               <strong>{editingId ? `영상 #${editingId}` : activeDraftTitle}</strong>
               <small>
                 {editingId
                   ? '저장된 카드 업데이트'
-                  : `${playlistQueue.length}개 영상 담김`}
+                  : `${playlistQueue.length}개 영상으로 구성 중`}
               </small>
             </aside>
           </div>
@@ -2298,7 +2082,7 @@ function BoardPage({
               </div>
               <span className={metadataStatus ? 'metadata-status active' : 'metadata-status'}>
                 {metadataStatus ||
-                  '링크를 넣으면 분석과 저장을 이어서 진행합니다.'}
+                  '분석이 끝나면 보관함과 작업 코스에 바로 추가됩니다.'}
               </span>
             </section>
             <ol className="registration-path" aria-label="영상 등록 흐름">
@@ -2340,7 +2124,7 @@ function BoardPage({
                   </div>
                   <div className="draft-side">
                     <span>
-                      <b>{editor.translatedNotes.trim() ? '준비됨' : '자동 초안'}</b>
+                      <b>{editor.translatedNotes.trim() ? '준비됨' : '자동 정리'}</b>
                       AI 분석
                     </span>
                     <span>
@@ -2353,18 +2137,18 @@ function BoardPage({
                 <section className="register-empty-preview">
                   <strong>먼저 링크만 넣어도 됩니다</strong>
                   <p>
-                    제목, 썸네일, 요약은 분석 후 자동으로 채워집니다. 수정은 미리보기에서
-                    필요한 항목만 열어 처리하세요.
+                    제목, 썸네일, 요약은 분석 후 자동으로 채워집니다. 필요한 항목만
+                    열어 수정하세요.
                   </p>
                 </section>
               )}
 
               <aside className="registration-support" aria-label="등록 후 연결">
-                <strong>{editingId ? '수정 저장 전 확인' : '등록 후 연결'}</strong>
+                <strong>{editingId ? '수정 저장 전 확인' : '저장되면'}</strong>
                 <ul>
-                  <li>영상 보관함에 저장</li>
-                  <li>{editingId ? '선택한 카드 업데이트' : '현재 초안에 자동 추가'}</li>
-                  <li>초안에서 순서 정리 후 코스 발행</li>
+                  <li>영상 보관함에 추가</li>
+                  <li>{editingId ? '선택한 카드 업데이트' : '작업 중인 코스에 담김'}</li>
+                  <li>선택한 영상으로 바로 표시</li>
                 </ul>
               </aside>
             </div>
@@ -2467,6 +2251,225 @@ function BoardPage({
               </div>
             )}
           </form>
+        </section>
+
+        <section className="board-panel playlist-builder-panel">
+          <div className="section-title">
+            <div>
+              <small>2. 작업 중인 코스</small>
+              <h2>코스 구성</h2>
+            </div>
+            <span>{playlistDrafts.length}개 코스</span>
+          </div>
+          <section className="draft-switcher" aria-label="작업 코스 선택">
+            <div className="draft-switcher-header">
+              <div>
+                <small>현재 코스</small>
+                <strong>{activeDraftTitle}</strong>
+              </div>
+              <span>{playlistQueue.length}개 영상</span>
+            </div>
+            <div className="draft-tabs">
+              {playlistDrafts.map((draft, index) => (
+                <button
+                  className={draft.id === activeDraft.id ? 'active' : ''}
+                  key={draft.id}
+                  type="button"
+                  onClick={() => switchPlaylistDraft(draft.id)}
+                >
+                  <small>코스 {index + 1}</small>
+                  <strong>{draft.title || DEFAULT_PLAYLIST_DRAFT_TITLE}</strong>
+                  <span>{draft.videos.length}개 영상</span>
+                </button>
+              ))}
+            </div>
+            <div className="draft-actions">
+              <button type="button" onClick={createNewPlaylistDraft}>
+                새 코스
+              </button>
+              <button
+                className="danger-light"
+                type="button"
+                onClick={deleteActivePlaylistDraft}
+              >
+                이 코스 삭제
+              </button>
+            </div>
+          </section>
+          <p className="builder-copy">
+            지금 공개할 영상만 여기에 모입니다. 새로 등록한 영상은 자동으로 들어오고,
+            보관함에서도 필요한 영상을 더 담을 수 있습니다.
+          </p>
+          <div className="playlist-builder-stats">
+            <span>
+              <b>{playlistQueue.length}</b>
+              담긴 영상
+            </span>
+            <span>
+              <b>{playlistMinutes}분</b>
+              예상 학습
+            </span>
+            <span>
+              <b>{playlistPostIds.length}</b>
+              공개 가능
+            </span>
+          </div>
+          <PlaylistPreview
+            videos={playlistQueue}
+            onOpen={openPlaylist}
+            onRemove={removeVideoFromDraft}
+            title="코스 영상 순서"
+            emptyText="아직 담긴 영상이 없어요. 링크를 등록하거나 보관함에서 영상을 추가하세요."
+          />
+          <form className="playlist-publish-form" onSubmit={publishCurrentPlaylist}>
+            <strong>코스 공개하기</strong>
+            <input
+              value={courseTitle}
+              onChange={(event) => updateActiveDraft({ title: event.target.value })}
+              placeholder="코스 제목"
+            />
+            <textarea
+              value={courseDescription}
+              onChange={(event) =>
+                updateActiveDraft({ description: event.target.value })
+              }
+              placeholder="이 코스의 학습 순서와 목표"
+            />
+            <button
+              type="submit"
+              disabled={isPublishingCourse || playlistPostIds.length === 0}
+            >
+              {isPublishingCourse ? '공개하는 중' : '코스 공개하기'}
+            </button>
+          </form>
+          <button
+            className="wide-button subtle"
+            type="button"
+            disabled={playlistQueue.length === 0}
+            onClick={clearDraftPlaylist}
+          >
+            코스 비우기
+          </button>
+        </section>
+
+        <aside className="board-panel post-browser">
+          <div className="section-title">
+            <div>
+              <small>3. 영상 보관함</small>
+              <h2>저장한 영상</h2>
+            </div>
+            <span>{total}개</span>
+          </div>
+          <input
+            value={search}
+            onChange={(event) => void changeSearch(event.target.value)}
+            placeholder="코스 주제, 채널, 태그로 검색"
+          />
+          <div className="board-post-list">
+            {posts.map((post) => (
+              <button
+                className={post.id === selectedPostId ? 'active' : ''}
+                key={post.id}
+                type="button"
+                onClick={() => setSelectedPostId(post.id)}
+              >
+                <img src={post.thumbnailUrl} alt="" />
+                <span>
+                  <strong>{post.title}</strong>
+                  <small>{post.channelName}</small>
+                  <TagLine tags={post.tags.slice(0, 3)} />
+                </span>
+              </button>
+            ))}
+            {posts.length === 0 && (
+              <p className="empty-copy">아직 저장한 영상이 없어요.</p>
+            )}
+          </div>
+          <div className="pagination">
+            <button type="button" onClick={() => void changePage(page - 1)}>
+              이전
+            </button>
+            <span>
+              {page} / {totalPages}
+            </span>
+            <button type="button" onClick={() => void changePage(page + 1)}>
+              다음
+            </button>
+          </div>
+        </aside>
+
+        <section className="board-panel post-detail">
+          {selectedPost ? (
+            <>
+              <img src={selectedPost.thumbnailUrl} alt="" />
+              <div className="section-title">
+                <div>
+                  <small>4. 선택한 영상 · {selectedPost.channelName}</small>
+                  <h2>{selectedPost.title}</h2>
+                </div>
+                <TagLine tags={selectedPost.tags} />
+              </div>
+              <p>{selectedPost.summary}</p>
+              <div className="curation-meta" aria-label="curation fit">
+                <span>
+                  <b>{estimateVideoMinutes(selectedPost)}분</b>
+                  예상 학습
+                </span>
+                <span>
+                  <b>{difficultyLabel(selectedPost.tags)}</b>
+                  추천 난이도
+                </span>
+                <span>
+                  <b>{audienceLabel(selectedPost.tags)}</b>
+                  맞는 사람
+                </span>
+              </div>
+              <div className="note-panel">
+                <span>AI 영상 분석 요약</span>
+                <p>{selectedPost.translatedNotes}</p>
+              </div>
+              <div className="row-actions">
+                <button
+                  className={selectedAlreadyInPlaylist ? 'added-action' : undefined}
+                  type="button"
+                  disabled={selectedAlreadyInPlaylist}
+                  onClick={() => addSelectedPostToQueue(selectedPost)}
+                >
+                  {selectedAlreadyInPlaylist ? '이미 담김' : '코스에 담기'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => addSelectedPostToQueue(selectedPost, true)}
+                >
+                  {selectedAlreadyInPlaylist ? '영상 보기' : '담고 영상 보기'}
+                </button>
+                <button type="button" onClick={() => startEdit(selectedPost)}>
+                  수정
+                </button>
+                <button
+                  className="danger"
+                  type="button"
+                  onClick={() => void removePost(selectedPost.id)}
+                >
+                  삭제
+                </button>
+              </div>
+              <p
+                className={
+                  selectedAlreadyInPlaylist ? 'playlist-state active' : 'playlist-state'
+                }
+              >
+                {selectedAlreadyInPlaylist
+                  ? `이미 "${activeDraftTitle}" 코스에 담긴 영상입니다.`
+                  : '이 영상을 작업 중인 코스에 담고, 여러 영상을 묶어 보드에 공개할 수 있습니다.'}
+              </p>
+            </>
+          ) : (
+            <div className="empty-product">
+              <strong>선택된 영상이 없어요</strong>
+              <p>위 폼에서 학습 코스에 넣을 영상을 먼저 저장해보세요.</p>
+            </div>
+          )}
         </section>
       </section>
     </main>

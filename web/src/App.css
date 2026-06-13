@@ -1604,6 +1604,7 @@ footer {
 
 .board-page {
   max-width: 1680px;
+  padding-top: 48px;
   padding-right: 32px;
   padding-left: 32px;
 }
@@ -1611,6 +1612,11 @@ footer {
 .page-heading {
   max-width: 760px;
   margin-bottom: 38px;
+}
+
+.board-page .page-heading {
+  max-width: 920px;
+  margin-bottom: 22px;
 }
 
 .page-heading h1,
@@ -1627,6 +1633,18 @@ footer {
   overflow-wrap: anywhere;
   text-wrap: balance;
   word-break: keep-all;
+}
+
+.board-page .page-heading h1 {
+  margin-bottom: 12px;
+  font-size: clamp(32px, 4vw, 48px);
+}
+
+.board-page .page-heading p:not(.eyebrow) {
+  max-width: 700px;
+  margin-bottom: 12px;
+  font-size: var(--font-16);
+  line-height: 1.65;
 }
 
 .process-strip {
@@ -2565,13 +2583,18 @@ footer {
 .register-heading {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 20px;
+  gap: 18px;
   align-items: start;
-  margin-bottom: 22px;
+  margin-bottom: 16px;
+}
+
+.register-title-copy {
+  display: grid;
+  gap: 8px;
 }
 
 .register-heading h2 {
-  margin-bottom: 8px;
+  margin-bottom: 0;
   font-size: clamp(28px, 3.2vw, 42px);
   line-height: 1.15;
 }
@@ -2583,29 +2606,110 @@ footer {
   font-size: var(--font-16);
 }
 
-.register-heading > span {
-  display: inline-flex;
-  align-items: center;
-  min-height: 34px;
-  padding: 0 12px;
-  border-radius: 999px;
-  background: rgba(49, 130, 246, 0.1);
+.register-destination {
+  display: grid;
+  gap: 5px;
+  min-width: 260px;
+  padding: 14px 16px;
+  border: 1px solid rgba(49, 130, 246, 0.2);
+  border-radius: 8px;
+  background: rgba(49, 130, 246, 0.06);
+}
+
+.register-destination span,
+.register-destination small {
   color: var(--blue);
-  font-size: var(--font-13);
+  font-size: var(--font-12);
   font-weight: 900;
+}
+
+.register-destination strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: var(--font-17);
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.register-destination small {
+  color: var(--muted);
+}
+
+.registration-path {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.registration-path li {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  min-height: 70px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.registration-path b {
+  display: inline-grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--blue);
+  color: #fff;
+  font-size: var(--font-12);
+}
+
+.registration-path span {
+  display: grid;
+  gap: 3px;
+}
+
+.registration-path strong {
+  color: var(--text);
+  font-size: var(--font-15);
+  line-height: 1.3;
+}
+
+.registration-path small {
+  color: var(--muted);
+  font-size: var(--font-12);
+  font-weight: 800;
 }
 
 .video-register-form {
   display: grid;
-  gap: 16px;
+  gap: 18px;
 }
 
 .link-capture {
   display: grid;
   gap: 10px;
   padding: 18px;
+  border: 1px solid transparent;
   border-radius: 8px;
   background: #f8fafc;
+}
+
+.link-capture.ready {
+  border-color: rgba(49, 130, 246, 0.26);
+  background: #f4f9ff;
+}
+
+.field-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .link-capture label,
@@ -2617,9 +2721,23 @@ footer {
   font-weight: 900;
 }
 
+.field-heading small {
+  color: var(--muted);
+  font-size: var(--font-12);
+  font-weight: 800;
+}
+
 .link-capture-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+}
+
+.link-submit-button {
+  min-width: 150px;
+  min-height: 48px;
+  padding: 0 18px;
+  white-space: nowrap;
 }
 
 .metadata-status {
@@ -2628,9 +2746,20 @@ footer {
   font-weight: 800;
 }
 
+.metadata-status.active {
+  color: var(--blue);
+}
+
+.registration-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 280px);
+  gap: 14px;
+  align-items: stretch;
+}
+
 .video-draft-preview {
   display: grid;
-  grid-template-columns: minmax(260px, 360px) minmax(0, 1fr) minmax(150px, 220px);
+  grid-template-columns: minmax(220px, 320px) minmax(0, 1fr) minmax(130px, 180px);
   gap: 18px;
   align-items: stretch;
   padding: 18px;
@@ -2702,6 +2831,47 @@ footer {
   font-size: var(--font-18);
 }
 
+.registration-support {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.registration-support strong {
+  font-size: var(--font-18);
+}
+
+.registration-support ul {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.registration-support li {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  color: #4e5968;
+  font-size: var(--font-14);
+  font-weight: 800;
+  line-height: 1.45;
+}
+
+.registration-support li::before {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--blue);
+  content: '';
+}
+
 .register-empty-preview {
   display: grid;
   gap: 8px;
@@ -2723,10 +2893,36 @@ footer {
 .detail-drawer {
   display: grid;
   gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.detail-drawer-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.detail-drawer-header span {
+  display: grid;
+  gap: 3px;
+}
+
+.detail-drawer-header strong {
+  font-size: var(--font-17);
+}
+
+.detail-drawer-header small {
+  color: var(--muted);
+  font-size: var(--font-13);
+  font-weight: 800;
 }
 
 .detail-toggle {
-  justify-self: start;
   min-height: 40px;
   padding: 0 14px;
   background: rgba(49, 130, 246, 0.1);
@@ -3139,6 +3335,7 @@ footer {
   .course-match,
   .editor-step,
   .register-heading,
+  .registration-workspace,
   .video-draft-preview,
   .detail-fields,
   .editor-panel .stack-form,
@@ -4298,6 +4495,7 @@ footer {
   .queue-list button:first-child,
   .metadata-row,
   .link-capture-row,
+  .registration-path,
   .playlist-builder-stats,
   .editor-step {
     grid-template-columns: 1fr;

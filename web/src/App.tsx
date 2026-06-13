@@ -74,8 +74,10 @@ import {
   type WatchPlaylistChoice,
 } from './watchLibrary';
 import {
+  fallbackPostEditorFromVideoUrl,
   hasPostEditorVideoUrl,
   isPostEditorReadyToSave,
+  postRegistrationRefreshSearch,
   videoRegistrationSubmitLabel,
 } from './postEditor';
 import {
@@ -1461,6 +1463,7 @@ function BoardPage({
   const [isSaving, setIsSaving] = useState(false);
   const [isFetchingMetadata, setIsFetchingMetadata] = useState(false);
   const [isPublishingCourse, setIsPublishingCourse] = useState(false);
+  const [isBoardReady, setIsBoardReady] = useState(false);
   const activeDraft = selectActivePlaylistDraft(playlistDraftState);
   const playlistDrafts = playlistDraftState.drafts;
   const playlistQueue = activeDraft.videos;
@@ -1485,7 +1488,7 @@ function BoardPage({
   const hasDraftPreview = Boolean(
     editor.title.trim() || editor.summary.trim() || draftThumbnailUrl,
   );
-  const canSubmitVideo = hasPostEditorVideoUrl(editor);
+  const canSubmitVideo = isBoardReady && hasPostEditorVideoUrl(editor);
   const isVideoReadyToSave = isPostEditorReadyToSave(editor);
   const submitVideoLabel = videoRegistrationSubmitLabel({
     isEditing: Boolean(editingId),
@@ -1496,14 +1499,17 @@ function BoardPage({
 
   useEffect(() => {
     async function boot() {
+      setIsBoardReady(false);
       try {
         await loadPosts('', 1);
+        setIsBoardReady(true);
         setStatus(`${session.user.email} 계정으로 작업 중`);
       } catch (error) {
         if (isUnauthorizedRequest(error) && isDemoUserSession(session)) {
           try {
             const refreshedSession = await refreshDemoBoardSession();
             await loadPosts('', 1, refreshedSession.token);
+            setIsBoardReady(true);
             setStatus(`${refreshedSession.user.email} 계정으로 작업 중`);
             return;
           } catch {
@@ -1511,7 +1517,12 @@ function BoardPage({
           }
         }
 
-        setStatus('서버를 실행하거나 다시 로그인해야 게시판 기능을 사용할 수 있어요');
+        setIsBoardReady(false);
+        setStatus(
+          isUnauthorizedRequest(error)
+            ? '로그인 세션이 만료됐어요. 다시 로그인한 뒤 영상을 등록해주세요.'
+            : '서버를 실행하거나 다시 로그인해야 게시판 기능을 사용할 수 있어요',
+        );
       }
     }
 
@@ -1752,7 +1763,12 @@ function BoardPage({
             editorToSave,
           );
 
-          if (!analyzed) {
+          const fallbackEditor = fallbackPostEditorFromVideoUrl(
+            editorToSave.videoUrl,
+            editorToSave,
+          );
+
+          if (!analyzed && !fallbackEditor) {
             setStatus(
               '영상 정보를 찾지 못했어요. URL을 확인하거나 세부 정보를 직접 입력해주세요.',
             );
@@ -1761,16 +1777,32 @@ function BoardPage({
             return;
           }
 
-          editorToSave = analyzed.nextEditor;
+          editorToSave = analyzed?.nextEditor ?? fallbackEditor!;
           setEditor(editorToSave);
-          setMetadataStatus(analyzed.status);
-        } catch {
-          setStatus(
-            '영상 정보 조회에 실패했어요. URL을 확인하거나 세부 정보를 직접 입력해주세요.',
+          setMetadataStatus(
+            analyzed?.status ||
+              '영상 분석을 완료하지 못했지만 기본 정보로 먼저 저장합니다.',
           );
-          setMetadataStatus('영상 정보 조회에 실패했어요.');
-          setIsEditingDetails(true);
-          return;
+        } catch {
+          const fallbackEditor = fallbackPostEditorFromVideoUrl(
+            editorToSave.videoUrl,
+            editorToSave,
+          );
+
+          if (!fallbackEditor) {
+            setStatus(
+              '영상 정보 조회에 실패했어요. URL을 확인하거나 세부 정보를 직접 입력해주세요.',
+            );
+            setMetadataStatus('영상 정보 조회에 실패했어요.');
+            setIsEditingDetails(true);
+            return;
+          }
+
+          editorToSave = fallbackEditor;
+          setEditor(editorToSave);
+          setMetadataStatus(
+            '영상 분석을 완료하지 못했지만 기본 정보로 먼저 저장합니다.',
+          );
         } finally {
           setIsFetchingMetadata(false);
         }
@@ -1794,7 +1826,9 @@ function BoardPage({
         );
         updateActiveDraft({ videos: nextQueue });
 
-        await loadPosts(search, 1, token);
+        const refreshSearch = postRegistrationRefreshSearch(search);
+        setSearch(refreshSearch);
+        await loadPosts(refreshSearch, 1, token);
         setPage(1);
         setSelectedPostId(saved.id);
         setStatus(
@@ -1806,7 +1840,14 @@ function BoardPage({
         setEditingId(null);
         setIsEditingDetails(false);
         setMetadataStatus('');
-      } catch {
+      } catch (error) {
+        if (isUnauthorizedRequest(error)) {
+          setIsBoardReady(false);
+          setStatus('로그인 세션이 만료됐어요. 다시 로그인한 뒤 영상을 등록해주세요.');
+          setMetadataStatus('다시 로그인한 뒤 등록을 이어갈 수 있어요.');
+          return;
+        }
+
         setStatus('게시글 저장에 실패했어요. 서버와 입력값을 확인하세요.');
       }
     } finally {
@@ -1828,7 +1869,9 @@ function BoardPage({
     setIsEditingDetails(false);
     setMetadataStatus(
       videoUrl.trim()
-        ? '아래 버튼으로 분석과 추가를 한 번에 진행합니다.'
+        ? isBoardReady
+          ? '아래 버튼으로 분석과 추가를 한 번에 진행합니다.'
+          : '게시판 연결이 끊겼어요. 다시 로그인한 뒤 등록해주세요.'
         : '',
     );
   }
@@ -1962,18 +2005,35 @@ function BoardPage({
     }
   }
 
+  const registrationSteps = [
+    {
+      number: '01',
+      title: editingId ? '수정할 링크 확인' : '링크 입력',
+      body: 'YouTube URL',
+    },
+    {
+      number: '02',
+      title: '초안 확인',
+      body: '제목, 요약, 태그',
+    },
+    {
+      number: '03',
+      title: editingId ? '수정 저장' : '초안에 추가',
+      body: editingId ? '기존 카드 업데이트' : '현재 플레이리스트',
+    },
+  ];
+  const detailToggleLabel = isEditingDetails
+    ? '세부 정보 닫기'
+    : '필요한 정보만 수정';
+
   return (
     <main className="page-shell board-page">
       <section className="page-heading">
         <p className="eyebrow">Playlist board studio</p>
-        <h1>
-          유튜브 영상을 묶어
-          <br />
-          학습 플레이리스트를 올리세요
-        </h1>
+        <h1>유튜브 영상을 학습 코스로 묶으세요</h1>
         <p>
-          링크를 분석해 영상을 저장하고, <br /> 여러 영상을 초안에 담은 뒤
-          플레이리스트 자체를 보드에 공개합니다.
+          링크를 저장하면 현재 초안에 바로 들어갑니다. 초안에서 순서를 정한 뒤
+          플레이리스트를 보드에 공개하세요.
         </p>
         <p className="system-note">{status}</p>
       </section>
@@ -2197,19 +2257,29 @@ function BoardPage({
 
         <section className="board-panel editor-panel">
           <div className="register-heading">
-            <div>
+            <div className="register-title-copy">
               <p className="eyebrow">영상 등록</p>
-              <h2>{editingId ? '영상 수정' : 'YouTube 영상 추가'}</h2>
+              <h2>{editingId ? '영상 정보 정리' : '링크로 영상 추가'}</h2>
               <p>
-                링크를 분석하면 제목, 채널, 썸네일, AI 분석 요약이 먼저 채워집니다.
-                저장하면 현재 선택된 초안에 들어가고, 초안을 코스로 발행합니다.
+                URL 하나로 영상 카드 초안을 만들고 현재 플레이리스트 초안에 바로 담습니다.
               </p>
             </div>
-            {editingId && <span>수정 중 #{editingId}</span>}
+            <aside className="register-destination" aria-label="등록 저장 위치">
+              <span>{editingId ? '수정 대상' : '저장 위치'}</span>
+              <strong>{editingId ? `영상 #${editingId}` : activeDraftTitle}</strong>
+              <small>
+                {editingId
+                  ? '저장된 카드 업데이트'
+                  : `${playlistQueue.length}개 영상 담김`}
+              </small>
+            </aside>
           </div>
           <form className="video-register-form" onSubmit={submitPost}>
-            <section className="link-capture">
-              <label htmlFor="video-url-input">YouTube 링크</label>
+            <section className={canSubmitVideo ? 'link-capture ready' : 'link-capture'}>
+              <div className="field-heading">
+                <label htmlFor="video-url-input">YouTube 링크</label>
+                <small>URL만 붙여넣기</small>
+              </div>
               <div className="link-capture-row">
                 <input
                   id="video-url-input"
@@ -2218,67 +2288,102 @@ function BoardPage({
                   placeholder="https://www.youtube.com/watch?v=..."
                   disabled={isSaving}
                 />
+                <button
+                  className="link-submit-button"
+                  type="submit"
+                  disabled={isSaving || isFetchingMetadata || !canSubmitVideo}
+                >
+                  {submitVideoLabel}
+                </button>
               </div>
-              <span className="metadata-status">
+              <span className={metadataStatus ? 'metadata-status active' : 'metadata-status'}>
                 {metadataStatus ||
-                  '영상 링크 하나로 학습 카드 초안을 만듭니다.'}
+                  '링크를 넣으면 분석과 저장을 이어서 진행합니다.'}
               </span>
             </section>
+            <ol className="registration-path" aria-label="영상 등록 흐름">
+              {registrationSteps.map((step) => (
+                <li key={step.number}>
+                  <b>{step.number}</b>
+                  <span>
+                    <strong>{step.title}</strong>
+                    <small>{step.body}</small>
+                  </span>
+                </li>
+              ))}
+            </ol>
 
-            {hasDraftPreview ? (
-              <section className="video-draft-preview">
-                {draftThumbnailUrl ? (
-                  <img src={draftThumbnailUrl} alt="" />
-                ) : (
-                  <div className="draft-thumbnail-placeholder">Preview</div>
-                )}
-                <div className="draft-copy">
-                  <small>{editor.channelName || '채널 분석 대기'}</small>
-                  <h3>{editor.title || '분석 후 영상 제목이 표시됩니다'}</h3>
+            <div className="registration-workspace">
+              {hasDraftPreview ? (
+                <section className="video-draft-preview">
+                  {draftThumbnailUrl ? (
+                    <img src={draftThumbnailUrl} alt="" />
+                  ) : (
+                    <div className="draft-thumbnail-placeholder">Preview</div>
+                  )}
+                  <div className="draft-copy">
+                    <small>{editor.channelName || '채널 분석 대기'}</small>
+                    <h3>{editor.title || '분석 후 영상 제목이 표시됩니다'}</h3>
+                    <p>
+                      {editor.summary ||
+                        '영상 분석이 끝나면 보드에 표시될 요약이 여기에 들어갑니다.'}
+                    </p>
+                    <TagLine
+                      tags={
+                        editor.tags
+                          .split(',')
+                          .map((tag) => tag.trim())
+                          .filter(Boolean)
+                          .slice(0, 5)
+                      }
+                    />
+                  </div>
+                  <div className="draft-side">
+                    <span>
+                      <b>{editor.translatedNotes.trim() ? '준비됨' : '자동 초안'}</b>
+                      AI 분석
+                    </span>
+                    <span>
+                      <b>{draftVideoId ? 'YouTube' : '링크 확인'}</b>
+                      영상 출처
+                    </span>
+                  </div>
+                </section>
+              ) : (
+                <section className="register-empty-preview">
+                  <strong>먼저 링크만 넣어도 됩니다</strong>
                   <p>
-                    {editor.summary ||
-                      '영상 분석이 끝나면 보드에 표시될 요약이 여기에 들어갑니다.'}
+                    제목, 썸네일, 요약은 분석 후 자동으로 채워집니다. 수정은 미리보기에서
+                    필요한 항목만 열어 처리하세요.
                   </p>
-                  <TagLine
-                    tags={
-                      editor.tags
-                        .split(',')
-                        .map((tag) => tag.trim())
-                        .filter(Boolean)
-                        .slice(0, 5)
-                    }
-                  />
-                </div>
-                <div className="draft-side">
-                  <span>
-                    <b>{editor.translatedNotes.trim() ? '준비됨' : '자동 초안'}</b>
-                    AI 분석
-                  </span>
-                  <span>
-                    <b>{draftVideoId ? 'YouTube' : '링크 확인'}</b>
-                    영상 출처
-                  </span>
-                </div>
-              </section>
-            ) : (
-              <section className="register-empty-preview">
-                <strong>링크를 넣고 아래 버튼을 눌러주세요</strong>
-                <p>
-                  버튼 하나로 영상 정보를 분석하고 저장합니다. 제목이나 태그는
-                  자동으로 채워지고, 마음에 안 드는 부분만 수정하면 됩니다.
-                </p>
-              </section>
-            )}
+                </section>
+              )}
+
+              <aside className="registration-support" aria-label="등록 후 연결">
+                <strong>{editingId ? '수정 저장 전 확인' : '등록 후 연결'}</strong>
+                <ul>
+                  <li>영상 보관함에 저장</li>
+                  <li>{editingId ? '선택한 카드 업데이트' : '현재 초안에 자동 추가'}</li>
+                  <li>초안에서 순서 정리 후 코스 발행</li>
+                </ul>
+              </aside>
+            </div>
 
             {hasDraftPreview && (
               <section className="detail-drawer">
-                <button
-                  className="detail-toggle"
-                  type="button"
-                  onClick={() => setIsEditingDetails((current) => !current)}
-                >
-                  {isEditingDetails ? '세부 정보 닫기' : '세부 정보 수정'}
-                </button>
+                <div className="detail-drawer-header">
+                  <span>
+                    <strong>세부 정보</strong>
+                    <small>자동 입력값이 어색할 때만 열어 수정하세요.</small>
+                  </span>
+                  <button
+                    className="detail-toggle"
+                    type="button"
+                    onClick={() => setIsEditingDetails((current) => !current)}
+                  >
+                    {detailToggleLabel}
+                  </button>
+                </div>
                 {isEditingDetails && (
                   <div className="detail-fields">
                     <label>
@@ -2344,14 +2449,8 @@ function BoardPage({
               </section>
             )}
 
-            <div className="register-actions">
-              <button
-                type="submit"
-                disabled={isSaving || isFetchingMetadata || !canSubmitVideo}
-              >
-                {submitVideoLabel}
-              </button>
-              {(editingId || hasDraftPreview) && (
+            {(editingId || hasDraftPreview) && (
+              <div className="register-actions">
                 <button
                   className="secondary-action"
                   type="button"
@@ -2363,10 +2462,10 @@ function BoardPage({
                     setIsEditingDetails(false);
                   }}
                 >
-                  취소
+                  입력 초기화
                 </button>
-              )}
-            </div>
+              </div>
+            )}
           </form>
         </section>
       </section>

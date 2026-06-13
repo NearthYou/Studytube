@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  fallbackPostEditorFromVideoUrl,
   hasPostEditorVideoUrl,
   isPostEditorReadyToSave,
+  postRegistrationRefreshSearch,
   videoRegistrationSubmitLabel,
 } from '../src/postEditor.ts';
 
@@ -22,7 +24,7 @@ test('allows submitting a URL-only video draft so registration can analyze first
       isSaving: false,
       readyToSave: isPostEditorReadyToSave(editor),
     }),
-    '분석하고 영상 추가하기',
+    '분석 후 추가',
   );
 });
 
@@ -45,6 +47,53 @@ test('uses the direct add label once title and summary are ready', () => {
       isSaving: false,
       readyToSave: true,
     }),
-    '영상 추가하기',
+    '영상 추가',
   );
+});
+
+test('uses compact progress labels while analysis and saving are running', () => {
+  assert.equal(
+    videoRegistrationSubmitLabel({
+      isEditing: false,
+      isFetchingMetadata: true,
+      isSaving: false,
+      readyToSave: false,
+    }),
+    '분석 중',
+  );
+  assert.equal(
+    videoRegistrationSubmitLabel({
+      isEditing: false,
+      isFetchingMetadata: false,
+      isSaving: true,
+      readyToSave: false,
+    }),
+    '저장 중',
+  );
+});
+
+test('refreshes the saved-video list without the stale search after registration', () => {
+  assert.equal(postRegistrationRefreshSearch('react hooks'), '');
+  assert.equal(postRegistrationRefreshSearch('   '), '');
+});
+
+test('builds a saveable fallback editor when metadata analysis is unavailable', () => {
+  const editor = fallbackPostEditorFromVideoUrl(
+    ' https://www.youtube.com/watch?v=dQw4w9WgXcQ ',
+    {
+      title: '',
+      videoUrl: '',
+      thumbnailUrl: '',
+      channelName: '',
+      summary: '',
+      translatedNotes: '',
+      tags: '',
+    },
+  );
+
+  assert.ok(editor);
+  assert.equal(editor.videoUrl, 'https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+  assert.equal(editor.thumbnailUrl, 'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg');
+  assert.equal(editor.channelName, 'YouTube');
+  assert.equal(isPostEditorReadyToSave(editor), true);
 });

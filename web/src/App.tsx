@@ -45,6 +45,7 @@ import {
   nativeYouTubeCaptionLanguage,
   selectActiveCaption,
   shouldUseNativeYouTubeCaptions,
+  sourceCaptionTranslationPollDelay,
   syncNativeYouTubeCaptions,
   youtubeCaptionPlayerVars,
 } from './captions';
@@ -218,8 +219,7 @@ const emptyEditor: PostEditor = {
 };
 
 const DEFAULT_CAPTION_DURATION_SECONDS = 600;
-const SOURCE_CAPTION_TRANSLATION_POLL_MS = 5000;
-const MAX_SOURCE_CAPTION_TRANSLATION_POLLS = 6;
+const MAX_SOURCE_CAPTION_TRANSLATION_POLLS = 13;
 const LIVE_CAPTION_PROVIDERS = new Set([
   'youtube-timedtext',
   'yt-dlp-captions',
@@ -3319,6 +3319,8 @@ function WatchPage({ session }: { session: Session }) {
     }
 
     let cancelled = false;
+    const translationPollDelay =
+      sourceCaptionTranslationPollDelay(captionRefreshAttempts);
     const timeout = window.setTimeout(() => {
       async function refreshTranslatedCaptions() {
         try {
@@ -3344,7 +3346,7 @@ function WatchPage({ session }: { session: Session }) {
       }
 
       void refreshTranslatedCaptions();
-    }, SOURCE_CAPTION_TRANSLATION_POLL_MS);
+    }, translationPollDelay);
 
     return () => {
       cancelled = true;

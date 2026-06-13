@@ -1,0 +1,5 @@
+.pet-place-panel {
+  display: grid;
+  gap: 18px;
+  padding: 28px;
+}

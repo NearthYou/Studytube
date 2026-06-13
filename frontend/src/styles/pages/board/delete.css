@@ -1,0 +1,22 @@
+.delete-panel {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 24px;
+  padding: 26px;
+}
+
+.delete-panel img {
+  width: 100%;
+  height: 180px;
+  border-radius: var(--radius);
+  object-fit: cover;
+}
+
+.delete-copy {
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.delete-panel-message {
+  grid-column: 1 / -1;
+}

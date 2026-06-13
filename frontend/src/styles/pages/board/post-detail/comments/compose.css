@@ -1,0 +1,30 @@
+.comment-compose {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  gap: 10px;
+  align-items: end;
+}
+
+.comment-compose textarea {
+  min-height: 92px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-muted);
+  color: var(--text-strong);
+  font: inherit;
+  line-height: 1.5;
+  outline: none;
+  resize: vertical;
+}
+
+.comment-compose textarea:focus {
+  border-color: var(--focus-ring);
+  background: #ffffff;
+  box-shadow: 0 0 0 4px var(--focus-ring-soft);
+}
+
+.comment-compose textarea:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 3px;
+}

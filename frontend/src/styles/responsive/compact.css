@@ -1,0 +1,106 @@
+@media (max-width: 560px) {
+  .login-options,
+  .signup-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .inline-field {
+    grid-template-columns: 1fr;
+  }
+
+  .secondary-action-button {
+    width: 100%;
+  }
+
+  .signup-details-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .field-label-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .comment-meta {
+    align-items: flex-start;
+  }
+}
+
+@media (max-width: 380px) {
+  :root {
+    --logo-size: 46px;
+  }
+
+  .app-shell--feed {
+    --header-height: 110px;
+  }
+
+  .app-shell--board,
+  .app-shell--auth {
+    --header-height: 66px;
+  }
+
+  .app-header {
+    padding: 8px 10px;
+  }
+
+  .brand {
+    gap: 6px;
+  }
+
+  .brand-name {
+    display: none;
+  }
+
+  .header-actions {
+    gap: 6px;
+  }
+
+  .user-chip {
+    width: 44px;
+    padding: 0;
+  }
+
+  .user-chip span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .login-button,
+  .write-button {
+    min-height: 40px;
+    padding: 0 9px;
+    font-size: 0.8rem;
+  }
+
+  .search-field {
+    height: 40px;
+    font-size: 0.88rem;
+  }
+
+  .main-content {
+    padding-right: 10px;
+    padding-left: 10px;
+  }
+
+  .sidebar {
+    padding-right: 8px;
+    padding-left: 8px;
+  }
+
+  .sidebar-nav {
+    gap: 4px;
+  }
+
+  .sidebar-link {
+    min-height: 48px;
+    padding: 4px 2px;
+    font-size: 0.66rem;
+  }
+}

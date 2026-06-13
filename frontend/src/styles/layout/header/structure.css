@@ -1,0 +1,21 @@
+.app-header {
+  position: fixed;
+  top: 0;
+  right: 0;
+  left: 0;
+  z-index: 30;
+  display: grid;
+  grid-template-columns: minmax(180px, 260px) minmax(220px, 560px) max-content;
+  align-items: center;
+  gap: 18px;
+  height: var(--header-height);
+  padding: 0 28px;
+  border-bottom: 1px solid var(--line);
+  background: rgb(255 255 255 / 92%);
+  backdrop-filter: blur(18px);
+}
+
+.app-header--board,
+.app-header--auth {
+  grid-template-columns: minmax(180px, 1fr) max-content;
+}

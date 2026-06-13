@@ -1,0 +1,9 @@
+.mypage-empty {
+  justify-items: start;
+}
+
+.mypage-empty-icon {
+  width: 72px;
+  height: 72px;
+  flex-basis: 72px;
+}

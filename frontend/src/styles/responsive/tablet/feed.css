@@ -1,0 +1,21 @@
+@media (max-width: 1060px) {
+  .post-grid {
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 18px;
+  }
+}
+
+@media (max-width: 860px) {
+  .post-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+  }
+
+  .post-card-link--featured {
+    grid-column: span 2;
+  }
+
+  .post-card--featured .post-content h2 {
+    font-size: 1.04rem;
+  }
+}

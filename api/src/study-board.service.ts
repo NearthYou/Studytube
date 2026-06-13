@@ -5,7 +5,18 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
-import { createHash, randomBytes } from 'node:crypto';
+import {
+  assertEmail,
+  assertPassword,
+  assertPostInput,
+  assertText,
+  createSessionToken,
+  hashPassword,
+  normalizeBearerToken,
+  normalizePreferences,
+  toPositiveInteger,
+  type Credentials,
+} from './study-board.policy';
 import type {
   BoardRepository,
   CreatePostInput,
@@ -19,11 +30,6 @@ import type {
   User,
 } from './study-board.types';
 
-type Credentials = {
-  email: string;
-  password: string;
-};
-
 @Injectable()
 export class StudyBoardService {
   constructor(private readonly repository: BoardRepository) {}
@@ -33,9 +39,9 @@ export class StudyBoardService {
     email: string;
     password: string;
   }): Promise<Session> {
-    this.assertText(input.name, 'name');
-    this.assertEmail(input.email);
-    this.assertPassword(input.password);
+    assertText(input.name, 'name');
+    assertEmail(input.email);
+    assertPassword(input.password);
 
     const email = input.email.trim().toLowerCase();
     const existing = await this.repository.findUserByEmail(email);
@@ -47,25 +53,25 @@ export class StudyBoardService {
     const user = await this.repository.createUser({
       name: input.name.trim(),
       email,
-      passwordHash: this.hashPassword(input.password),
+      passwordHash: hashPassword(input.password),
     });
 
-    return this.repository.createSession(user.id, this.createToken());
+    return this.repository.createSession(user.id, createSessionToken());
   }
 
   async login(input: Credentials): Promise<Session> {
-    this.assertEmail(input.email);
-    this.assertPassword(input.password);
+    assertEmail(input.email);
+    assertPassword(input.password);
 
     const user = await this.repository.findUserByEmail(
       input.email.trim().toLowerCase(),
     );
 
-    if (!user || user.passwordHash !== this.hashPassword(input.password)) {
+    if (!user || user.passwordHash !== hashPassword(input.password)) {
       throw new UnauthorizedException('Invalid email or password');
     }
 
-    return this.repository.createSession(user.id, this.createToken());
+    return this.repository.createSession(user.id, createSessionToken());
   }
 
   async demoSession(): Promise<Session> {
@@ -77,13 +83,13 @@ export class StudyBoardService {
       const created = await this.repository.createUser({
         name: 'Demo Learner',
         email: 'demo@studytube.local',
-        passwordHash: this.hashPassword('demo1234'),
+        passwordHash: hashPassword('demo1234'),
       });
 
-      return this.repository.createSession(created.id, this.createToken());
+      return this.repository.createSession(created.id, createSessionToken());
     }
 
-    return this.repository.createSession(demoUser.id, this.createToken());
+    return this.repository.createSession(demoUser.id, createSessionToken());
   }
 
   async getMe(token: string | undefined): Promise<User> {
@@ -106,11 +112,13 @@ export class StudyBoardService {
     const nextPassword = input.password?.trim();
     const currentPassword = input.currentPassword?.trim();
     const preferences = input.preferences
-      ? this.normalizePreferences(input.preferences)
+      ? normalizePreferences(input.preferences)
       : undefined;
 
     if (!nextName && !nextPassword && !preferences) {
-      throw new BadRequestException('name, password, or preferences is required');
+      throw new BadRequestException(
+        'name, password, or preferences is required',
+      );
     }
 
     if (!currentPassword) {
@@ -123,24 +131,22 @@ export class StudyBoardService {
 
     if (
       !userWithPassword ||
-      userWithPassword.passwordHash !== this.hashPassword(currentPassword)
+      userWithPassword.passwordHash !== hashPassword(currentPassword)
     ) {
       throw new UnauthorizedException('Current password is invalid');
     }
 
     if (nextName !== undefined) {
-      this.assertText(nextName, 'name');
+      assertText(nextName, 'name');
     }
 
     if (nextPassword) {
-      this.assertPassword(nextPassword);
+      assertPassword(nextPassword);
     }
 
     const user = await this.repository.updateUser(session.user.id, {
       name: nextName || undefined,
-      passwordHash: nextPassword
-        ? this.hashPassword(nextPassword)
-        : undefined,
+      passwordHash: nextPassword ? hashPassword(nextPassword) : undefined,
       preferences,
     });
 
@@ -158,8 +164,8 @@ export class StudyBoardService {
     pageSize?: number;
   }): Promise<PaginatedPosts> {
     const session = await this.requireSession(input.token);
-    const page = this.toPositiveInteger(input.page, 1);
-    const pageSize = Math.min(this.toPositiveInteger(input.pageSize, 6), 24);
+    const page = toPositiveInteger(input.page, 1);
+    const pageSize = Math.min(toPositiveInteger(input.pageSize, 6), 24);
 
     return this.repository.listPosts({
       authorId: session.user.id,
@@ -174,8 +180,8 @@ export class StudyBoardService {
     page?: number;
     pageSize?: number;
   }): Promise<PaginatedPosts> {
-    const page = this.toPositiveInteger(input.page, 1);
-    const pageSize = Math.min(this.toPositiveInteger(input.pageSize, 12), 48);
+    const page = toPositiveInteger(input.page, 1);
+    const pageSize = Math.min(toPositiveInteger(input.pageSize, 12), 48);
 
     return this.repository.listPosts({
       search: input.search,
@@ -200,7 +206,7 @@ export class StudyBoardService {
     input: Omit<CreatePostInput, 'authorId'>,
   ): Promise<StudyPost> {
     const session = await this.requireSession(token);
-    this.assertPostInput(input);
+    assertPostInput(input);
 
     return this.repository.createPost({
       ...input,
@@ -247,7 +253,7 @@ export class StudyBoardService {
   ) {
     const session = await this.requireSession(token);
     await this.requirePost(postId);
-    this.assertText(input.body, 'body');
+    assertText(input.body, 'body');
 
     return this.repository.addComment({
       postId,
@@ -265,7 +271,9 @@ export class StudyBoardService {
   }> {
     const session = await this.requireSession(token);
     const post = await this.requirePost(postId);
-    const comment = post.comments.find((candidate) => candidate.id === commentId);
+    const comment = post.comments.find(
+      (candidate) => candidate.id === commentId,
+    );
 
     if (!comment) {
       throw new NotFoundException('Comment not found');
@@ -298,7 +306,7 @@ export class StudyBoardService {
     },
   ): Promise<Playlist> {
     const session = await this.requireSession(token);
-    this.assertText(input.title, 'title');
+    assertText(input.title, 'title');
 
     return this.repository.createPlaylist({
       ownerId: session.user.id,
@@ -338,7 +346,7 @@ export class StudyBoardService {
       throw new BadRequestException('rating must be an integer from 1 to 5');
     }
 
-    this.assertText(input.body, 'body');
+    assertText(input.body, 'body');
 
     return this.repository.addPlaylistFeedback({
       playlistId,
@@ -349,7 +357,7 @@ export class StudyBoardService {
   }
 
   private async requireSession(token?: string): Promise<Session> {
-    const normalized = this.normalizeToken(token);
+    const normalized = normalizeBearerToken(token);
     const session = normalized
       ? await this.repository.findSession(normalized)
       : null;
@@ -382,85 +390,5 @@ export class StudyBoardService {
     }
 
     return post;
-  }
-
-  private normalizeToken(token?: string): string | undefined {
-    if (!token) {
-      return undefined;
-    }
-
-    return token.replace(/^Bearer\s+/i, '').trim();
-  }
-
-  private hashPassword(password: string): string {
-    return createHash('sha256').update(password).digest('hex');
-  }
-
-  private createToken(): string {
-    return randomBytes(24).toString('hex');
-  }
-
-  private assertPostInput(input: Omit<CreatePostInput, 'authorId'>) {
-    this.assertText(input.title, 'title');
-    this.assertText(input.videoUrl, 'videoUrl');
-    this.assertText(input.summary, 'summary');
-    this.assertText(input.translatedNotes, 'translatedNotes');
-  }
-
-  private normalizePreferences(input: LearningPreferences): LearningPreferences {
-    const interests = [
-      ...new Set(
-        (input.interests ?? [])
-          .map((item) => item.trim())
-          .filter((item) => item.length > 0)
-          .slice(0, 8),
-      ),
-    ];
-    const pace = input.pace?.trim();
-    const goal = input.goal?.trim();
-
-    if (interests.length === 0) {
-      throw new BadRequestException('preferences.interests is required');
-    }
-
-    this.assertText(pace, 'preferences.pace');
-    this.assertText(goal, 'preferences.goal');
-
-    return {
-      interests,
-      pace,
-      goal,
-    };
-  }
-
-  private assertEmail(email: string) {
-    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      throw new BadRequestException('email must be valid');
-    }
-  }
-
-  private assertPassword(password: string) {
-    if (!password || password.length < 6) {
-      throw new BadRequestException('password must be at least 6 characters');
-    }
-  }
-
-  private assertText(value: string | undefined, field: string) {
-    if (!value?.trim()) {
-      throw new BadRequestException(`${field} is required`);
-    }
-  }
-
-  private toPositiveInteger(
-    value: number | undefined,
-    fallback: number,
-  ): number {
-    const parsed = Number(value);
-
-    if (!Number.isInteger(parsed) || parsed < 1) {
-      return fallback;
-    }
-
-    return parsed;
   }
 }

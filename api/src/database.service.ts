@@ -1,18 +1,29 @@
-import {
+﻿import {
   Injectable,
   Logger,
   OnModuleDestroy,
   OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createHash } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { basename, dirname, resolve } from 'node:path';
 import { Pool, PoolClient } from 'pg';
 import {
+  DEFAULT_LEARNING_PREFERENCES,
+  iso,
+  normalizeComment,
+  normalizeFeedback,
+  normalizeTagNames,
+  publicUser,
+  vectorLiteral,
+  type PostRow,
+  type UserRow,
+} from './database-board.mapper';
+import {
   MemoryBoardRepository,
   type MemoryBoardState,
 } from './memory-board.repository';
+import { hashPassword } from './study-board.policy';
 import {
   Comment,
   CreatePostInput,
@@ -25,29 +36,6 @@ import {
   UpdatePostInput,
   User,
 } from './study-board.types';
-
-type UserRow = {
-  id: number;
-  name: string;
-  email: string;
-  passwordHash: string;
-  preferences: unknown;
-  createdAt: Date | string;
-};
-
-type PostRow = {
-  id: number;
-  authorId: number;
-  authorName: string;
-  title: string;
-  videoUrl: string;
-  thumbnailUrl: string;
-  channelName: string;
-  summary: string;
-  translatedNotes: string;
-  createdAt: Date | string;
-  updatedAt: Date | string;
-};
 
 @Injectable()
 export class DatabaseService
@@ -143,7 +131,7 @@ export class DatabaseService
         [input.name, input.email, input.passwordHash],
       );
 
-      return this.publicUser(result.rows[0]);
+      return publicUser(result.rows[0]);
     } catch (error) {
       this.fallback(error);
       return super.createUser(input);
@@ -170,7 +158,7 @@ export class DatabaseService
 
       return result.rows[0]
         ? {
-            ...this.publicUser(result.rows[0]),
+            ...publicUser(result.rows[0]),
             passwordHash: result.rows[0].passwordHash,
           }
         : null;
@@ -210,7 +198,7 @@ export class DatabaseService
         ],
       );
 
-      return result.rows[0] ? this.publicUser(result.rows[0]) : null;
+      return result.rows[0] ? publicUser(result.rows[0]) : null;
     } catch (error) {
       this.fallback(error);
       return super.updateUser(id, input);
@@ -265,7 +253,7 @@ export class DatabaseService
       );
       const row = result.rows[0];
 
-      return row ? { token: row.token, user: this.publicUser(row) } : null;
+      return row ? { token: row.token, user: publicUser(row) } : null;
     } catch (error) {
       this.fallback(error);
       return super.findSession(token);
@@ -537,7 +525,7 @@ export class DatabaseService
         [input.postId, input.authorId, input.body],
       );
 
-      return this.normalizeComment(result.rows[0]);
+      return normalizeComment(result.rows[0]);
     } catch (error) {
       this.fallback(error);
       return super.addComment(input);
@@ -694,7 +682,7 @@ export class DatabaseService
         [input.playlistId, input.authorId, input.rating, input.body],
       );
 
-      return this.normalizeFeedback(result.rows[0]);
+      return normalizeFeedback(result.rows[0]);
     } catch (error) {
       this.fallback(error);
       return super.addPlaylistFeedback(input);
@@ -709,7 +697,7 @@ export class DatabaseService
         name TEXT NOT NULL,
         email TEXT NOT NULL UNIQUE,
         password_hash TEXT NOT NULL,
-        preferences JSONB NOT NULL DEFAULT '{"interests":["YouTube 학습","프론트엔드"],"pace":"하루 20분","goal":"짧은 영상으로 꾸준히 복습하기"}'::jsonb,
+        preferences JSONB NOT NULL DEFAULT '{"interests":["YouTube ?숈뒿","?꾨줎?몄뿏??],"pace":"?섎（ 20遺?,"goal":"吏㏃? ?곸긽?쇰줈 袁몄???蹂듭뒿?섍린"}'::jsonb,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now()
       );
 
@@ -782,15 +770,19 @@ export class DatabaseService
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
       );
     `);
+    const defaultPreferences = JSON.stringify(
+      DEFAULT_LEARNING_PREFERENCES,
+    ).replace(/'/g, "''");
+
     await this.pool.query(`
       ALTER TABLE users
       ADD COLUMN IF NOT EXISTS preferences JSONB NOT NULL
-      DEFAULT '{"interests":["YouTube 학습","프론트엔드"],"pace":"하루 20분","goal":"짧은 영상으로 꾸준히 복습하기"}'::jsonb
+      DEFAULT '${defaultPreferences}'::jsonb
     `);
   }
 
   private async seedDatabase() {
-    const passwordHash = createHash('sha256').update('demo1234').digest('hex');
+    const passwordHash = hashPassword('demo1234');
     await this.pool.query(
       `
         INSERT INTO users (id, name, email, password_hash)
@@ -842,11 +834,11 @@ export class DatabaseService
 
     await this.pool.query(`
       INSERT INTO comments (id, post_id, author_id, body)
-      VALUES (1, 1, 1, 'useEffect dependency 설명이 입문자에게 특히 좋아요.')
+      VALUES (1, 1, 1, 'useEffect dependency ?ㅻ챸???낅Ц?먯뿉寃??뱁엳 醫뗭븘??')
       ON CONFLICT (id) DO NOTHING;
 
       INSERT INTO playlists (id, owner_id, title, description)
-      VALUES (1, 1, 'React 기초 복습 루트', 'React 훅과 서버 상태 관리를 차례대로 복습합니다.')
+      VALUES (1, 1, 'React 湲곗큹 蹂듭뒿 猷⑦듃', 'React ?낃낵 ?쒕쾭 ?곹깭 愿由щ? 李⑤??濡?蹂듭뒿?⑸땲??')
       ON CONFLICT (id) DO NOTHING;
 
       INSERT INTO playlist_items (playlist_id, post_id, position)
@@ -871,7 +863,7 @@ export class DatabaseService
       [id],
     );
 
-    return result.rows[0] ? this.publicUser(result.rows[0]) : null;
+    return result.rows[0] ? publicUser(result.rows[0]) : null;
   }
 
   private async hydratePost(row: PostRow): Promise<StudyPost> {
@@ -910,9 +902,9 @@ export class DatabaseService
       summary: row.summary,
       translatedNotes: row.translatedNotes,
       tags: tags.rows.map((tag) => tag.name),
-      comments: comments.rows.map((comment) => this.normalizeComment(comment)),
-      createdAt: this.iso(row.createdAt),
-      updatedAt: this.iso(row.updatedAt),
+      comments: comments.rows.map((comment) => normalizeComment(comment)),
+      createdAt: iso(row.createdAt),
+      updatedAt: iso(row.updatedAt),
     };
   }
 
@@ -951,8 +943,8 @@ export class DatabaseService
       title: row.title,
       description: row.description,
       postIds: items.rows.map((item) => item.postId),
-      feedback: feedback.rows.map((item) => this.normalizeFeedback(item)),
-      createdAt: this.iso(row.createdAt),
+      feedback: feedback.rows.map((item) => normalizeFeedback(item)),
+      createdAt: iso(row.createdAt),
     };
   }
 
@@ -961,9 +953,7 @@ export class DatabaseService
     postId: number,
     tags: string[],
   ): Promise<void> {
-    const normalized = [
-      ...new Set(tags.map((tag) => tag.trim().toLowerCase()).filter(Boolean)),
-    ];
+    const normalized = normalizeTagNames(tags);
     await client.query('DELETE FROM post_tags WHERE post_id = $1', [postId]);
 
     for (const tag of normalized) {
@@ -1001,70 +991,8 @@ export class DatabaseService
                       embedding = EXCLUDED.embedding,
                       updated_at = now()
       `,
-      [postId, content, this.vectorLiteral(content)],
+      [postId, content, vectorLiteral(content)],
     );
-  }
-
-  private vectorLiteral(content: string): string {
-    const digest = createHash('sha256').update(content).digest();
-    const values = Array.from({ length: 64 }, (_, index) => {
-      const byte = digest[index % digest.length];
-      return ((byte / 255) * 2 - 1).toFixed(5);
-    });
-
-    return `[${values.join(',')}]`;
-  }
-
-  private publicUser(row: UserRow): User {
-    return {
-      id: row.id,
-      name: row.name,
-      email: row.email,
-      preferences: this.normalizePreferences(row.preferences),
-      createdAt: this.iso(row.createdAt),
-    };
-  }
-
-  private normalizePreferences(value: unknown): LearningPreferences {
-    const fallback: LearningPreferences = {
-      interests: ['YouTube 학습', '프론트엔드'],
-      pace: '하루 20분',
-      goal: '짧은 영상으로 꾸준히 복습하기',
-    };
-
-    if (!value || typeof value !== 'object') {
-      return fallback;
-    }
-
-    const candidate = value as Partial<LearningPreferences>;
-
-    return {
-      interests: Array.isArray(candidate.interests)
-        ? candidate.interests
-            .filter((item): item is string => typeof item === 'string')
-            .slice(0, 8)
-        : fallback.interests,
-      pace: typeof candidate.pace === 'string' ? candidate.pace : fallback.pace,
-      goal: typeof candidate.goal === 'string' ? candidate.goal : fallback.goal,
-    };
-  }
-
-  private normalizeComment(comment: Comment): Comment {
-    return {
-      ...comment,
-      createdAt: this.iso(comment.createdAt),
-    };
-  }
-
-  private normalizeFeedback(feedback: PlaylistFeedback): PlaylistFeedback {
-    return {
-      ...feedback,
-      createdAt: this.iso(feedback.createdAt),
-    };
-  }
-
-  private iso(value: Date | string): string {
-    return value instanceof Date ? value.toISOString() : value;
   }
 
   private fallback(error: unknown) {

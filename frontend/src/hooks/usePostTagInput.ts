@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import type { ChangeEvent, KeyboardEvent } from 'react'
+import { useRef, useState } from 'react'
+import type { ChangeEvent, CompositionEvent, KeyboardEvent } from 'react'
 import { createNextPostTags } from '../utils/postTags'
 
 type UsePostTagInputOptions = {
@@ -10,6 +10,7 @@ type UsePostTagInputOptions = {
 export function usePostTagInput({ onChange, tagNames }: UsePostTagInputOptions) {
   const [draft, setDraft] = useState('')
   const [status, setStatus] = useState('')
+  const isComposingRef = useRef(false)
 
   const addTags = (value: string) => {
     const result = createNextPostTags(tagNames, value)
@@ -33,13 +34,17 @@ export function usePostTagInput({ onChange, tagNames }: UsePostTagInputOptions) 
   }
 
   const handleDraftBlur = () => {
+    if (isComposingRef.current) {
+      return
+    }
+
     addTags(draft)
   }
 
   const handleDraftChange = (event: ChangeEvent<HTMLInputElement>) => {
     const nextValue = event.target.value
 
-    if (nextValue.includes(',')) {
+    if (!isComposingRef.current && !isComposingNativeEvent(event.nativeEvent) && nextValue.includes(',')) {
       const parts = nextValue.split(',')
       const pendingDraft = parts.pop() ?? ''
 
@@ -53,6 +58,10 @@ export function usePostTagInput({ onChange, tagNames }: UsePostTagInputOptions) 
   }
 
   const handleDraftKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (isComposingRef.current || isComposingNativeEvent(event.nativeEvent) || isCompositionKey(event)) {
+      return
+    }
+
     if (event.key !== 'Enter' && event.key !== ',') {
       return
     }
@@ -61,12 +70,35 @@ export function usePostTagInput({ onChange, tagNames }: UsePostTagInputOptions) 
     addTags(draft)
   }
 
+  const handleDraftCompositionStart = () => {
+    isComposingRef.current = true
+  }
+
+  const handleDraftCompositionEnd = (event: CompositionEvent<HTMLInputElement>) => {
+    isComposingRef.current = false
+    setDraft(event.currentTarget.value)
+  }
+
   return {
     draft,
     handleDraftBlur,
     handleDraftChange,
+    handleDraftCompositionEnd,
+    handleDraftCompositionStart,
     handleDraftKeyDown,
     removeTag,
     status,
   }
+}
+
+function isComposingNativeEvent(event: Event) {
+  return 'isComposing' in event && Boolean((event as { isComposing?: boolean }).isComposing)
+}
+
+function isCompositionKey(event: KeyboardEvent<HTMLInputElement>) {
+  const nativeEvent = event.nativeEvent as globalThis.KeyboardEvent & {
+    keyCode?: number
+  }
+
+  return nativeEvent.keyCode === 229
 }

@@ -74,6 +74,40 @@ describe('AgentService', () => {
     expect(response.answer).toContain('단정해서 답하지 않을게요');
   });
 
+  it('gives constipation triage guidance instead of broad repeated clarification', async () => {
+    const response = await service.chat({
+      message: '강아지가 똥을 안싸',
+      species: 'dog',
+    });
+
+    expect(response.riskLevel).toBe('vet_consult');
+    expect(response.usedTools).toContain('search_behavior_rag');
+    expect(response.answer).toContain('48시간 이상');
+    expect(response.answer).toContain('힘을 주는데도 안 나오는지');
+    expect(response.answer).not.toContain('상황, 시간, 반복 빈도');
+  });
+
+  it('handles unknown follow-up answers without repeating the same prompt', async () => {
+    const response = await service.chat({
+      history: [
+        {
+          content: '강아지가 똥을 안싸',
+          role: 'user',
+        },
+        {
+          content: '마지막 대변이 언제였는지 알려주세요.',
+          role: 'assistant',
+        },
+      ],
+      message: '몰라',
+      species: 'dog',
+    });
+
+    expect(response.answer).toContain('몰라도 괜찮아요');
+    expect(response.answer).toContain('48시간');
+    expect(response.answer).not.toContain('상황, 시간, 반복 빈도');
+  });
+
   it('returns cards from allowed search tools', async () => {
     const response = await service.chat({
       message: '근처 동반 장소랑 산책 게시글 찾아줘',

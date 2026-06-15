@@ -86,6 +86,10 @@ const vetConsultKeywords = [
   '통증',
   '구토',
   '설사',
+  '똥',
+  '응가',
+  '대변',
+  '변비',
   '피부',
   '약',
   '처방',
@@ -102,6 +106,22 @@ const vetConsultKeywords = [
   '입질',
   '노령',
   '밤마다',
+];
+
+const constipationKeywords = ['똥', '응가', '대변', '변비', '배변', '변을'];
+
+const constipationProblemKeywords = [
+  '안싸',
+  '안 싸',
+  '못싸',
+  '못 싸',
+  '안나',
+  '안 나',
+  '못봐',
+  '못 봐',
+  '힘줘',
+  '힘주',
+  '딱딱',
 ];
 
 @Injectable()
@@ -277,6 +297,17 @@ export class AgentService {
       return '응급 가능성이 있는 표현이 포함되어 있어요. Tail Talk Assistant는 진단을 대신할 수 없으니, 호흡 곤란, 발작, 중독 의심, 심한 출혈처럼 긴급 신호가 있다면 즉시 동물병원에 연락해 주세요.';
     }
 
+    if (
+      this.isUnknownReply(message) &&
+      this.hasRecentConstipationContext(history)
+    ) {
+      return this.buildUnknownConstipationFollowUpAnswer();
+    }
+
+    if (this.hasConstipationConcern(message)) {
+      return this.buildConstipationTriageAnswer();
+    }
+
     if (riskLevel === 'vet_consult') {
       return '건강이나 행동 문제는 단정해서 답하지 않을게요. 증상이 시작된 시점, 반복 빈도, 식욕/활동성 변화, 배변 상태를 메모하고 필요하면 동물병원이나 전문가와 상담해 주세요.';
     }
@@ -319,6 +350,10 @@ export class AgentService {
 
     if (this.isClarificationQuestion(message)) {
       return '이렇게 알려주면 바로 이어서 볼 수 있어요: 반려동물 종류와 나이, 언제부터 그랬는지, 어떤 상황에서 반복되는지, 식욕·활동량·배변·배뇨 변화가 있는지요.';
+    }
+
+    if (this.isUnknownReply(message)) {
+      return '괜찮아요. 모르면 지금 바로 확인 가능한 것 하나부터 보면 돼요. 마지막으로 평소와 달라진 점이 식욕, 물 마시는 양, 활동량, 배변·배뇨 중 어디에 가까운지만 알려주세요.';
     }
 
     if (this.isSmallTalk(message)) {
@@ -499,6 +534,10 @@ export class AgentService {
       '화장실',
       '배변',
       '배뇨',
+      '똥',
+      '응가',
+      '대변',
+      '변비',
       '소변',
       '분리불안',
       '불안',
@@ -536,6 +575,8 @@ export class AgentService {
       '방법',
       '반응',
       '보호자',
+      '몰라',
+      '모르',
       '해도',
       '하면',
       '계속',
@@ -599,6 +640,63 @@ export class AgentService {
       '구체적으로',
       '무슨 말',
     ].some((keyword) => message.includes(keyword));
+  }
+
+  private isUnknownReply(message: string) {
+    const normalized = message.replace(/[!?.~\s]/g, '').toLowerCase();
+
+    return [
+      '몰라',
+      '모름',
+      '모르겠어',
+      '잘몰라',
+      '모르겠어요',
+      '기억안나',
+      '확실하지않아',
+      '글쎄',
+    ].some((keyword) => normalized.includes(keyword));
+  }
+
+  private hasConstipationConcern(message: string) {
+    const compactMessage = message.replace(/\s/g, '');
+    const hasConstipationKeyword = constipationKeywords.some((keyword) =>
+      compactMessage.includes(keyword.replace(/\s/g, '')),
+    );
+    const hasProblemKeyword = constipationProblemKeywords.some((keyword) =>
+      compactMessage.includes(keyword.replace(/\s/g, '')),
+    );
+
+    return hasConstipationKeyword && hasProblemKeyword;
+  }
+
+  private hasRecentConstipationContext(history: ChatAgentDto['history'] = []) {
+    return history
+      .slice(-8)
+      .some((entry) => this.hasConstipationConcern(entry.content));
+  }
+
+  private buildConstipationTriageAnswer() {
+    return [
+      '강아지가 대변을 못 보는 상황이면 먼저 “언제부터인지”와 “힘을 주는데 안 나오는지”를 확인해 주세요.',
+      '',
+      '- 24시간 이내이고 식욕·활동성이 평소와 비슷하면 물을 충분히 마시는지 보고, 무리하지 않는 짧은 산책으로 장 움직임을 도와볼 수 있어요.',
+      '- 배가 빵빵하거나 아파 보임, 구토, 식욕 저하, 축 처짐, 피가 섞임, 계속 힘주는데 안 나옴, 이물질을 먹었을 가능성이 있으면 오늘 바로 병원에 문의하는 쪽이 안전해요.',
+      '- 48시간 이상 대변이 없으면 다른 증상이 약해 보여도 병원 상담을 권장해요.',
+      '',
+      '지금 알 수 있는 것부터 하나만 알려주세요: 마지막 대변이 언제였는지, 아니면 힘을 주는데도 안 나오는지요.',
+    ].join('\n');
+  }
+
+  private buildUnknownConstipationFollowUpAnswer() {
+    return [
+      '몰라도 괜찮아요. 그러면 지금 확인 가능한 안전 신호부터 볼게요.',
+      '',
+      '1. 배가 평소보다 단단하거나 빵빵한지 살짝 보기',
+      '2. 구토, 식욕 저하, 축 처짐이 있는지 보기',
+      '3. 화장실 자세를 잡고 계속 힘주는데 안 나오는지 보기',
+      '',
+      '이 중 하나라도 있으면 변비뿐 아니라 막힘이나 통증 가능성도 있어서 병원에 문의하는 게 좋아요. 아무것도 모르겠다면 “마지막 대변을 못 봤다”는 기준으로 48시간이 넘었는지만 먼저 확인해 주세요.',
+    ].join('\n');
   }
 
   private isSmallTalk(message: string) {

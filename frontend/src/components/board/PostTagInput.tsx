@@ -7,7 +7,16 @@ type PostTagInputProps = {
 }
 
 export function PostTagInput({ tagNames, onChange }: PostTagInputProps) {
-  const { draft, handleDraftBlur, handleDraftChange, handleDraftKeyDown, removeTag, status } = usePostTagInput({
+  const {
+    draft,
+    handleDraftBlur,
+    handleDraftChange,
+    handleDraftCompositionEnd,
+    handleDraftCompositionStart,
+    handleDraftKeyDown,
+    removeTag,
+    status,
+  } = usePostTagInput({
     onChange,
     tagNames,
   })
@@ -36,6 +45,8 @@ export function PostTagInput({ tagNames, onChange }: PostTagInputProps) {
           placeholder="태그 입력"
           onBlur={handleDraftBlur}
           onChange={handleDraftChange}
+          onCompositionEnd={handleDraftCompositionEnd}
+          onCompositionStart={handleDraftCompositionStart}
           onKeyDown={handleDraftKeyDown}
         />
       </div>

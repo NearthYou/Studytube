@@ -48,6 +48,24 @@ test("builds readable summary details with timed blocks", () => {
   );
 });
 
+test("groups dense transcript timestamps into readable summary intervals", () => {
+  const details = buildVideoSummaryDetails(
+    video({
+      summary: "",
+      translatedNotes:
+        "0:00 Intro. 0:04 Detail. 0:09 Example. 1:04 Next topic.",
+    }),
+  );
+
+  assert.deepEqual(
+    details.map((item) => [item.label, item.body]),
+    [
+      ["0:00", "Intro. Detail. Example."],
+      ["1:04", "Next topic."],
+    ],
+  );
+});
+
 test("falls back when summary text is unreadable", () => {
   const details = buildVideoSummaryDetails(
     video({ summary: "??", translatedNotes: "AI 분석 요약:\n??" }),
@@ -85,6 +103,7 @@ test("parses transcript timestamps into seekable summary parts", () => {
 
 test("formats player time and clips dense copy consistently", () => {
   assert.equal(formatTime(75.8), "1:15");
+  assert.equal(formatTime(3723), "1:02:03");
   assert.equal(clipText("  one   two   three  ", 7), "one two...");
   assert.equal(clipText("short", 20), "short");
 });

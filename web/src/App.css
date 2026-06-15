@@ -116,6 +116,9 @@ input {
 
 .nav-account span,
 .nav-account a:not(.nav-cta) {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
   color: var(--muted);
   font-size: var(--font-14);
   font-weight: 800;
@@ -543,6 +546,12 @@ input {
 }
 
 .home-queue-card .section-title a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 10px;
+  border-radius: 6px;
   color: var(--blue);
   font-size: var(--font-14);
   font-weight: 900;
@@ -1044,7 +1053,7 @@ button:disabled:hover {
 .rate-buttons button,
 .loop-controls button,
 .secondary-action {
-  min-height: 38px;
+  min-height: 40px;
   padding: 0 12px;
   background: rgba(49, 130, 246, 0.1);
   color: var(--blue);
@@ -2557,7 +2566,7 @@ footer {
 }
 
 .draft-actions button {
-  min-height: 38px;
+  min-height: 40px;
   padding: 0 14px;
 }
 
@@ -3701,8 +3710,8 @@ footer {
 }
 
 .playlist-item-remove {
-  min-height: 30px;
-  padding: 0 10px;
+  min-height: 40px;
+  padding: 0 12px;
   background: #eef1f4;
   color: #6b7684;
   font-size: var(--font-13);
@@ -3826,7 +3835,7 @@ footer {
 }
 
 .quick-prompts button {
-  min-height: 36px;
+  min-height: 40px;
   padding: 0 12px;
   background: rgba(49, 130, 246, 0.1);
   color: var(--blue);
@@ -4128,12 +4137,12 @@ footer {
     display: none;
   }
 
-  .site-nav nav a {
+.site-nav nav a {
     display: inline-flex;
     flex: 1 0 auto;
     align-items: center;
     justify-content: center;
-    min-height: 34px;
+    min-height: 40px;
     padding: 0 10px;
     border-radius: 6px;
     font-size: var(--font-13);
@@ -4538,6 +4547,30 @@ footer {
   background: #111827;
 }
 
+.youtube-unavailable {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  gap: 8px;
+  padding: 24px;
+  color: #dbeafe;
+  text-align: center;
+}
+
+.youtube-unavailable strong {
+  color: #ffffff;
+  font-size: var(--font-18);
+}
+
+.youtube-unavailable span {
+  max-width: 420px;
+  color: #bfdbfe;
+  font-size: var(--font-14);
+  font-weight: 700;
+  line-height: 1.55;
+}
+
 #youtube-player,
 #youtube-player iframe {
   display: block;
@@ -4660,7 +4693,7 @@ footer {
 }
 
 .caption-toggle {
-  min-height: 36px;
+  min-height: 40px;
   padding: 0 12px;
   background: #f2f4f6;
   color: #4e5968;
@@ -4976,7 +5009,7 @@ footer {
 .choice-row button,
 .speed-grid button,
 .loop-actions button {
-  min-height: 38px;
+  min-height: 40px;
   padding: 0 8px;
   border: 1px solid transparent;
   background: #f2f4f6;
@@ -5116,8 +5149,8 @@ footer {
   position: absolute;
   top: 8px;
   right: 8px;
-  min-height: 28px;
-  padding: 0 8px;
+  min-height: 40px;
+  padding: 0 12px;
   background: rgba(25, 31, 40, 0.06);
   color: #6b7684;
   font-size: var(--font-13);

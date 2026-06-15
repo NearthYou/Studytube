@@ -1,6 +1,8 @@
 import type { VideoSummaryResponse } from "./types.ts";
 import type { QueueVideo } from "./watchQueue.ts";
 
+const MIN_SUMMARY_TIMESTAMP_INTERVAL_SECONDS = 60;
+
 export function formatVideoSummarySections(
   sections: VideoSummaryResponse["sections"],
 ) {
@@ -59,10 +61,15 @@ export function buildVideoSummaryDetails(video: QueueVideo) {
 }
 
 export function formatTime(totalSeconds: number) {
-  const minutes = Math.floor(totalSeconds / 60);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = Math.floor(totalSeconds % 60)
     .toString()
     .padStart(2, "0");
+
+  if (hours > 0) {
+    return `${hours}:${minutes.toString().padStart(2, "0")}:${seconds}`;
+  }
 
   return `${minutes}:${seconds}`;
 }
@@ -119,25 +126,37 @@ export function clipText(value: string, maxLength: number) {
 
 function extractTimedSummaryBlocks(text: string) {
   const matches = [...text.matchAll(/(?:(\d{1,2}):)?(\d{1,2}):(\d{2})/g)];
+  const blocks: Array<{ seconds: number; bodies: string[] }> = [];
 
-  return matches
-    .map((match, index) => {
-      const nextMatch = matches[index + 1];
-      const body = text
-        .slice(match.index! + match[0].length, nextMatch?.index ?? text.length)
-        .replace(/\s+/g, " ")
-        .trim();
+  matches.forEach((match, index) => {
+    const seconds = captionTimestampToSeconds(match);
+    const nextMatch = matches[index + 1];
+    const body = text
+      .slice(match.index! + match[0].length, nextMatch?.index ?? text.length)
+      .replace(/\s+/g, " ")
+      .trim();
 
-      return isReadableCaptionSource(body)
-        ? {
-            label: formatTime(captionTimestampToSeconds(match)),
-            body,
-          }
-        : null;
-    })
-    .filter((block): block is { label: string; body: string } =>
-      Boolean(block),
-    );
+    if (!isReadableCaptionSource(body)) {
+      return;
+    }
+
+    const previousBlock = blocks[blocks.length - 1];
+
+    if (
+      previousBlock &&
+      seconds - previousBlock.seconds < MIN_SUMMARY_TIMESTAMP_INTERVAL_SECONDS
+    ) {
+      previousBlock.bodies.push(body);
+      return;
+    }
+
+    blocks.push({ seconds, bodies: [body] });
+  });
+
+  return blocks.map((block) => ({
+    label: formatTime(block.seconds),
+    body: block.bodies.join(" "),
+  }));
 }
 
 function splitSummaryParagraphs(text: string) {

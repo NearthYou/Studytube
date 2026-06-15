@@ -55,6 +55,20 @@ export function extractYouTubeId(url: string): string | null {
   return null;
 }
 
+export function isPlayableYouTubeVideoId(value: string) {
+  return /^[a-zA-Z0-9_-]{11}$/.test(value);
+}
+
+export function playableYouTubeVideoId(videoUrl: string, fallbackVideoId = '') {
+  const urlVideoId = extractYouTubeId(videoUrl);
+
+  if (urlVideoId && isPlayableYouTubeVideoId(urlVideoId)) {
+    return urlVideoId;
+  }
+
+  return isPlayableYouTubeVideoId(fallbackVideoId) ? fallbackVideoId : null;
+}
+
 export function youtubeThumbnailUrl(videoId: string) {
   return `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
 }

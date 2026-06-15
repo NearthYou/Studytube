@@ -23,6 +23,10 @@ const text = {
     "\uBE44\uACF5\uAC1C \uB0B4 \uD50C\uB808\uC774\uB9AC\uC2A4\uD2B8",
   newPlaylist:
     "\uC0C8 \uD50C\uB808\uC774\uB9AC\uC2A4\uD2B8 \uB9CC\uB4E4\uAE30",
+  newPlaylistAndSelect:
+    "\uC0C8 \uD50C\uB808\uC774\uB9AC\uC2A4\uD2B8 \uB9CC\uB4E4\uACE0 \uC120\uD0DD",
+  addToSelectedTarget:
+    "\uC120\uD0DD\uD55C \uC704\uCE58\uC5D0 \uB2F4\uAE30",
   boardPostWriting:
     "\uAC8C\uC2DC\uAE00 \uC791\uC131",
   publishAsPost:
@@ -53,6 +57,8 @@ test("registration screen checks saved videos before playlist building", () => {
 
 test("registration screen supports multiple private playlists before publishing", () => {
   assert.match(boardPageSource, new RegExp(text.newPlaylist));
+  assert.match(boardPageSource, new RegExp(text.newPlaylistAndSelect));
+  assert.match(boardPageSource, new RegExp(text.addToSelectedTarget));
   assert.match(boardPageSource, /className="draft-tabs"/);
   assert.match(boardPageSource, /className="draft-actions"/);
   assert.match(boardPageSource, /switchPlaylistDraft/);

@@ -144,6 +144,7 @@ import {
   deriveTags,
   extractYouTubeId,
   limitVideoTags,
+  playableYouTubeVideoId,
   youtubeThumbnailUrl,
 } from "./videoMetadata";
 import {
@@ -267,6 +268,7 @@ const CAPTION_TRANSLATION_WINDOW_SECONDS = 180;
 const MAX_SOURCE_CAPTION_TRANSLATION_POLLS = 13;
 const MY_PLAYLISTS_PAGE_SIZE = 5;
 const COURSE_ANALYSIS_PRELOAD_LIMIT = 24;
+const YOUTUBE_API_LOAD_TIMEOUT_MS = 8000;
 const LIVE_CAPTION_PROVIDERS = new Set([
   "youtube-timedtext",
   "yt-dlp-captions",
@@ -3705,7 +3707,7 @@ function BoardPage({
                   </label>
                   <p>{selectedPlaylistTarget?.description}</p>
                   <button type="button" onClick={createNewPlaylistDraft}>
-                    새 플레이리스트 만들기
+                    새 플레이리스트 만들고 선택
                   </button>
                   <button
                     type="submit"
@@ -4426,6 +4428,11 @@ function WatchPage({ session }: { session: Session }) {
     useState<VideoSummaryResponse | null>(null);
   const [summaryError, setSummaryError] = useState("");
   const [isSummaryLoading, setIsSummaryLoading] = useState(false);
+  const [playerReadyVideoId, setPlayerReadyVideoId] = useState("");
+  const [playerLoadError, setPlayerLoadError] = useState<{
+    videoId: string;
+    message: string;
+  } | null>(null);
   const [videoDurationState, setVideoDurationState] =
     useState<VideoDurationState>({
       videoId: "",
@@ -4447,14 +4454,25 @@ function WatchPage({ session }: { session: Session }) {
   const activeVideoId = searchParams.get("videoId");
   const currentVideo =
     queue.find((video) => video.videoId === activeVideoId) ?? queue[0] ?? null;
+  const playableVideoId = currentVideo
+    ? playableYouTubeVideoId(currentVideo.videoUrl, currentVideo.videoId)
+    : null;
   const videoDuration =
-    videoDurationState.videoId === currentVideo?.videoId
+    playableVideoId && videoDurationState.videoId === currentVideo?.videoId
       ? videoDurationState.duration
       : 0;
   const durationWaitExpired =
-    videoDurationState.videoId === currentVideo?.videoId
-      ? videoDurationState.waitExpired
-      : false;
+    currentVideo && !playableVideoId
+      ? true
+      : videoDurationState.videoId === currentVideo?.videoId
+        ? videoDurationState.waitExpired
+        : false;
+  const currentPlayerLoadError =
+    playerLoadError?.videoId === currentVideo?.videoId
+      ? playerLoadError.message
+      : "";
+  const isPlayerReady =
+    Boolean(playableVideoId) && playerReadyVideoId === currentVideo?.videoId;
   const learning = currentVideo
     ? getVideoLearningState(currentVideo)
     : DEFAULT_LEARNING_STATE;
@@ -4693,10 +4711,33 @@ function WatchPage({ session }: { session: Session }) {
       return;
     }
 
+    if (!playableVideoId) {
+      playerRef.current?.destroy();
+      playerRef.current = null;
+      return;
+    }
+
     let cancelled = false;
+    const playerVideoId = playableVideoId;
 
     async function loadPlayer() {
-      const youtube = await loadYouTubeApi();
+      let youtube: YouTubeApi;
+
+      try {
+        youtube = await loadYouTubeApi();
+      } catch {
+        if (!cancelled) {
+          playerRef.current?.destroy();
+          playerRef.current = null;
+          setPlayerLoadError({
+            videoId: currentVideo.videoId,
+            message:
+              "YouTube 플레이어를 불러오지 못했어요. 네트워크를 확인한 뒤 다시 시도해주세요.",
+          });
+        }
+
+        return;
+      }
 
       if (cancelled) {
         return;
@@ -4704,7 +4745,7 @@ function WatchPage({ session }: { session: Session }) {
 
       if (!playerRef.current) {
         playerRef.current = new youtube.Player("youtube-player", {
-          videoId: currentVideo.videoId,
+          videoId: playerVideoId,
           playerVars: {
             rel: 0,
             modestbranding: 1,
@@ -4719,6 +4760,8 @@ function WatchPage({ session }: { session: Session }) {
           },
           events: {
             onReady: (event) => {
+              setPlayerReadyVideoId(currentVideo.videoId);
+              setPlayerLoadError(null);
               syncPlayerNativeCaptions(event.target);
               event.target.setPlaybackRate?.(learning.playbackRate);
               updateVideoDuration(
@@ -4737,9 +4780,11 @@ function WatchPage({ session }: { session: Session }) {
           },
         });
       } else {
-        playerRef.current.loadVideoById(currentVideo.videoId);
+        playerRef.current.loadVideoById(playerVideoId);
         playerRef.current.setPlaybackRate?.(learning.playbackRate);
         syncPlayerNativeCaptions(playerRef.current);
+        setPlayerReadyVideoId(currentVideo.videoId);
+        setPlayerLoadError(null);
       }
     }
 
@@ -4749,7 +4794,7 @@ function WatchPage({ session }: { session: Session }) {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentVideo?.videoId]);
+  }, [currentVideo?.videoId, playableVideoId]);
 
   useEffect(() => {
     if (!currentVideo || videoDuration > 0 || durationWaitExpired) {
@@ -5289,6 +5334,27 @@ function WatchPage({ session }: { session: Session }) {
             onMouseMove={updateCaptionControlsHover}
           >
             <div id="youtube-player" />
+            {!playableVideoId && (
+              <div className="youtube-unavailable">
+                <strong>재생 가능한 YouTube 영상이 아니에요</strong>
+                <span>
+                  저장된 요약과 전사문은 확인할 수 있지만, 원본 링크가 없어서
+                  플레이어를 열 수 없습니다.
+                </span>
+              </div>
+            )}
+            {playableVideoId && currentPlayerLoadError && (
+              <div className="youtube-unavailable">
+                <strong>플레이어를 열 수 없어요</strong>
+                <span>{currentPlayerLoadError}</span>
+              </div>
+            )}
+            {playableVideoId && !currentPlayerLoadError && !isPlayerReady && (
+              <div className="youtube-unavailable youtube-loading">
+                <strong>YouTube 플레이어를 불러오는 중입니다</strong>
+                <span>영상 요약과 전사문은 먼저 확인할 수 있어요.</span>
+              </div>
+            )}
             {activeCaption && (
               <div
                 className={
@@ -5315,28 +5381,24 @@ function WatchPage({ session }: { session: Session }) {
                 <span>{summaryBadge}</span>
               </div>
               <div className="watch-summary-scroll">
+                {summaryDetails.map((detail) => (
+                  <article key={`${detail.label}-${detail.body}`}>
+                    <SummaryTimestampLabel
+                      label={detail.label}
+                      onSeek={jumpTo}
+                    />
+                    <TimestampedSummaryBody body={detail.body} onSeek={jumpTo} />
+                  </article>
+                ))}
                 {isSummaryBusy && (
                   <article>
                     <b>AI 상세 요약 생성 중</b>
                     <p>
-                      영상 자막과 학습 맥락을 분석해 핵심 흐름, 표현, 복습
-                      질문을 정리하고 있습니다.
+                      저장된 요약을 먼저 보여드리고 있습니다. 영상 자막 분석이
+                      끝나면 핵심 흐름, 표현, 복습 질문을 더 정리합니다.
                     </p>
                   </article>
                 )}
-                {!isSummaryBusy &&
-                  summaryDetails.map((detail) => (
-                    <article key={`${detail.label}-${detail.body}`}>
-                      <SummaryTimestampLabel
-                        label={detail.label}
-                        onSeek={jumpTo}
-                      />
-                      <TimestampedSummaryBody
-                        body={detail.body}
-                        onSeek={jumpTo}
-                      />
-                    </article>
-                  ))}
               </div>
             </section>
           </div>
@@ -5409,6 +5471,7 @@ function WatchPage({ session }: { session: Session }) {
               <label>
                 시작
                 <input
+                  aria-label="구간 반복 시작"
                   min="0"
                   step="0.5"
                   type="number"
@@ -5421,6 +5484,7 @@ function WatchPage({ session }: { session: Session }) {
               <label>
                 끝
                 <input
+                  aria-label="구간 반복 끝"
                   min="0.5"
                   step="0.5"
                   type="number"
@@ -5825,22 +5889,58 @@ function loadYouTubeApi(): Promise<YouTubeApi> {
     return Promise.resolve(window.YT);
   }
 
-  return new Promise((resolve) => {
-    window.onYouTubeIframeAPIReady = () => {
-      if (window.YT) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timeout = window.setTimeout(() => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      reject(new Error("YouTube iframe API load timed out"));
+    }, YOUTUBE_API_LOAD_TIMEOUT_MS);
+
+    function resolveApi() {
+      if (settled) {
+        return;
+      }
+
+      if (window.YT?.Player) {
+        settled = true;
+        window.clearTimeout(timeout);
         resolve(window.YT);
       }
+    }
+
+    window.onYouTubeIframeAPIReady = () => {
+      resolveApi();
     };
 
-    if (
-      !document.querySelector(
-        'script[src="https://www.youtube.com/iframe_api"]',
-      )
-    ) {
-      const script = document.createElement("script");
-      script.src = "https://www.youtube.com/iframe_api";
-      document.body.appendChild(script);
+    const existingScript = document.querySelector<HTMLScriptElement>(
+      'script[src="https://www.youtube.com/iframe_api"]',
+    );
+
+    if (existingScript) {
+      existingScript.addEventListener("error", () => {
+        if (!settled) {
+          settled = true;
+          window.clearTimeout(timeout);
+          reject(new Error("YouTube iframe API failed to load"));
+        }
+      });
+      return;
     }
+
+    const script = document.createElement("script");
+    script.src = "https://www.youtube.com/iframe_api";
+    script.addEventListener("error", () => {
+      if (!settled) {
+        settled = true;
+        window.clearTimeout(timeout);
+        reject(new Error("YouTube iframe API failed to load"));
+      }
+    });
+    document.body.appendChild(script);
   });
 }
 

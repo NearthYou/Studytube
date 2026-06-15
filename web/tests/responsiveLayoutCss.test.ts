@@ -56,6 +56,38 @@ test('mobile navigation remains available as a tab row', () => {
 
   assert.match(navRule, /display:\s*flex;/);
   assert.doesNotMatch(navRule, /display:\s*none;/);
+
+  const navLinkRule = ruleBody(mobileCss, '.site-nav nav a');
+  assert.match(navLinkRule, /min-height:\s*40px;/);
+});
+
+test('compact remove actions remain finger-friendly on mobile', () => {
+  const css = cssSource();
+  const playlistRemoveRule = ruleBody(css, '.playlist-item-remove');
+  const queueRemoveRule = ruleBody(css, '.queue-remove');
+  const navAccountLinkRule = ruleBody(css, '.nav-account a:not(.nav-cta)');
+  const homeQueueLinkRule = ruleBody(css, '.home-queue-card .section-title a');
+
+  assert.match(playlistRemoveRule, /min-height:\s*40px;/);
+  assert.match(queueRemoveRule, /min-height:\s*40px;/);
+  assert.match(navAccountLinkRule, /min-height:\s*40px;/);
+  assert.match(homeQueueLinkRule, /min-height:\s*40px;/);
+});
+
+test('compact builder and study actions remain finger-friendly on mobile', () => {
+  const css = cssSource();
+
+  assert.match(css, /\.draft-actions button\s*\{[\s\S]*?min-height:\s*40px;/);
+  assert.match(css, /\.quick-prompts button\s*\{[\s\S]*?min-height:\s*40px;/);
+  assert.match(css, /\.caption-toggle\s*\{[\s\S]*?min-height:\s*40px;/);
+  assert.match(
+    css,
+    /\.chip-grid button,[\s\S]*?\.secondary-action\s*\{[\s\S]*?min-height:\s*40px;/,
+  );
+  assert.match(
+    css,
+    /\.choice-row button,[\s\S]*?\.speed-grid button,[\s\S]*?\.loop-actions button\s*\{[\s\S]*?min-height:\s*40px;/,
+  );
 });
 
 test('tablet board panels reset explicit grid placement for one-column layout', () => {

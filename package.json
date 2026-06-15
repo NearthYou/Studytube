@@ -5,6 +5,7 @@
     "dev:web": "npm --prefix web run dev",
     "dev:api": "npm --prefix api run start:dev",
     "dev:ai": "ai\\.venv\\Scripts\\python.exe -m uvicorn main:app --reload --host 0.0.0.0 --port 8000 --app-dir ai",
+    "all": "node scripts/dev-all.mjs",
     "build:web": "npm --prefix web run build",
     "build:api": "npm --prefix api run build",
     "lint:web": "npm --prefix web run lint",

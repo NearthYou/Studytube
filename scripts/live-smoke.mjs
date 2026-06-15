@@ -15,6 +15,9 @@ const allTargets = [
   'upload',
   'tourapi',
   'kakao-map',
+  'frontend-bundle',
+  'security',
+  'cors',
   'ai',
   'openai',
 ]
@@ -23,6 +26,7 @@ const timeoutMs = Number(process.env.LIVE_SMOKE_TIMEOUT_MS || 30000)
 const startedAt = new Date()
 
 const rootEnv = await readEnvFile('.env')
+const productionEnv = await readEnvFile('.env.production')
 const backendEnv = await readEnvFile('backend/.env')
 const frontendEnv = await readEnvFile('frontend/.env')
 const aiEnv = await readEnvFile('AI/.env')
@@ -66,6 +70,9 @@ await runSelected('crud', checkCrud)
 await runSelected('upload', checkUpload)
 await runSelected('tourapi', checkTourApi)
 await runSelected('kakao-map', checkKakaoMap)
+await runSelected('frontend-bundle', checkFrontendBundle)
+await runSelected('security', checkSecurity)
+await runSelected('cors', checkCors)
 await runSelected('ai', checkAiWorker)
 await runSelected('openai', checkOpenAiViaAiWorker)
 
@@ -129,11 +136,29 @@ async function checkBackend() {
       ? categoriesData.categories
       : []
 
-  if (!categoryList.length || !isRecord(categoryList[0]) || !categoryList[0].id) {
+  const requiredCategoryValues = ['daily', 'walk', 'care', 'question']
+  const categoryValues = new Set(
+    categoryList
+      .filter((category) => isRecord(category))
+      .map((category) => String(category.value || '')),
+  )
+  const missingCategoryValues = requiredCategoryValues.filter(
+    (value) => !categoryValues.has(value),
+  )
+
+  if (categoryList.length < requiredCategoryValues.length || missingCategoryValues.length) {
+    throw new Error(
+      `categories seed is incomplete; expected values ${requiredCategoryValues.join(', ')}, missing ${missingCategoryValues.join(', ') || 'category rows'}`,
+    )
+  }
+
+  const firstCategory = categoryList.find((category) => isRecord(category) && category.id)
+
+  if (!isRecord(firstCategory)) {
     throw new Error('categories read did not return any category id')
   }
 
-  context.categoryId = String(categoryList[0].id)
+  context.categoryId = String(firstCategory.id)
 
   const posts = await requestJson(urlOf(context.backendUrl, '/api/posts?page=1&limit=1'))
   assertOk(posts.response, 'posts read')
@@ -259,6 +284,88 @@ async function checkFrontendApi() {
     }
 
     return `frontend bundle fetched backend API through ${originOnly(result.apiBaseUrl)}`
+  } finally {
+    await browser.close()
+  }
+}
+
+async function checkFrontendBundle() {
+  const html = await requestText(urlOf(context.frontendUrl, '/'))
+
+  assertOkLike(html, 'frontend HTML')
+
+  const scriptUrls = getScriptUrls(html.text, context.frontendUrl)
+
+  if (!scriptUrls.length) {
+    throw new Error('frontend HTML did not include any JavaScript bundle script')
+  }
+
+  const bundles = await Promise.all(
+    scriptUrls.map(async (scriptUrl) => {
+      const bundle = await requestText(scriptUrl)
+
+      assertOkLike(bundle, `frontend bundle ${scriptUrl}`)
+      return bundle.text
+    }),
+  )
+  const bundleText = bundles.join('\n')
+  const configuredKakaoKey = getSecret('VITE_KAKAO_MAP_JS_KEY')
+
+  if (bundleText.includes('frontend/.env에 VITE_KAKAO_MAP_JS_KEY')) {
+    throw new Error('frontend bundle still contains stale developer-only Kakao map env message; rebuild frontend')
+  }
+
+  if (bundleText.includes('VITE_KAKAO_MAP_JS_KE')) {
+    throw new Error('frontend bundle/config contains misspelled VITE_KAKAO_MAP_JS_KE; expected VITE_KAKAO_MAP_JS_KEY')
+  }
+
+  if (configuredKakaoKey && !bundleText.includes(configuredKakaoKey)) {
+    throw new Error('frontend bundle does not contain configured VITE_KAKAO_MAP_JS_KEY; rebuild frontend after .env.production changes')
+  }
+
+  const enabledSocialProviders = splitList(getConfig('VITE_ENABLED_SOCIAL_PROVIDERS') || '')
+  const socialDetail = await checkSocialButtons(enabledSocialProviders)
+
+  return `frontend JS bundle loaded with production env; ${socialDetail}`
+}
+
+async function checkSocialButtons(enabledSocialProviders) {
+  const { browser } = await launchFrontendBrowser()
+
+  try {
+    const page = await browser.newPage()
+
+    await page.goto(urlOf(context.frontendUrl, '/'), {
+      timeout: timeoutMs,
+      waitUntil: 'domcontentloaded',
+    })
+    await page.getByRole('button', { name: /로그인|회원가입/ }).first().click()
+
+    if (enabledSocialProviders.includes('kakao')) {
+      await page.getByRole('link', { name: /카카오톡/ }).waitFor({
+        state: 'visible',
+        timeout: timeoutMs,
+      })
+    } else if ((await page.getByRole('link', { name: /카카오톡/ }).count()) > 0) {
+      throw new Error('Kakao social button is visible but VITE_ENABLED_SOCIAL_PROVIDERS does not include kakao')
+    }
+
+    for (const [provider, label] of [
+      ['google', '구글'],
+      ['naver', '네이버'],
+    ]) {
+      if (!enabledSocialProviders.includes(provider)) {
+        const count = await page.getByRole('link', { name: new RegExp(label) }).count()
+
+        if (count > 0) {
+          throw new Error(`${label} social button is visible but VITE_ENABLED_SOCIAL_PROVIDERS does not include ${provider}`)
+        }
+      }
+    }
+
+    return enabledSocialProviders.length
+      ? `social buttons match ${enabledSocialProviders.join(', ')}`
+      : 'social buttons are hidden because no providers are enabled'
   } finally {
     await browser.close()
   }
@@ -592,6 +699,7 @@ async function checkTourApi() {
     urlOf(context.backendUrl, '/api/pet-places/nearby?lat=37.5665&lng=126.9780&radius=20000&limit=5'),
   )
   assertOk(nearby.response, 'TourAPI nearby through backend')
+  assertNoInsecureTourApiUrl('TourAPI nearby response', nearby.payload)
   const nearbyData = unwrap(nearby.payload)
   const items = isRecord(nearbyData) && Array.isArray(nearbyData.items) ? nearbyData.items : []
 
@@ -611,6 +719,7 @@ async function checkTourApi() {
 
   const detail = await requestJson(urlOf(context.backendUrl, `/api/pet-places/${first.contentId}`))
   assertOk(detail.response, 'TourAPI detail through backend')
+  assertNoInsecureTourApiUrl('TourAPI detail response', detail.payload)
   const detailData = unwrap(detail.payload)
 
   if (!isRecord(detailData) || !isRecord(detailData.place) || !detailData.place.contentId) {
@@ -620,8 +729,45 @@ async function checkTourApi() {
   return 'nearby and detail mapping verified through backend'
 }
 
+async function checkKakaoSdkDirectFetch() {
+  const appKey = getSecret('VITE_KAKAO_MAP_JS_KEY')
+  const sdkUrl = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${encodeURIComponent(appKey)}&autoload=false`
+  const response = await requestText(sdkUrl, {
+    headers: {
+      referer: urlOf(context.frontendUrl, '/pet-places'),
+      'user-agent': 'tailtalk-live-smoke/1.0',
+    },
+  })
+  const contentType = response.headers.get('content-type') || ''
+  const bodyPreview = response.text.slice(0, 500)
+
+  if (!response.ok || /domain mismatched/i.test(response.text)) {
+    if (/domain mismatched/i.test(response.text)) {
+      throw new Error(
+        `Kakao SDK domain mismatched for ${originOnly(context.frontendUrl)}; register https://pongki.shop and https://www.pongki.shop in Kakao Developers Web platform domains`,
+      )
+    }
+
+    throw new Error(`Kakao SDK request returned HTTP ${response.status}: ${bodyPreview}`)
+  }
+
+  if (contentType.includes('application/json') || bodyPreview.trim().startsWith('{')) {
+    const errorPayload = parseJson(response.text)
+    const message = isRecord(errorPayload)
+      ? errorPayload.message || errorPayload.error || JSON.stringify(errorPayload)
+      : response.text
+
+    throw new Error(`Kakao SDK returned JSON instead of JavaScript: ${message}`)
+  }
+
+  if (!response.text.includes('kakao')) {
+    throw new Error('Kakao SDK response did not look like the maps JavaScript SDK')
+  }
+}
+
 async function checkKakaoMap() {
   requireConfiguredSecret('VITE_KAKAO_MAP_JS_KEY', 'kakao-map')
+  await checkKakaoSdkDirectFetch()
   const { browser } = await launchFrontendBrowser()
   const pageErrors = []
 
@@ -676,6 +822,62 @@ async function checkKakaoMap() {
   } finally {
     await browser.close()
   }
+}
+
+async function checkSecurity() {
+  const frontend = await requestText(urlOf(context.frontendUrl, '/'))
+
+  assertOkLike(frontend, 'frontend security header response')
+
+  const requiredHeaders = [
+    'strict-transport-security',
+    'x-content-type-options',
+    'x-frame-options',
+    'referrer-policy',
+    'permissions-policy',
+  ]
+  const missingHeaders = requiredHeaders.filter(
+    (header) => !frontend.headers.get(header),
+  )
+
+  if (missingHeaders.length) {
+    throw new Error(`public frontend response is missing security headers: ${missingHeaders.join(', ')}`)
+  }
+
+  const serverHeader = frontend.headers.get('server') || ''
+
+  if (/nginx\/\d/i.test(serverHeader)) {
+    throw new Error('public Server header exposes the Nginx version; set server_tokens off in host Nginx')
+  }
+
+  const backendHealth = await requestText(urlOf(context.backendUrl, '/api/health'))
+
+  assertOkLike(backendHealth, 'backend health security header response')
+
+  if (backendHealth.headers.get('x-powered-by')) {
+    throw new Error('backend public response still exposes X-Powered-By')
+  }
+
+  return 'HSTS and core browser security headers present; X-Powered-By hidden'
+}
+
+async function checkCors() {
+  const evilOrigin = 'https://evil.example'
+  const response = await requestText(urlOf(context.backendUrl, '/api/health'), {
+    headers: {
+      origin: evilOrigin,
+    },
+  })
+
+  assertOkLike(response, 'CORS probe health response')
+
+  const allowOrigin = response.headers.get('access-control-allow-origin') || ''
+
+  if (allowOrigin === evilOrigin || allowOrigin === '*') {
+    throw new Error(`CORS allowed unexpected Origin ${evilOrigin}`)
+  }
+
+  return 'unexpected cross-origin request did not receive permissive CORS headers'
 }
 
 async function launchFrontendBrowser() {
@@ -884,7 +1086,7 @@ function parseEnv(text) {
 }
 
 function getConfig(key) {
-  return process.env[key] ?? rootEnv[key] ?? backendEnv[key] ?? frontendEnv[key] ?? aiEnv[key]
+  return process.env[key] ?? productionEnv[key] ?? rootEnv[key] ?? backendEnv[key] ?? frontendEnv[key] ?? aiEnv[key]
 }
 
 function getSecret(key) {
@@ -903,6 +1105,8 @@ function getBackendUrl() {
     process.env.LIVE_SMOKE_BACKEND_URL ||
     process.env.BACKEND_PUBLIC_URL ||
     process.env.VITE_API_BASE_URL ||
+    productionEnv.BACKEND_PUBLIC_URL ||
+    productionEnv.VITE_API_BASE_URL ||
     backendEnv.BACKEND_PUBLIC_URL ||
     frontendEnv.VITE_API_BASE_URL
 
@@ -918,6 +1122,8 @@ function getFrontendUrl() {
     process.env.LIVE_SMOKE_FRONTEND_URL ||
     process.env.FRONTEND_URL ||
     process.env.SOCIAL_AUTH_FRONTEND_URL ||
+    productionEnv.FRONTEND_URL ||
+    productionEnv.SOCIAL_AUTH_FRONTEND_URL ||
     backendEnv.FRONTEND_URL ||
     backendEnv.SOCIAL_AUTH_FRONTEND_URL ||
     'http://localhost:5173'
@@ -928,6 +1134,7 @@ function getAiUrl() {
   return (
     process.env.LIVE_SMOKE_AI_URL ||
     process.env.AI_SERVICE_URL ||
+    productionEnv.AI_SERVICE_URL ||
     backendEnv.AI_SERVICE_URL ||
     aiEnv.AI_SERVICE_URL ||
     'http://localhost:8000'
@@ -938,6 +1145,8 @@ function getUploadReadUrl() {
   return (
     process.env.LIVE_SMOKE_UPLOAD_READ_URL ||
     process.env.LIVE_SMOKE_UPLOAD_STATIC_BASE_URL ||
+    productionEnv.LIVE_SMOKE_UPLOAD_READ_URL ||
+    productionEnv.LIVE_SMOKE_UPLOAD_STATIC_BASE_URL ||
     backendEnv.LIVE_SMOKE_UPLOAD_READ_URL ||
     backendEnv.LIVE_SMOKE_UPLOAD_STATIC_BASE_URL ||
     getBackendUrl()
@@ -948,6 +1157,8 @@ function getUploadSecondaryReadUrl() {
   return (
     process.env.LIVE_SMOKE_SECONDARY_BACKEND_URL ||
     process.env.LIVE_SMOKE_UPLOAD_PEER_READ_URL ||
+    productionEnv.LIVE_SMOKE_SECONDARY_BACKEND_URL ||
+    productionEnv.LIVE_SMOKE_UPLOAD_PEER_READ_URL ||
     backendEnv.LIVE_SMOKE_SECONDARY_BACKEND_URL ||
     backendEnv.LIVE_SMOKE_UPLOAD_PEER_READ_URL ||
     ''
@@ -997,6 +1208,26 @@ function assertOk(response, label) {
   if (!response.ok) {
     throw new Error(`${label} returned HTTP ${response.status}`)
   }
+}
+
+function assertOkLike(response, label) {
+  if (!response.ok) {
+    throw new Error(`${label} returned HTTP ${response.status}`)
+  }
+}
+
+function assertNoInsecureTourApiUrl(label, payload) {
+  const serialized = JSON.stringify(payload)
+
+  if (serialized.includes('http://tong.visitkorea.or.kr')) {
+    throw new Error(`${label} still contains insecure http://tong.visitkorea.or.kr image URL`)
+  }
+}
+
+function getScriptUrls(html, baseUrl) {
+  return [...html.matchAll(/<script\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/gi)]
+    .map((match) => new URL(match[1], urlOf(baseUrl, '/')).toString())
+    .filter((value, index, values) => values.indexOf(value) === index)
 }
 
 function parseJson(text) {

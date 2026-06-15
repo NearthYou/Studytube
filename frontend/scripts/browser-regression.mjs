@@ -292,6 +292,27 @@ async function verifyAuthenticatedAssistantCards(context, consoleErrors, viewpor
     await assertVisible(page.getByText('관찰 체크리스트'))
     await assertVisible(page.getByRole('link', { name: /장소 꼬리톡 반려동물 카페/ }))
     await assertVisible(page.getByRole('link', { name: /게시글 브라우저 회귀 테스트 게시글/ }))
+
+    await page.getByLabel('꼬리톡 챗봇 입력').fill('광주 알아?')
+    await page.getByRole('button', { name: '챗봇 메시지 보내기' }).click()
+    await assertVisible(page.getByText('광주 동반 장소를 이어서 찾아봤어요.'))
+    await assertVisible(page.getByRole('link', { name: /장소 광주 반려동물 산책지/ }))
+    assert(
+      (await page.getByText('상황, 시간, 반복 빈도').count()) === 0,
+      `Assistant repeated broad fallback for place follow-up in ${viewportName}`,
+    )
+
+    await page.getByLabel('꼬리톡 챗봇 입력').fill('강아지가 똥을 안싸')
+    await page.getByRole('button', { name: '챗봇 메시지 보내기' }).click()
+    await assertVisible(page.getByText('48시간 이상 변을 못 봤다면 병원 상담을 우선해 주세요.'))
+
+    await page.getByLabel('꼬리톡 챗봇 입력').fill('몰라')
+    await page.getByRole('button', { name: '챗봇 메시지 보내기' }).click()
+    await assertVisible(page.getByText('몰라도 괜찮아요. 지금 확인 가능한 안전 신호부터 볼게요.'))
+    assert(
+      (await page.getByText('좋아요. 방금 이야기한 흐름에서 이어서 볼게요.').count()) === 0,
+      `Assistant repeated generic history fallback in ${viewportName}`,
+    )
     await assertNoHorizontalOverflow(page, viewportName, 'authenticated assistant cards')
   } finally {
     await page.close()
@@ -402,8 +423,13 @@ async function verifyPostMutationHappyPath(context, consoleErrors, viewportName)
     await page.getByLabel('제목').fill('브라우저 작성 게시글')
     await page.getByLabel('본문').fill('브라우저 회귀에서 작성한 게시글입니다.')
     await page.getByLabel('카테고리').selectOption('1')
-    await page.getByLabel('태그').fill('브라우저')
+    await page.getByLabel('태그').fill('제리')
     await page.keyboard.press('Enter')
+    await assertVisible(page.getByRole('button', { name: '#제리' }))
+    assert(
+      (await page.getByText('#리', { exact: true }).count()) === 0,
+      `Korean IME duplicate trailing tag appeared in ${viewportName}`,
+    )
     await page.getByRole('button', { name: '등록하기' }).click()
     await page.waitForURL(`${baseUrl}/posts/created-browser-post`)
     await assertVisible(page.getByRole('heading', { name: '브라우저 작성 게시글' }))
@@ -530,7 +556,7 @@ async function fulfillApi(route) {
     assert(payload.content === '브라우저 회귀에서 작성한 게시글입니다.', 'Create post content payload mismatch')
     assert(JSON.stringify(payload.categoryIds) === JSON.stringify(['1']), 'Create post categoryIds payload mismatch')
     assert(JSON.stringify(payload.imageIds) === JSON.stringify(['uploaded-browser-image']), 'Create post imageIds payload mismatch')
-    assert(JSON.stringify(payload.tagNames) === JSON.stringify(['브라우저']), 'Create post tagNames payload mismatch')
+    assert(JSON.stringify(payload.tagNames) === JSON.stringify(['제리']), 'Create post tagNames payload mismatch')
 
     createdPost = {
       ...createdPost,
@@ -580,7 +606,7 @@ async function fulfillApi(route) {
     assert(payload.content === '수정 happy path가 정상 동작합니다.', 'Update post content payload mismatch')
     assert(JSON.stringify(payload.categoryIds) === JSON.stringify(['1']), 'Update post categoryIds payload mismatch')
     assert(JSON.stringify(payload.imageIds) === JSON.stringify(['uploaded-browser-image']), 'Update post imageIds payload mismatch')
-    assert(JSON.stringify(payload.tagNames) === JSON.stringify(['브라우저']), 'Update post tagNames payload mismatch')
+    assert(JSON.stringify(payload.tagNames) === JSON.stringify(['제리']), 'Update post tagNames payload mismatch')
 
     createdPost = {
       ...createdPost,
@@ -661,34 +687,102 @@ async function fulfillApi(route) {
     assert(authorization === 'Bearer assistant-user', 'Assistant request used the wrong token')
     const payload = await request.postDataJSON()
 
-    assert(payload.message === '산책 장소와 게시글 추천해줘', 'Assistant message payload mismatch')
     assert(Array.isArray(payload.history), 'Assistant history payload is missing')
     assert(payload.context?.route === '/', 'Assistant route context mismatch')
 
-    return route.fulfill({
-      json: ok({
-        answer: '산책 장소와 게시글을 함께 정리했어요.',
-        cards: [
-          {
-            href: '/pet-places/place-1',
-            id: 'place-1',
-            title: '꼬리톡 반려동물 카페',
-            type: 'place',
-          },
-          {
-            href: '/posts/101',
-            id: '101',
-            title: '브라우저 회귀 테스트 게시글',
-            type: 'post',
-          },
-        ],
-        message: 'Assistant 응답을 생성했습니다.',
-        observationChecklist: ['산책 전후 컨디션을 확인해요.'],
-        riskLevel: 'behavior_support',
-        usedTools: ['pet_places', 'post_search'],
-        vetConsultCriteria: ['통증이나 호흡 이상이 있으면 병원 상담을 우선해요.'],
-      }),
-    })
+    if (payload.message === '산책 장소와 게시글 추천해줘') {
+      return route.fulfill({
+        json: ok({
+          answer: '산책 장소와 게시글을 함께 정리했어요.',
+          cards: [
+            {
+              href: '/pet-places/place-1',
+              id: 'place-1',
+              title: '꼬리톡 반려동물 카페',
+              type: 'place',
+            },
+            {
+              href: '/posts/101',
+              id: '101',
+              title: '브라우저 회귀 테스트 게시글',
+              type: 'post',
+            },
+          ],
+          message: 'Assistant 응답을 생성했습니다.',
+          observationChecklist: ['산책 전후 컨디션을 확인해요.'],
+          riskLevel: 'behavior_support',
+          usedTools: ['pet_place_search', 'post_search'],
+          vetConsultCriteria: ['통증이나 호흡 이상이 있으면 병원 상담을 우선해요.'],
+        }),
+      })
+    }
+
+    if (payload.message === '광주 알아?') {
+      assert(
+        payload.history.some((entry) => entry.content?.includes('산책 장소와 게시글을 함께 정리했어요.')),
+        'Assistant place follow-up did not include prior assistant context',
+      )
+
+      return route.fulfill({
+        json: ok({
+          answer: '광주 동반 장소를 이어서 찾아봤어요.',
+          cards: [
+            {
+              href: '/pet-places/gwangju-place',
+              id: 'gwangju-place',
+              title: '광주 반려동물 산책지',
+              type: 'place',
+            },
+          ],
+          message: 'Assistant 응답을 생성했습니다.',
+          observationChecklist: [],
+          places: [
+            {
+              contentId: 'gwangju-place',
+              title: '광주 반려동물 산책지',
+            },
+          ],
+          riskLevel: 'none',
+          usedTools: ['pet_place_search'],
+          vetConsultCriteria: [],
+        }),
+      })
+    }
+
+    if (payload.message === '강아지가 똥을 안싸') {
+      return route.fulfill({
+        json: ok({
+          answer: '48시간 이상 변을 못 봤다면 병원 상담을 우선해 주세요.',
+          cards: [],
+          message: 'Assistant 응답을 생성했습니다.',
+          observationChecklist: ['마지막 대변 시점', '구토나 식욕 저하 여부'],
+          riskLevel: 'vet_consult',
+          usedTools: ['search_behavior_rag'],
+          vetConsultCriteria: ['복부 팽만, 구토, 기력 저하가 있으면 바로 상담'],
+        }),
+      })
+    }
+
+    if (payload.message === '몰라') {
+      assert(
+        payload.history.some((entry) => entry.content?.includes('48시간 이상 변을 못 봤다면')),
+        'Assistant health follow-up did not include prior constipation context',
+      )
+
+      return route.fulfill({
+        json: ok({
+          answer: '몰라도 괜찮아요. 지금 확인 가능한 안전 신호부터 볼게요.',
+          cards: [],
+          message: 'Assistant 응답을 생성했습니다.',
+          observationChecklist: ['배가 단단한지', '식욕이 줄었는지'],
+          riskLevel: 'vet_consult',
+          usedTools: ['search_behavior_rag'],
+          vetConsultCriteria: ['48시간 이상이면 병원 상담'],
+        }),
+      })
+    }
+
+    throw new Error(`Unexpected assistant message payload: ${payload.message}`)
   }
 
   if (method === 'GET' && path === '/api/pet-places/nearby') {

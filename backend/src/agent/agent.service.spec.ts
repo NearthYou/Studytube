@@ -149,6 +149,57 @@ describe('AgentService', () => {
     expect(petPlacesService.search).not.toHaveBeenCalled();
   });
 
+  it('continues area-based pet place search for region-only follow-ups', async () => {
+    const response = await service.chat({
+      history: [
+        {
+          content: '동반 장소 알려줘',
+          role: 'user',
+        },
+        {
+          content: '요청과 관련된 반려동물 동반 장소 3개를 찾았어요.',
+          role: 'assistant',
+        },
+      ],
+      message: '광주 알아?',
+    });
+
+    expect(response.usedTools).toContain('pet_place_search');
+    expect(response.answer).toContain('반려동물 동반 장소');
+    expect(response.answer).not.toContain('상황, 시간, 반복 빈도');
+    expect(petPlacesService.findByArea).toHaveBeenCalledWith(
+      expect.objectContaining({
+        areaCode: '5',
+      }),
+    );
+  });
+
+  it('continues keyword pet place search for city follow-ups without area codes', async () => {
+    const response = await service.chat({
+      history: [
+        {
+          content: '동반 장소 알려줘',
+          role: 'user',
+        },
+        {
+          content: '요청과 관련된 반려동물 동반 장소 3개를 찾았어요.',
+          role: 'assistant',
+        },
+      ],
+      message: '순천 알아?',
+    });
+
+    expect(response.usedTools).toContain('pet_place_search');
+    expect(response.answer).toContain('반려동물 동반 장소');
+    expect(response.answer).not.toContain('상황, 시간, 반복 빈도');
+    expect(petPlacesService.findByArea).not.toHaveBeenCalled();
+    expect(petPlacesService.search).toHaveBeenCalledWith(
+      expect.objectContaining({
+        keyword: '순천',
+      }),
+    );
+  });
+
   it('responds to greetings as a chat bot instead of the old fallback', async () => {
     const response = await service.chat({
       message: '안녕',

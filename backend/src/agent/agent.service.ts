@@ -124,6 +124,66 @@ const constipationProblemKeywords = [
   '딱딱',
 ];
 
+const placeSearchKeywords = [
+  '장소',
+  '카페',
+  '식당',
+  '숙소',
+  '공원',
+  '관광지',
+  '근처',
+  '동반',
+  '펫프렌들리',
+  '반려동물 동반',
+];
+
+const placeFollowUpKeywords = [
+  '알아',
+  '어때',
+  '있어',
+  '있나',
+  '갈만',
+  '추천',
+  '찾',
+  '보여',
+  '알려',
+];
+
+const placeRegionKeywords = [
+  '서울',
+  '부산',
+  '대구',
+  '인천',
+  '광주',
+  '대전',
+  '울산',
+  '세종',
+  '경기',
+  '강원',
+  '충북',
+  '충남',
+  '전북',
+  '전남',
+  '경북',
+  '경남',
+  '제주',
+  '수원',
+  '성남',
+  '고양',
+  '용인',
+  '청주',
+  '천안',
+  '전주',
+  '순천',
+  '여수',
+  '목포',
+  '포항',
+  '창원',
+  '김해',
+  '춘천',
+  '강릉',
+];
+
 @Injectable()
 export class AgentService {
   private readonly logger = new Logger(AgentService.name);
@@ -143,7 +203,7 @@ export class AgentService {
     let ragResponse: BehaviorRagResponse | null = null;
     const isBehaviorQuestion = this.shouldUseBehaviorRag(message, dto.history);
     const shouldSearchPosts = this.shouldSearchPosts(message);
-    const shouldSearchPlaces = this.shouldSearchPlaces(message);
+    const shouldSearchPlaces = this.shouldSearchPlaces(message, dto.history);
 
     if (isBehaviorQuestion) {
       usedTools.push('search_behavior_rag');
@@ -599,10 +659,44 @@ export class AgentService {
     ].some((keyword) => message.includes(keyword));
   }
 
-  private shouldSearchPlaces(message: string) {
-    return ['장소', '카페', '식당', '숙소', '근처', '동반'].some((keyword) =>
-      message.includes(keyword),
+  private shouldSearchPlaces(
+    message: string,
+    history: ChatAgentDto['history'] = [],
+  ) {
+    if (this.hasPlaceSearchSignal(message)) {
+      return true;
+    }
+
+    return (
+      this.hasPlaceRegionKeyword(message) &&
+      (this.hasRecentPlaceContext(history) ||
+        this.hasPlaceFollowUpIntent(message))
     );
+  }
+
+  private hasPlaceSearchSignal(message: string) {
+    return placeSearchKeywords.some((keyword) => message.includes(keyword));
+  }
+
+  private hasPlaceFollowUpIntent(message: string) {
+    return placeFollowUpKeywords.some((keyword) => message.includes(keyword));
+  }
+
+  private hasPlaceRegionKeyword(message: string) {
+    return placeRegionKeywords.some((keyword) => message.includes(keyword));
+  }
+
+  private hasRecentPlaceContext(history: ChatAgentDto['history'] = []) {
+    return history.slice(-8).some((entry) => {
+      const content = entry.content;
+
+      return (
+        this.hasPlaceSearchSignal(content) ||
+        content.includes('장소 카드') ||
+        content.includes('동반 장소') ||
+        content.includes('반려동물 동반')
+      );
+    });
   }
 
   private shouldDraftReply(message: string) {
@@ -722,8 +816,9 @@ export class AgentService {
   private toKeyword(message: string) {
     return (
       message
+        .replace(/[?!.,~]/g, ' ')
         .replace(
-          /게시글|장소|검색|찾아줘|찾아봐줘|추천|보여줘|알려줘|말해줘|동반|근처/g,
+          /게시글|장소|검색|찾아줘|찾아봐줘|찾아|추천|보여줘|보여|알려줘|알려|말해줘|동반|근처|알아|어때|있어|있나|갈만한|갈만/g,
           ' ',
         )
         .trim()

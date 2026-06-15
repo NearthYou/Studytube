@@ -67,6 +67,46 @@ export function formatTime(totalSeconds: number) {
   return `${minutes}:${seconds}`;
 }
 
+export type TimestampedSummaryPart =
+  | {
+      type: "timestamp";
+      text: string;
+      seconds: number;
+    }
+  | {
+      type: "text";
+      text: string;
+    };
+
+export function parseTimestampedSummaryText(
+  value: string,
+): TimestampedSummaryPart[] {
+  const parts: TimestampedSummaryPart[] = [];
+  const matches = [...value.matchAll(/(?:(\d{1,2}):)?(\d{1,2}):(\d{2})/g)];
+  let cursor = 0;
+
+  for (const match of matches) {
+    const index = match.index ?? 0;
+
+    if (index > cursor) {
+      parts.push({ type: "text", text: value.slice(cursor, index) });
+    }
+
+    parts.push({
+      type: "timestamp",
+      text: match[0],
+      seconds: captionTimestampToSeconds(match),
+    });
+    cursor = index + match[0].length;
+  }
+
+  if (cursor < value.length) {
+    parts.push({ type: "text", text: value.slice(cursor) });
+  }
+
+  return parts.length > 0 ? parts : [{ type: "text", text: value }];
+}
+
 export function clipText(value: string, maxLength: number) {
   const normalized = value.replace(/\s+/g, " ").trim();
 

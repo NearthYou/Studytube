@@ -246,6 +246,26 @@ export function createPlaylist(
   );
 }
 
+export function updatePlaylist(
+  token: string,
+  id: number,
+  input: { title?: string; description?: string; postIds?: number[] },
+) {
+  return requestJson<Playlist>(
+    `/playlists/${id}`,
+    { method: "PUT", body: JSON.stringify(input) },
+    token,
+  );
+}
+
+export function deletePlaylist(token: string, id: number) {
+  return requestJson<{ deleted: boolean }>(
+    `/playlists/${id}`,
+    { method: "DELETE" },
+    token,
+  );
+}
+
 export function addPlaylistFeedback(
   token: string,
   playlistId: number,

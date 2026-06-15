@@ -1,6 +1,7 @@
 import {
   deriveTags,
   extractYouTubeId,
+  limitVideoTags,
   youtubeThumbnailUrl,
 } from './videoMetadata.ts';
 
@@ -33,6 +34,24 @@ export function postRegistrationRefreshSearch(currentSearch: string) {
   return '';
 }
 
+export function koreanVideoDescription({
+  channelName,
+  summary,
+  title,
+}: {
+  channelName: string;
+  summary?: string;
+  title: string;
+}) {
+  const trimmedSummary = summary?.trim() ?? '';
+
+  if (/[가-힣]/.test(trimmedSummary)) {
+    return trimmedSummary;
+  }
+
+  return `${channelName || 'YouTube'} 채널의 "${title}" 영상입니다. 제목과 채널 정보를 바탕으로 학습할 핵심 내용을 한글로 정리한 설명입니다.`;
+}
+
 export function fallbackPostEditorFromVideoUrl(
   inputUrl: string,
   baseEditor: VideoRegistrationEditor,
@@ -46,9 +65,11 @@ export function fallbackPostEditorFromVideoUrl(
 
   const title = baseEditor.title.trim() || `YouTube 영상 ${videoId}`;
   const channelName = baseEditor.channelName.trim() || 'YouTube';
-  const summary =
-    baseEditor.summary.trim() ||
-    'YouTube 링크로 등록한 학습 영상입니다. 저장 후 세부 정보에서 제목과 요약을 보강할 수 있습니다.';
+  const summary = koreanVideoDescription({
+    channelName,
+    summary: baseEditor.summary,
+    title,
+  });
   const translatedNotes =
     baseEditor.translatedNotes.trim() ||
     `${summary}\n\nAI 분석 요약: 분석을 완료하지 못했지만 영상은 먼저 저장했습니다. 핵심 개념과 복습 질문은 필요할 때 직접 보강하세요.`;
@@ -64,7 +85,7 @@ export function fallbackPostEditorFromVideoUrl(
     channelName,
     summary,
     translatedNotes,
-    tags,
+    tags: limitVideoTags(tags.split(',')).join(', '),
   };
 }
 
@@ -91,5 +112,5 @@ export function videoRegistrationSubmitLabel({
     return readyToSave ? '수정 저장' : '분석 후 저장';
   }
 
-  return readyToSave ? '영상 추가' : '분석 후 추가';
+  return readyToSave ? '영상 저장' : '분석 후 저장';
 }

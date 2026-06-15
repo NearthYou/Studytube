@@ -1,7 +1,19 @@
+export const MAX_VIDEO_TAGS = 3;
+
+export function limitVideoTags(tags: string[]) {
+  return [
+    ...new Set(
+      tags
+        .map((tag) => tag.trim().toLowerCase())
+        .filter((tag) => tag.length > 0),
+    ),
+  ].slice(0, MAX_VIDEO_TAGS);
+}
+
 export function deriveTags(source: string) {
   const tokens = source
     .toLowerCase()
-    .replace(/[^a-z0-9가-힣#+\s]/g, ' ')
+    .replace(/[^a-z0-9가-힣+\s]/g, ' ')
     .split(/\s+/)
     .map((token) => token.trim())
     .filter((token) => token.length >= 2)
@@ -14,13 +26,16 @@ export function deriveTags(source: string) {
           'course',
           'video',
           'youtube',
+          'tutorial',
+          'full',
           '학습',
           '영상',
+          '채널',
           '채널의',
         ].includes(token),
     );
 
-  return [...new Set(tokens)].slice(0, 5);
+  return limitVideoTags(tokens);
 }
 
 export function extractYouTubeId(url: string): string | null {
@@ -47,6 +62,6 @@ export function youtubeThumbnailUrl(videoId: string) {
 export function slugify(value: string) {
   return value
     .toLowerCase()
-    .replace(/[^a-z0-9가-힣]+/g, '-')
+    .replace(/[^a-z0-9가-힣+]/g, '-')
     .replace(/(^-|-$)/g, '');
 }

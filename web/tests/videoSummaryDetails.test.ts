@@ -5,6 +5,7 @@ import {
   clipText,
   formatTime,
   formatVideoSummarySections,
+  parseTimestampedSummaryText,
 } from "../src/videoSummaryDetails.ts";
 import type { QueueVideo } from "../src/watchQueue.ts";
 
@@ -65,6 +66,21 @@ test("formats timestamped full transcript as a multiline section", () => {
     ]),
     "전체 스크립트 전사문\n00:00 첫 문장입니다.\n00:04 두 번째 문장입니다.",
   );
+});
+
+test("parses transcript timestamps into seekable summary parts", () => {
+  const parts = parseTimestampedSummaryText(
+    "00:00 첫 문장입니다.\n01:04 두 번째 문장입니다.\n1:02:03 긴 강의 위치입니다.",
+  );
+
+  assert.deepEqual(parts, [
+    { type: "timestamp", text: "00:00", seconds: 0 },
+    { type: "text", text: " 첫 문장입니다.\n" },
+    { type: "timestamp", text: "01:04", seconds: 64 },
+    { type: "text", text: " 두 번째 문장입니다.\n" },
+    { type: "timestamp", text: "1:02:03", seconds: 3723 },
+    { type: "text", text: " 긴 강의 위치입니다." },
+  ]);
 });
 
 test("formats player time and clips dense copy consistently", () => {

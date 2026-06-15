@@ -152,6 +152,24 @@ export function isVideoInQueue(queue: QueueVideo[], video: QueueVideo) {
   return queue.some((queuedVideo) => queueVideoKey(queuedVideo) === key);
 }
 
+export function replaceVideoInQueueIfPresent(
+  existingQueue: QueueVideo[],
+  savedVideo: QueueVideo,
+) {
+  const savedKey = queueVideoKey(savedVideo);
+  let replaced = false;
+  const queue = existingQueue.map((video) => {
+    if (queueVideoKey(video) !== savedKey) {
+      return video;
+    }
+
+    replaced = true;
+    return mergeVideoLearning(savedVideo, video);
+  });
+
+  return { queue, replaced };
+}
+
 export function extractPostIds(videos: QueueVideo[]) {
   return [
     ...new Set(

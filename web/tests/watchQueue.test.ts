@@ -11,6 +11,7 @@ import {
   queueVideoFromMcpVideo,
   queueVideoFromPost,
   queueVideoKey,
+  replaceVideoInQueueIfPresent,
   uniqueVideos,
   type QueueVideo,
 } from '../src/watchQueue.ts';
@@ -88,6 +89,43 @@ test('merges selected videos first while preserving existing learning state', ()
   assert.equal(merged[0].learning?.captionLanguage, 'en');
   assert.equal(merged[0].learning?.playbackRate, 1.5);
   assert.equal(merged[1].id, 'post-2');
+});
+
+test('updates saved video details only when the video is already in the learning playlist', () => {
+  const existingLearning = {
+    captionLanguage: 'en' as const,
+    captionsEnabled: false,
+    playbackRate: 1.5,
+    loop: { enabled: true, manual: true, start: 12, end: 24 },
+    marks: [],
+  };
+  const existingQueue = [
+    video({
+      id: 'post-1',
+      title: 'Old title',
+      videoId: 'same-video',
+      learning: existingLearning,
+    }),
+  ];
+
+  const missingResult = replaceVideoInQueueIfPresent(
+    existingQueue,
+    video({ id: 'post-2', videoId: 'new-video', title: 'New saved video' }),
+  );
+
+  assert.equal(missingResult.replaced, false);
+  assert.deepEqual(missingResult.queue, existingQueue);
+
+  const updatedResult = replaceVideoInQueueIfPresent(
+    existingQueue,
+    video({ id: 'post-9', videoId: 'same-video', title: 'Updated title' }),
+  );
+
+  assert.equal(updatedResult.replaced, true);
+  assert.equal(updatedResult.queue.length, 1);
+  assert.equal(updatedResult.queue[0].title, 'Updated title');
+  assert.equal(updatedResult.queue[0].learning?.captionLanguage, 'en');
+  assert.equal(updatedResult.queue[0].learning?.playbackRate, 1.5);
 });
 
 test('normalizes invalid learning preferences to supported defaults', () => {

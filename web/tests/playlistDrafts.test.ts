@@ -64,6 +64,39 @@ test('keeps multiple drafts and honors the active draft id', () => {
   ]);
 });
 
+test('keeps every private playlist available for the learning playlist flow', () => {
+  const state = {
+    activeDraftId: 'draft-b',
+    drafts: [
+      createPlaylistDraft<TestVideo>({
+        id: 'draft-a',
+        title: 'React',
+        videos: [{ id: 'post-1', title: 'Hooks' }],
+      }),
+      createPlaylistDraft<TestVideo>({
+        id: 'draft-b',
+        title: 'FastAPI',
+        videos: [{ id: 'post-2', title: 'API' }],
+      }),
+    ],
+  };
+
+  const nextState = normalizePlaylistDraftState<TestVideo>(state, {
+    activeDraftId: state.activeDraftId,
+    normalizeVideo,
+    now: '2026-06-11T00:00:00.000Z',
+  });
+
+  assert.equal(nextState.activeDraftId, 'draft-b');
+  assert.deepEqual(
+    nextState.drafts.map((draft) => [draft.id, draft.title]),
+    [
+      ['draft-a', 'React'],
+      ['draft-b', 'FastAPI'],
+    ],
+  );
+});
+
 test('patches only the active draft', () => {
   const state = {
     activeDraftId: 'draft-b',

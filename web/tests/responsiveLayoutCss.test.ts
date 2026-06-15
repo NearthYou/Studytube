@@ -63,11 +63,11 @@ test('tablet board panels reset explicit grid placement for one-column layout', 
 
   assert.match(
     tabletCss,
-    /\.board-grid > \.post-browser,[\s\S]*?\.board-grid > \.playlist-builder-panel,[\s\S]*?\.board-grid > \.post-detail\s*\{[\s\S]*?grid-column:\s*auto;/,
+    /\.board-grid > \.post-browser,[\s\S]*?\.board-grid > \.post-detail,[\s\S]*?\.board-grid > \.playlist-builder-panel\s*\{[\s\S]*?grid-column:\s*auto;/,
   );
 });
 
-test('narrow board layout keeps registration and active course first', () => {
+test('narrow board layout checks saved videos before playlist editing', () => {
   const tabletCss = mediaBlock(1020);
 
   assert.match(
@@ -76,10 +76,84 @@ test('narrow board layout keeps registration and active course first', () => {
   );
   assert.match(
     tabletCss,
-    /\.board-grid > \.playlist-builder-panel\s*\{[\s\S]*?order:\s*2;/,
+    /\.board-grid > \.post-browser\s*\{[\s\S]*?order:\s*2;/,
   );
   assert.match(
     tabletCss,
-    /\.board-grid > \.post-browser\s*\{[\s\S]*?order:\s*3;/,
+    /\.board-grid > \.post-detail\s*\{[\s\S]*?order:\s*3;/,
+  );
+  assert.match(
+    tabletCss,
+    /\.board-grid > \.playlist-builder-panel\s*\{[\s\S]*?order:\s*4;/,
+  );
+  assert.match(
+    tabletCss,
+    /\.board-post-list\s*\{[\s\S]*?max-height:\s*none;[\s\S]*?overflow-y:\s*visible;/,
+  );
+});
+
+test('playlist thumbnail stacks use proportional layers that stay inside cards', () => {
+  const css = cssSource();
+
+  assert.match(
+    css,
+    /\.thumbnail-layer\s*\{[\s\S]*?box-sizing:\s*border-box;/,
+  );
+  assert.match(
+    css,
+    /\.playlist-thumbnail-stack:not\(\.count-1\) \.thumbnail-layer\s*\{[\s\S]*?width:\s*74%;/,
+  );
+  assert.match(
+    css,
+    /\.thumbnail-layer\.layer-3\s*\{[\s\S]*?left:\s*22%;/,
+  );
+  assert.match(
+    css,
+    /\.playlist-choice-thumb img\s*\{[\s\S]*?box-sizing:\s*border-box;/,
+  );
+});
+
+test('home support block spans the same product home container width', () => {
+  const css = cssSource();
+  const supportRule = ruleBody(css, '.home-support-grid');
+
+  assert.match(supportRule, /width:\s*100%;/);
+  assert.doesNotMatch(supportRule, /max-width:\s*760px;/);
+});
+
+test('explore detail keeps AI summary and course order in one readable panel', () => {
+  const css = cssSource();
+
+  assert.match(
+    css,
+    /\.explore-detail-content\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\);/,
+  );
+  assert.match(
+    css,
+    /\.course-overview-panel\s*\{[\s\S]*?padding:\s*18px;/,
+  );
+  assert.match(
+    css,
+    /\.course-video-summary\.condensed\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\);/,
+  );
+  assert.match(
+    css,
+    /\.course-video-strip \.playlist-step-list li\s*\{[\s\S]*?display:\s*block;/,
+  );
+  assert.match(
+    css,
+    /\.course-video-strip \.playlist-step-list li\.is-active\s*\{[\s\S]*?background:\s*#fff;/,
+  );
+  assert.match(
+    css,
+    /\.course-video-inline-detail\s*\{[\s\S]*?padding:\s*12px 14px 14px 50px;/,
+  );
+  assert.match(
+    css,
+    /\.selected-video-analysis\s*\{[\s\S]*?background:\s*#f8fafc;/,
+  );
+  assert.match(
+    css,
+    /\.course-video-strip \.playlist-step-list button span,[\s\S]*?\.course-video-strip \.playlist-step-list button small\s*\{[\s\S]*?white-space:\s*nowrap;/,
   );
 });

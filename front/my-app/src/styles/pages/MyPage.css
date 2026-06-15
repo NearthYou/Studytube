@@ -1,97 +1,90 @@
 .mypage-page {
-  --mypage-border: rgba(114, 94, 67, 0.14);
-  --mypage-surface: rgba(255, 252, 247, 0.92);
-  --mypage-subtle: #fcfaf6;
-  --mypage-text: #4f4a42;
-  --mypage-muted: #7c7265;
+  display: grid;
+  gap: var(--page-section-gap);
 }
 
-.mypage-page {
-  display: grid;
-  gap: 1.85rem;
+.profile-banner,
+.mypage-panel {
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow-soft);
 }
 
 .profile-banner {
   display: grid;
-  gap: 1.05rem;
-  padding: 2.45rem;
-  border: 1px solid var(--mypage-border);
-  border-radius: 28px;
+  gap: var(--page-hero-gap);
+  min-height: var(--page-hero-height);
+  align-content: end;
+  padding: var(--page-hero-padding);
   background:
-    radial-gradient(circle at top right, rgba(220, 205, 183, 0.22), transparent 24%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.94) 0%, rgba(249, 244, 236, 0.92) 100%);
-  box-shadow:
-    0 24px 52px rgba(78, 66, 50, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.86);
-  text-align: center;
+    var(--page-hero-overlay),
+    var(--page-hero-image) center / cover;
 }
 
 .profile-banner span {
-  color: var(--mypage-muted);
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.24em;
+  color: var(--accent-strong);
+  font-size: var(--page-eyebrow-size);
+  font-weight: 800;
+  letter-spacing: var(--page-eyebrow-letter-spacing);
   text-transform: uppercase;
 }
 
 .profile-banner h1 {
+  max-width: var(--page-title-max-width);
   margin: 0;
-  color: #121212;
-  font-family: "Bodoni MT", "Didot", "Times New Roman", serif;
-  font-size: clamp(2.5rem, 6vw, 4.6rem);
+  color: var(--text-strong);
+  font-size: var(--page-title-size);
   font-weight: 400;
-  line-height: 0.96;
+  line-height: var(--page-title-line-height);
 }
 
 .profile-banner p {
-  color: var(--mypage-text);
-  line-height: 1.7;
-  font-size: 1rem;
+  max-width: var(--page-copy-max-width);
+  margin: 0;
+  color: var(--text-body);
+  line-height: 1.65;
 }
 
 .mypage-tabs {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.8rem;
+  gap: 0.55rem;
 }
 
 .mypage-panel {
-  padding: 1.8rem;
-  border: 1px solid var(--mypage-border);
-  border-radius: 24px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.94) 0%, rgba(250, 246, 239, 0.9) 100%);
-  box-shadow:
-    0 20px 44px rgba(78, 66, 50, 0.07),
-    inset 0 1px 0 rgba(255, 255, 255, 0.86);
+  padding: var(--page-card-padding);
 }
 
 .mypage-item {
   display: grid;
-  gap: 0.62rem;
-  padding: 1.15rem 1.2rem;
-  border: 1px solid rgba(114, 94, 67, 0.12);
-  border-radius: 18px;
-  background: var(--mypage-subtle);
+  gap: 0.5rem;
+  padding: 0.95rem;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: rgba(255, 253, 247, 0.82);
   color: inherit;
   text-decoration: none;
-  transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease,
+    border-color 160ms ease;
 }
 
 .mypage-item + .mypage-item {
-  margin-top: 0.8rem;
+  margin-top: 0.65rem;
 }
 
 .mypage-item:hover {
-  transform: translateY(-3px);
-  border-color: rgba(141, 118, 85, 0.26);
-  box-shadow: 0 16px 30px rgba(92, 76, 54, 0.08);
+  transform: translateY(-2px);
+  border-color: var(--border-strong);
+  box-shadow: 0 14px 28px rgba(67, 55, 39, 0.08);
 }
 
 .mypage-item span,
 .mypage-item small {
-  color: var(--mypage-muted);
-  font-size: 0.88rem;
+  color: var(--text-muted);
+  font-size: 0.86rem;
 }
 
 .mypage-pagination {
@@ -99,22 +92,21 @@
   flex-wrap: wrap;
   align-items: center;
   justify-content: center;
-  gap: 1rem;
-  margin-top: 1.45rem;
-}
-
-.mypage-pagination button {
-  min-height: 42px;
-}
-
-.mypage-pagination button:disabled {
-  opacity: 0.45;
-  cursor: default;
+  gap: 0.75rem;
+  margin-top: 1rem;
 }
 
 @media (max-width: 760px) {
   .profile-banner,
   .mypage-panel {
-    padding: 1.3rem;
+    padding: 1rem;
+  }
+
+  .profile-banner {
+    min-height: var(--page-hero-mobile-height);
+  }
+
+  .mypage-tabs button {
+    flex: 1 1 calc(50% - 0.55rem);
   }
 }

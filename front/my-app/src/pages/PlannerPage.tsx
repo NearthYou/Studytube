@@ -34,38 +34,38 @@ function inferSeasonFromDate(travelDate: string) {
 
 const COPY = {
   ko: {
-    eyebrow: 'AI 플래너',
-    hero: 'Agent가 MCP 도구로 게시글, 댓글, 날씨 메모를 모아 일정 초안을 만듭니다.',
-    planningRequest: '계획 요청',
+    eyebrow: 'AI planner',
+    hero: '',
+    planningRequest: '여행 조건',
     tripRequest: '여행 요청',
     region: '지역',
     budget: '예산',
     theme: '테마',
-    travelDate: '여행일',
+    travelDate: '여행 날짜',
     duration: '기간',
     balanced: '균형형',
     budgetMode: '예산형',
     slow: '여유형',
     generating: '생성 중...',
-    generatePlan: '일정 생성',
-    backToChat: '챗봇으로 돌아가기',
-    plannerFallbackPrefix: '현재 커뮤니티 글 기준 참고 가능 수:',
-    planTitle: '초안 일정',
-    planPlaceholder: '플래너를 실행하면 근거 기반 일정이 여기에 표시됩니다.',
-    groundingContext: '근거 정보',
+    generatePlan: '일정 만들기',
+    backToChat: 'AI 상담',
+    plannerFallbackPrefix: '게시글',
+    planTitle: '일정',
+    planPlaceholder: '일정을 만들어 보세요.',
+    groundingContext: '참고 정보',
     weatherSummary: '날씨 요약',
     noWeather: '아직 날씨 메모가 없습니다.',
     noTemperature: '온도 정보 없음',
-    noCaution: '주의점 없음',
+    noCaution: '주의 사항 없음',
     retrievedPosts: '선택된 게시글',
-    retrievedPlaceholder: '플래너 실행 후 선택된 게시글이 여기에 표시됩니다.',
-    aiError: 'AI 플랜 요청 실패',
+    retrievedPlaceholder: '플래너 실행 후 참고 게시글이 여기에 표시됩니다.',
+    aiError: 'AI 일정 요청에 실패했습니다.',
     titleSuffix: '님의 여행 일정',
   },
   en: {
     eyebrow: 'AI planner',
-    hero: 'The planner uses MCP tools to gather posts, comments, and weather notes before drafting a route.',
-    planningRequest: 'planning request',
+    hero: '',
+    planningRequest: 'Trip filters',
     tripRequest: 'trip request',
     region: 'region',
     budget: 'budget',
@@ -76,12 +76,12 @@ const COPY = {
     budgetMode: 'budget',
     slow: 'slow',
     generating: 'Generating...',
-    generatePlan: 'Generate plan',
-    backToChat: 'Back to chat',
-    plannerFallbackPrefix: 'Current community posts available:',
-    planTitle: 'draft itinerary',
-    planPlaceholder: 'Run the planner to generate a grounded itinerary.',
-    groundingContext: 'grounding context',
+    generatePlan: 'Create plan',
+    backToChat: 'AI chat',
+    plannerFallbackPrefix: 'Posts',
+    planTitle: 'Itinerary',
+    planPlaceholder: 'Create an itinerary.',
+    groundingContext: 'References',
     weatherSummary: 'weather summary',
     noWeather: 'No weather note yet.',
     noTemperature: 'No temperature data',
@@ -96,7 +96,7 @@ const COPY = {
 function getInitialRequest(searchParams: URLSearchParams, language: Language): TravelAgentRequest {
   const travelDate = searchParams.get('travelDate') ?? '2026-07-12'
   return {
-    query: searchParams.get('q') ?? (language === 'ko' ? '바다 여행 추천해줘.' : 'Recommend a sea trip.'),
+    query: searchParams.get('q') ?? (language === 'ko' ? '바다 여행을 추천해 줘.' : 'Recommend a sea trip.'),
     region: searchParams.get('region') ?? '',
     budget: searchParams.get('budget') ?? '',
     theme: searchParams.get('theme') ?? '',
@@ -186,7 +186,7 @@ export function PlannerPage({ currentUser, posts, language }: PlannerPageProps) 
       <section className="planner-hero">
         <span>{copy.eyebrow}</span>
         <h1>{`${currentUser.nickname}${copy.titleSuffix}`}</h1>
-        <p>{copy.hero}</p>
+        {copy.hero ? <p>{copy.hero}</p> : null}
       </section>
 
       <section className="planner-grid">
@@ -195,39 +195,19 @@ export function PlannerPage({ currentUser, posts, language }: PlannerPageProps) 
           <div className="planner-form">
             <label>
               {copy.tripRequest}
-              <textarea
-                value={request.query}
-                onChange={(event) =>
-                  setRequest((current) => ({ ...current, query: event.target.value }))
-                }
-              />
+              <textarea value={request.query} onChange={(event) => setRequest((current) => ({ ...current, query: event.target.value }))} />
             </label>
             <label>
               {copy.region}
-              <input
-                value={request.region}
-                onChange={(event) =>
-                  setRequest((current) => ({ ...current, region: event.target.value }))
-                }
-              />
+              <input value={request.region} onChange={(event) => setRequest((current) => ({ ...current, region: event.target.value }))} />
             </label>
             <label>
               {copy.budget}
-              <input
-                value={request.budget}
-                onChange={(event) =>
-                  setRequest((current) => ({ ...current, budget: event.target.value }))
-                }
-              />
+              <input value={request.budget} onChange={(event) => setRequest((current) => ({ ...current, budget: event.target.value }))} />
             </label>
             <label>
               {copy.theme}
-              <input
-                value={request.theme}
-                onChange={(event) =>
-                  setRequest((current) => ({ ...current, theme: event.target.value }))
-                }
-              />
+              <input value={request.theme} onChange={(event) => setRequest((current) => ({ ...current, theme: event.target.value }))} />
             </label>
             <label>
               {copy.travelDate}
@@ -250,35 +230,18 @@ export function PlannerPage({ currentUser, posts, language }: PlannerPageProps) 
                 min={1}
                 type="number"
                 value={request.duration}
-                onChange={(event) =>
-                  setRequest((current) => ({
-                    ...current,
-                    duration: Number(event.target.value || '1'),
-                  }))
-                }
+                onChange={(event) => setRequest((current) => ({ ...current, duration: Number(event.target.value || '1') }))}
               />
             </label>
           </div>
           <div className="planner-style">
-            <button
-              className={planStyle === 'balanced' ? 'active' : ''}
-              type="button"
-              onClick={() => setPlanStyle('balanced')}
-            >
+            <button className={planStyle === 'balanced' ? 'active' : ''} type="button" onClick={() => setPlanStyle('balanced')}>
               {copy.balanced}
             </button>
-            <button
-              className={planStyle === 'budget' ? 'active' : ''}
-              type="button"
-              onClick={() => setPlanStyle('budget')}
-            >
+            <button className={planStyle === 'budget' ? 'active' : ''} type="button" onClick={() => setPlanStyle('budget')}>
               {copy.budgetMode}
             </button>
-            <button
-              className={planStyle === 'slow' ? 'active' : ''}
-              type="button"
-              onClick={() => setPlanStyle('slow')}
-            >
+            <button className={planStyle === 'slow' ? 'active' : ''} type="button" onClick={() => setPlanStyle('slow')}>
               {copy.slow}
             </button>
           </div>
@@ -289,7 +252,7 @@ export function PlannerPage({ currentUser, posts, language }: PlannerPageProps) 
             {copy.backToChat}
           </Link>
           <p>{result?.retrieval_summary ?? `${copy.plannerFallbackPrefix} ${totalPostCount ?? posts.length}`}</p>
-          {error ? <p>{error}</p> : null}
+          {error ? <p className="status-note status-note--error">{error}</p> : null}
         </article>
 
         <article className="planner-card planner-card--schedule">

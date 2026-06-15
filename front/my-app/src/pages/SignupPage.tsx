@@ -35,8 +35,8 @@ function isStrongPassword(value: string) {
 const COPY = {
   ko: {
     eyebrow: 'sign up',
-    title: '여행 취향이 이어지는 계정 만들기',
-    body: '계정을 만들면 저장한 글, 관심 여행 스타일, AI 대화 흐름을 한곳에서 이어서 사용할 수 있습니다.',
+    title: '계정 만들기',
+    body: '',
     name: '이름',
     userId: '아이디',
     password: '비밀번호',
@@ -48,7 +48,7 @@ const COPY = {
     submitting: '가입 처리 중...',
     submit: '회원가입 완료',
     haveAccount: '이미 계정이 있나요?',
-    goLogin: '로그인으로 돌아가기',
+    goLogin: '로그인',
     passwordHint: '영문 대문자, 소문자, 숫자를 포함해 8자 이상으로 입력해 주세요.',
     enterUserId: '아이디를 먼저 입력해 주세요.',
     duplicateUserId: '이미 사용 중인 아이디입니다.',
@@ -76,8 +76,8 @@ const COPY = {
   },
   en: {
     eyebrow: 'sign up',
-    title: 'Create an account for a connected travel flow',
-    body: 'Keep your saved posts, travel preferences, and AI planning flow in one place.',
+    title: 'Create account',
+    body: '',
     name: 'Name',
     userId: 'User ID',
     password: 'Password',
@@ -89,7 +89,7 @@ const COPY = {
     submitting: 'Creating account...',
     submit: 'Create account',
     haveAccount: 'Already have an account?',
-    goLogin: 'Back to login',
+    goLogin: 'Login',
     passwordHint: 'Use at least 8 characters with uppercase, lowercase, and a number.',
     enterUserId: 'Enter a user ID first.',
     duplicateUserId: 'This user ID is already taken.',
@@ -278,7 +278,7 @@ export function SignupPage({
   }
 
   return (
-    <main className="auth-screen">
+    <main className="auth-screen auth-screen--signup">
       <section className="auth-card auth-card--wide">
         <div className="auth-card__header">
           <div className="auth-card__header-top">
@@ -289,16 +289,6 @@ export function SignupPage({
           </div>
           <span className="auth-card__eyebrow">{copy.eyebrow as string}</span>
           <h1>{copy.title as string}</h1>
-          <p>{copy.body as string}</p>
-        </div>
-
-        <div className="signup-checklist">
-          <strong>{copy.checklistTitle as string}</strong>
-          <ul>
-            {(copy.checklist as string[]).map((item) => (
-              <li key={item}>{item}</li>
-            ))}
-          </ul>
         </div>
 
         <form

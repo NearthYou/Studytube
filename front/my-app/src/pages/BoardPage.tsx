@@ -38,29 +38,27 @@ const EMPTY_LOOKUPS: PostFilterLookups = {
 const COPY = {
   ko: {
     heroEyebrow: 'travel board',
-    heroTitle: '실제 여행 후기에서 바로 찾는 여행 아이디어',
-    heroBody:
-      '목적지, 예산, 테마를 한 번에 좁히고 게시글에서 채팅과 플래너로 자연스럽게 이어지는 구조로 정리했습니다.',
-    write: '여행 글 쓰기',
+    heroTitle: '여행 후기,\n바로 일정으로',
+    heroBody: '',
+    write: '글쓰기',
     myPage: '마이페이지',
-    chat: 'AI 추천 시작',
-    planner: '플래너 열기',
-    totalPosts: '전체 게시글',
-    savedPosts: '저장한 글',
-    currentPageStat: '현재 페이지',
-    welcomeTitle: '안녕하세요',
-    welcomeFallback: '지금 마음에 드는 여행 스타일을 골라서 바로 탐색해 보세요.',
+    chat: 'AI 추천',
+    planner: '일정 만들기',
+    totalPosts: '게시글',
+    savedPosts: '저장',
+    currentPageStat: '페이지',
+    welcomeTitle: '내 여행',
+    welcomeFallback: '',
     quickLinks: '바로가기',
-    guideTitle: '이렇게 보면 편합니다',
-    guideBody:
-      '검색어를 먼저 넣고, 결과가 많으면 지역과 예산을 좁힌 뒤 테마를 고르면 탐색 속도가 훨씬 빨라집니다.',
-    searchEyebrow: 'search and filter',
-    searchTitle: '원하는 여행 글을 빠르게 찾기',
-    searchBody: '여행지, 작성자, 태그, 분위기를 기준으로 결과를 정리할 수 있습니다.',
-    searchPlaceholder: '여행지, 제목, 태그, 작성자 이름으로 검색',
+    guideTitle: '',
+    guideBody: '',
+    searchEyebrow: 'search',
+    searchTitle: '여행 찾기',
+    searchBody: '',
+    searchPlaceholder: '여행지, 제목, 태그, 작성자',
     advancedOpen: '필터 열기',
     advancedClose: '필터 닫기',
-    reset: '전체 초기화',
+    reset: '초기화',
     region: '지역',
     budget: '예산',
     theme: '테마',
@@ -71,10 +69,10 @@ const COPY = {
     popular: '인기순',
     comments: '댓글 많은 순',
     activeFilters: '적용된 조건',
-    resultSummary: '현재 결과',
-    showing: '보이는 글',
-    loadingTitle: '게시글을 불러오는 중입니다.',
-    loadingBody: '선택한 조건에 맞는 여행 글을 다시 확인하고 있습니다.',
+    resultSummary: '결과',
+    showing: '표시',
+    loadingTitle: '불러오는 중',
+    loadingBody: '',
     errorTitle: '게시글을 불러오지 못했습니다.',
     emptyTitle: '조건에 맞는 여행 글이 없습니다.',
     emptyBody: '검색어를 바꾸거나 필터를 줄여서 다시 찾아보세요.',
@@ -86,26 +84,24 @@ const COPY = {
   },
   en: {
     heroEyebrow: 'travel board',
-    heroTitle: 'Find trip ideas directly from real travel posts',
-    heroBody:
-      'Narrow by destination, budget, and theme, then move from community posts into AI chat or the planner without losing context.',
+    heroTitle: 'Trip stories,\nready plans',
+    heroBody: '',
     write: 'Write a post',
     myPage: 'My Page',
-    chat: 'Start AI chat',
-    planner: 'Open planner',
-    totalPosts: 'Total posts',
-    savedPosts: 'Saved posts',
-    currentPageStat: 'Current page',
-    welcomeTitle: 'Welcome',
-    welcomeFallback: 'Pick the kind of trip you want and start browsing right away.',
+    chat: 'Ask AI',
+    planner: 'Plan trip',
+    totalPosts: 'Posts',
+    savedPosts: 'Saved',
+    currentPageStat: 'Page',
+    welcomeTitle: 'My trip',
+    welcomeFallback: '',
     quickLinks: 'Quick links',
-    guideTitle: 'A faster way to browse',
-    guideBody:
-      'Start with a keyword, narrow by region and budget, then use theme to find a better match much faster.',
-    searchEyebrow: 'search and filter',
-    searchTitle: 'Find the right post faster',
-    searchBody: 'Search by destination, author, tag, or travel mood.',
-    searchPlaceholder: 'Search by destination, title, tag, or author',
+    guideTitle: '',
+    guideBody: '',
+    searchEyebrow: 'search',
+    searchTitle: 'Find a trip',
+    searchBody: '',
+    searchPlaceholder: 'Destination, title, tag, or author',
     advancedOpen: 'Open filters',
     advancedClose: 'Close filters',
     reset: 'Reset all',
@@ -120,9 +116,9 @@ const COPY = {
     comments: 'Most discussed',
     activeFilters: 'Active filters',
     resultSummary: 'Results',
-    showing: 'Visible posts',
-    loadingTitle: 'Loading posts.',
-    loadingBody: 'Refreshing travel posts for the current filters.',
+    showing: 'Showing',
+    loadingTitle: 'Loading',
+    loadingBody: '',
     errorTitle: 'Failed to load posts.',
     emptyTitle: 'No matching posts found.',
     emptyBody: 'Try a different keyword or reset some filters.',
@@ -296,6 +292,8 @@ export function BoardPage({
     { label: copy.currentPageStat, value: `${currentPage}` },
   ]
 
+  const heroTitleLines = copy.heroTitle.split('\n')
+
   const updateFilter = (key: keyof Filters, value: string) => {
     startTransition(() => {
       setFilters((current) => ({ ...current, [key]: value }))
@@ -363,9 +361,13 @@ export function BoardPage({
     <main className="page board-page">
       <section className="board-hero">
         <div className="board-hero__copy">
-          <span>{copy.heroEyebrow}</span>
-          <h1>{copy.heroTitle}</h1>
-          <p>{copy.heroBody}</p>
+          <span className="board-hero__eyebrow">{copy.heroEyebrow}</span>
+          <h1 className="board-hero__title">
+            {heroTitleLines.map((line) => (
+              <span key={line}>{line}</span>
+            ))}
+          </h1>
+          {copy.heroBody ? <p>{copy.heroBody}</p> : null}
           <div className="board-hero__actions">
             <Link className="primary-button" to="/write">
               {copy.write}
@@ -394,7 +396,6 @@ export function BoardPage({
           <section className="sidebar-panel">
             <span className="sidebar-panel__label">{copy.welcomeTitle}</span>
             <h2>{currentUser.nickname}</h2>
-            <p>{currentUser.bio || copy.welcomeFallback}</p>
           </section>
 
           <section className="sidebar-panel">
@@ -404,11 +405,6 @@ export function BoardPage({
             <Link to="/chat">{copy.chat}</Link>
             <Link to="/planner">{copy.planner}</Link>
           </section>
-
-          <section className="sidebar-panel">
-            <span className="sidebar-panel__label">{copy.guideTitle}</span>
-            <p>{copy.guideBody}</p>
-          </section>
         </aside>
 
         <section className="board-content">
@@ -417,7 +413,7 @@ export function BoardPage({
               <div>
                 <span className="section-label">{copy.searchEyebrow}</span>
                 <h2>{copy.searchTitle}</h2>
-                <p>{copy.searchBody}</p>
+                {copy.searchBody ? <p>{copy.searchBody}</p> : null}
               </div>
 
               <div className="sort-group">
@@ -545,7 +541,7 @@ export function BoardPage({
             {isLoading ? (
               <section className="empty-state">
                 <h2>{copy.loadingTitle}</h2>
-                <p>{copy.loadingBody}</p>
+                {copy.loadingBody ? <p>{copy.loadingBody}</p> : null}
               </section>
             ) : null}
 

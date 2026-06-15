@@ -37,14 +37,14 @@ const EMPTY_LOOKUPS: PostFilterLookups = {
 
 const COPY = {
   ko: {
-    loading: '작성 화면을 불러오는 중입니다...',
+    loading: '불러오는 중',
     editEyebrow: '게시글 수정',
     createEyebrow: '게시글 작성',
-    editTitle: '게시글 수정하기',
-    createTitle: '새 게시글 작성하기',
-    body: '여행 정보를 입력하고 게시판에 공유해보세요.',
+    editTitle: '글 수정',
+    createTitle: '여행 글쓰기',
+    body: '',
     title: '제목',
-    travelDate: '여행일자',
+    travelDate: '여행 날짜',
     imageUpload: '사진 업로드',
     companion: '동행',
     region: '지역',
@@ -52,11 +52,11 @@ const COPY = {
     theme: '테마',
     season: '계절',
     content: '여행 내용',
-    contentPlaceholder: '동선, 예산, 추천 포인트를 자유롭게 적어주세요.',
+    contentPlaceholder: '내용을 입력하세요.',
     submitCreate: '등록하기',
     submitEdit: '수정 완료',
     submitting: '저장 중...',
-    required: '필수 항목을 모두 입력해주세요.',
+    required: '필수 항목을 모두 입력해 주세요.',
     createDone: '게시글이 등록되었습니다.',
     editDone: '게시글이 수정되었습니다.',
     lookupError: '옵션을 불러오지 못했습니다.',
@@ -64,12 +64,12 @@ const COPY = {
     all: '전체',
   },
   en: {
-    loading: 'Loading the editor...',
+    loading: 'Loading',
     editEyebrow: 'Edit post',
     createEyebrow: 'Create post',
-    editTitle: 'Edit your post',
-    createTitle: 'Create a new post',
-    body: 'Fill in your trip details and share them on the board.',
+    editTitle: 'Edit post',
+    createTitle: 'Write trip post',
+    body: '',
     title: 'Title',
     travelDate: 'Travel date',
     imageUpload: 'Upload image',
@@ -79,7 +79,7 @@ const COPY = {
     theme: 'Theme',
     season: 'Season',
     content: 'Trip story',
-    contentPlaceholder: 'Write about your route, budget, and recommended highlights.',
+    contentPlaceholder: 'Write your trip story.',
     submitCreate: 'Publish',
     submitEdit: 'Save changes',
     submitting: 'Saving...',
@@ -238,7 +238,7 @@ export function WritePage({ onCreatePost, onUpdatePost, language }: WritePagePro
         <div className="form-card__header">
           <span>{isEditMode ? copy.editEyebrow : copy.createEyebrow}</span>
           <h1>{isEditMode ? copy.editTitle : copy.createTitle}</h1>
-          <p>{copy.body}</p>
+          {copy.body ? <p>{copy.body}</p> : null}
         </div>
         <form
           className="write-form"
@@ -274,9 +274,7 @@ export function WritePage({ onCreatePost, onUpdatePost, language }: WritePagePro
                 content: form.content.trim(),
               }
 
-              const isSuccess = isEditMode
-                ? await onUpdatePost(postId, payload)
-                : await onCreatePost(payload)
+              const isSuccess = isEditMode ? await onUpdatePost(postId, payload) : await onCreatePost(payload)
 
               if (!isSuccess) {
                 return
@@ -291,20 +289,11 @@ export function WritePage({ onCreatePost, onUpdatePost, language }: WritePagePro
         >
           <label>
             {copy.title}
-            <input
-              value={form.title}
-              onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
-            />
+            <input value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} />
           </label>
           <label>
             {copy.travelDate}
-            <input
-              type="date"
-              value={form.travelDate}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, travelDate: event.target.value }))
-              }
-            />
+            <input type="date" value={form.travelDate} onChange={(event) => setForm((current) => ({ ...current, travelDate: event.target.value }))} />
           </label>
           <label>
             {copy.imageUpload}
@@ -316,49 +305,15 @@ export function WritePage({ onCreatePost, onUpdatePost, language }: WritePagePro
             </div>
           ) : null}
           <div className="filter-grid form-filter-grid">
-            <FilterSelect
-              label={copy.companion}
-              options={localizedLookups.companions}
-              placeholder={copy.all}
-              value={form.companion}
-              onChange={(value) => updateSelect('companion', value)}
-            />
-            <FilterSelect
-              label={copy.region}
-              options={localizedLookups.regions}
-              placeholder={copy.all}
-              value={form.region}
-              onChange={(value) => updateSelect('region', value)}
-            />
-            <FilterSelect
-              label={copy.budget}
-              options={localizedLookups.budgetRanges}
-              placeholder={copy.all}
-              value={form.budget}
-              onChange={(value) => updateSelect('budget', value)}
-            />
-            <FilterSelect
-              label={copy.theme}
-              options={localizedLookups.themes}
-              placeholder={copy.all}
-              value={form.theme}
-              onChange={(value) => updateSelect('theme', value)}
-            />
-            <FilterSelect
-              label={copy.season}
-              options={localizedLookups.seasons}
-              placeholder={copy.all}
-              value={form.season}
-              onChange={(value) => updateSelect('season', value)}
-            />
+            <FilterSelect label={copy.companion} options={localizedLookups.companions} placeholder={copy.all} value={form.companion} onChange={(value) => updateSelect('companion', value)} />
+            <FilterSelect label={copy.region} options={localizedLookups.regions} placeholder={copy.all} value={form.region} onChange={(value) => updateSelect('region', value)} />
+            <FilterSelect label={copy.budget} options={localizedLookups.budgetRanges} placeholder={copy.all} value={form.budget} onChange={(value) => updateSelect('budget', value)} />
+            <FilterSelect label={copy.theme} options={localizedLookups.themes} placeholder={copy.all} value={form.theme} onChange={(value) => updateSelect('theme', value)} />
+            <FilterSelect label={copy.season} options={localizedLookups.seasons} placeholder={copy.all} value={form.season} onChange={(value) => updateSelect('season', value)} />
           </div>
           <label>
             {copy.content}
-            <textarea
-              placeholder={copy.contentPlaceholder}
-              value={form.content}
-              onChange={(event) => setForm((current) => ({ ...current, content: event.target.value }))}
-            />
+            <textarea placeholder={copy.contentPlaceholder} value={form.content} onChange={(event) => setForm((current) => ({ ...current, content: event.target.value }))} />
           </label>
           <button className="primary-button" disabled={isSubmitting} type="submit">
             {isSubmitting ? copy.submitting : isEditMode ? copy.submitEdit : copy.submitCreate}

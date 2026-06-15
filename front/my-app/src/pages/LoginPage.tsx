@@ -11,38 +11,38 @@ type LoginPageProps = {
 
 const COPY = {
   ko: {
-    eyebrow: 'travel log community',
-    title: '다음 여행을 찾는 가장 쉬운 시작',
-    body: 'Tripy에서 여행 후기, AI 추천, 여행 플래너를 한 화면 흐름으로 이어서 사용할 수 있습니다.',
+    eyebrow: 'tripy',
+    title: '여행을 가볍게 시작하기',
+    body: '',
     userId: '아이디',
     password: '비밀번호',
     submit: '로그인',
     submitting: '로그인 중...',
     missingFields: '아이디와 비밀번호를 모두 입력해 주세요.',
     noAccount: '계정이 아직 없나요?',
-    goSignup: '회원가입으로 이동',
+    goSignup: '회원가입',
     noteTitle: '안내',
-    noteBody: '회원가입에서 만든 계정으로 로그인하면 저장한 글과 맞춤 추천을 이어서 볼 수 있습니다.',
+    noteBody: '회원가입에서 만든 계정으로 로그인하면 저장한 글과 여행 취향을 그대로 이어서 볼 수 있습니다.',
     promoLabel: 'why tripy',
-    promoTitle: '읽고, 저장하고, 바로 일정으로 연결되는 여행 커뮤니티',
+    promoTitle: '읽고, 저장하고, 바로 여행 계획으로 이어지는 커뮤니티',
     promoBody:
-      '검색으로 끝나는 게시판이 아니라, 게시글을 본 뒤 바로 AI 채팅과 플래너로 이어지는 탐색 흐름을 제공합니다.',
-    highlights: ['실제 여행 후기를 기준으로 탐색', '게시글에서 AI 추천으로 자연스럽게 이동', '저장한 관심 글과 여행 취향 관리'],
+      '검색만 하고 끝나는 게시판이 아니라, 게시글을 본 뒤 바로 챗봇과 플래너로 이동할 수 있는 여행 보드를 제공합니다.',
+    highlights: ['실제 여행 후기 중심 탐색', 'AI 추천과 일정 계획 연결', '저장한 글과 취향 한곳 관리'],
     toggle: 'EN',
     show: '보기',
     hide: '숨기기',
   },
   en: {
-    eyebrow: 'travel log community',
-    title: 'The easiest way to start planning your next trip',
-    body: 'Use travel posts, AI recommendations, and the planner in one connected flow on Tripy.',
+    eyebrow: 'tripy',
+    title: 'Start your next trip',
+    body: '',
     userId: 'User ID',
     password: 'Password',
     submit: 'Login',
     submitting: 'Logging in...',
     missingFields: 'Enter both your user ID and password.',
     noAccount: 'No account yet?',
-    goSignup: 'Go to sign up',
+    goSignup: 'Sign up',
     noteTitle: 'Note',
     noteBody: 'Sign in with the account you created on the sign-up page to keep your saved posts and preferences.',
     promoLabel: 'why tripy',
@@ -69,7 +69,7 @@ export function LoginPage({ onLogin, language, onToggleLanguage }: LoginPageProp
   const [showPassword, setShowPassword] = useState(false)
 
   return (
-    <main className="auth-screen">
+    <main className="auth-screen auth-screen--login">
       <section className="auth-card">
         <div className="auth-card__header">
           <div className="auth-card__header-top">
@@ -80,7 +80,6 @@ export function LoginPage({ onLogin, language, onToggleLanguage }: LoginPageProp
           </div>
           <span className="auth-card__eyebrow">{copy.eyebrow as string}</span>
           <h1>{copy.title as string}</h1>
-          <p>{copy.body as string}</p>
         </div>
 
         <form
@@ -153,22 +152,6 @@ export function LoginPage({ onLogin, language, onToggleLanguage }: LoginPageProp
           <span>{copy.noAccount as string}</span>
           <Link to="/signup">{copy.goSignup as string}</Link>
         </div>
-
-        <div className="auth-card__note">
-          <strong>{copy.noteTitle as string}</strong>
-          <span>{copy.noteBody as string}</span>
-        </div>
-      </section>
-
-      <section className="auth-promo">
-        <div className="auth-promo__label">{copy.promoLabel as string}</div>
-        <h2>{copy.promoTitle as string}</h2>
-        <p>{copy.promoBody as string}</p>
-        <ul className="auth-highlight-list">
-          {(copy.highlights as string[]).map((item) => (
-            <li key={item}>{item}</li>
-          ))}
-        </ul>
       </section>
     </main>
   )

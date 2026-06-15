@@ -2,11 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import MarkdownMessage from '../components/MarkdownMessage'
 import type { PostWithMeta } from '../types/community'
-import {
-  requestTravelChat,
-  type AiAgentResponse,
-  type TravelAgentRequest,
-} from '../utils/aiAPI'
+import { requestTravelChat, type AiAgentResponse, type TravelAgentRequest } from '../utils/aiAPI'
 import { localizeLookupValue } from '../utils/i18n'
 import type { Language } from '../utils/language'
 import '../styles/pages/ChatPage.css'
@@ -70,65 +66,63 @@ function createSessionId() {
 
 const COPY = {
   ko: {
-    eyebrow: 'Travel Agent',
-    title: '대화형 여행 챗봇',
-    body:
-      '그냥 말하듯 물어보면 됩니다. MCP로 게시글과 댓글을 찾고, RAG 근거를 모아서 여행 답변처럼 이어서 대화합니다.',
+    eyebrow: 'travel ai',
+    title: 'AI 여행 상담',
+    body: '',
     quickPrompts: [
-      '부산에서 친구랑 1박 2일로 가볍게 놀기 좋은 코스 추천해줘.',
-      '제주에서 부모님 모시고 가기 편한 여행으로 짜줘.',
-      '비 와도 괜찮은 실내 위주 여행지 추천해줘.',
-      '예산 20만원 안에서 혼자 힐링 여행 갈 만한 곳 있을까?',
+      '부산에서 친구와 1박 2일로 가볍게 다녀올 코스를 추천해 줘.',
+      '제주에서 부모님과 함께 가기 좋은 여행 일정으로 짜 줘.',
+      '비 오는 날에도 실내 위주로 즐길 수 있는 여행지를 추천해 줘.',
+      '예산 20만 원 안에서 혼자 조용히 쉬기 좋은 여행지를 추천해 줘.',
     ],
-    quickTitle: '바로 시작',
+    quickTitle: '추천 질문',
     newChat: '새 대화',
-    planner: '플래너 열기',
-    preferences: '여행 설정',
-    preferencesBody: '필요할 때만 보조 조건을 넣어주세요. 대화만으로도 추천은 가능합니다.',
+    planner: '일정 만들기',
+    preferences: '조건',
+    preferencesBody: '여행 조건',
     region: '지역',
     budget: '예산',
     theme: '테마',
     companion: '동행',
-    travelDate: '여행일',
+    travelDate: '여행 날짜',
     duration: '기간',
-    placeholder: '예: 강릉에서 혼자 조용히 쉬고 싶은데 카페랑 바다 위주로 추천해줘',
+    placeholder: '예: 강릉에서 혼자 조용히 쉬고 싶은데 카페와 바다를 함께 즐길 수 있는 코스를 추천해 줘.',
     send: '보내기',
-    sending: '답변 중...',
-    session: '현재 세션',
-    sessionBody: '같은 세션 안에서는 이전 대화를 이어서 반영합니다.',
+    sending: '생각 중...',
+    session: 'Tripy',
+    sessionBody: '대화',
     sourceSummary: '근거 요약',
     weather: '날씨 메모',
     sources: '참고 게시글',
-    trace: '도구 사용',
+    trace: '도구 사용 기록',
     plan: '일정 미리보기',
-    emptySources: '아직 참고 게시글이 없습니다.',
-    emptyPlan: '답변이 오면 일정 초안이 여기에 보입니다.',
+    emptySources: '첫 답변 이후 참고 게시글이 여기에 표시됩니다.',
+    emptyPlan: '첫 답변 이후 일정 초안이 여기에 표시됩니다.',
     emptySummary: '대화를 시작하면 검색 요약이 여기에 표시됩니다.',
     emptyWeather: '대화를 시작하면 날씨 메모가 여기에 표시됩니다.',
     user: '나',
     assistant: 'Tripy',
-    enterHint: 'Enter 전송, Shift+Enter 줄바꿈',
+    enterHint: '',
     sourceCount: '참고 문서',
-    turnCount: '대화 턴',
+    turnCount: '대화 수',
     durationCount: '여행 일수',
     any: '전체',
   },
   en: {
-    eyebrow: 'Travel Agent',
-    title: 'Conversational travel chatbot',
-    body:
-      'Ask naturally. The agent uses MCP to retrieve posts and comments, grounds the answer with RAG, and continues the conversation turn by turn.',
+    eyebrow: 'travel ai',
+    title: 'AI travel chat',
+    body: '',
     quickPrompts: [
       'Recommend a light 2-day Busan trip for friends.',
       'Plan a Jeju trip that works well for parents.',
       'Suggest an indoor-friendly trip for a rainy day.',
       'Where can I go alone for a calm trip under 200k KRW?',
     ],
-    quickTitle: 'Quick start',
+    quickTitle: 'Suggested questions',
     newChat: 'New chat',
-    planner: 'Open planner',
-    preferences: 'Trip settings',
-    preferencesBody: 'Add optional constraints here. The chatbot also works with natural conversation only.',
+    planner: 'Plan trip',
+    preferences: 'Filters',
+    preferencesBody: 'Trip filters',
     region: 'Region',
     budget: 'Budget',
     theme: 'Theme',
@@ -138,8 +132,8 @@ const COPY = {
     placeholder: 'Example: I want a calm solo trip in Gangneung with cafes and sea views.',
     send: 'Send',
     sending: 'Thinking...',
-    session: 'Current session',
-    sessionBody: 'The chatbot continues to use prior turns inside the same session.',
+    session: 'Tripy',
+    sessionBody: 'Conversation',
     sourceSummary: 'Grounded summary',
     weather: 'Weather note',
     sources: 'Source posts',
@@ -151,50 +145,53 @@ const COPY = {
     emptyWeather: 'The weather note will appear here after the conversation starts.',
     user: 'You',
     assistant: 'Tripy',
-    enterHint: 'Enter to send, Shift+Enter for a new line',
+    enterHint: '',
     sourceCount: 'grounded sources',
     turnCount: 'chat turns',
     durationCount: 'trip days',
     any: 'any',
   },
-} satisfies Record<Language, {
-  eyebrow: string
-  title: string
-  body: string
-  quickPrompts: string[]
-  quickTitle: string
-  newChat: string
-  planner: string
-  preferences: string
-  preferencesBody: string
-  region: string
-  budget: string
-  theme: string
-  companion: string
-  travelDate: string
-  duration: string
-  placeholder: string
-  send: string
-  sending: string
-  session: string
-  sessionBody: string
-  sourceSummary: string
-  weather: string
-  sources: string
-  trace: string
-  plan: string
-  emptySources: string
-  emptyPlan: string
-  emptySummary: string
-  emptyWeather: string
-  user: string
-  assistant: string
-  enterHint: string
-  sourceCount: string
-  turnCount: string
-  durationCount: string
-  any: string
-}>
+} satisfies Record<
+  Language,
+  {
+    eyebrow: string
+    title: string
+    body: string
+    quickPrompts: string[]
+    quickTitle: string
+    newChat: string
+    planner: string
+    preferences: string
+    preferencesBody: string
+    region: string
+    budget: string
+    theme: string
+    companion: string
+    travelDate: string
+    duration: string
+    placeholder: string
+    send: string
+    sending: string
+    session: string
+    sessionBody: string
+    sourceSummary: string
+    weather: string
+    sources: string
+    trace: string
+    plan: string
+    emptySources: string
+    emptyPlan: string
+    emptySummary: string
+    emptyWeather: string
+    user: string
+    assistant: string
+    enterHint: string
+    sourceCount: string
+    turnCount: string
+    durationCount: string
+    any: string
+  }
+>
 
 function buildInitialPreferences(searchParams: URLSearchParams): ChatPreferences {
   const travelDate = searchParams.get('travelDate') ?? '2026-07-12'
@@ -214,7 +211,7 @@ function buildInitialDraft(searchParams: URLSearchParams, language: Language) {
   return (
     searchParams.get('q') ??
     (language === 'ko'
-      ? '부산에서 친구랑 갈 만한 여행 추천해줘.'
+      ? '부산에서 친구와 함께 가볍게 다녀올 만한 여행을 추천해 줘.'
       : 'Recommend a trip in Busan for friends.')
   )
 }
@@ -229,16 +226,13 @@ function createIntroMessages(language: Language): Message[] {
       role: 'assistant',
       text:
         language === 'ko'
-          ? '안녕하세요. 여행 조건을 편하게 말해주시면, 커뮤니티 글과 댓글을 바탕으로 이어서 추천해드릴게요.'
+          ? '안녕하세요. 원하는 여행 분위기나 조건을 말해 주시면 게시글과 댓글을 바탕으로 추천을 이어서 도와드릴게요.'
           : 'Tell me what kind of trip you want, and I will continue the conversation with grounded travel recommendations.',
     },
   ]
 }
 
-function readPersistedState(
-  language: Language,
-  searchParams: URLSearchParams,
-): PersistedChatState {
+function readPersistedState(language: Language, searchParams: URLSearchParams): PersistedChatState {
   const fallbackState: PersistedChatState = {
     draft: buildInitialDraft(searchParams, language),
     sessionId: createSessionId(),
@@ -287,9 +281,7 @@ export function ChatPage({ posts: _posts, language }: ChatPageProps) {
   const copy = COPY[language]
   const [searchParams] = useSearchParams()
   const [draft, setDraft] = useState(() => readPersistedState(language, searchParams).draft)
-  const [sessionId, setSessionId] = useState(
-    () => readPersistedState(language, searchParams).sessionId,
-  )
+  const [sessionId, setSessionId] = useState(() => readPersistedState(language, searchParams).sessionId)
   const [preferences, setPreferences] = useState<ChatPreferences>(
     () => readPersistedState(language, searchParams).preferences,
   )
@@ -421,7 +413,7 @@ export function ChatPage({ posts: _posts, language }: ChatPageProps) {
         <div className="chat-hero__copy">
           <span>{copy.eyebrow}</span>
           <h1>{copy.title}</h1>
-          <p>{copy.body}</p>
+          {copy.body ? <p>{copy.body}</p> : null}
           <div className="chat-chip-list">
             {conditionChips.map((chip) => (
               <span className="chat-chip" key={chip}>
@@ -455,11 +447,7 @@ export function ChatPage({ posts: _posts, language }: ChatPageProps) {
               >
                 {copy.preferences}
               </button>
-              <button
-                className="secondary-button chat-header-button"
-                type="button"
-                onClick={handleResetChat}
-              >
+              <button className="secondary-button chat-header-button" type="button" onClick={handleResetChat}>
                 {copy.newChat}
               </button>
               <Link className="secondary-button chat-header-button" to={plannerHref}>
@@ -472,11 +460,7 @@ export function ChatPage({ posts: _posts, language }: ChatPageProps) {
             {messages.map((item, index) => (
               <div className={`chat-bubble ${item.role}`} key={`${item.role}-${index}`}>
                 <em>{item.role === 'assistant' ? copy.assistant : copy.user}</em>
-                {item.role === 'assistant' ? (
-                  <MarkdownMessage content={item.text} />
-                ) : (
-                  <p>{item.text}</p>
-                )}
+                {item.role === 'assistant' ? <MarkdownMessage content={item.text} /> : <p>{item.text}</p>}
               </div>
             ))}
 
@@ -499,12 +483,7 @@ export function ChatPage({ posts: _posts, language }: ChatPageProps) {
             <span>{copy.quickTitle}</span>
             <div className="chat-session-list">
               {copy.quickPrompts.map((prompt) => (
-                <button
-                  className="chat-session-button"
-                  key={prompt}
-                  type="button"
-                  onClick={() => void sendMessage(prompt)}
-                >
+                <button className="chat-session-button" key={prompt} type="button" onClick={() => void sendMessage(prompt)}>
                   {prompt}
                 </button>
               ))}
@@ -513,43 +492,35 @@ export function ChatPage({ posts: _posts, language }: ChatPageProps) {
 
           {showPreferences ? (
             <section className="chat-panel chat-panel--preferences">
-              <span>{copy.preferences}</span>
-              <h2>{copy.preferencesBody}</h2>
+            <span>{copy.preferences}</span>
+            <h2>{copy.preferencesBody}</h2>
               <div className="chat-filter-grid">
                 <label>
                   <span>{copy.region}</span>
                   <input
                     value={preferences.region}
-                    onChange={(event) =>
-                      setPreferences((current) => ({ ...current, region: event.target.value }))
-                    }
+                    onChange={(event) => setPreferences((current) => ({ ...current, region: event.target.value }))}
                   />
                 </label>
                 <label>
                   <span>{copy.budget}</span>
                   <input
                     value={preferences.budget}
-                    onChange={(event) =>
-                      setPreferences((current) => ({ ...current, budget: event.target.value }))
-                    }
+                    onChange={(event) => setPreferences((current) => ({ ...current, budget: event.target.value }))}
                   />
                 </label>
                 <label>
                   <span>{copy.theme}</span>
                   <input
                     value={preferences.theme}
-                    onChange={(event) =>
-                      setPreferences((current) => ({ ...current, theme: event.target.value }))
-                    }
+                    onChange={(event) => setPreferences((current) => ({ ...current, theme: event.target.value }))}
                   />
                 </label>
                 <label>
                   <span>{copy.companion}</span>
                   <input
                     value={preferences.companion}
-                    onChange={(event) =>
-                      setPreferences((current) => ({ ...current, companion: event.target.value }))
-                    }
+                    onChange={(event) => setPreferences((current) => ({ ...current, companion: event.target.value }))}
                   />
                 </label>
                 <label>
@@ -598,7 +569,7 @@ export function ChatPage({ posts: _posts, language }: ChatPageProps) {
               }}
             />
             <div className="chat-composer__footer">
-              <span>{copy.enterHint}</span>
+              {copy.enterHint ? <span>{copy.enterHint}</span> : null}
               <button className="primary-button chat-send-button" type="submit" disabled={isLoading}>
                 {isLoading ? copy.sending : copy.send}
               </button>

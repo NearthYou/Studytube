@@ -1,41 +1,23 @@
 .detail-page {
-  --detail-border: rgba(114, 94, 67, 0.14);
-  --detail-border-strong: rgba(141, 118, 85, 0.32);
-  --detail-surface: rgba(255, 252, 247, 0.92);
-  --detail-subtle: #fcfaf6;
-  --detail-text: #4f4a42;
-  --detail-muted: #7c7265;
-  --detail-accent: #9b7c56;
-}
-
-.detail-page {
   display: grid;
-  gap: 1.8rem;
-  position: relative;
-  z-index: 0;
+  gap: var(--page-section-gap);
 }
 
 .detail-card,
 .detail-section {
-  border: 1px solid var(--detail-border);
-  background: var(--detail-surface);
-  box-shadow:
-    0 22px 48px rgba(78, 66, 50, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.82);
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow-soft);
 }
 
 .detail-card {
   display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1.08fr) minmax(0, 1fr);
   overflow: hidden;
-  position: relative;
-  z-index: 0;
-  border-radius: 28px;
 }
 
 .detail-card__media {
-  position: relative;
-  z-index: 0;
   overflow: hidden;
 }
 
@@ -50,21 +32,20 @@
 .detail-card__content {
   display: grid;
   align-content: start;
-  gap: 1.18rem;
-  padding: 2.35rem;
+  gap: var(--page-section-gap);
+  padding: var(--page-card-padding);
 }
 
 .detail-card h1,
 .detail-section__heading h2 {
   margin: 0;
-  color: #121212;
-  font-family: "Bodoni MT", "Didot", "Times New Roman", serif;
+  color: var(--text-strong);
   font-weight: 400;
 }
 
 .detail-card h1 {
-  font-size: clamp(2.3rem, 4vw, 3.45rem);
-  line-height: 1.06;
+  font-size: var(--page-title-size);
+  line-height: var(--page-title-line-height);
   text-wrap: balance;
 }
 
@@ -72,13 +53,27 @@
 .detail-card__tags {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.55rem;
+  gap: 0.5rem;
 }
 
 .detail-card__meta,
 .detail-card__author {
-  color: var(--detail-muted);
-  font-size: 0.92rem;
+  color: var(--text-muted);
+  font-size: 0.88rem;
+}
+
+.detail-card__meta span,
+.detail-card__tags span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0.32rem 0.58rem;
+  border: 1px solid rgba(102, 118, 87, 0.14);
+  border-radius: 8px;
+  background: rgba(102, 118, 87, 0.08);
+  color: var(--text-body);
+  font-size: 0.8rem;
+  font-weight: 700;
 }
 
 .detail-card__author {
@@ -91,26 +86,18 @@
   text-decoration: none;
 }
 
-.detail-card__tags span {
-  border: 1px solid #e3dbcf;
-  border-radius: 999px;
-  padding: 0.32rem 0.7rem;
-  color: var(--detail-text);
-  background: rgba(255, 252, 247, 0.95);
-  font-size: 0.78rem;
-}
-
 .detail-card__body,
 .detail-section__heading span {
-  color: var(--detail-text);
-  line-height: 1.75;
+  margin: 0;
+  color: var(--text-body);
+  line-height: 1.72;
 }
 
 .detail-card__actions,
 .comment-card__head {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 0.55rem;
   flex-wrap: wrap;
 }
 
@@ -118,7 +105,7 @@
 .comment-form,
 .reply-form {
   display: flex;
-  gap: 0.75rem;
+  gap: 0.55rem;
 }
 
 .detail-edit-form,
@@ -137,7 +124,7 @@
 .detail-edit-inline-form label {
   display: grid;
   gap: 0.35rem;
-  color: var(--detail-text);
+  color: var(--text-body);
 }
 
 .detail-inline-actions {
@@ -155,24 +142,16 @@
 .detail-edit-form textarea,
 .detail-edit-inline-form textarea {
   flex: 1;
-  border: 1px solid #ded5c8;
-  border-radius: 12px;
-  background: #fffdfa;
-  padding: 0.85rem 0.95rem;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: #fffdf7;
+  padding: 0.85rem 0.9rem;
   font: inherit;
-  color: var(--detail-text);
-  transition: border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
-}
-
-.comment-form textarea:focus,
-.reply-form input:focus,
-.detail-edit-form input:focus,
-.detail-edit-form textarea:focus,
-.detail-edit-inline-form textarea:focus {
-  outline: none;
-  border-color: var(--detail-border-strong);
-  box-shadow: 0 0 0 4px rgba(205, 189, 168, 0.14);
-  background: #ffffff;
+  color: var(--text-strong);
+  transition:
+    border-color 140ms ease,
+    box-shadow 140ms ease,
+    background 140ms ease;
 }
 
 .comment-form textarea,
@@ -183,39 +162,43 @@
 }
 
 .detail-section {
-  padding: 1.75rem;
-  border-radius: 24px;
+  display: grid;
+  gap: var(--page-section-gap);
+  padding: var(--page-card-padding);
 }
 
 .detail-ai-links {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1rem;
+  gap: 0.8rem;
 }
 
 .detail-ai-card {
   display: grid;
-  gap: 0.55rem;
-  padding: 1.25rem;
-  border: 1px solid rgba(114, 94, 67, 0.14);
-  border-radius: 20px;
-  background:
-    radial-gradient(circle at top right, rgba(218, 204, 181, 0.18), transparent 24%),
-    linear-gradient(180deg, #fffdfa 0%, #f8f4ed 100%);
+  gap: 0.45rem;
+  min-height: 76px;
+  align-content: center;
+  padding: 1rem;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: rgba(102, 118, 87, 0.08);
   color: inherit;
   text-decoration: none;
-  transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease,
+    border-color 160ms ease;
 }
 
 .detail-ai-card:hover {
   transform: translateY(-2px);
-  border-color: var(--detail-border-strong);
-  box-shadow: 0 14px 28px rgba(92, 76, 54, 0.08);
+  border-color: var(--border-strong);
+  box-shadow: 0 14px 28px rgba(67, 55, 39, 0.08);
 }
 
 .detail-ai-card p {
   margin: 0;
-  color: var(--detail-text);
+  color: var(--text-body);
 }
 
 .detail-section__heading,
@@ -223,57 +206,65 @@
 .reply-list,
 .related-posts {
   display: grid;
-  gap: 1rem;
+  gap: 0.8rem;
 }
 
 .comment-card,
 .reply-card,
 .related-post {
   display: grid;
-  gap: 0.6rem;
-  padding: 1.15rem 1.18rem;
-  border: 1px solid rgba(114, 94, 67, 0.12);
-  border-radius: 18px;
-  background: var(--detail-subtle);
+  gap: 0.55rem;
+  padding: 0.95rem;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: rgba(255, 253, 247, 0.82);
+}
+
+.comment-card p,
+.reply-card p {
+  margin: 0;
+  color: var(--text-body);
+  line-height: 1.65;
 }
 
 .reply-card {
   margin-left: 1rem;
-  background: #fffdf9;
+  background: rgba(246, 240, 230, 0.72);
 }
 
 .comment-card__head span,
 .reply-card span,
 .related-post span {
-  color: var(--detail-muted);
-  font-size: 0.88rem;
+  color: var(--text-muted);
+  font-size: 0.86rem;
 }
 
 .detail-edited-badge {
   margin-left: 0.45rem;
   font-style: normal;
-  font-size: 0.78rem;
-  color: var(--detail-accent);
-  letter-spacing: 0.04em;
+  font-size: 0.76rem;
+  color: var(--accent-warm);
 }
 
 .detail-card__actions .like-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 52px;
-  padding: 0.78rem 0.95rem;
+  min-width: 46px;
+  padding: 0.65rem 0.8rem;
 }
 
 .detail-card__actions .like-button__heart {
-  color: #8e8374;
-  font-size: 1.5rem;
+  color: var(--text-muted);
+  font-size: 1.35rem;
   line-height: 1;
-  transition: color 160ms ease, transform 160ms ease;
+  transition:
+    color 160ms ease,
+    transform 160ms ease;
 }
 
 .detail-card__actions .like-button.active .like-button__heart {
-  color: #cf4b5d;
+  color: var(--danger);
 }
 
 .detail-card__actions .like-button:hover .like-button__heart {
@@ -281,13 +272,16 @@
 }
 
 .related-post {
-  transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease,
+    border-color 160ms ease;
 }
 
 .related-post:hover {
   transform: translateY(-2px);
-  border-color: var(--detail-border-strong);
-  box-shadow: 0 12px 26px rgba(92, 76, 54, 0.08);
+  border-color: var(--border-strong);
+  box-shadow: 0 12px 26px rgba(67, 55, 39, 0.08);
 }
 
 @media (max-width: 1180px) {
@@ -299,19 +293,22 @@
 @media (max-width: 760px) {
   .detail-card__content,
   .detail-section {
-    padding: 1.25rem;
+    padding: 1rem;
   }
 
-  .detail-ai-links {
-    grid-template-columns: 1fr;
+  .detail-card__media img {
+    min-height: 320px;
   }
 
+  .detail-ai-links,
   .detail-edit-grid {
     grid-template-columns: 1fr;
   }
 
   .comment-card__head,
-  .detail-card__actions {
+  .detail-card__actions,
+  .comment-form,
+  .reply-form {
     flex-direction: column;
     align-items: stretch;
   }

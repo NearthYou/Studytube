@@ -12,33 +12,31 @@ type AppShellProps = {
 
 const COPY = {
   ko: {
-    eyebrow: 'travel community',
     nav: [
-      { label: '메인', path: '/main' },
-      { label: '마이페이지', path: '/mypage' },
-      { label: '글쓰기', path: '/write' },
-      { label: '채팅', path: '/chat' },
-      { label: '플래너', path: '/planner' },
+      { label: '홈', path: '/main' },
+      { label: '내 여행', path: '/mypage' },
+      { label: '작성', path: '/write' },
+      { label: 'AI', path: '/chat' },
+      { label: '일정', path: '/planner' },
     ],
     sectionTitles: {
       '/main': '여행 게시판',
       '/mypage': '내 여행 보드',
       '/write': '새 글 작성',
-      '/chat': 'AI 여행 채팅',
+      '/chat': 'AI 여행 챗봇',
       '/planner': 'AI 일정 플래너',
     },
-    tripDesk: '내 여행 공간',
+    tripDesk: '내 여행',
     signOut: '로그아웃',
     toggle: 'EN',
   },
   en: {
-    eyebrow: 'travel community',
     nav: [
       { label: 'Home', path: '/main' },
-      { label: 'My Page', path: '/mypage' },
+      { label: 'My Trip', path: '/mypage' },
       { label: 'Write', path: '/write' },
-      { label: 'Chat', path: '/chat' },
-      { label: 'Planner', path: '/planner' },
+      { label: 'AI', path: '/chat' },
+      { label: 'Plan', path: '/planner' },
     ],
     sectionTitles: {
       '/main': 'Travel board',
@@ -47,14 +45,13 @@ const COPY = {
       '/chat': 'AI travel chat',
       '/planner': 'AI trip planner',
     },
-    tripDesk: 'Your space',
+    tripDesk: 'My trip',
     signOut: 'Sign out',
     toggle: 'KO',
   },
 } satisfies Record<
   Language,
   {
-    eyebrow: string
     nav: { label: string; path: string }[]
     sectionTitles: Record<string, string>
     tripDesk: string
@@ -85,10 +82,7 @@ export function AppShell({ currentUser, onSignOut, language, onToggleLanguage }:
           <Link aria-label="Tripy" className="site-header__brand" to="/main">
             <img alt="Tripy" className="site-header__brand-mark" src="/tripy-logo.png" />
           </Link>
-          <div className="site-header__context">
-            <span className="site-header__eyebrow">{copy.eyebrow}</span>
-            <strong className="site-header__section">{currentSectionTitle}</strong>
-          </div>
+          <strong className="site-header__section">{currentSectionTitle}</strong>
         </div>
 
         <nav aria-label="Primary" className="site-header__nav">

@@ -87,7 +87,7 @@ const COPY = {
     deletePost: '게시글 삭제',
     confirmDeletePost: '이 게시글을 삭제할까요?',
     comments: '댓글',
-    commentIntro: '이 게시글의 댓글과 답글을 확인하고 작성할 수 있습니다.',
+    commentIntro: '',
     commentPlaceholder: '댓글을 입력하세요',
     submitComment: '댓글 등록',
     submitting: '저장 중...',
@@ -100,12 +100,12 @@ const COPY = {
     replyPlaceholder: '답글을 입력하세요',
     submitReply: '답글 등록',
     noComments: '아직 댓글이 없습니다.',
-    shortcuts: '바로가기',
-    shortcutsBody: '이 게시글을 기준으로 추천 챗봇과 플래너로 바로 이동할 수 있습니다.',
-    openChatTitle: '추천 챗봇 열기',
-    openChatBody: '이 게시글을 기준으로 여행지를 추천받습니다.',
-    openPlannerTitle: '플래너 열기',
-    openPlannerBody: '이 게시글을 바탕으로 일정 초안을 만듭니다.',
+    shortcuts: 'AI 도구',
+    shortcutsBody: '',
+    openChatTitle: 'AI 추천',
+    openChatBody: '',
+    openPlannerTitle: '일정 만들기',
+    openPlannerBody: '',
     relatedPosts: '연관 게시글',
     relatedPostsBody: '지역의 다른 게시글',
     noRelatedPosts: '연관 게시글이 아직 없습니다.',
@@ -150,7 +150,7 @@ const COPY = {
     deletePost: 'Delete post',
     confirmDeletePost: 'Delete this post?',
     comments: 'Comments',
-    commentIntro: 'Read and write comments and replies for this post.',
+    commentIntro: '',
     commentPlaceholder: 'Write a comment',
     submitComment: 'Post comment',
     submitting: 'Saving...',
@@ -163,12 +163,12 @@ const COPY = {
     replyPlaceholder: 'Write a reply',
     submitReply: 'Post reply',
     noComments: 'No comments yet.',
-    shortcuts: 'Shortcuts',
-    shortcutsBody: 'Jump to the chatbot or planner with this post as the context.',
-    openChatTitle: 'Open chatbot',
-    openChatBody: 'Get destination recommendations based on this post.',
-    openPlannerTitle: 'Open planner',
-    openPlannerBody: 'Generate a draft itinerary from this post.',
+    shortcuts: 'AI tools',
+    shortcutsBody: '',
+    openChatTitle: 'Ask AI',
+    openChatBody: '',
+    openPlannerTitle: 'Create plan',
+    openPlannerBody: '',
     relatedPosts: 'Related posts',
     relatedPostsBody: 'other posts in this region',
     noRelatedPosts: 'No related posts yet.',
@@ -637,7 +637,7 @@ export function PostDetailPage({
       <section className="detail-section">
         <div className="detail-section__heading">
           <h2>{copy.comments} {renderedDiscussionCount}</h2>
-          <span>{copy.commentIntro}</span>
+          {copy.commentIntro ? <span>{copy.commentIntro}</span> : null}
         </div>
         <form
           className="comment-form"
@@ -924,16 +924,16 @@ export function PostDetailPage({
       <section className="detail-section">
         <div className="detail-section__heading">
           <h2>{copy.shortcuts}</h2>
-          <span>{copy.shortcutsBody}</span>
+          {copy.shortcutsBody ? <span>{copy.shortcutsBody}</span> : null}
         </div>
         <div className="detail-ai-links">
           <Link className="detail-ai-card" to={chatHref}>
             <strong>{copy.openChatTitle}</strong>
-            <p>{copy.openChatBody}</p>
+            {copy.openChatBody ? <p>{copy.openChatBody}</p> : null}
           </Link>
           <Link className="detail-ai-card" to={plannerHref}>
             <strong>{copy.openPlannerTitle}</strong>
-            <p>{copy.openPlannerBody}</p>
+            {copy.openPlannerBody ? <p>{copy.openPlannerBody}</p> : null}
           </Link>
         </div>
       </section>

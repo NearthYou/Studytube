@@ -2,13 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import type { CommentActivity, PostWithMeta, User } from '../types/community'
 import type { Language } from '../utils/language'
-import {
-  fetchMyBookmarks,
-  fetchMyComments,
-  fetchMyFollows,
-  fetchMyPosts,
-  type FollowUser,
-} from '../utils/meApi'
+import { fetchMyBookmarks, fetchMyComments, fetchMyFollows, fetchMyPosts, type FollowUser } from '../utils/meApi'
 import '../styles/pages/MyPage.css'
 
 type MyPageProps = {
@@ -33,13 +27,13 @@ const COPY = {
     banner: '마이페이지',
     noBio: '아직 소개글이 없습니다.',
     posts: '내가 쓴 글',
-    likes: '찜한 글',
-    comments: '내가 쓴 댓글',
+    likes: '저장한 글',
+    comments: '내 댓글',
     follows: '팔로우 목록',
     profile: '내 정보 수정',
     loading: '불러오는 중...',
     noPosts: '아직 작성한 글이 없습니다.',
-    noLikes: '아직 찜한 글이 없습니다.',
+    noLikes: '아직 저장한 글이 없습니다.',
     noComments: '아직 작성한 댓글이 없습니다.',
     noFollows: '아직 팔로우한 사용자가 없습니다.',
     views: '조회',
@@ -49,14 +43,14 @@ const COPY = {
     next: '다음',
     nickname: '닉네임',
     newPassword: '새 비밀번호',
-    passwordPlaceholder: '변경하지 않으려면 비워두세요.',
+    passwordPlaceholder: '변경하지 않으면 비워 두세요.',
     bio: '소개글',
     location: '지역',
     save: '저장하기',
     saving: '저장 중...',
     name: '이름',
     email: '이메일',
-    enterNickname: '닉네임을 입력해주세요.',
+    enterNickname: '닉네임을 입력해 주세요.',
     profileSaved: '회원 정보가 수정되었습니다.',
     loadFailed: '마이페이지 정보를 불러오지 못했습니다.',
   },
@@ -395,12 +389,7 @@ export function MyPage({ currentUser, onUpdateProfile, language }: MyPageProps) 
             </label>
             <label>
               {copy.newPassword}
-              <input
-                placeholder={copy.passwordPlaceholder}
-                type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-              />
+              <input placeholder={copy.passwordPlaceholder} type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
             </label>
             <label>
               {copy.bio}

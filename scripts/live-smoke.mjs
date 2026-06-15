@@ -209,6 +209,16 @@ async function checkFrontendApi() {
       }
 
       const normalizedApiBaseUrl = apiBaseUrl.replace(/\/$/, '')
+      const actualBackendOrigin = new URL(normalizedApiBaseUrl).origin
+
+      if (actualBackendOrigin !== expectedBackendOrigin) {
+        return {
+          apiBaseUrl: normalizedApiBaseUrl,
+          ok: false,
+          reason: `frontend API base origin ${actualBackendOrigin} did not match expected backend ${expectedBackendOrigin}`,
+        }
+      }
+
       const [categoriesResponse, postsResponse] = await Promise.all([
         fetch(`${normalizedApiBaseUrl}/api/categories`),
         fetch(`${normalizedApiBaseUrl}/api/posts?page=1&limit=1`),
@@ -625,14 +635,27 @@ async function checkKakaoMap() {
     page.on('pageerror', (error) => {
       pageErrors.push(redact(error.message))
     })
+    page.on('requestfailed', (request) => {
+      if (/kakao|dapi|sdk/i.test(request.url())) {
+        pageErrors.push(redact(`request failed: ${request.url()} ${request.failure()?.errorText || ''}`))
+      }
+    })
 
     await page.goto(urlOf(context.frontendUrl, '/pet-places'), {
       timeout: timeoutMs,
       waitUntil: 'domcontentloaded',
     })
-    await page.waitForFunction(() => Boolean(window.kakao?.maps), null, {
-      timeout: timeoutMs,
-    })
+    try {
+      await page.waitForFunction(() => Boolean(window.kakao?.maps), null, {
+        timeout: timeoutMs,
+      })
+    } catch (error) {
+      const details = pageErrors.length
+        ? `; ${pageErrors.slice(0, 3).join(' | ')}`
+        : ''
+
+      throw new Error(`Kakao map SDK did not load${details}`)
+    }
     await page.locator('.pet-place-map').waitFor({ state: 'visible', timeout: timeoutMs })
 
     const mapBox = await page.locator('.pet-place-map').boundingBox()
@@ -914,7 +937,9 @@ function getAiUrl() {
 function getUploadReadUrl() {
   return (
     process.env.LIVE_SMOKE_UPLOAD_READ_URL ||
+    process.env.LIVE_SMOKE_UPLOAD_STATIC_BASE_URL ||
     backendEnv.LIVE_SMOKE_UPLOAD_READ_URL ||
+    backendEnv.LIVE_SMOKE_UPLOAD_STATIC_BASE_URL ||
     getBackendUrl()
   )
 }
@@ -1057,7 +1082,7 @@ function printSummary() {
   }
 
   if (failOnSkip && skips.length > 0) {
-    console.log('LIVE_SMOKE_FAIL_ON_SKIP=true is set; any selected-target SKIP row makes this run fail.')
+    console.log('LIVE_SMOKE_FAIL_ON_SKIP=true is set; any SKIP row makes this run fail.')
   }
 }
 

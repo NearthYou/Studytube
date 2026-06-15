@@ -32,7 +32,7 @@ cp .env.example AI/.env
 - `AI/.env`: `OPENAI_API_KEY`는 선택값이다. 없으면 RAG/Assistant는 안전 fallback을 사용한다.
 - 장소 검색 시연이 필요하면 `TOUR_API_SERVICE_KEY`가 필요하다.
 
-업로드 저장소는 개발 기본값으로 로컬 `uploads`를 사용한다. 실제 운영 배포에서는 `UPLOAD_LOCAL_ROOT`를 EFS 같은 영속 공유 마운트로 지정하고 `UPLOAD_LOCAL_ROOT_IS_PERSISTENT=true`를 명시한다. 단일 인스턴스 데모 배포로 인정한 경우에만 `ALLOW_LOCAL_UPLOADS_IN_PRODUCTION=true`를 사용한다.
+업로드 저장소는 개발 기본값으로 로컬 `uploads`를 사용한다. 실제 운영 배포에서는 `UPLOAD_LOCAL_ROOT`를 EFS 같은 영속 공유 마운트의 absolute path로 지정하고, 해당 경로가 존재하며 쓰기 가능해야 한다. 그 위에서 `UPLOAD_LOCAL_ROOT_IS_PERSISTENT=true`를 명시한다. 단일 인스턴스 데모 배포로 인정한 경우에만 `ALLOW_LOCAL_UPLOADS_IN_PRODUCTION=true`를 사용한다.
 backend는 시작 시 `backend/.env`를 먼저 로드한 뒤 runtime config를 검증한다. 다른 경로의 env 파일을 쓰는 경우 `DOTENV_CONFIG_PATH`로 지정한다.
 
 ## Clean Setup
@@ -125,6 +125,18 @@ cd AI
 node scripts/check-submission-manifest.mjs
 ```
 
+live-smoke/mock 제출 gate의 빠른 로컬 회귀 묶음은 다음 명령으로 실행한다. 이 명령은 실제 provider/live backend smoke를 대체하지 않는다.
+
+```bash
+node scripts/verify-local-gates.mjs
+```
+
+manifest dry-run은 필수 파일/금지 artifact, token-like secret, 고위험 key/log/db 파일, live-smoke target 문서 drift를 함께 검사한다. 이 gate 자체의 mock 회귀는 다음 명령으로 확인한다.
+
+```bash
+node scripts/test-submission-manifest.mjs
+```
+
 live-smoke `upload` target 자체의 로컬 mock 회귀는 다음 명령으로 확인한다.
 
 ```bash
@@ -177,7 +189,7 @@ RUN_LIVE_SMOKE=true LIVE_SMOKE_FAIL_ON_SKIP=true node scripts/live-smoke.mjs
 - smoke 계정 준비/삭제: `SMOKE_ACCOUNT_EMAIL`, `SMOKE_ACCOUNT_PASSWORD`, `SMOKE_ACCOUNT_NICKNAME`, `SMOKE_ACCOUNT_ENABLED`, `SMOKE_ACCOUNT_RESET_PASSWORD`
 - 외부 연동: `TOUR_API_SERVICE_KEY`, `VITE_KAKAO_MAP_JS_KEY`, `OPENAI_API_KEY`
 
-기본 target은 `frontend,backend,auth,agent,crud,upload,tourapi,kakao-map,ai,openai`이다. 일부만 검증할 때는 예를 들어 다음처럼 실행한다.
+기본 target은 `frontend,frontend-api,backend,auth,agent,crud,upload,tourapi,kakao-map,ai,openai`이다. `frontend`는 HTML 서빙만 확인하고, `frontend-api`는 실제 브라우저 안에서 프론트 번들의 API base URL로 backend `categories/posts`를 호출해 CORS와 배포 번들 API 설정을 함께 확인한다. 일부만 검증할 때는 예를 들어 다음처럼 실행한다.
 
 ```bash
 RUN_LIVE_SMOKE=true LIVE_SMOKE_TARGETS=frontend,backend,ai node scripts/live-smoke.mjs
@@ -186,13 +198,13 @@ RUN_LIVE_SMOKE=true LIVE_SMOKE_TARGETS=frontend,backend,ai node scripts/live-smo
 판정 기준:
 
 - `PASS`: 해당 target이 실제 서비스/credential로 검증됨
-- `SKIP`: 선택한 target이 opt-in, credential, secondary backend, provider 신호 등 부족으로 검증되지 않음. `SKIP`은 `PASS`가 아니다.
+- `SKIP`: opt-in, credential, secondary backend, provider 신호 등 부족으로 검증되지 않음. `SKIP`은 `PASS`가 아니다.
 - `OMIT`: `LIVE_SMOKE_TARGETS`에서 의도적으로 제외한 target. 검증 범위 밖이므로 release 제외 사유를 PM audit에 남긴다.
 - `FAIL`: credential 누락, provider 오류, timeout, 계약 불일치, cleanup 실패
 
-기본 개발 모드에서는 부분 점검 편의를 위해 `SKIP`이 있어도 exit code가 0일 수 있다. release gate에서는 반드시 `LIVE_SMOKE_FAIL_ON_SKIP=true`를 사용한다. `OMIT`은 엄격 판정 실패 대상이 아니지만, 발표 범위에서 제외했다는 뜻이지 검증 성공이 아니다.
+기본 개발 모드에서는 부분 점검 편의를 위해 `SKIP`이 있어도 exit code가 0일 수 있다. release gate에서는 반드시 `LIVE_SMOKE_FAIL_ON_SKIP=true`를 사용한다. strict mode에서는 `upload-secondary`처럼 target 내부에서 생긴 보조 `SKIP`도 실패다. `OMIT`은 엄격 판정 실패 대상이 아니지만, 발표 범위에서 제외했다는 뜻이지 검증 성공이 아니다.
 
-`auth`, `agent`, `crud` target은 smoke 계정 또는 token이 필요하다. `crud`는 임시 게시글을 만들고 조회/수정/삭제한 뒤 삭제 확인까지 수행하며 cleanup 실패는 `FAIL`이다. `openai` target은 AI worker `/pet-behavior/question` 응답의 `answerProvider=openai`, `fallbackUsed=false` 신호를 확인한다.
+`auth` target은 `LIVE_SMOKE_EMAIL`/`LIVE_SMOKE_PASSWORD`가 필요하다. `agent`, `crud`, `upload` target은 기존 `LIVE_SMOKE_ACCESS_TOKEN` 또는 smoke 계정 email/password를 사용할 수 있다. `crud`는 임시 게시글을 만들고 조회/수정/삭제한 뒤 삭제 확인까지 수행하며 cleanup 실패는 `FAIL`이다. `openai` target은 AI worker `/pet-behavior/question` 응답의 `answerProvider=openai`, `fallbackUsed=false` 신호를 확인한다.
 
 `upload` target은 smoke 계정 또는 token이 필요하다. 테스트 PNG를 `/api/posts/images`로 업로드하고, 생성된 원본/variant WebP URL을 읽은 뒤, 임시 게시글에 연결해 상세 metadata를 확인하고, 게시글 삭제 후 기존 이미지 URL이 더 이상 `200`으로 읽히지 않는지 확인한다. `LIVE_SMOKE_SECONDARY_BACKEND_URL`이 없으면 `upload-secondary`가 `SKIP`으로 기록되며, shared storage/multi-instance 검증은 완료로 보지 않는다. secondary URL을 지정할 때는 primary와 다른 backend origin을 사용한다.
 
@@ -220,5 +232,6 @@ RUN_LIVE_SMOKE=true LIVE_SMOKE_TARGETS=frontend,backend,ai node scripts/live-smo
 - 제출 단위는 프로젝트 루트 아카이브로 본다. `backend/.git`은 제출 manifest에 포함하지 않는다.
 - README Quickstart와 이 runbook 명령이 모두 최신인지 확인한다.
 - `.env` 파일과 `node_modules`, `dist`, `.venv`, `uploads`는 제출물에 포함하지 않는다.
-- `node scripts/check-submission-manifest.mjs`가 통과해야 한다.
+- `node scripts/verify-local-gates.mjs`, `node scripts/check-submission-manifest.mjs`, `node scripts/test-submission-manifest.mjs`가 통과해야 한다.
+- staging/demo/production `GO` 판단 전 [release-evidence-checklist.md](release-evidence-checklist.md)를 채워 최종 origin, strict live-smoke target별 결과, shared upload read, smoke 계정 cleanup 증거를 남긴다.
 - 최종 발표 전 verification gates를 한 번에 통과시킨다.

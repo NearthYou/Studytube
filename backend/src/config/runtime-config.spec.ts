@@ -112,7 +112,7 @@ describe('runtime config', () => {
     );
   });
 
-  it('allows production local uploads when backed by an acknowledged persistent root', () => {
+  it('rejects missing persistent upload roots in production', () => {
     process.env.NODE_ENV = 'production';
     process.env.DATABASE_URL =
       'postgres://tailtalk:tailtalk@localhost:5432/tailtalk';
@@ -120,11 +120,34 @@ describe('runtime config', () => {
     process.env.JWT_SECRET = productionJwtSecret;
     process.env.TOUR_API_SERVICE_KEY = 'tour-api-key';
     process.env.UPLOAD_STORAGE_DRIVER = 'local';
-    process.env.UPLOAD_LOCAL_ROOT = '/mnt/tailtalk-uploads';
+    process.env.UPLOAD_LOCAL_ROOT = '/tmp/tailtalk-missing-persistent-root';
     process.env.UPLOAD_LOCAL_ROOT_IS_PERSISTENT = 'true';
     delete process.env.ALLOW_LOCAL_UPLOADS_IN_PRODUCTION;
 
-    expect(() => validateRuntimeConfig()).not.toThrow();
+    expect(() => validateRuntimeConfig()).toThrow(
+      'Production UPLOAD_LOCAL_ROOT must exist and be writable.',
+    );
+  });
+
+  it('allows production local uploads when backed by an acknowledged persistent root', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'tailtalk-uploads-'));
+
+    try {
+      process.env.NODE_ENV = 'production';
+      process.env.DATABASE_URL =
+        'postgres://tailtalk:tailtalk@localhost:5432/tailtalk';
+      process.env.FRONTEND_ORIGINS = 'https://example.com';
+      process.env.JWT_SECRET = productionJwtSecret;
+      process.env.TOUR_API_SERVICE_KEY = 'tour-api-key';
+      process.env.UPLOAD_STORAGE_DRIVER = 'local';
+      process.env.UPLOAD_LOCAL_ROOT = directory;
+      process.env.UPLOAD_LOCAL_ROOT_IS_PERSISTENT = 'true';
+      delete process.env.ALLOW_LOCAL_UPLOADS_IN_PRODUCTION;
+
+      expect(() => validateRuntimeConfig()).not.toThrow();
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
   });
 
   it('rejects invalid upload public prefixes', () => {
@@ -164,7 +187,9 @@ describe('runtime config', () => {
     const callback = jest.fn();
 
     options.origin?.('http://localhost:5173', callback);
+    options.origin?.('http://127.0.0.1:5175', callback);
 
-    expect(callback).toHaveBeenCalledWith(null, true);
+    expect(callback).toHaveBeenNthCalledWith(1, null, true);
+    expect(callback).toHaveBeenNthCalledWith(2, null, true);
   });
 });

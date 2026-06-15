@@ -26,6 +26,13 @@ await runScenario({
   withSecondary: true,
 })
 await runScenario({
+  expectExitCode: 0,
+  expectSecondarySkip: false,
+  failOnSkip: true,
+  useUploadStaticBaseAlias: true,
+  withSecondary: true,
+})
+await runScenario({
   expectExitCode: 1,
   expectSecondarySkip: true,
   failOnSkip: true,
@@ -34,12 +41,13 @@ await runScenario({
 await runNoOptInStrictScenario()
 await runFrontendApiScenario()
 
-console.log('Live-smoke upload target mock regression passed.')
+console.log('Live-smoke target mock regression passed.')
 
 async function runScenario({
   expectExitCode,
   expectSecondarySkip,
   failOnSkip,
+  useUploadStaticBaseAlias = false,
   withSecondary,
 }) {
   let deleted = false
@@ -75,6 +83,7 @@ async function runScenario({
       secondaryUrl: secondaryPort
         ? `http://127.0.0.1:${secondaryPort}`
         : '',
+      useUploadStaticBaseAlias,
     })
 
     assertOutput(stdout, expectSecondarySkip)
@@ -263,6 +272,7 @@ function runLiveSmoke({
   primaryUrl,
   secondaryUrl,
   targets = 'upload',
+  useUploadStaticBaseAlias = false,
 }) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, ['scripts/live-smoke.mjs'], {
@@ -275,7 +285,10 @@ function runLiveSmoke({
         LIVE_SMOKE_FRONTEND_URL: frontendUrl,
         LIVE_SMOKE_SECONDARY_BACKEND_URL: secondaryUrl,
         LIVE_SMOKE_TARGETS: targets,
-        LIVE_SMOKE_UPLOAD_READ_URL: primaryUrl,
+        LIVE_SMOKE_UPLOAD_READ_URL: useUploadStaticBaseAlias ? '' : primaryUrl,
+        LIVE_SMOKE_UPLOAD_STATIC_BASE_URL: useUploadStaticBaseAlias
+          ? primaryUrl
+          : '',
         RUN_LIVE_SMOKE: 'true',
       },
       stdio: ['ignore', 'pipe', 'pipe'],

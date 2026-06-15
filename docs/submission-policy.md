@@ -41,4 +41,4 @@ Run this from the project root before packaging:
 node scripts/check-submission-manifest.mjs
 ```
 
-The dry run verifies that required source, lockfile, migration, test, and documentation paths are present in the intended archive set while local runtime artifacts are excluded.
+The dry run verifies that required source, lockfile, migration, test, and documentation paths are present in the intended archive set while local runtime artifacts are excluded. It also fails on token-like committed secrets, high-risk files such as `.key`, `.pem`, `.log`, `.db`, `.sqlite`, and live-smoke target drift between `.env.example`, docs, and `scripts/live-smoke.mjs`.

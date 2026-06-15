@@ -105,7 +105,9 @@ describe('smoke user provisioning (e2e)', () => {
       nodeEnv: 'test',
     });
 
-    await expect(findUser(databaseUrl, 'delete.smoke@example.test')).resolves.toBeNull();
+    await expect(
+      findUser(databaseUrl, 'delete.smoke@example.test'),
+    ).resolves.toBeNull();
     expect(logs.join('\n')).toContain('Smoke account deleted.');
     expect(logs.join('\n')).not.toContain('Password1!');
   });
@@ -132,7 +134,9 @@ describe('smoke user provisioning (e2e)', () => {
         nodeEnv: 'test',
       }),
     ).rejects.toThrow('Smoke account has remaining data: posts=1.');
-    await expect(findUser(databaseUrl, 'dirty.smoke@example.test')).resolves.not.toBeNull();
+    await expect(
+      findUser(databaseUrl, 'dirty.smoke@example.test'),
+    ).resolves.not.toBeNull();
   });
 });
 

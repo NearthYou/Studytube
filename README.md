@@ -46,18 +46,22 @@ uvicorn app.main:app --reload --port 8000
 (cd frontend && npm run build && npm run lint && npm test && npm run test:browser)
 (cd backend && npm run build && npm run lint:check && npm test && npm run test:e2e)
 (cd AI && .venv/bin/python -m pytest)
+node scripts/verify-local-gates.mjs
 node scripts/check-submission-manifest.mjs
 ```
 
+`scripts/verify-local-gates.mjs`는 root live-smoke와 제출 manifest 관련 스크립트의 문법, mock 회귀, 제출 정책 gate를 한 번에 실행하는 빠른 로컬 회귀 묶음이다. 실제 provider/live backend 검증은 아래 live smoke를 별도로 실행한다.
+제출 manifest dry-run은 필수 파일/금지 artifact뿐 아니라 token-like secret, `.key/.pem/.log/.db` 고위험 파일, live-smoke target 문서 drift도 함께 검사한다.
 `frontend`의 `npm run test:browser`는 mock API 기반 UI 회귀 검증이며, Kakao/TourAPI/OpenAI/live backend 통합 검증은 발표 전 실제 credential로 별도 smoke check를 수행한다.
-외부 연동 live smoke는 기본 실행 시 외부 호출 없이 SKIP만 보고하며, 실제 검증은 서비스 3개를 띄운 뒤 다음처럼 명시적으로 실행한다.
+외부 연동 live smoke는 기본 실행 시 외부 호출 없이 SKIP만 보고하며, 실제 검증은 frontend, backend, AI worker를 띄운 뒤 다음처럼 명시적으로 실행한다. multi-instance upload 검증까지 포함할 때는 secondary backend도 함께 띄운다.
 
 ```bash
 RUN_LIVE_SMOKE=true node scripts/live-smoke.mjs
 ```
 
+`frontend-api` target은 실제 브라우저 안에서 배포된 프론트 번들의 API base URL로 backend를 호출해 CORS와 프론트/백엔드 배선을 함께 검증한다.
 배포 업로드 저장소 검증은 `upload` target이 담당한다. smoke 계정으로 이미지를 업로드하고 게시글에 연결한 뒤 정적 URL 읽기와 삭제 cleanup을 확인한다. `LIVE_SMOKE_SECONDARY_BACKEND_URL`을 지정하면 같은 이미지 path를 두 번째 backend origin에서도 읽어 shared storage를 검증한다.
-발표/배포 release gate에서는 `LIVE_SMOKE_FAIL_ON_SKIP=true`를 함께 사용해 `PARTIAL` 또는 선택 target의 `SKIP`이 exit 0으로 통과하지 않게 한다. `LIVE_SMOKE_TARGETS`에서 제외한 target은 `OMIT`으로 표시된다.
+발표/배포 release gate에서는 `LIVE_SMOKE_FAIL_ON_SKIP=true`를 함께 사용해 `PARTIAL` 또는 어떤 `SKIP`이든 exit 0으로 통과하지 않게 한다. `LIVE_SMOKE_TARGETS`에서 제외한 target은 `OMIT`으로 표시된다.
 live smoke 계정은 `backend`에서 `npm run smoke:user`로 준비하고, 남은 사용자 데이터가 없을 때 `npm run smoke:user:delete`로 정리할 수 있다. production에서는 두 명령 모두 `SMOKE_ACCOUNT_ENABLED=true`가 필요하다.
 
 

@@ -1,5 +1,5 @@
 import type { CorsOptions } from '@nestjs/common/interfaces/external/cors-options.interface';
-import { existsSync } from 'node:fs';
+import { accessSync, constants, existsSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import { config as loadDotenv } from 'dotenv';
 import {
@@ -10,8 +10,14 @@ import {
 const localFrontendOrigins = [
   'http://localhost:5173',
   'http://localhost:5174',
+  'http://localhost:5175',
+  'http://localhost:5176',
+  'http://localhost:5177',
   'http://127.0.0.1:5173',
   'http://127.0.0.1:5174',
+  'http://127.0.0.1:5175',
+  'http://127.0.0.1:5176',
+  'http://127.0.0.1:5177',
 ];
 
 export function validateRuntimeConfig() {
@@ -111,9 +117,10 @@ function validateProductionUploadStorage() {
     return;
   }
 
+  const uploadLocalRoot = process.env.UPLOAD_LOCAL_ROOT?.trim() ?? '';
   const persistentLocalRoot =
-    Boolean(process.env.UPLOAD_LOCAL_ROOT?.trim()) &&
-    isAbsolute(process.env.UPLOAD_LOCAL_ROOT.trim()) &&
+    Boolean(uploadLocalRoot) &&
+    isAbsolute(uploadLocalRoot) &&
     process.env.UPLOAD_LOCAL_ROOT_IS_PERSISTENT === 'true';
   const acceptedDemoLocalStorage =
     process.env.ALLOW_LOCAL_UPLOADS_IN_PRODUCTION === 'true';
@@ -122,6 +129,18 @@ function validateProductionUploadStorage() {
     throw new Error(
       'Production local upload storage requires absolute UPLOAD_LOCAL_ROOT backed by persistent shared storage and UPLOAD_LOCAL_ROOT_IS_PERSISTENT=true. Set ALLOW_LOCAL_UPLOADS_IN_PRODUCTION=true only for an accepted single-instance demo deployment.',
     );
+  }
+
+  if (persistentLocalRoot) {
+    const uploadRoot = getUploadLocalRoot();
+
+    try {
+      accessSync(uploadRoot, constants.W_OK);
+    } catch {
+      throw new Error(
+        'Production UPLOAD_LOCAL_ROOT must exist and be writable.',
+      );
+    }
   }
 }
 

@@ -5,31 +5,13 @@ import { requestTravelPlan, type AiPlanResponse, type TravelAgentRequest } from 
 import { localizeLookupValue } from '../utils/i18n'
 import type { Language } from '../utils/language'
 import { fetchPosts } from '../utils/postsApi'
+import { createTravelAgentSearchParams, inferSeasonCodeFromDate } from '../utils/travelParams'
 import '../styles/pages/PlannerPage.css'
 
 type PlannerPageProps = {
   currentUser: User
   posts: PostWithMeta[]
   language: Language
-}
-
-function inferSeasonFromDate(travelDate: string) {
-  if (!travelDate) {
-    return ''
-  }
-
-  const month = new Date(travelDate).getMonth() + 1
-  if ([3, 4, 5].includes(month)) {
-    return 'spring'
-  }
-  if ([6, 7, 8].includes(month)) {
-    return 'summer'
-  }
-  if ([9, 10, 11].includes(month)) {
-    return 'fall'
-  }
-
-  return 'winter'
 }
 
 const COPY = {
@@ -100,7 +82,7 @@ function getInitialRequest(searchParams: URLSearchParams, language: Language): T
     region: searchParams.get('region') ?? '',
     budget: searchParams.get('budget') ?? '',
     theme: searchParams.get('theme') ?? '',
-    season: searchParams.get('season') ?? inferSeasonFromDate(travelDate),
+    season: searchParams.get('season') ?? inferSeasonCodeFromDate(travelDate),
     companion: searchParams.get('companion') ?? '',
     travelDate,
     duration: Number(searchParams.get('duration') ?? '3'),
@@ -119,16 +101,7 @@ export function PlannerPage({ currentUser, posts, language }: PlannerPageProps) 
   const [error, setError] = useState('')
 
   const chatHref = useMemo(() => {
-    const params = new URLSearchParams({
-      q: request.query,
-      region: request.region,
-      budget: request.budget,
-      theme: request.theme,
-      season: request.season,
-      companion: request.companion,
-      travelDate: request.travelDate,
-      duration: String(request.duration),
-    })
+    const params = createTravelAgentSearchParams(request)
     return `/chat?${params.toString()}`
   }, [request])
 
@@ -218,7 +191,7 @@ export function PlannerPage({ currentUser, posts, language }: PlannerPageProps) 
                   setRequest((current) => ({
                     ...current,
                     travelDate: event.target.value,
-                    season: inferSeasonFromDate(event.target.value),
+                    season: inferSeasonCodeFromDate(event.target.value),
                   }))
                 }
               />

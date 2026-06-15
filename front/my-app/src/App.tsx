@@ -170,7 +170,7 @@ function App() {
   const navigate = useNavigate()
   const [users, setUsers] = useState<User[]>(INITIAL_USERS)
   const [currentUserId, setCurrentUserId] = useState<number | null>(null)
-  const [isAuthReady, setIsAuthReady] = useState(false)
+  const [isAuthReady, setIsAuthReady] = useState(() => !getAuthToken())
   const [posts, setPosts] = useState<Post[]>(INITIAL_POSTS)
   const [likedByUser, setLikedByUser] = useState<Record<number, number[]>>(INITIAL_LIKED_BY_USER)
   const [followedByUser, setFollowedByUser] = useState<Record<number, number[]>>(INITIAL_FOLLOWED_BY_USER)
@@ -187,7 +187,6 @@ function App() {
     const token = getAuthToken()
 
     if (!token) {
-      setIsAuthReady(true)
       return
     }
 
@@ -244,48 +243,62 @@ function App() {
     ]
   })
 
-  const syncSocialState = useCallback(async (userId: number) => {
-    try {
-      const [bookmarksResponse, followsResponse] = await Promise.all([
-        fetchMyBookmarks({ page: 1, limit: 100 }),
-        fetchMyFollows({ page: 1, limit: 100 }),
-      ])
-
-      setLikedByUser((current) => ({
-        ...current,
-        [userId]: bookmarksResponse.items.map((post) => post.id),
-      }))
-
-      setFollowedByUser((current) => ({
-        ...current,
-        [userId]: followsResponse.items.map((user) => user.id),
-      }))
-
-      setUsers((current) =>
-        followsResponse.items.reduce(
-          (nextUsers, user) => upsertUser(nextUsers, mapAuthUserToCommunityUser(user)),
-          current,
-        ),
-      )
-    } catch {
-      setLikedByUser((current) => ({
-        ...current,
-        [userId]: current[userId] ?? [],
-      }))
-      setFollowedByUser((current) => ({
-        ...current,
-        [userId]: current[userId] ?? [],
-      }))
-    }
-  }, [])
-
   useEffect(() => {
     if (!currentUserId || !getAuthToken()) {
       return
     }
 
-    void syncSocialState(currentUserId)
-  }, [currentUserId, syncSocialState])
+    let isMounted = true
+
+    const loadSocialState = async () => {
+      try {
+        const [bookmarksResponse, followsResponse] = await Promise.all([
+          fetchMyBookmarks({ page: 1, limit: 100 }),
+          fetchMyFollows({ page: 1, limit: 100 }),
+        ])
+
+        if (!isMounted) {
+          return
+        }
+
+        setLikedByUser((current) => ({
+          ...current,
+          [currentUserId]: bookmarksResponse.items.map((post) => post.id),
+        }))
+
+        setFollowedByUser((current) => ({
+          ...current,
+          [currentUserId]: followsResponse.items.map((user) => user.id),
+        }))
+
+        setUsers((current) =>
+          followsResponse.items.reduce(
+            (nextUsers, user) => upsertUser(nextUsers, mapAuthUserToCommunityUser(user)),
+            current,
+          ),
+        )
+      } catch {
+        if (!isMounted) {
+          return
+        }
+
+        setLikedByUser((current) => ({
+          ...current,
+          [currentUserId]: current[currentUserId] ?? [],
+        }))
+        setFollowedByUser((current) => ({
+          ...current,
+          [currentUserId]: current[currentUserId] ?? [],
+        }))
+      }
+    }
+
+    void loadSocialState()
+
+    return () => {
+      isMounted = false
+    }
+  }, [currentUserId])
 
   const toggleLanguage = () => {
     setLanguage((current) => (current === 'ko' ? 'en' : 'ko'))

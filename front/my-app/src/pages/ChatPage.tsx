@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
+import { HeroStats } from '../components/HeroStats'
 import MarkdownMessage from '../components/MarkdownMessage'
 import type { PostWithMeta } from '../types/community'
 import { requestTravelChat, type AiAgentResponse, type TravelAgentRequest } from '../utils/aiAPI'
 import { localizeLookupValue } from '../utils/i18n'
 import type { Language } from '../utils/language'
+import { createTravelAgentSearchParams, inferSeasonCodeFromDate } from '../utils/travelParams'
 import '../styles/pages/ChatPage.css'
 
 type ChatPageProps = {
@@ -36,25 +38,6 @@ type PersistedChatState = {
 }
 
 const STORAGE_PREFIX = 'tripy-chat-state'
-
-function inferSeasonFromDate(travelDate: string) {
-  if (!travelDate) {
-    return ''
-  }
-
-  const month = new Date(travelDate).getMonth() + 1
-  if ([3, 4, 5].includes(month)) {
-    return 'spring'
-  }
-  if ([6, 7, 8].includes(month)) {
-    return 'summer'
-  }
-  if ([9, 10, 11].includes(month)) {
-    return 'fall'
-  }
-
-  return 'winter'
-}
 
 function createSessionId() {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -200,7 +183,7 @@ function buildInitialPreferences(searchParams: URLSearchParams): ChatPreferences
     region: searchParams.get('region') ?? '',
     budget: searchParams.get('budget') ?? '',
     theme: searchParams.get('theme') ?? '',
-    season: searchParams.get('season') ?? inferSeasonFromDate(travelDate),
+    season: searchParams.get('season') ?? inferSeasonCodeFromDate(travelDate),
     companion: searchParams.get('companion') ?? '',
     travelDate,
     duration: Number(searchParams.get('duration') ?? '3'),
@@ -277,19 +260,20 @@ function readPersistedState(language: Language, searchParams: URLSearchParams): 
   }
 }
 
-export function ChatPage({ posts: _posts, language }: ChatPageProps) {
+export function ChatPage({ language }: ChatPageProps) {
   const copy = COPY[language]
   const [searchParams] = useSearchParams()
-  const [draft, setDraft] = useState(() => readPersistedState(language, searchParams).draft)
-  const [sessionId, setSessionId] = useState(() => readPersistedState(language, searchParams).sessionId)
+  const [initialState] = useState(() => readPersistedState(language, searchParams))
+  const [draft, setDraft] = useState(initialState.draft)
+  const [sessionId, setSessionId] = useState(initialState.sessionId)
   const [preferences, setPreferences] = useState<ChatPreferences>(
-    () => readPersistedState(language, searchParams).preferences,
+    initialState.preferences,
   )
   const [messages, setMessages] = useState<Message[]>(
-    () => readPersistedState(language, searchParams).messages,
+    initialState.messages,
   )
   const [result, setResult] = useState<AiAgentResponse | null>(
-    () => readPersistedState(language, searchParams).result,
+    initialState.result,
   )
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
@@ -297,13 +281,15 @@ export function ChatPage({ posts: _posts, language }: ChatPageProps) {
   const threadEndRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
-    const next = readPersistedState(language, searchParams)
-    setDraft(next.draft)
-    setSessionId(next.sessionId)
-    setPreferences(next.preferences)
-    setMessages(next.messages)
-    setResult(next.result)
-    setError('')
+    queueMicrotask(() => {
+      const next = readPersistedState(language, searchParams)
+      setDraft(next.draft)
+      setSessionId(next.sessionId)
+      setPreferences(next.preferences)
+      setMessages(next.messages)
+      setResult(next.result)
+      setError('')
+    })
   }, [language, searchParams])
 
   useEffect(() => {
@@ -326,15 +312,15 @@ export function ChatPage({ posts: _posts, language }: ChatPageProps) {
   }, [isLoading, messages, result])
 
   const plannerHref = useMemo(() => {
-    const params = new URLSearchParams({
-      q: draft || messages.at(-1)?.text || '',
+    const params = createTravelAgentSearchParams({
+      query: draft || messages.at(-1)?.text || '',
       region: preferences.region,
       budget: preferences.budget,
       theme: preferences.theme,
       season: preferences.season,
       companion: preferences.companion,
       travelDate: preferences.travelDate,
-      duration: String(preferences.duration),
+      duration: preferences.duration,
     })
     return `/planner?${params.toString()}`
   }, [draft, messages, preferences])
@@ -422,14 +408,7 @@ export function ChatPage({ posts: _posts, language }: ChatPageProps) {
             ))}
           </div>
         </div>
-        <div className="chat-hero__stats">
-          {summaryStats.map((item) => (
-            <div className="chat-stat-card" key={item.label}>
-              <span>{item.label}</span>
-              <strong>{item.value}</strong>
-            </div>
-          ))}
-        </div>
+        <HeroStats className="chat-hero__stats" itemClassName="chat-stat-card" items={summaryStats} />
       </section>
 
       <section className="chat-layout">
@@ -532,7 +511,7 @@ export function ChatPage({ posts: _posts, language }: ChatPageProps) {
                       setPreferences((current) => ({
                         ...current,
                         travelDate: event.target.value,
-                        season: inferSeasonFromDate(event.target.value),
+                        season: inferSeasonCodeFromDate(event.target.value),
                       }))
                     }
                   />

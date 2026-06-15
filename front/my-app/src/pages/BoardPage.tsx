@@ -1,12 +1,13 @@
 import { startTransition, useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router'
 import { FilterSelect } from '../components/FilterSelect'
+import { HeroStats } from '../components/HeroStats'
 import { PostCard } from '../components/PostCard'
+import { usePostFilterLookups } from '../hooks/usePostFilterLookups'
 import type { Filters, PostWithMeta, SortOption, User } from '../types/community'
 import { PAGE_SIZE } from '../utils/community'
-import { localizeLookupOptions, localizeLookupValue } from '../utils/i18n'
+import { localizeLookupValue } from '../utils/i18n'
 import type { Language } from '../utils/language'
-import { fetchPostFilters, type PostFilterLookups } from '../utils/lookupsApi'
 import { fetchPosts } from '../utils/postsApi'
 import '../styles/pages/BoardPage.css'
 
@@ -25,14 +26,6 @@ const EMPTY_FILTERS: Filters = {
   theme: '',
   season: '',
   companion: '',
-}
-
-const EMPTY_LOOKUPS: PostFilterLookups = {
-  regions: [],
-  themes: [],
-  budgetRanges: [],
-  seasons: [],
-  companions: [],
 }
 
 const COPY = {
@@ -148,37 +141,15 @@ export function BoardPage({
   const [sortOption, setSortOption] = useState<SortOption>('latest')
   const [page, setPage] = useState(1)
   const [showAdvanced, setShowAdvanced] = useState(false)
-  const [lookupOptions, setLookupOptions] = useState<PostFilterLookups>(EMPTY_LOOKUPS)
   const [posts, setPosts] = useState<PostWithMeta[]>([])
   const [totalCount, setTotalCount] = useState(0)
   const [isLoading, setIsLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
+  const { errorMessage: lookupErrorMessage, localizedLookups } = usePostFilterLookups(language, copy.lookupError)
   const deferredQuery = useDeferredValue(query.trim())
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
   const currentPage = Math.min(page, totalPages)
-
-  useEffect(() => {
-    let isMounted = true
-
-    const loadLookups = async () => {
-      try {
-        const data = await fetchPostFilters()
-        if (isMounted) {
-          setLookupOptions(data)
-        }
-      } catch (error) {
-        if (isMounted) {
-          setErrorMessage(error instanceof Error ? error.message : copy.lookupError)
-        }
-      }
-    }
-
-    void loadLookups()
-
-    return () => {
-      isMounted = false
-    }
-  }, [copy.lookupError])
+  const displayErrorMessage = errorMessage || lookupErrorMessage
 
   useEffect(() => {
     let isMounted = true
@@ -240,14 +211,6 @@ export function BoardPage({
     refreshToken,
     sortOption,
   ])
-
-  const localizedLookups: PostFilterLookups = {
-    regions: localizeLookupOptions('region', lookupOptions.regions, language),
-    themes: localizeLookupOptions('theme', lookupOptions.themes, language),
-    budgetRanges: localizeLookupOptions('budget', lookupOptions.budgetRanges, language),
-    seasons: localizeLookupOptions('season', lookupOptions.seasons, language),
-    companions: localizeLookupOptions('companion', lookupOptions.companions, language),
-  }
 
   const activeFilterChips = useMemo(() => {
     const chips: string[] = []
@@ -381,14 +344,7 @@ export function BoardPage({
           </div>
         </div>
 
-        <div className="board-hero__stats">
-          {summaryStats.map((item) => (
-            <article className="board-stat-card" key={item.label}>
-              <span>{item.label}</span>
-              <strong>{item.value}</strong>
-            </article>
-          ))}
-        </div>
+        <HeroStats className="board-hero__stats" itemClassName="board-stat-card" items={summaryStats} />
       </section>
 
       <div className="board-layout">
@@ -545,21 +501,21 @@ export function BoardPage({
               </section>
             ) : null}
 
-            {!isLoading && errorMessage ? (
+            {!isLoading && displayErrorMessage ? (
               <section className="empty-state">
                 <h2>{copy.errorTitle}</h2>
-                <p>{errorMessage}</p>
+                <p>{displayErrorMessage}</p>
               </section>
             ) : null}
 
-            {!isLoading && !errorMessage && !posts.length ? (
+            {!isLoading && !displayErrorMessage && !posts.length ? (
               <section className="empty-state">
                 <h2>{copy.emptyTitle}</h2>
                 <p>{copy.emptyBody}</p>
               </section>
             ) : null}
 
-            {!isLoading && !errorMessage
+            {!isLoading && !displayErrorMessage
               ? posts.map((post) => (
                   <PostCard
                     chatHref={buildChatHref(post)}

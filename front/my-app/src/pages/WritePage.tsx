@@ -2,10 +2,9 @@ import type { ChangeEvent } from 'react'
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
 import { FilterSelect } from '../components/FilterSelect'
+import { usePostFilterLookups } from '../hooks/usePostFilterLookups'
 import type { Filters } from '../types/community'
-import { localizeLookupOptions } from '../utils/i18n'
 import type { Language } from '../utils/language'
-import { fetchPostFilters, type PostFilterLookups } from '../utils/lookupsApi'
 import { fetchPostById } from '../utils/postsApi'
 import '../styles/pages/WritePage.css'
 
@@ -25,14 +24,6 @@ type WritePageProps = {
   onCreatePost: (payload: PostFormPayload) => Promise<boolean>
   onUpdatePost: (postId: number, payload: PostFormPayload) => Promise<boolean>
   language: Language
-}
-
-const EMPTY_LOOKUPS: PostFilterLookups = {
-  regions: [],
-  themes: [],
-  budgetRanges: [],
-  seasons: [],
-  companions: [],
 }
 
 const COPY = {
@@ -98,8 +89,11 @@ export function WritePage({ onCreatePost, onUpdatePost, language }: WritePagePro
   const params = useParams()
   const postId = Number(params.postId)
   const isEditMode = Number.isFinite(postId)
-  const [lookupOptions, setLookupOptions] = useState<PostFilterLookups>(EMPTY_LOOKUPS)
-  const [isLoadingLookups, setIsLoadingLookups] = useState(true)
+  const {
+    errorMessage: lookupErrorMessage,
+    isLoading: isLoadingLookups,
+    localizedLookups,
+  } = usePostFilterLookups(language, copy.lookupError)
   const [isLoadingPost, setIsLoadingPost] = useState(isEditMode)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [form, setForm] = useState({
@@ -114,40 +108,16 @@ export function WritePage({ onCreatePost, onUpdatePost, language }: WritePagePro
     content: '',
   })
   const [previewUrl, setPreviewUrl] = useState('')
+  const isLoadingCurrentPost = isEditMode && isLoadingPost
 
   useEffect(() => {
-    let isMounted = true
-
-    const loadLookups = async () => {
-      try {
-        const data = await fetchPostFilters()
-
-        if (!isMounted) {
-          return
-        }
-
-        setLookupOptions(data)
-      } catch (error) {
-        if (isMounted) {
-          window.alert(error instanceof Error ? error.message : copy.lookupError)
-        }
-      } finally {
-        if (isMounted) {
-          setIsLoadingLookups(false)
-        }
-      }
+    if (lookupErrorMessage) {
+      window.alert(lookupErrorMessage)
     }
-
-    void loadLookups()
-
-    return () => {
-      isMounted = false
-    }
-  }, [copy.lookupError])
+  }, [lookupErrorMessage])
 
   useEffect(() => {
     if (!isEditMode) {
-      setIsLoadingPost(false)
       return
     }
 
@@ -194,14 +164,6 @@ export function WritePage({ onCreatePost, onUpdatePost, language }: WritePagePro
     }
   }, [copy.loadPostError, isEditMode, navigate, postId])
 
-  const localizedLookups: PostFilterLookups = {
-    regions: localizeLookupOptions('region', lookupOptions.regions, language),
-    themes: localizeLookupOptions('theme', lookupOptions.themes, language),
-    budgetRanges: localizeLookupOptions('budget', lookupOptions.budgetRanges, language),
-    seasons: localizeLookupOptions('season', lookupOptions.seasons, language),
-    companions: localizeLookupOptions('companion', lookupOptions.companions, language),
-  }
-
   const updateSelect = (key: keyof Filters, value: string) => {
     setForm((current) => ({ ...current, [key]: value }))
   }
@@ -222,7 +184,7 @@ export function WritePage({ onCreatePost, onUpdatePost, language }: WritePagePro
     reader.readAsDataURL(file)
   }
 
-  if (isLoadingLookups || isLoadingPost) {
+  if (isLoadingLookups || isLoadingCurrentPost) {
     return (
       <main className="page">
         <section className="empty-state">

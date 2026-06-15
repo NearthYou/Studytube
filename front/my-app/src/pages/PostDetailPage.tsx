@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { FilterSelect } from '../components/FilterSelect'
+import { usePostFilterLookups } from '../hooks/usePostFilterLookups'
 import type { Comment, PostWithMeta, User } from '../types/community'
 import {
   createComment,
@@ -12,9 +13,8 @@ import {
   updateReply,
 } from '../utils/commentsApi'
 import { formatDate, getUserLabel } from '../utils/community'
-import { localizeLookupOptions, localizeLookupValue } from '../utils/i18n'
+import { localizeLookupValue } from '../utils/i18n'
 import type { Language } from '../utils/language'
-import { fetchPostFilters, type PostFilterLookups } from '../utils/lookupsApi'
 import { fetchPostById } from '../utils/postsApi'
 import '../styles/pages/PostDetailPage.css'
 
@@ -44,14 +44,6 @@ type PostDetailPageProps = {
     },
   ) => Promise<boolean>
   language: Language
-}
-
-const EMPTY_LOOKUPS: PostFilterLookups = {
-  regions: [],
-  themes: [],
-  budgetRanges: [],
-  seasons: [],
-  companions: [],
 }
 
 const COPY = {
@@ -217,7 +209,7 @@ export function PostDetailPage({
   const [editingCommentText, setEditingCommentText] = useState('')
   const [editingReplyText, setEditingReplyText] = useState('')
   const [isEditingPost, setIsEditingPost] = useState(false)
-  const [lookupOptions, setLookupOptions] = useState<PostFilterLookups>(EMPTY_LOOKUPS)
+  const { localizedLookups } = usePostFilterLookups(language, '')
   const [editPostForm, setEditPostForm] = useState({
     title: '',
     travelDate: '',
@@ -236,37 +228,10 @@ export function PostDetailPage({
   const [errorMessage, setErrorMessage] = useState('')
   const viewedPostIdsRef = useRef<Set<number>>(new Set())
   const postId = Number(params.postId)
+  const hasValidPostId = Number.isFinite(postId)
 
   useEffect(() => {
-    let isMounted = true
-
-    const loadLookups = async () => {
-      try {
-        const data = await fetchPostFilters()
-
-        if (!isMounted) {
-          return
-        }
-
-        setLookupOptions(data)
-      } catch {
-        if (!isMounted) {
-          return
-        }
-      }
-    }
-
-    void loadLookups()
-
-    return () => {
-      isMounted = false
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!Number.isFinite(postId)) {
-      setIsLoading(false)
-      setErrorMessage(copy.invalidAddress)
+    if (!hasValidPostId) {
       return
     }
 
@@ -318,7 +283,7 @@ export function PostDetailPage({
     return () => {
       isMounted = false
     }
-  }, [copy.invalidAddress, copy.loadFailed, onHydratePosts, postId])
+  }, [copy.loadFailed, hasValidPostId, onHydratePosts, postId])
 
   useEffect(() => {
     if (!post || viewedPostIdsRef.current.has(post.id)) {
@@ -328,6 +293,19 @@ export function PostDetailPage({
     viewedPostIdsRef.current.add(post.id)
     onIncrementView(post.id)
   }, [onIncrementView, post])
+
+  if (!hasValidPostId) {
+    return (
+      <main className="page">
+        <section className="empty-state">
+          <h1>{copy.invalidAddress}</h1>
+          <Link className="secondary-button" to="/main">
+            {copy.backToMain}
+          </Link>
+        </section>
+      </main>
+    )
+  }
 
   if (isLoading) {
     return (
@@ -350,14 +328,6 @@ export function PostDetailPage({
         </section>
       </main>
     )
-  }
-
-  const localizedLookups: PostFilterLookups = {
-    regions: localizeLookupOptions('region', lookupOptions.regions, language),
-    themes: localizeLookupOptions('theme', lookupOptions.themes, language),
-    budgetRanges: localizeLookupOptions('budget', lookupOptions.budgetRanges, language),
-    seasons: localizeLookupOptions('season', lookupOptions.seasons, language),
-    companions: localizeLookupOptions('companion', lookupOptions.companions, language),
   }
 
   const isAuthor = currentUser.id === post.author.id

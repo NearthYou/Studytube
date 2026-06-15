@@ -114,14 +114,16 @@ export function MyPage({ currentUser, onUpdateProfile, language }: MyPageProps) 
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   useEffect(() => {
-    setNickname(currentUser.nickname)
-    setBio(currentUser.bio)
-    setLocation(currentUser.location)
+    queueMicrotask(() => {
+      setNickname(currentUser.nickname)
+      setBio(currentUser.bio)
+      setLocation(currentUser.location)
+    })
   }, [currentUser.bio, currentUser.location, currentUser.nickname])
 
   useEffect(() => {
     if (tab === 'profile') {
-      setIsLoading(false)
+      queueMicrotask(() => setIsLoading(false))
       return
     }
 

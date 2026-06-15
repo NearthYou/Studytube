@@ -81,11 +81,10 @@ export function ProfilePage({
   const [authorPosts, setAuthorPosts] = useState<PostWithMeta[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState('')
+  const hasValidAuthorId = Number.isFinite(authorId)
 
   useEffect(() => {
-    if (!Number.isFinite(authorId)) {
-      setErrorMessage(copy.invalidProfile)
-      setIsLoading(false)
+    if (!hasValidAuthorId) {
       return
     }
 
@@ -127,7 +126,20 @@ export function ProfilePage({
     return () => {
       isMounted = false
     }
-  }, [authorId, copy.invalidProfile, copy.loadFailed, onHydratePosts])
+  }, [authorId, copy.loadFailed, hasValidAuthorId, onHydratePosts])
+
+  if (!hasValidAuthorId) {
+    return (
+      <main className="page">
+        <section className="empty-state">
+          <h1>{copy.invalidProfile}</h1>
+          <Link className="secondary-button" to="/main">
+            {copy.backToMain}
+          </Link>
+        </section>
+      </main>
+    )
+  }
 
   if (isLoading) {
     return (

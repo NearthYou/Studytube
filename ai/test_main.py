@@ -529,6 +529,77 @@ class AiServiceTest(unittest.TestCase):
         self.assertEqual(response["sections"][0]["label"], "핵심 요약")
         self.assertIn("표현", response["sections"][0]["body"])
 
+    def test_youtube_summary_is_korean_and_includes_timestamped_transcript(self):
+        captured_payloads = []
+
+        class FakeOpenAI:
+            def __init__(self):
+                self.chat = self.Chat()
+
+            class Chat:
+                def __init__(self):
+                    self.completions = self.Completions()
+
+                class Completions:
+                    @staticmethod
+                    def create(**kwargs):
+                        payload = json.loads(kwargs["messages"][1]["content"])
+                        captured_payloads.append(payload)
+                        message = type(
+                            "Message",
+                            (),
+                            {
+                                "content": json.dumps(
+                                    {
+                                        "sections": [
+                                            {
+                                                "label": "핵심 요약",
+                                                "body": "한국어로 정리한 학습 요약입니다.",
+                                            }
+                                        ]
+                                    },
+                                    ensure_ascii=False,
+                                )
+                            },
+                        )()
+                        choice = type("Choice", (), {"message": message})()
+                        return type("Response", (), {"choices": [choice]})()
+
+        original_openai = main.OpenAI
+        original_key = os.environ.get("OPENAI_API_KEY")
+        main.OpenAI = FakeOpenAI
+        os.environ["OPENAI_API_KEY"] = "test-key"
+
+        try:
+            response = main.build_youtube_summary(
+                {
+                    "videoId": "korean-summary",
+                    "title": "React Hooks",
+                    "channelName": "Study Channel",
+                    "language": "en",
+                    "segments": [
+                        {"start": 0, "end": 3, "text": "첫 번째 설명입니다."},
+                        {"start": 4, "end": 8, "text": "두 번째 예제입니다."},
+                    ],
+                }
+            )
+        finally:
+            main.OpenAI = original_openai
+            if original_key is None:
+                os.environ.pop("OPENAI_API_KEY", None)
+            else:
+                os.environ["OPENAI_API_KEY"] = original_key
+
+        self.assertEqual(response["language"], "ko")
+        self.assertEqual(captured_payloads[0]["targetLanguage"], "ko")
+        transcript_section = next(
+            section
+            for section in response["sections"]
+            if section["label"] == "전체 스크립트 전사문"
+        )
+        self.assertIn("00:00 첫 번째 설명입니다.", transcript_section["body"])
+        self.assertIn("00:04 두 번째 예제입니다.", transcript_section["body"])
+
     def test_youtube_summary_falls_back_to_timed_transcript_notes(self):
         original_openai = main.OpenAI
         original_key = os.environ.get("OPENAI_API_KEY")
@@ -543,8 +614,8 @@ class AiServiceTest(unittest.TestCase):
                     "channelName": "Study Channel",
                     "summary": "Short stored summary.",
                     "segments": [
-                        {"start": 0, "end": 3, "text": "First point"},
-                        {"start": 60, "end": 63, "text": "Second point"},
+                        {"start": 0, "end": 3, "text": "첫 번째 포인트입니다."},
+                        {"start": 60, "end": 63, "text": "두 번째 포인트입니다."},
                     ],
                 }
             )
@@ -558,6 +629,43 @@ class AiServiceTest(unittest.TestCase):
         self.assertEqual(response["provider"], "local-transcript-summary")
         self.assertGreaterEqual(len(response["sections"]), 3)
         self.assertIn("00:00", response["sections"][1]["body"])
+
+    def test_youtube_summary_does_not_show_english_transcript_when_korean_is_unavailable(self):
+        original_openai = main.OpenAI
+        original_key = os.environ.get("OPENAI_API_KEY")
+        main.OpenAI = None
+        os.environ.pop("OPENAI_API_KEY", None)
+
+        try:
+            response = main.build_youtube_summary(
+                {
+                    "videoId": "english-fallback",
+                    "title": "Fallback lesson",
+                    "channelName": "Study Channel",
+                    "language": "en",
+                    "summary": "",
+                    "segments": [
+                        {"start": 0, "end": 3, "text": "First point"},
+                        {"start": 60, "end": 63, "text": "Second point"},
+                    ],
+                }
+            )
+        finally:
+            main.OpenAI = original_openai
+            if original_key is None:
+                os.environ.pop("OPENAI_API_KEY", None)
+            else:
+                os.environ["OPENAI_API_KEY"] = original_key
+
+        joined_sections = "\n".join(
+            f"{section['label']}\n{section['body']}"
+            for section in response["sections"]
+        )
+
+        self.assertEqual(response["language"], "ko")
+        self.assertNotIn("First point", joined_sections)
+        self.assertNotIn("Second point", joined_sections)
+        self.assertNotIn("전체 스크립트 전사문", joined_sections)
 
     def test_mcp_youtube_lookup_returns_json_rpc_result(self):
         response = handle_mcp_request(
@@ -1038,6 +1146,39 @@ class AiServiceTest(unittest.TestCase):
         self.assertEqual(response["sourceLanguage"], "unavailable")
         self.assertFalse(response["translated"])
         self.assertEqual(response["segments"], [])
+
+    def test_youtube_captions_use_native_fallback_when_track_list_is_empty(self):
+        original_fetch_tracks = main.fetch_youtube_caption_tracks
+        original_transcript = main.fetch_transcript_api_segments
+        original_yt_dlp = main.fetch_yt_dlp_caption_segments
+
+        main.fetch_youtube_caption_tracks = lambda _video_id: []
+        main.fetch_transcript_api_segments = lambda *_args: ([], "", False)
+        main.fetch_yt_dlp_caption_segments = lambda *_args: (
+            [],
+            "",
+            False,
+            RuntimeError("yt-dlp-caption-track-unavailable"),
+        )
+
+        try:
+            response = load_translated_captions(
+                {
+                    "videoId": "freecodecamp123",
+                    "targetLanguage": "ko",
+                    "allowFallback": False,
+                }
+            )
+        finally:
+            main.fetch_youtube_caption_tracks = original_fetch_tracks
+            main.fetch_transcript_api_segments = original_transcript
+            main.fetch_yt_dlp_caption_segments = original_yt_dlp
+
+        self.assertEqual(response["provider"], "youtube-native-captions")
+        self.assertEqual(response["sourceLanguage"], "youtube")
+        self.assertFalse(response["translated"])
+        self.assertEqual(response["segments"], [])
+        self.assertIn("youtube-caption-track-unavailable", response["message"])
 
     def test_youtube_captions_do_not_align_summary_when_translation_fails(self):
         class FakeResponse:
@@ -1739,6 +1880,123 @@ Second subtitle line
         self.assertEqual(response["segments"][0]["text"], "리액트 학습자 여러분 안녕하세요")
         self.assertEqual(response["segments"][0]["start"], 0)
         self.assertEqual(response["segments"][1]["end"], 3.0)
+        self.assertFalse(any("tlang=ko" in url for url in calls))
+
+    def test_youtube_captions_translates_only_requested_caption_window(self):
+        calls = []
+        player_response = {
+            "captions": {
+                "playerCaptionsTracklistRenderer": {
+                    "captionTracks": [
+                        {
+                            "baseUrl": "https://signed.example/timedtext?v=window-video&lang=en",
+                            "languageCode": "en",
+                            "isTranslatable": True,
+                        }
+                    ]
+                }
+            }
+        }
+
+        class FakeResponse:
+            def __init__(self, *, text="", data=None):
+                self.text = text
+                self._data = data
+
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return self._data
+
+        class FakeHttpx:
+            @staticmethod
+            def get(url, **kwargs):
+                calls.append(url)
+
+                if "watch" in url:
+                    return FakeResponse(
+                        text=(
+                            "<script>var ytInitialPlayerResponse = "
+                            + json.dumps(player_response)
+                            + ";</script>"
+                        )
+                    )
+
+                return FakeResponse(
+                    data={
+                        "events": [
+                            {
+                                "tStartMs": index * 1000,
+                                "dDurationMs": 1000,
+                                "segs": [{"utf8": f"caption {index}"}],
+                            }
+                            for index in range(200)
+                        ]
+                    }
+                )
+
+        class FakeOpenAI:
+            def __init__(self):
+                self.chat = self.Chat()
+
+            class Chat:
+                def __init__(self):
+                    self.completions = self.Completions()
+
+                class Completions:
+                    @staticmethod
+                    def create(**kwargs):
+                        payload = json.loads(kwargs["messages"][1]["content"])
+                        message = type(
+                            "Message",
+                            (),
+                            {
+                                "content": json.dumps(
+                                    {
+                                        "translations": [
+                                            f"translated {index}"
+                                            for index in range(payload["requiredCount"])
+                                        ]
+                                    }
+                                )
+                            },
+                        )()
+                        choice = type("Choice", (), {"message": message})()
+                        return type("Response", (), {"choices": [choice]})()
+
+        original_httpx = main.httpx
+        original_openai = main.OpenAI
+        original_key = os.environ.get("OPENAI_API_KEY")
+        main.httpx = FakeHttpx
+        main.OpenAI = FakeOpenAI
+        main.CAPTION_RESPONSE_CACHE.clear()
+        os.environ["OPENAI_API_KEY"] = "test-key"
+
+        try:
+            response = load_translated_captions(
+                {
+                    "videoId": "window-video",
+                    "targetLanguage": "ko",
+                    "startSeconds": 40,
+                    "endSeconds": 50,
+                    "fallbackText": "fallback should not be used",
+                }
+            )
+        finally:
+            main.httpx = original_httpx
+            main.OpenAI = original_openai
+            main.CAPTION_RESPONSE_CACHE.clear()
+            if original_key is None:
+                os.environ.pop("OPENAI_API_KEY", None)
+            else:
+                os.environ["OPENAI_API_KEY"] = original_key
+
+        self.assertEqual(response["provider"], "openai-caption-translation")
+        self.assertEqual(len(response["segments"]), 10)
+        self.assertEqual(response["segments"][0]["start"], 40)
+        self.assertEqual(response["segments"][-1]["end"], 50)
+        self.assertEqual(response["segments"][0]["text"], "translated 0")
         self.assertFalse(any("tlang=ko" in url for url in calls))
 
     def test_youtube_captions_returns_source_segments_when_translation_unavailable(self):

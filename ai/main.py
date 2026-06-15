@@ -89,6 +89,7 @@ CAPTION_TRANSLATION_COMPACT_MAX_DURATION_SECONDS = 8.0
 CAPTION_TRANSLATION_COMPACT_MAX_CHARS = 220
 CAPTION_TRANSLATION_TARGET_SEGMENTS = 720
 CAPTION_TRANSLATION_INLINE_MAX_SEGMENTS = 96
+CAPTION_TRANSLATION_MAX_WINDOW_SECONDS = 240
 CAPTION_TRANSLATION_REQUEST_TIMEOUT_SECONDS = 45
 CAPTION_CACHE_POLICY_VERSION = "translation-window-v3"
 CAPTION_RESPONSE_CACHE_TTL_SECONDS = 10 * 60
@@ -558,6 +559,7 @@ def load_translated_captions_uncached(
     duration_seconds = normalize_caption_duration(
         payload.get("durationSeconds") or payload.get("duration")
     )
+    caption_window = caption_window_bounds(payload)
 
     if not video_id:
         return fallback_caption_response(
@@ -624,6 +626,7 @@ def load_translated_captions_uncached(
                     yt_dlp_translated,
                     yt_dlp_segments,
                     cache_key=cache_key,
+                    caption_window=caption_window,
                 )
 
             if is_youtube_caption_rate_limited(_yt_dlp_error):
@@ -638,15 +641,12 @@ def load_translated_captions_uncached(
                     ),
                 )
 
-            return fallback_caption_response(
-                video_id=video_id,
-                target_language=target_language,
-                reason="youtube-caption-track-unavailable",
-                fallback_text=fallback_text,
-                allow_fallback=allow_fallback,
-                translate_fallback=translate_fallback,
-                duration_seconds=duration_seconds,
-        )
+            return native_caption_response(
+                video_id,
+                target_language,
+                yt_dlp_source_language or "youtube",
+                "youtube-caption-track-unavailable",
+            )
 
         source_language = normalize_language(track.get("languageCode") or "")
         caption_urls = (
@@ -692,9 +692,13 @@ def load_translated_captions_uncached(
                     "message": "YouTube source timed-text captions loaded.",
                 }
 
+            translation_segments = caption_segments_in_window(
+                source_segments,
+                caption_window,
+            )
             translated_segments = (
-                translate_caption_segments(source_segments, target_language)
-                if should_translate_caption_segments_inline(source_segments)
+                translate_caption_segments(translation_segments, target_language)
+                if should_translate_caption_segments_inline(translation_segments)
                 else []
             )
 
@@ -707,7 +711,7 @@ def load_translated_captions_uncached(
                     "sourceLanguage": source_language,
                     "translated": True,
                     "segments": translated_segments,
-                    "message": "YouTube source captions translated for live playback.",
+                    "message": "YouTube source caption window translated for live playback.",
                 }
 
             if source_segments:
@@ -723,7 +727,7 @@ def load_translated_captions_uncached(
                     video_id,
                     target_language,
                     source_language,
-                    source_segments,
+                    translation_segments or source_segments,
                 )
                 return response
 
@@ -742,6 +746,7 @@ def load_translated_captions_uncached(
                     yt_dlp_translated,
                     yt_dlp_segments,
                     cache_key=cache_key,
+                    caption_window=caption_window,
                 )
 
             last_error = yt_dlp_error or last_error
@@ -776,9 +781,13 @@ def load_translated_captions_uncached(
             normalized_segments,
             target_language,
         ):
+            translation_segments = caption_segments_in_window(
+                normalized_segments,
+                caption_window,
+            )
             translated_segments = (
-                translate_caption_segments(normalized_segments, target_language)
-                if should_translate_caption_segments_inline(normalized_segments)
+                translate_caption_segments(translation_segments, target_language)
+                if should_translate_caption_segments_inline(translation_segments)
                 else []
             )
 
@@ -791,7 +800,7 @@ def load_translated_captions_uncached(
                     "sourceLanguage": source_language or "youtube",
                     "translated": True,
                     "segments": translated_segments,
-                    "message": "YouTube timed-text captions translated for live playback.",
+                    "message": "YouTube timed-text caption window translated for live playback.",
                 }
 
             response = source_caption_response(
@@ -806,7 +815,7 @@ def load_translated_captions_uncached(
                 video_id,
                 target_language,
                 source_language or "youtube",
-                normalized_segments,
+                translation_segments or normalized_segments,
             )
             return response
 
@@ -854,6 +863,7 @@ def caption_response_cache_key(payload: dict[str, Any]) -> str:
     duration_seconds = normalize_caption_duration(
         payload.get("durationSeconds") or payload.get("duration")
     )
+    caption_window = caption_window_bounds(payload)
     openai_enabled = OpenAI is not None and bool(os.getenv("OPENAI_API_KEY"))
     cache_parts = {
         "videoId": video_id,
@@ -861,6 +871,7 @@ def caption_response_cache_key(payload: dict[str, Any]) -> str:
         "allowFallback": bool(payload.get("allowFallback", True)),
         "translateFallback": bool(payload.get("translateFallback", False)),
         "durationSeconds": duration_seconds,
+        "window": caption_window,
         "fallbackTextHash": hashlib.sha256(fallback_text.encode("utf-8")).hexdigest(),
         "openaiEnabled": openai_enabled,
         "policyVersion": CAPTION_CACHE_POLICY_VERSION,
@@ -873,6 +884,48 @@ def caption_target_language(payload: dict[str, Any]) -> str:
     return normalize_language(
         payload.get("targetLanguage") or payload.get("language") or "ko"
     )
+
+
+def caption_window_bounds(payload: dict[str, Any]) -> tuple[float, float] | None:
+    start_value = payload.get("startSeconds", payload.get("start"))
+    end_value = payload.get("endSeconds", payload.get("end"))
+
+    if start_value is None or end_value is None:
+        return None
+
+    try:
+        start_seconds = max(0.0, float(start_value))
+        end_seconds = float(end_value)
+    except (TypeError, ValueError):
+        return None
+
+    if not math.isfinite(start_seconds) or not math.isfinite(end_seconds):
+        return None
+
+    end_seconds = max(start_seconds + 1.0, end_seconds)
+
+    if end_seconds - start_seconds > CAPTION_TRANSLATION_MAX_WINDOW_SECONDS:
+        end_seconds = start_seconds + CAPTION_TRANSLATION_MAX_WINDOW_SECONDS
+
+    return round(start_seconds, 3), round(end_seconds, 3)
+
+
+def caption_segments_in_window(
+    segments: list[dict[str, Any]],
+    caption_window: tuple[float, float] | None,
+) -> list[dict[str, Any]]:
+    normalized_segments = normalize_caption_segments(segments)
+
+    if caption_window is None:
+        return normalized_segments
+
+    start_seconds, end_seconds = caption_window
+
+    return [
+        segment
+        for segment in normalized_segments
+        if segment["end"] > start_seconds and segment["start"] < end_seconds
+    ]
 
 
 def read_caption_response_cache(cache_key: str) -> dict[str, Any] | None:
@@ -1014,7 +1067,7 @@ def build_youtube_summary(payload: dict[str, Any]) -> dict[str, Any]:
     video_id = str(payload.get("videoId") or "").strip()
     title = clean_text(str(payload.get("title") or "")).strip()
     channel_name = clean_text(str(payload.get("channelName") or "")).strip()
-    target_language = normalize_language(payload.get("language") or "ko")
+    target_language = "ko"
     stored_summary = clean_text(str(payload.get("summary") or "")).strip()
     stored_notes = clean_text(str(payload.get("translatedNotes") or "")).strip()
     raw_segments = payload.get("segments")
@@ -1037,7 +1090,7 @@ def build_youtube_summary(payload: dict[str, Any]) -> dict[str, Any]:
                 "provider": "openai-transcript-summary",
                 "videoId": video_id,
                 "language": target_language,
-                "sections": sections,
+                "sections": append_transcript_section(sections, segments),
                 "message": "Caption transcript summarized into detailed study notes.",
             }
 
@@ -1046,12 +1099,15 @@ def build_youtube_summary(payload: dict[str, Any]) -> dict[str, Any]:
         "provider": "local-transcript-summary",
         "videoId": video_id,
         "language": target_language,
-        "sections": fallback_video_summary_sections(
-            title=title,
-            channel_name=channel_name,
-            stored_summary=stored_summary,
-            stored_notes=stored_notes,
-            segments=segments,
+        "sections": append_transcript_section(
+            korean_fallback_video_summary_sections(
+                title=title,
+                channel_name=channel_name,
+                stored_summary=stored_summary,
+                stored_notes=stored_notes,
+                segments=segments,
+            ),
+            segments,
         ),
         "message": "Detailed AI summary unavailable; generated structured notes locally.",
     }
@@ -1073,7 +1129,8 @@ def summarize_video_with_openai(
                     "role": "system",
                     "content": (
                         "You create detailed study notes from YouTube transcripts. "
-                        "Write in the requested language. Be specific, practical, and useful "
+                        "Always write in Korean, regardless of the transcript language or caption UI language. "
+                        "Be specific, practical, and useful "
                         "for someone studying while watching the video. If the transcript is noisy, "
                         "infer cautiously from repeated context and avoid pretending uncertain details are exact. "
                         "Return only JSON with a sections array. Each section must have label and body."
@@ -1143,6 +1200,64 @@ def parse_summary_sections(content: str) -> list[dict[str, str]]:
     return parsed[:8]
 
 
+def append_transcript_section(
+    sections: list[dict[str, str]],
+    segments: list[dict[str, Any]],
+) -> list[dict[str, str]]:
+    body = timestamped_transcript_body(summary_transcript_segments(segments))
+
+    if not body:
+        return sections
+
+    without_existing_transcript = [
+        section
+        for section in sections
+        if section.get("label") != "전체 스크립트 전사문"
+    ]
+
+    return [
+        *without_existing_transcript,
+        {
+            "label": "전체 스크립트 전사문",
+            "body": body,
+        },
+    ]
+
+
+def summary_transcript_segments(
+    segments: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if not segments or caption_segments_match_language(segments, "ko"):
+        return segments
+
+    translated_segments = translate_caption_segments(segments, "ko")
+
+    return translated_segments
+
+
+def timestamped_transcript_body(segments: list[dict[str, Any]]) -> str:
+    lines: list[str] = []
+
+    for segment in segments:
+        text = clean_text(str(segment.get("text") or "")).strip()
+
+        if not text:
+            continue
+
+        lines.append(f"{format_caption_time(float(segment.get('start') or 0))} {text}")
+
+    return "\n".join(lines)
+
+
+def text_looks_korean(value: str) -> bool:
+    compact = clean_text(value)
+    hangul_count = len(re.findall(r"[\uac00-\ud7a3]", compact))
+    latin_count = len(re.findall(r"[A-Za-z]", compact))
+    letter_count = hangul_count + latin_count
+
+    return letter_count > 0 and hangul_count >= 5 and hangul_count / letter_count >= 0.2
+
+
 def transcript_text_from_segments(
     segments: list[dict[str, Any]],
     max_chars: int = 14000,
@@ -1166,6 +1281,74 @@ def transcript_text_from_segments(
         lines.append(line)
 
     return "\n".join(lines)
+
+
+def korean_fallback_video_summary_sections(
+    title: str,
+    channel_name: str,
+    stored_summary: str,
+    stored_notes: str,
+    segments: list[dict[str, Any]],
+) -> list[dict[str, str]]:
+    sections: list[dict[str, str]] = []
+    context = " ".join(
+        part for part in [title, channel_name, stored_summary] if part
+    ).strip()
+
+    if context:
+        sections.append(
+            {
+                "label": "핵심 요약",
+                "body": (
+                    "이 영상은 제목, 채널, 저장된 설명을 기준으로 학습 맥락을 정리한 자료입니다. "
+                    "외부 AI 요약을 사용할 수 없어도 영상의 핵심 주제와 복습 방향을 한국어로 확인할 수 있습니다."
+                ),
+            }
+        )
+
+    if segments and caption_segments_match_language(segments, "ko"):
+        sections.append(
+            {
+                "label": "구간별 흐름",
+                "body": " ".join(
+                    f"{format_caption_time(float(segment['start']))} {segment['text']}"
+                    for segment in sample_summary_segments(segments)
+                ),
+            }
+        )
+        sections.append(
+            {
+                "label": "학습 포인트",
+                "body": (
+                    "타임스탬프가 있는 전사문을 보면서 반복되는 표현, 예시, 정의를 표시하세요. "
+                    "이해가 흔들리는 구간은 마크 기능으로 저장한 뒤 다시 확인하면 복습 흐름을 만들 수 있습니다."
+                ),
+            }
+        )
+
+    if (
+        stored_notes
+        and stored_notes != stored_summary
+        and text_looks_korean(stored_notes)
+    ):
+        sections.append({"label": "저장된 노트", "body": stored_notes[:900]})
+
+    sections.append(
+        {
+            "label": "복습 질문",
+            "body": (
+                "이 영상의 핵심 주제는 무엇이었나요? 새로 배운 표현이나 개념은 무엇인가요? "
+                "바로 적용할 수 있는 예시는 무엇인지 스스로 답해보세요."
+            ),
+        }
+    )
+
+    return sections[:6] or [
+        {
+            "label": "요약 준비 중",
+            "body": "자막이나 영상 분석 데이터를 불러오면 이 영역에 한국어 학습 정리가 표시됩니다.",
+        }
+    ]
 
 
 def fallback_video_summary_sections(
@@ -2536,6 +2719,7 @@ def yt_dlp_caption_response(
     translated: bool,
     segments: list[dict[str, Any]],
     cache_key: str = "",
+    caption_window: tuple[float, float] | None = None,
 ) -> dict[str, Any]:
     normalized_segments = normalize_caption_segments(segments)
     normalized_source_language = normalize_language(source_language) or "youtube"
@@ -2544,9 +2728,13 @@ def yt_dlp_caption_response(
         normalized_segments,
         target_language,
     ):
+        translation_segments = caption_segments_in_window(
+            normalized_segments,
+            caption_window,
+        )
         translated_segments = (
-            translate_caption_segments(normalized_segments, target_language)
-            if should_translate_caption_segments_inline(normalized_segments)
+            translate_caption_segments(translation_segments, target_language)
+            if should_translate_caption_segments_inline(translation_segments)
             else []
         )
 
@@ -2559,7 +2747,7 @@ def yt_dlp_caption_response(
                 "sourceLanguage": normalized_source_language,
                 "translated": True,
                 "segments": translated_segments,
-                "message": "yt-dlp source captions translated for live playback.",
+                "message": "yt-dlp source caption window translated for live playback.",
             }
 
         response = source_caption_response(
@@ -2574,7 +2762,7 @@ def yt_dlp_caption_response(
             video_id,
             target_language,
             normalized_source_language,
-            normalized_segments,
+            translation_segments or normalized_segments,
         )
         return response
 

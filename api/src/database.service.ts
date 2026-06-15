@@ -674,10 +674,20 @@ export class DatabaseService
     try {
       const result = await this.pool.query<PlaylistFeedback>(
         `
-          INSERT INTO playlist_feedback (playlist_id, author_id, rating, body)
-          VALUES ($1, $2, $3, $4)
-          RETURNING id, playlist_id AS "playlistId", author_id AS "authorId",
-                    rating, body, created_at AS "createdAt"
+          WITH inserted AS (
+            INSERT INTO playlist_feedback (playlist_id, author_id, rating, body)
+            VALUES ($1, $2, $3, $4)
+            RETURNING id, playlist_id, author_id, rating, body, created_at
+          )
+          SELECT inserted.id,
+                 inserted.playlist_id AS "playlistId",
+                 inserted.author_id AS "authorId",
+                 users.name AS "authorName",
+                 inserted.rating,
+                 inserted.body,
+                 inserted.created_at AS "createdAt"
+          FROM inserted
+          JOIN users ON users.id = inserted.author_id
         `,
         [input.playlistId, input.authorId, input.rating, input.body],
       );
@@ -793,15 +803,27 @@ export class DatabaseService
     );
 
     const seedPosts = await super.listPosts({ page: 1, pageSize: 24 });
+    const seedPostUrls = new Map(
+      seedPosts.items.map((post) => [post.id, post.videoUrl]),
+    );
 
     for (const post of seedPosts.items) {
-      await this.pool.query(
+      const seedPostResult = await this.pool.query<{ id: number }>(
         `
           INSERT INTO posts (
             id, author_id, title, video_url, thumbnail_url, channel_name, summary, translated_notes
           )
           VALUES ($1, 1, $2, $3, $4, $5, $6, $7)
-          ON CONFLICT (id) DO NOTHING
+          ON CONFLICT (id) DO UPDATE
+          SET title = EXCLUDED.title,
+              author_id = EXCLUDED.author_id,
+              thumbnail_url = EXCLUDED.thumbnail_url,
+              channel_name = EXCLUDED.channel_name,
+              summary = EXCLUDED.summary,
+              translated_notes = EXCLUDED.translated_notes,
+              updated_at = now()
+          WHERE posts.video_url = EXCLUDED.video_url
+          RETURNING id
         `,
         [
           post.id,
@@ -813,6 +835,10 @@ export class DatabaseService
           post.translatedNotes,
         ],
       );
+
+      if (seedPostResult.rowCount === 0) {
+        continue;
+      }
 
       const client = await this.pool.connect();
       try {
@@ -830,6 +856,22 @@ export class DatabaseService
       } finally {
         client.release();
       }
+    }
+
+    const migratedRandomSeedUrls = seedPosts.items
+      .filter((post) => post.id >= 101)
+      .map((post) => post.videoUrl);
+
+    if (migratedRandomSeedUrls.length > 0) {
+      await this.pool.query(
+        `
+          DELETE FROM posts
+          WHERE author_id = 1
+            AND id < 101
+            AND video_url = ANY($1::text[])
+        `,
+        [migratedRandomSeedUrls],
+      );
     }
 
     await this.pool.query(`
@@ -850,6 +892,49 @@ export class DatabaseService
       SELECT setval(pg_get_serial_sequence('comments', 'id'), COALESCE((SELECT MAX(id) FROM comments), 1));
       SELECT setval(pg_get_serial_sequence('playlists', 'id'), COALESCE((SELECT MAX(id) FROM playlists), 1));
       SELECT setval(pg_get_serial_sequence('playlist_feedback', 'id'), COALESCE((SELECT MAX(id) FROM playlist_feedback), 1));
+    `);
+
+    const seedPlaylists = await super.listPlaylists(1);
+
+    for (const playlist of seedPlaylists) {
+      await this.pool.query(
+        `
+          INSERT INTO playlists (id, owner_id, title, description)
+          VALUES ($1, $2, $3, $4)
+          ON CONFLICT (id) DO UPDATE
+          SET title = EXCLUDED.title,
+              description = EXCLUDED.description
+        `,
+        [playlist.id, playlist.ownerId, playlist.title, playlist.description],
+      );
+      await this.pool.query(
+        'DELETE FROM playlist_items WHERE playlist_id = $1',
+        [playlist.id],
+      );
+
+      for (const [index, postId] of playlist.postIds.entries()) {
+        const seedPostUrl = seedPostUrls.get(postId);
+
+        if (!seedPostUrl) {
+          continue;
+        }
+
+        await this.pool.query(
+          `
+            INSERT INTO playlist_items (playlist_id, post_id, position)
+            SELECT $1, p.id, $3
+            FROM posts p
+            WHERE p.id = $2 AND p.video_url = $4
+            ON CONFLICT (playlist_id, post_id) DO UPDATE
+            SET position = EXCLUDED.position
+          `,
+          [playlist.id, postId, index + 1, seedPostUrl],
+        );
+      }
+    }
+
+    await this.pool.query(`
+      SELECT setval(pg_get_serial_sequence('playlists', 'id'), COALESCE((SELECT MAX(id) FROM playlists), 1));
     `);
   }
 
@@ -927,11 +1012,17 @@ export class DatabaseService
       ),
       this.pool.query<PlaylistFeedback>(
         `
-          SELECT id, playlist_id AS "playlistId", author_id AS "authorId",
-                 rating, body, created_at AS "createdAt"
-          FROM playlist_feedback
-          WHERE playlist_id = $1
-          ORDER BY created_at DESC
+          SELECT pf.id,
+                 pf.playlist_id AS "playlistId",
+                 pf.author_id AS "authorId",
+                 u.name AS "authorName",
+                 pf.rating,
+                 pf.body,
+                 pf.created_at AS "createdAt"
+          FROM playlist_feedback pf
+          JOIN users u ON u.id = pf.author_id
+          WHERE pf.playlist_id = $1
+          ORDER BY pf.created_at DESC
         `,
         [row.id],
       ),

@@ -62,15 +62,31 @@ describe('StudyBoardService', () => {
     await expect(
       service.updateMe(session.token, {
         name: 'Grace Hopper',
-      } as any),
+      }),
     ).rejects.toBeInstanceOf(UnauthorizedException);
 
     await expect(
       service.updateMe(session.token, {
         currentPassword: 'wrong-pass',
         name: 'Grace Hopper',
-      } as any),
+      }),
     ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('verifies the current password before opening profile editing', async () => {
+    const session = await service.signUp({
+      name: 'Grace',
+      email: 'grace-verify@example.com',
+      password: 'learn-fast',
+    });
+
+    await expect(
+      service.verifyMe(session.token, 'wrong-pass'),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+
+    await expect(
+      service.verifyMe(session.token, 'learn-fast'),
+    ).resolves.toEqual(session.user);
   });
 
   it('updates profile, password, and learning preferences after identity verification', async () => {
@@ -89,7 +105,7 @@ describe('StudyBoardService', () => {
         pace: '하루 20분',
         goal: '출퇴근 시간에 짧게 복습하기',
       },
-    } as any);
+    });
 
     const me = await service.getMe(session.token);
 
@@ -224,6 +240,47 @@ describe('StudyBoardService', () => {
     );
   });
 
+  it('ships diverse real-video seed playlists for the public board', async () => {
+    const posts = await service.listPublicPosts({
+      page: 1,
+      pageSize: 50,
+    });
+    const playlists = await service.listPlaylists();
+    const urls = posts.items.map((post) => post.videoUrl);
+    const tags = new Set(posts.items.flatMap((post) => post.tags));
+
+    expect(urls).toEqual(
+      expect.arrayContaining([
+        'https://www.youtube.com/watch?v=v7AYKMP6rOE',
+        'https://www.youtube.com/watch?v=f2O6mQkFiiw',
+        'https://www.youtube.com/watch?v=rfscVS0vtbw',
+        'https://www.youtube.com/watch?v=PkZNo7MFNFg',
+        'https://www.youtube.com/watch?v=iCvmsMzlF7o',
+        'https://www.youtube.com/watch?v=Ks-_Mh1QhMc',
+        'https://www.youtube.com/watch?v=qp0HIF3SfI4',
+      ]),
+    );
+    expect([...tags]).toEqual(
+      expect.arrayContaining([
+        'yoga',
+        'wellness',
+        'music',
+        'python',
+        'javascript',
+        'psychology',
+        'business',
+      ]),
+    );
+    expect(playlists.map((playlist) => playlist.title)).toEqual(
+      expect.arrayContaining([
+        '랜덤 테크 스타터 팩',
+        '몸과 마음 리셋 루틴',
+        '커뮤니케이션 TED 믹스',
+        '프론트엔드 복습 루트',
+      ]),
+    );
+  });
+
   it('creates a video post and lets users discuss it in comments', async () => {
     const session = await service.demoSession();
     const post = await service.createPost(session.token, {
@@ -320,9 +377,13 @@ describe('StudyBoardService', () => {
       service.deleteComment(linus.token, post.id, authorOwnedComment.id),
     ).resolves.toEqual({ deleted: true });
 
-    const postOwnerModeratedComment = await service.addComment(linus.token, post.id, {
-      body: 'The post owner can moderate this comment.',
-    });
+    const postOwnerModeratedComment = await service.addComment(
+      linus.token,
+      post.id,
+      {
+        body: 'The post owner can moderate this comment.',
+      },
+    );
 
     await expect(
       service.deleteComment(ada.token, post.id, postOwnerModeratedComment.id),
@@ -350,5 +411,48 @@ describe('StudyBoardService', () => {
       playlistId: playlist.id,
       rating: 5,
     });
+  });
+
+  it('attaches discussion comments to the playlist itself', async () => {
+    const ada = await service.signUp({
+      name: 'Ada',
+      email: 'ada-playlist-comments@example.com',
+      password: 'password123',
+    });
+    const linus = await service.signUp({
+      name: 'Linus',
+      email: 'linus-playlist-comments@example.com',
+      password: 'password123',
+    });
+    const playlist = await service.createPlaylist(ada.token, {
+      title: 'TypeScript course',
+      description: 'A course-level discussion target.',
+      postIds: [1, 2, 3, 4],
+    });
+
+    const feedback = await service.addPlaylistFeedback(
+      linus.token,
+      playlist.id,
+      {
+        rating: 5,
+        body: 'This whole playlist order worked well.',
+      },
+    );
+    const [updatedPlaylist] = (await service.listPlaylists()).filter(
+      (candidate) => candidate.id === playlist.id,
+    );
+
+    expect(feedback).toMatchObject({
+      playlistId: playlist.id,
+      authorName: 'Linus',
+      body: 'This whole playlist order worked well.',
+    });
+    expect(updatedPlaylist.feedback).toContainEqual(
+      expect.objectContaining({
+        id: feedback.id,
+        authorName: 'Linus',
+        body: 'This whole playlist order worked well.',
+      }),
+    );
   });
 });

@@ -98,6 +98,17 @@ export class StudyBoardService {
     return session.user;
   }
 
+  async verifyMe(
+    token: string | undefined,
+    currentPassword: string | undefined,
+  ): Promise<User> {
+    const session = await this.requireSession(token);
+
+    await this.requireCurrentPassword(session, currentPassword);
+
+    return session.user;
+  }
+
   async updateMe(
     token: string | undefined,
     input: {
@@ -121,20 +132,7 @@ export class StudyBoardService {
       );
     }
 
-    if (!currentPassword) {
-      throw new UnauthorizedException('Current password is required');
-    }
-
-    const userWithPassword = await this.repository.findUserByEmail(
-      session.user.email,
-    );
-
-    if (
-      !userWithPassword ||
-      userWithPassword.passwordHash !== hashPassword(currentPassword)
-    ) {
-      throw new UnauthorizedException('Current password is invalid');
-    }
+    await this.requireCurrentPassword(session, currentPassword);
 
     if (nextName !== undefined) {
       assertText(nextName, 'name');
@@ -155,6 +153,28 @@ export class StudyBoardService {
     }
 
     return user;
+  }
+
+  private async requireCurrentPassword(
+    session: Session,
+    currentPassword: string | undefined,
+  ) {
+    const trimmedCurrentPassword = currentPassword?.trim();
+
+    if (!trimmedCurrentPassword) {
+      throw new UnauthorizedException('Current password is required');
+    }
+
+    const userWithPassword = await this.repository.findUserByEmail(
+      session.user.email,
+    );
+
+    if (
+      !userWithPassword ||
+      userWithPassword.passwordHash !== hashPassword(trimmedCurrentPassword)
+    ) {
+      throw new UnauthorizedException('Current password is invalid');
+    }
   }
 
   async listPosts(input: {

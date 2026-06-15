@@ -48,6 +48,14 @@ export class StudyBoardController {
     return this.studyBoardService.getMe(authorization);
   }
 
+  @Post('me/verify')
+  verifyMe(
+    @Headers('authorization') authorization: string | undefined,
+    @Body() body: { currentPassword?: string },
+  ) {
+    return this.studyBoardService.verifyMe(authorization, body.currentPassword);
+  }
+
   @Put('me')
   updateMe(
     @Headers('authorization') authorization: string | undefined,

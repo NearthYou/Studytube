@@ -96,6 +96,126 @@ export class MemoryBoardRepository implements BoardRepository {
       updatedAt: nowIso(),
     },
     {
+      id: 101,
+      authorId: 1,
+      authorName: 'Demo Learner',
+      title: 'Yoga For Complete Beginners - 20 Minute Home Yoga Workout!',
+      videoUrl: 'https://www.youtube.com/watch?v=v7AYKMP6rOE',
+      thumbnailUrl: 'https://i.ytimg.com/vi/v7AYKMP6rOE/hqdefault.jpg',
+      channelName: 'Yoga With Adriene',
+      summary:
+        'A gentle beginner yoga routine for stretching, breathing, and resetting the body at home.',
+      translatedNotes:
+        '집에서 따라 하기 좋은 입문 요가 루틴입니다. 호흡, 스트레칭, 기본 자세를 천천히 연결해 몸을 풀 수 있습니다.',
+      tags: ['yoga', 'fitness', 'wellness'],
+      comments: [],
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+    },
+    {
+      id: 102,
+      authorId: 1,
+      authorName: 'Demo Learner',
+      title:
+        'How to practice effectively...for just about anything - Annie Bosler and Don Greene',
+      videoUrl: 'https://www.youtube.com/watch?v=f2O6mQkFiiw',
+      thumbnailUrl: 'https://i.ytimg.com/vi/f2O6mQkFiiw/hqdefault.jpg',
+      channelName: 'TED-Ed',
+      summary:
+        'Explains deliberate practice through music and skill-learning examples that apply across many hobbies.',
+      translatedNotes:
+        '악기 연습과 기술 학습 사례로 의도적 연습의 원리를 설명합니다. 취미, 공부, 운동 루틴에 모두 적용할 수 있습니다.',
+      tags: ['learning', 'music', 'practice'],
+      comments: [],
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+    },
+    {
+      id: 103,
+      authorId: 1,
+      authorName: 'Demo Learner',
+      title: 'Learn Python - Full Course for Beginners [Tutorial]',
+      videoUrl: 'https://www.youtube.com/watch?v=rfscVS0vtbw',
+      thumbnailUrl: 'https://i.ytimg.com/vi/rfscVS0vtbw/hqdefault.jpg',
+      channelName: 'freeCodeCamp.org',
+      summary:
+        'A beginner-friendly Python course covering syntax, functions, control flow, and practical programming basics.',
+      translatedNotes:
+        '파이썬 문법, 함수, 조건문과 반복문, 기초 프로젝트 흐름을 긴 호흡으로 익히는 입문 강의입니다.',
+      tags: ['python', 'programming', 'beginner'],
+      comments: [],
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+    },
+    {
+      id: 104,
+      authorId: 1,
+      authorName: 'Demo Learner',
+      title: 'Learn JavaScript - Full Course for Beginners',
+      videoUrl: 'https://www.youtube.com/watch?v=PkZNo7MFNFg',
+      thumbnailUrl: 'https://i.ytimg.com/vi/PkZNo7MFNFg/hqdefault.jpg',
+      channelName: 'freeCodeCamp.org',
+      summary:
+        'A full JavaScript fundamentals course for variables, functions, objects, arrays, and browser scripting.',
+      translatedNotes:
+        '변수, 함수, 객체, 배열, 브라우저 스크립팅까지 자바스크립트 기초를 한 번에 훑는 강의입니다.',
+      tags: ['javascript', 'programming', 'frontend'],
+      comments: [],
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+    },
+    {
+      id: 105,
+      authorId: 1,
+      authorName: 'Demo Learner',
+      title: 'The Power of Vulnerability | Brené Brown | TED',
+      videoUrl: 'https://www.youtube.com/watch?v=iCvmsMzlF7o',
+      thumbnailUrl: 'https://i.ytimg.com/vi/iCvmsMzlF7o/hqdefault.jpg',
+      channelName: 'TED',
+      summary:
+        'A widely shared talk about vulnerability, connection, courage, and how people build trust.',
+      translatedNotes:
+        '취약성, 용기, 연결감, 신뢰 형성에 대한 TED 강연입니다. 커뮤니케이션과 자기 이해 학습에 좋습니다.',
+      tags: ['psychology', 'communication', 'ted'],
+      comments: [],
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+    },
+    {
+      id: 106,
+      authorId: 1,
+      authorName: 'Demo Learner',
+      title: 'Your Body Language May Shape Who You Are | Amy Cuddy | TED',
+      videoUrl: 'https://www.youtube.com/watch?v=Ks-_Mh1QhMc',
+      thumbnailUrl: 'https://i.ytimg.com/vi/Ks-_Mh1QhMc/hqdefault.jpg',
+      channelName: 'TED',
+      summary:
+        'Explores how posture, presence, and nonverbal cues can affect confidence and communication.',
+      translatedNotes:
+        '자세와 비언어적 표현이 자신감과 소통에 어떤 영향을 주는지 다루는 발표 학습 영상입니다.',
+      tags: ['communication', 'psychology', 'presentation'],
+      comments: [],
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+    },
+    {
+      id: 107,
+      authorId: 1,
+      authorName: 'Demo Learner',
+      title: 'How Great Leaders Inspire Action | Simon Sinek | TED',
+      videoUrl: 'https://www.youtube.com/watch?v=qp0HIF3SfI4',
+      thumbnailUrl: 'https://i.ytimg.com/vi/qp0HIF3SfI4/hqdefault.jpg',
+      channelName: 'TED',
+      summary:
+        'Introduces the golden circle framework for purpose-driven leadership, branding, and decision-making.',
+      translatedNotes:
+        '왜에서 시작하는 골든 서클 프레임워크를 통해 리더십, 브랜딩, 의사결정 방식을 설명합니다.',
+      tags: ['leadership', 'business', 'ted'],
+      comments: [],
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+    },
+    {
       id: 3,
       authorId: 1,
       authorName: 'Demo Learner',
@@ -141,13 +261,53 @@ export class MemoryBoardRepository implements BoardRepository {
       feedback: [],
       createdAt: nowIso(),
     },
+    {
+      id: 2,
+      ownerId: 1,
+      title: '랜덤 테크 스타터 팩',
+      description:
+        '프론트엔드, 파이썬, 백엔드, 데이터베이스를 실제 강의 영상으로 빠르게 훑는 랜덤 테크 믹스입니다.',
+      postIds: [104, 103, 3, 4],
+      feedback: [],
+      createdAt: nowIso(),
+    },
+    {
+      id: 3,
+      ownerId: 1,
+      title: '몸과 마음 리셋 루틴',
+      description:
+        '요가, 연습법, 취약성 강연을 묶어 몸을 풀고 학습 리듬을 다시 잡는 웰니스 플레이리스트입니다.',
+      postIds: [101, 102, 105],
+      feedback: [],
+      createdAt: nowIso(),
+    },
+    {
+      id: 4,
+      ownerId: 1,
+      title: '커뮤니케이션 TED 믹스',
+      description:
+        '발표, 심리, 리더십을 TED 강연으로 이어 보는 커뮤니케이션 중심 랜덤 큐레이션입니다.',
+      postIds: [106, 107, 105],
+      feedback: [],
+      createdAt: nowIso(),
+    },
+    {
+      id: 5,
+      ownerId: 1,
+      title: '프론트엔드 복습 루트',
+      description:
+        'React hooks, React Query, JavaScript 기본기를 한 번에 복습하는 웹 개발 플레이리스트입니다.',
+      postIds: [1, 2, 104],
+      feedback: [],
+      createdAt: nowIso(),
+    },
   ];
 
   protected nextIds = {
     user: 2,
-    post: 5,
+    post: 108,
     comment: 2,
-    playlist: 2,
+    playlist: 6,
     feedback: 1,
   };
 
@@ -515,6 +675,8 @@ export class MemoryBoardRepository implements BoardRepository {
       id: this.nextIds.feedback++,
       playlistId: input.playlistId,
       authorId: input.authorId,
+      authorName:
+        this.users.find((user) => user.id === input.authorId)?.name ?? 'User',
       rating: input.rating,
       body: input.body,
       createdAt: nowIso(),

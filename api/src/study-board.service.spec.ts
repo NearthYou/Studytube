@@ -197,6 +197,25 @@ describe('StudyBoardService', () => {
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
+  it('rejects post updates with more than three tags', async () => {
+    const session = await service.demoSession();
+    const post = await service.createPost(session.token, {
+      title: 'React hooks',
+      videoUrl: 'https://www.youtube.com/watch?v=abc123',
+      thumbnailUrl: 'https://i.ytimg.com/vi/abc123/hqdefault.jpg',
+      channelName: 'StudyTube',
+      summary: '리액트 훅을 설명하는 한글 요약입니다.',
+      translatedNotes: '리액트 훅 복습 포인트입니다.',
+      tags: ['react', 'hooks', 'frontend'],
+    });
+
+    await expect(
+      service.updatePost(session.token, post.id, {
+        tags: ['react', 'hooks', 'frontend', 'javascript'],
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
   it('lets the explore board show public video cards across accounts', async () => {
     const ada = await service.signUp({
       name: 'Ada',
@@ -248,6 +267,10 @@ describe('StudyBoardService', () => {
     const playlists = await service.listPlaylists();
     const urls = posts.items.map((post) => post.videoUrl);
     const tags = new Set(posts.items.flatMap((post) => post.tags));
+    const authorIds = new Set(posts.items.map((post) => post.authorId));
+    const playlistOwnerIds = new Set(
+      playlists.map((playlist) => playlist.ownerId),
+    );
 
     expect(urls).toEqual(
       expect.arrayContaining([
@@ -258,6 +281,11 @@ describe('StudyBoardService', () => {
         'https://www.youtube.com/watch?v=iCvmsMzlF7o',
         'https://www.youtube.com/watch?v=Ks-_Mh1QhMc',
         'https://www.youtube.com/watch?v=qp0HIF3SfI4',
+        'https://www.youtube.com/watch?v=fqMOX6JJhGo',
+        'https://www.youtube.com/watch?v=RGOj5yH7evk',
+        'https://www.youtube.com/watch?v=arj7oStGLkU',
+        'https://www.youtube.com/watch?v=fLJsdqxnZb0',
+        'https://www.youtube.com/watch?v=d0yGdNEWdn0',
       ]),
     );
     expect([...tags]).toEqual(
@@ -269,6 +297,10 @@ describe('StudyBoardService', () => {
         'javascript',
         'psychology',
         'business',
+        'docker',
+        'git',
+        'productivity',
+        'language',
       ]),
     );
     expect(playlists.map((playlist) => playlist.title)).toEqual(
@@ -277,7 +309,20 @@ describe('StudyBoardService', () => {
         '몸과 마음 리셋 루틴',
         '커뮤니케이션 TED 믹스',
         '프론트엔드 복습 루트',
+        'DevOps 입문 트랙',
+        'SQL 데이터 분석 스타터',
+        '언어 학습 가속 루트',
+        '집중력 회복 TED 루트',
+        'CS 기초 넓게 보기',
       ]),
+    );
+    expect(posts.total).toBeGreaterThanOrEqual(20);
+    expect(playlists.length).toBeGreaterThanOrEqual(10);
+    expect(authorIds.size).toBeGreaterThanOrEqual(6);
+    expect(playlistOwnerIds.size).toBeGreaterThanOrEqual(6);
+    expect(playlistOwnerIds.has(1)).toBe(false);
+    expect(playlists.every((playlist) => playlist.postIds.length >= 2)).toBe(
+      true,
     );
   });
 
@@ -411,6 +456,67 @@ describe('StudyBoardService', () => {
       playlistId: playlist.id,
       rating: 5,
     });
+  });
+
+  it('lets playlist owners update and delete board playlist posts', async () => {
+    const session = await service.demoSession();
+    const playlist = await service.createPlaylist(session.token, {
+      title: 'React recap',
+      description: 'A compact review list.',
+      postIds: [1, 2],
+    });
+
+    const updated = await service.updatePlaylist(session.token, playlist.id, {
+      title: 'React board course',
+      description: 'A refreshed playlist post for the board.',
+      postIds: [2, 1, 2],
+    });
+
+    expect(updated).toMatchObject({
+      id: playlist.id,
+      ownerId: session.user.id,
+      title: 'React board course',
+      description: 'A refreshed playlist post for the board.',
+      postIds: [2, 1],
+    });
+
+    await expect(
+      service.deletePlaylist(session.token, playlist.id),
+    ).resolves.toEqual({ deleted: true });
+
+    await expect(
+      service.updatePlaylist(session.token, playlist.id, {
+        title: 'Deleted course',
+      }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('hides playlist management actions from other accounts', async () => {
+    const owner = await service.signUp({
+      name: 'Ada',
+      email: 'ada-playlist-owner@example.com',
+      password: 'learn-fast',
+    });
+    const other = await service.signUp({
+      name: 'Linus',
+      email: 'linus-playlist-owner@example.com',
+      password: 'learn-fast',
+    });
+    const playlist = await service.createPlaylist(owner.token, {
+      title: 'Owner only playlist',
+      description: 'A board playlist post only Ada can manage.',
+      postIds: [1, 2],
+    });
+
+    await expect(
+      service.updatePlaylist(other.token, playlist.id, {
+        title: 'Cross account edit',
+      }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+
+    await expect(
+      service.deletePlaylist(other.token, playlist.id),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it('attaches discussion comments to the playlist itself', async () => {

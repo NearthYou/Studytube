@@ -193,6 +193,32 @@ export class StudyBoardController {
     return this.studyBoardService.createPlaylist(authorization, body);
   }
 
+  @Put('playlists/:id')
+  updatePlaylist(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+    @Body()
+    body: {
+      title?: string;
+      description?: string;
+      postIds?: number[];
+    },
+  ) {
+    return this.studyBoardService.updatePlaylist(
+      authorization,
+      Number(id),
+      body,
+    );
+  }
+
+  @Delete('playlists/:id')
+  deletePlaylist(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+  ) {
+    return this.studyBoardService.deletePlaylist(authorization, Number(id));
+  }
+
   @Post('playlists/:id/items')
   addPlaylistItem(
     @Headers('authorization') authorization: string | undefined,

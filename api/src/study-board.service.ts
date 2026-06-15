@@ -10,6 +10,7 @@ import {
   assertPassword,
   assertPostInput,
   assertText,
+  assertVideoTags,
   createSessionToken,
   hashPassword,
   normalizeBearerToken,
@@ -26,6 +27,7 @@ import type {
   PlaylistFeedback,
   Session,
   StudyPost,
+  UpdatePlaylistInput,
   UpdatePostInput,
   User,
 } from './study-board.types';
@@ -242,6 +244,7 @@ export class StudyBoardService {
   ): Promise<StudyPost> {
     const session = await this.requireSession(token);
     await this.requireOwnedPost(id, session.user.id);
+    assertVideoTags(input.tags);
 
     const post = await this.repository.updatePost(id, input);
 
@@ -336,6 +339,56 @@ export class StudyBoardService {
     });
   }
 
+  async updatePlaylist(
+    token: string | undefined,
+    id: number,
+    input: UpdatePlaylistInput,
+  ): Promise<Playlist> {
+    const session = await this.requireSession(token);
+    await this.requireOwnedPlaylist(id, session.user.id);
+
+    const title = input.title !== undefined ? input.title.trim() : undefined;
+    const description =
+      input.description !== undefined ? input.description.trim() : undefined;
+    const hasPostIds = input.postIds !== undefined;
+
+    if (title === undefined && description === undefined && !hasPostIds) {
+      throw new BadRequestException(
+        'title, description, or postIds is required',
+      );
+    }
+
+    if (title !== undefined) {
+      assertText(title, 'title');
+    }
+
+    const playlist = await this.repository.updatePlaylist(id, {
+      title,
+      description,
+      postIds: hasPostIds ? input.postIds : undefined,
+    });
+
+    if (!playlist) {
+      throw new NotFoundException('Playlist not found');
+    }
+
+    return playlist;
+  }
+
+  async deletePlaylist(
+    token: string | undefined,
+    id: number,
+  ): Promise<{
+    deleted: boolean;
+  }> {
+    const session = await this.requireSession(token);
+    await this.requireOwnedPlaylist(id, session.user.id);
+
+    return {
+      deleted: await this.repository.deletePlaylist(id),
+    };
+  }
+
   async addPlaylistItem(
     token: string | undefined,
     playlistId: number,
@@ -400,6 +453,21 @@ export class StudyBoardService {
     }
 
     return post;
+  }
+
+  private async requireOwnedPlaylist(
+    playlistId: number,
+    userId: number,
+  ): Promise<Playlist> {
+    const playlist = (await this.repository.listPlaylists(userId)).find(
+      (candidate) => candidate.id === playlistId,
+    );
+
+    if (!playlist) {
+      throw new NotFoundException('Playlist not found');
+    }
+
+    return playlist;
   }
 
   private async requirePost(postId: number): Promise<StudyPost> {

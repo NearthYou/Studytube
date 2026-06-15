@@ -9,6 +9,7 @@ import {
   PlaylistFeedback,
   Session,
   StudyPost,
+  UpdatePlaylistInput,
   UpdatePostInput,
   User,
 } from './study-board.types';
@@ -45,6 +46,90 @@ export class MemoryBoardRepository implements BoardRepository {
       email: 'demo@studytube.local',
       passwordHash: demoPasswordHash,
       preferences: defaultPreferences(),
+      createdAt: nowIso(),
+    },
+    {
+      id: 2,
+      name: 'Tech Curator',
+      email: 'tech-curator@studytube.local',
+      passwordHash: demoPasswordHash,
+      preferences: {
+        interests: ['백엔드', '프론트엔드', '데이터베이스'],
+        pace: '하루 30분',
+        goal: '실제 강의 영상으로 개발 기본기를 빠르게 훑기',
+      },
+      createdAt: nowIso(),
+    },
+    {
+      id: 3,
+      name: 'Wellness Curator',
+      email: 'wellness-curator@studytube.local',
+      passwordHash: demoPasswordHash,
+      preferences: {
+        interests: ['웰니스', '습관', '학습 루틴'],
+        pace: '하루 15분',
+        goal: '짧은 영상으로 몸과 마음의 리듬 회복하기',
+      },
+      createdAt: nowIso(),
+    },
+    {
+      id: 4,
+      name: 'Communication Curator',
+      email: 'communication-curator@studytube.local',
+      passwordHash: demoPasswordHash,
+      preferences: {
+        interests: ['커뮤니케이션', '리더십', '심리'],
+        pace: '주 3회',
+        goal: 'TED 강연으로 말하기와 설득 감각 키우기',
+      },
+      createdAt: nowIso(),
+    },
+    {
+      id: 5,
+      name: 'DevOps Curator',
+      email: 'devops-curator@studytube.local',
+      passwordHash: demoPasswordHash,
+      preferences: {
+        interests: ['devops', 'git', 'docker'],
+        pace: '주 4회',
+        goal: '배포와 협업 도구를 실습 흐름으로 익히기',
+      },
+      createdAt: nowIso(),
+    },
+    {
+      id: 6,
+      name: 'Data Curator',
+      email: 'data-curator@studytube.local',
+      passwordHash: demoPasswordHash,
+      preferences: {
+        interests: ['데이터', 'SQL', '머신러닝'],
+        pace: '하루 25분',
+        goal: '데이터 분석과 머신러닝 입문 개념 연결하기',
+      },
+      createdAt: nowIso(),
+    },
+    {
+      id: 7,
+      name: 'Language Curator',
+      email: 'language-curator@studytube.local',
+      passwordHash: demoPasswordHash,
+      preferences: {
+        interests: ['언어 학습', '영어', '학습법'],
+        pace: '매일 10분',
+        goal: '언어 학습 원리를 짧은 강연으로 복습하기',
+      },
+      createdAt: nowIso(),
+    },
+    {
+      id: 8,
+      name: 'Focus Curator',
+      email: 'focus-curator@studytube.local',
+      passwordHash: demoPasswordHash,
+      preferences: {
+        interests: ['집중력', '생산성', '습관'],
+        pace: '주 3회',
+        goal: '시간 관리와 일하는 태도를 TED 강연으로 정리하기',
+      },
       createdAt: nowIso(),
     },
   ];
@@ -97,8 +182,8 @@ export class MemoryBoardRepository implements BoardRepository {
     },
     {
       id: 101,
-      authorId: 1,
-      authorName: 'Demo Learner',
+      authorId: 3,
+      authorName: 'Wellness Curator',
       title: 'Yoga For Complete Beginners - 20 Minute Home Yoga Workout!',
       videoUrl: 'https://www.youtube.com/watch?v=v7AYKMP6rOE',
       thumbnailUrl: 'https://i.ytimg.com/vi/v7AYKMP6rOE/hqdefault.jpg',
@@ -114,8 +199,8 @@ export class MemoryBoardRepository implements BoardRepository {
     },
     {
       id: 102,
-      authorId: 1,
-      authorName: 'Demo Learner',
+      authorId: 3,
+      authorName: 'Wellness Curator',
       title:
         'How to practice effectively...for just about anything - Annie Bosler and Don Greene',
       videoUrl: 'https://www.youtube.com/watch?v=f2O6mQkFiiw',
@@ -132,8 +217,8 @@ export class MemoryBoardRepository implements BoardRepository {
     },
     {
       id: 103,
-      authorId: 1,
-      authorName: 'Demo Learner',
+      authorId: 2,
+      authorName: 'Tech Curator',
       title: 'Learn Python - Full Course for Beginners [Tutorial]',
       videoUrl: 'https://www.youtube.com/watch?v=rfscVS0vtbw',
       thumbnailUrl: 'https://i.ytimg.com/vi/rfscVS0vtbw/hqdefault.jpg',
@@ -149,8 +234,8 @@ export class MemoryBoardRepository implements BoardRepository {
     },
     {
       id: 104,
-      authorId: 1,
-      authorName: 'Demo Learner',
+      authorId: 2,
+      authorName: 'Tech Curator',
       title: 'Learn JavaScript - Full Course for Beginners',
       videoUrl: 'https://www.youtube.com/watch?v=PkZNo7MFNFg',
       thumbnailUrl: 'https://i.ytimg.com/vi/PkZNo7MFNFg/hqdefault.jpg',
@@ -166,8 +251,8 @@ export class MemoryBoardRepository implements BoardRepository {
     },
     {
       id: 105,
-      authorId: 1,
-      authorName: 'Demo Learner',
+      authorId: 4,
+      authorName: 'Communication Curator',
       title: 'The Power of Vulnerability | Brené Brown | TED',
       videoUrl: 'https://www.youtube.com/watch?v=iCvmsMzlF7o',
       thumbnailUrl: 'https://i.ytimg.com/vi/iCvmsMzlF7o/hqdefault.jpg',
@@ -183,8 +268,8 @@ export class MemoryBoardRepository implements BoardRepository {
     },
     {
       id: 106,
-      authorId: 1,
-      authorName: 'Demo Learner',
+      authorId: 4,
+      authorName: 'Communication Curator',
       title: 'Your Body Language May Shape Who You Are | Amy Cuddy | TED',
       videoUrl: 'https://www.youtube.com/watch?v=Ks-_Mh1QhMc',
       thumbnailUrl: 'https://i.ytimg.com/vi/Ks-_Mh1QhMc/hqdefault.jpg',
@@ -200,8 +285,8 @@ export class MemoryBoardRepository implements BoardRepository {
     },
     {
       id: 107,
-      authorId: 1,
-      authorName: 'Demo Learner',
+      authorId: 4,
+      authorName: 'Communication Curator',
       title: 'How Great Leaders Inspire Action | Simon Sinek | TED',
       videoUrl: 'https://www.youtube.com/watch?v=qp0HIF3SfI4',
       thumbnailUrl: 'https://i.ytimg.com/vi/qp0HIF3SfI4/hqdefault.jpg',
@@ -217,8 +302,8 @@ export class MemoryBoardRepository implements BoardRepository {
     },
     {
       id: 3,
-      authorId: 1,
-      authorName: 'Demo Learner',
+      authorId: 2,
+      authorName: 'Tech Curator',
       title: 'FastAPI Full Course',
       videoUrl: 'https://www.youtube.com/watch?v=7t2alSnE2-I',
       thumbnailUrl: 'https://i.ytimg.com/vi/7t2alSnE2-I/hqdefault.jpg',
@@ -234,8 +319,8 @@ export class MemoryBoardRepository implements BoardRepository {
     },
     {
       id: 4,
-      authorId: 1,
-      authorName: 'Demo Learner',
+      authorId: 2,
+      authorName: 'Tech Curator',
       title: 'PostgreSQL Tutorial for Beginners',
       videoUrl: 'https://www.youtube.com/watch?v=qw--VYLpxG4',
       thumbnailUrl: 'https://i.ytimg.com/vi/qw--VYLpxG4/hqdefault.jpg',
@@ -249,12 +334,286 @@ export class MemoryBoardRepository implements BoardRepository {
       createdAt: nowIso(),
       updatedAt: nowIso(),
     },
+    {
+      id: 201,
+      authorId: 5,
+      authorName: 'DevOps Curator',
+      title:
+        'Docker Tutorial for Beginners - A Full DevOps Course on How to Run Applications in Containers',
+      videoUrl: 'https://www.youtube.com/watch?v=fqMOX6JJhGo',
+      thumbnailUrl: 'https://i.ytimg.com/vi/fqMOX6JJhGo/hqdefault.jpg',
+      channelName: 'freeCodeCamp.org',
+      summary:
+        'A practical Docker course covering images, containers, ports, volumes, Docker Compose, and deployment workflows.',
+      translatedNotes:
+        '이미지, 컨테이너, 포트, 볼륨, Docker Compose와 배포 흐름을 실습 중심으로 익히는 DevOps 입문 강의입니다.',
+      tags: ['docker', 'devops', 'backend'],
+      comments: [],
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+    },
+    {
+      id: 202,
+      authorId: 5,
+      authorName: 'DevOps Curator',
+      title: 'Git and GitHub for Beginners - Crash Course',
+      videoUrl: 'https://www.youtube.com/watch?v=RGOj5yH7evk',
+      thumbnailUrl: 'https://i.ytimg.com/vi/RGOj5yH7evk/hqdefault.jpg',
+      channelName: 'freeCodeCamp.org',
+      summary:
+        'Introduces Git commits, branches, pull requests, remotes, and GitHub collaboration for new developers.',
+      translatedNotes:
+        '커밋, 브랜치, 원격 저장소, 풀 리퀘스트를 따라 하며 Git과 GitHub 협업 흐름을 익히는 입문 강의입니다.',
+      tags: ['git', 'github', 'devops'],
+      comments: [],
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+    },
+    {
+      id: 203,
+      authorId: 6,
+      authorName: 'Data Curator',
+      title: 'SQL Tutorial - Full Database Course for Beginners',
+      videoUrl: 'https://www.youtube.com/watch?v=HXV3zeQKqGY',
+      thumbnailUrl: 'https://i.ytimg.com/vi/HXV3zeQKqGY/hqdefault.jpg',
+      channelName: 'freeCodeCamp.org',
+      summary:
+        'A full SQL course covering tables, select queries, filtering, joins, grouping, and database design basics.',
+      translatedNotes:
+        '테이블, SELECT, 필터링, 조인, 그룹화, 데이터베이스 설계 기초를 한 번에 정리하는 SQL 입문 강의입니다.',
+      tags: ['sql', 'database', 'data'],
+      comments: [],
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+    },
+    {
+      id: 204,
+      authorId: 6,
+      authorName: 'Data Curator',
+      title: 'Machine Learning for Everybody - Full Course',
+      videoUrl: 'https://www.youtube.com/watch?v=i_LwzRVP7bg',
+      thumbnailUrl: 'https://i.ytimg.com/vi/i_LwzRVP7bg/hqdefault.jpg',
+      channelName: 'freeCodeCamp.org',
+      summary:
+        'Explains machine learning concepts, model training, evaluation, and common algorithms for beginners.',
+      translatedNotes:
+        '머신러닝의 기본 개념, 모델 학습과 평가, 대표 알고리즘을 입문자 관점에서 차근차근 설명합니다.',
+      tags: ['machine-learning', 'data', 'python'],
+      comments: [],
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+    },
+    {
+      id: 205,
+      authorId: 6,
+      authorName: 'Data Curator',
+      title: 'The beauty of data visualization - David McCandless',
+      videoUrl: 'https://www.youtube.com/watch?v=5Zg-C8AAIGg',
+      thumbnailUrl: 'https://i.ytimg.com/vi/5Zg-C8AAIGg/hqdefault.jpg',
+      channelName: 'TED',
+      summary:
+        'Shows how visual patterns can reveal hidden relationships and make complex data easier to understand.',
+      translatedNotes:
+        '복잡한 데이터 속 관계를 시각 패턴으로 드러내고, 데이터 시각화가 이해를 어떻게 돕는지 보여주는 강연입니다.',
+      tags: ['data', 'visualization', 'ted'],
+      comments: [],
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+    },
+    {
+      id: 206,
+      authorId: 7,
+      authorName: 'Language Curator',
+      title: 'How to learn any language in six months | Chris Lonsdale',
+      videoUrl: 'https://www.youtube.com/watch?v=d0yGdNEWdn0',
+      thumbnailUrl: 'https://i.ytimg.com/vi/d0yGdNEWdn0/hqdefault.jpg',
+      channelName: 'TEDx Talks',
+      summary:
+        'Presents practical principles for accelerating language learning through context, listening, and useful phrases.',
+      translatedNotes:
+        '맥락, 듣기, 자주 쓰는 표현 중심으로 언어 학습 속도를 높이는 원칙을 정리한 TEDx 강연입니다.',
+      tags: ['language', 'learning', 'tedx'],
+      comments: [],
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+    },
+    {
+      id: 207,
+      authorId: 7,
+      authorName: 'Language Curator',
+      title: 'The secrets of learning a new language | Lýdia Machová',
+      videoUrl: 'https://www.youtube.com/watch?v=o_XVt5rdpFY',
+      thumbnailUrl: 'https://i.ytimg.com/vi/o_XVt5rdpFY/hqdefault.jpg',
+      channelName: 'TED',
+      summary:
+        'Explains how polyglots build enjoyable systems, repeat consistently, and design language habits that last.',
+      translatedNotes:
+        '다국어 학습자들이 즐거운 시스템, 꾸준한 반복, 지속 가능한 습관으로 언어를 익히는 방식을 소개합니다.',
+      tags: ['language', 'learning', 'ted'],
+      comments: [],
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+    },
+    {
+      id: 208,
+      authorId: 8,
+      authorName: 'Focus Curator',
+      title: 'Inside the Mind of a Master Procrastinator | Tim Urban | TED',
+      videoUrl: 'https://www.youtube.com/watch?v=arj7oStGLkU',
+      thumbnailUrl: 'https://i.ytimg.com/vi/arj7oStGLkU/hqdefault.jpg',
+      channelName: 'TED',
+      summary:
+        'Uses humor and simple metaphors to explain procrastination, deadlines, panic, and long-term self-management.',
+      translatedNotes:
+        '미루기의 심리, 마감의 압박, 장기 목표 관리 문제를 유머와 비유로 풀어내는 생산성 강연입니다.',
+      tags: ['productivity', 'habits', 'ted'],
+      comments: [],
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+    },
+    {
+      id: 209,
+      authorId: 8,
+      authorName: 'Focus Curator',
+      title: 'The happy secret to better work | Shawn Achor',
+      videoUrl: 'https://www.youtube.com/watch?v=fLJsdqxnZb0',
+      thumbnailUrl: 'https://i.ytimg.com/vi/fLJsdqxnZb0/hqdefault.jpg',
+      channelName: 'TED',
+      summary:
+        'Connects happiness, mindset, and performance to show how positive habits can improve the way people work.',
+      translatedNotes:
+        '행복, 사고방식, 성과의 관계를 설명하며 긍정적인 습관이 일하는 방식에 주는 영향을 정리합니다.',
+      tags: ['productivity', 'work', 'ted'],
+      comments: [],
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+    },
+    {
+      id: 210,
+      authorId: 4,
+      authorName: 'Communication Curator',
+      title: 'How to Speak So That People Want to Listen | Julian Treasure',
+      videoUrl: 'https://www.youtube.com/watch?v=eIho2S0ZahI',
+      thumbnailUrl: 'https://i.ytimg.com/vi/eIho2S0ZahI/hqdefault.jpg',
+      channelName: 'TED',
+      summary:
+        'Breaks down speaking habits, vocal tools, and listening cues that help people communicate with more impact.',
+      translatedNotes:
+        '말하기 습관, 목소리 도구, 듣는 사람이 집중하게 만드는 표현 방식을 정리한 커뮤니케이션 강연입니다.',
+      tags: ['communication', 'speaking', 'ted'],
+      comments: [],
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+    },
+    {
+      id: 211,
+      authorId: 5,
+      authorName: 'DevOps Curator',
+      title: 'Kubernetes Tutorial for Beginners [FULL COURSE in 4 Hours]',
+      videoUrl: 'https://www.youtube.com/watch?v=X48VuDVv0do',
+      thumbnailUrl: 'https://i.ytimg.com/vi/X48VuDVv0do/hqdefault.jpg',
+      channelName: 'TechWorld with Nana',
+      summary:
+        'Introduces Kubernetes concepts, pods, services, deployments, config maps, and cluster workflow basics.',
+      translatedNotes:
+        'Pod, Service, Deployment, ConfigMap과 클러스터 운영 흐름을 입문자 눈높이에서 설명하는 Kubernetes 강의입니다.',
+      tags: ['kubernetes', 'devops', 'backend'],
+      comments: [],
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+    },
+    {
+      id: 212,
+      authorId: 2,
+      authorName: 'Tech Curator',
+      title:
+        'TypeScript Course for Beginners 2021 - Learn TypeScript from Scratch!',
+      videoUrl: 'https://www.youtube.com/watch?v=BwuLxPH8IDs',
+      thumbnailUrl: 'https://i.ytimg.com/vi/BwuLxPH8IDs/hqdefault.jpg',
+      channelName: 'Academind',
+      summary:
+        'Covers TypeScript types, interfaces, classes, generics, compiler settings, and safer JavaScript workflows.',
+      translatedNotes:
+        '타입, 인터페이스, 클래스, 제네릭, 컴파일 설정을 통해 JavaScript를 더 안전하게 작성하는 방법을 배웁니다.',
+      tags: ['typescript', 'frontend', 'programming'],
+      comments: [],
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+    },
+    {
+      id: 213,
+      authorId: 2,
+      authorName: 'Tech Curator',
+      title: 'Next.js 13 Full Course 2023 | Build and Deploy a Full Stack App',
+      videoUrl: 'https://www.youtube.com/watch?v=wm5gMKuwSYk',
+      thumbnailUrl: 'https://i.ytimg.com/vi/wm5gMKuwSYk/hqdefault.jpg',
+      channelName: 'JavaScript Mastery',
+      summary:
+        'Builds a modern Next.js app while covering routing, server components, data fetching, and deployment.',
+      translatedNotes:
+        '라우팅, 서버 컴포넌트, 데이터 패칭, 배포까지 이어지는 Next.js 기반 풀스택 앱 제작 흐름을 익힙니다.',
+      tags: ['nextjs', 'frontend', 'react'],
+      comments: [],
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+    },
+    {
+      id: 214,
+      authorId: 3,
+      authorName: 'Wellness Curator',
+      title: '10-Minute Meditation For Anxiety',
+      videoUrl: 'https://www.youtube.com/watch?v=O-6f5wQXSu8',
+      thumbnailUrl: 'https://i.ytimg.com/vi/O-6f5wQXSu8/hqdefault.jpg',
+      channelName: 'Goodful',
+      summary:
+        'A short guided meditation for calming anxiety, returning to the breath, and resetting attention.',
+      translatedNotes:
+        '불안을 가라앉히고 호흡으로 돌아오며 주의를 다시 정돈하는 짧은 가이드 명상 영상입니다.',
+      tags: ['meditation', 'wellness', 'focus'],
+      comments: [],
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+    },
+    {
+      id: 215,
+      authorId: 3,
+      authorName: 'Wellness Curator',
+      title: 'The science of sleep and the effects of sleep deprivation',
+      videoUrl: 'https://www.youtube.com/watch?v=gedoSfZvBgE',
+      thumbnailUrl: 'https://i.ytimg.com/vi/gedoSfZvBgE/hqdefault.jpg',
+      channelName: 'TED-Ed',
+      summary:
+        'Explains sleep cycles, memory, health effects, and why sleep deprivation harms learning and attention.',
+      translatedNotes:
+        '수면 주기, 기억, 건강 영향, 수면 부족이 학습과 집중에 미치는 영향을 설명하는 TED-Ed 영상입니다.',
+      tags: ['sleep', 'wellness', 'learning'],
+      comments: [],
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+    },
+    {
+      id: 216,
+      authorId: 6,
+      authorName: 'Data Curator',
+      title: 'Statistics - A Full University Course on Data Science Basics',
+      videoUrl: 'https://www.youtube.com/watch?v=xxpc-HPKN28',
+      thumbnailUrl: 'https://i.ytimg.com/vi/xxpc-HPKN28/hqdefault.jpg',
+      channelName: 'freeCodeCamp.org',
+      summary:
+        'A statistics course covering distributions, probability, inference, regression, and data science foundations.',
+      translatedNotes:
+        '분포, 확률, 추론, 회귀와 데이터 과학 기초를 연결해 배우는 통계 입문 강의입니다.',
+      tags: ['statistics', 'data', 'math'],
+      comments: [],
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+    },
   ];
 
   protected playlists: Playlist[] = [
     {
       id: 1,
-      ownerId: 1,
+      ownerId: 2,
       title: 'React 기초 복습 루트',
       description: 'React 훅과 서버 상태 관리를 차례대로 복습합니다.',
       postIds: [1, 2],
@@ -263,7 +622,7 @@ export class MemoryBoardRepository implements BoardRepository {
     },
     {
       id: 2,
-      ownerId: 1,
+      ownerId: 2,
       title: '랜덤 테크 스타터 팩',
       description:
         '프론트엔드, 파이썬, 백엔드, 데이터베이스를 실제 강의 영상으로 빠르게 훑는 랜덤 테크 믹스입니다.',
@@ -273,7 +632,7 @@ export class MemoryBoardRepository implements BoardRepository {
     },
     {
       id: 3,
-      ownerId: 1,
+      ownerId: 3,
       title: '몸과 마음 리셋 루틴',
       description:
         '요가, 연습법, 취약성 강연을 묶어 몸을 풀고 학습 리듬을 다시 잡는 웰니스 플레이리스트입니다.',
@@ -283,7 +642,7 @@ export class MemoryBoardRepository implements BoardRepository {
     },
     {
       id: 4,
-      ownerId: 1,
+      ownerId: 4,
       title: '커뮤니케이션 TED 믹스',
       description:
         '발표, 심리, 리더십을 TED 강연으로 이어 보는 커뮤니케이션 중심 랜덤 큐레이션입니다.',
@@ -293,7 +652,7 @@ export class MemoryBoardRepository implements BoardRepository {
     },
     {
       id: 5,
-      ownerId: 1,
+      ownerId: 2,
       title: '프론트엔드 복습 루트',
       description:
         'React hooks, React Query, JavaScript 기본기를 한 번에 복습하는 웹 개발 플레이리스트입니다.',
@@ -301,13 +660,83 @@ export class MemoryBoardRepository implements BoardRepository {
       feedback: [],
       createdAt: nowIso(),
     },
+    {
+      id: 6,
+      ownerId: 5,
+      title: 'DevOps 입문 트랙',
+      description:
+        'Git 협업에서 Docker, Kubernetes까지 배포 흐름을 차례대로 훑는 운영 입문 플레이리스트입니다.',
+      postIds: [202, 201, 211],
+      feedback: [],
+      createdAt: nowIso(),
+    },
+    {
+      id: 7,
+      ownerId: 6,
+      title: 'SQL 데이터 분석 스타터',
+      description:
+        'SQL, 통계, 데이터 시각화, 머신러닝을 이어 보며 데이터 분석 기본 감각을 만드는 루트입니다.',
+      postIds: [203, 216, 205, 204],
+      feedback: [],
+      createdAt: nowIso(),
+    },
+    {
+      id: 8,
+      ownerId: 7,
+      title: '언어 학습 가속 루트',
+      description:
+        '언어를 빠르게 배우는 원리와 꾸준한 학습 시스템을 강연으로 복습하는 플레이리스트입니다.',
+      postIds: [206, 207, 102],
+      feedback: [],
+      createdAt: nowIso(),
+    },
+    {
+      id: 9,
+      ownerId: 8,
+      title: '집중력 회복 TED 루트',
+      description:
+        '미루기, 행복, 명상, 수면을 묶어 집중력과 학습 컨디션을 다시 잡는 TED 중심 루트입니다.',
+      postIds: [208, 209, 214, 215],
+      feedback: [],
+      createdAt: nowIso(),
+    },
+    {
+      id: 10,
+      ownerId: 6,
+      title: 'CS 기초 넓게 보기',
+      description:
+        'JavaScript, TypeScript, SQL, 머신러닝을 넓게 훑으며 개발 학습의 기본 지도를 만드는 코스입니다.',
+      postIds: [104, 212, 203, 204],
+      feedback: [],
+      createdAt: nowIso(),
+    },
+    {
+      id: 11,
+      ownerId: 4,
+      title: '말하기와 설득 연습',
+      description:
+        '목소리, 몸짓, 리더십 강연을 연결해 발표와 설득의 기본기를 복습하는 커뮤니케이션 코스입니다.',
+      postIds: [210, 106, 107],
+      feedback: [],
+      createdAt: nowIso(),
+    },
+    {
+      id: 12,
+      ownerId: 2,
+      title: '모던 웹 풀스택 루트',
+      description:
+        'React, TypeScript, Next.js, Git 협업을 묶어 프론트엔드에서 풀스택 배포까지 이어 보는 루트입니다.',
+      postIds: [1, 212, 213, 202],
+      feedback: [],
+      createdAt: nowIso(),
+    },
   ];
 
   protected nextIds = {
-    user: 2,
-    post: 108,
+    user: 9,
+    post: 217,
     comment: 2,
-    playlist: 6,
+    playlist: 13,
     feedback: 1,
   };
 
@@ -631,6 +1060,46 @@ export class MemoryBoardRepository implements BoardRepository {
     await this.persistState();
 
     return this.clonePlaylist(playlist);
+  }
+
+  async updatePlaylist(
+    id: number,
+    input: UpdatePlaylistInput,
+  ): Promise<Playlist | null> {
+    await this.idle();
+
+    const index = this.playlists.findIndex((playlist) => playlist.id === id);
+
+    if (index === -1) {
+      return null;
+    }
+
+    const current = this.playlists[index];
+    const next: Playlist = {
+      ...current,
+      title: input.title ?? current.title,
+      description: input.description ?? current.description,
+      postIds:
+        input.postIds !== undefined
+          ? [...new Set(input.postIds)]
+          : current.postIds,
+    };
+    this.playlists[index] = next;
+    await this.persistState();
+
+    return this.clonePlaylist(next);
+  }
+
+  async deletePlaylist(id: number): Promise<boolean> {
+    await this.idle();
+
+    const before = this.playlists.length;
+    this.playlists = this.playlists.filter((playlist) => playlist.id !== id);
+    if (this.playlists.length !== before) {
+      await this.persistState();
+    }
+
+    return this.playlists.length !== before;
   }
 
   async addPlaylistItem(

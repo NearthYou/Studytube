@@ -82,6 +82,12 @@ export type CreatePostInput = {
 
 export type UpdatePostInput = Partial<Omit<CreatePostInput, 'authorId'>>;
 
+export type UpdatePlaylistInput = {
+  title?: string;
+  description?: string;
+  postIds?: number[];
+};
+
 export type BoardRepository = {
   createUser(input: {
     name: string;
@@ -124,6 +130,11 @@ export type BoardRepository = {
     description: string;
     postIds: number[];
   }): Promise<Playlist>;
+  updatePlaylist(
+    id: number,
+    input: UpdatePlaylistInput,
+  ): Promise<Playlist | null>;
+  deletePlaylist(id: number): Promise<boolean>;
   addPlaylistItem(playlistId: number, postId: number): Promise<Playlist | null>;
   addPlaylistFeedback(input: {
     playlistId: number;

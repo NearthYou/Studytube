@@ -23,7 +23,6 @@ import {
   MemoryBoardRepository,
   type MemoryBoardState,
 } from './memory-board.repository';
-import { hashPassword } from './study-board.policy';
 import {
   Comment,
   CreatePostInput,
@@ -33,6 +32,7 @@ import {
   PlaylistFeedback,
   Session,
   StudyPost,
+  UpdatePlaylistInput,
   UpdatePostInput,
   User,
 } from './study-board.types';
@@ -634,6 +634,96 @@ export class DatabaseService
     }
   }
 
+  override async updatePlaylist(
+    id: number,
+    input: UpdatePlaylistInput,
+  ): Promise<Playlist | null> {
+    if (!this.databaseAvailable) {
+      return super.updatePlaylist(id, input);
+    }
+
+    const current = (await this.listPlaylists()).find(
+      (playlist) => playlist.id === id,
+    );
+
+    if (!current) {
+      return null;
+    }
+
+    const client = await this.pool.connect();
+
+    try {
+      await client.query('BEGIN');
+      const result = await client.query<{
+        id: number;
+        ownerId: number;
+        title: string;
+        description: string;
+        createdAt: Date | string;
+      }>(
+        `
+          UPDATE playlists
+          SET title = $2,
+              description = $3
+          WHERE id = $1
+          RETURNING id, owner_id AS "ownerId", title, description, created_at AS "createdAt"
+        `,
+        [
+          id,
+          input.title ?? current.title,
+          input.description ?? current.description,
+        ],
+      );
+
+      if (input.postIds !== undefined) {
+        await client.query(
+          'DELETE FROM playlist_items WHERE playlist_id = $1',
+          [id],
+        );
+
+        for (const [index, postId] of [...new Set(input.postIds)].entries()) {
+          await client.query(
+            `
+              INSERT INTO playlist_items (playlist_id, post_id, position)
+              VALUES ($1, $2, $3)
+              ON CONFLICT (playlist_id, post_id) DO UPDATE
+              SET position = EXCLUDED.position
+            `,
+            [id, postId, index + 1],
+          );
+        }
+      }
+
+      await client.query('COMMIT');
+
+      return this.hydratePlaylist(result.rows[0]);
+    } catch (error) {
+      await client.query('ROLLBACK');
+      this.fallback(error);
+      return super.updatePlaylist(id, input);
+    } finally {
+      client.release();
+    }
+  }
+
+  override async deletePlaylist(id: number): Promise<boolean> {
+    if (!this.databaseAvailable) {
+      return super.deletePlaylist(id);
+    }
+
+    try {
+      const result = await this.pool.query(
+        'DELETE FROM playlists WHERE id = $1',
+        [id],
+      );
+
+      return (result.rowCount ?? 0) > 0;
+    } catch (error) {
+      this.fallback(error);
+      return super.deletePlaylist(id);
+    }
+  }
+
   override async addPlaylistItem(
     playlistId: number,
     postId: number,
@@ -792,17 +882,28 @@ export class DatabaseService
   }
 
   private async seedDatabase() {
-    const passwordHash = hashPassword('demo1234');
-    await this.pool.query(
-      `
-        INSERT INTO users (id, name, email, password_hash)
-        VALUES (1, 'Demo Learner', 'demo@studytube.local', $1)
-        ON CONFLICT (id) DO NOTHING
-      `,
-      [passwordHash],
-    );
+    for (const user of this.users) {
+      await this.pool.query(
+        `
+          INSERT INTO users (id, name, email, password_hash, preferences)
+          VALUES ($1, $2, $3, $4, $5::jsonb)
+          ON CONFLICT (id) DO UPDATE
+          SET name = EXCLUDED.name,
+              email = EXCLUDED.email,
+              password_hash = EXCLUDED.password_hash,
+              preferences = EXCLUDED.preferences
+        `,
+        [
+          user.id,
+          user.name,
+          user.email,
+          user.passwordHash,
+          JSON.stringify(user.preferences),
+        ],
+      );
+    }
 
-    const seedPosts = await super.listPosts({ page: 1, pageSize: 24 });
+    const seedPosts = await super.listPosts({ page: 1, pageSize: 200 });
     const seedPostUrls = new Map(
       seedPosts.items.map((post) => [post.id, post.videoUrl]),
     );
@@ -813,7 +914,7 @@ export class DatabaseService
           INSERT INTO posts (
             id, author_id, title, video_url, thumbnail_url, channel_name, summary, translated_notes
           )
-          VALUES ($1, 1, $2, $3, $4, $5, $6, $7)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
           ON CONFLICT (id) DO UPDATE
           SET title = EXCLUDED.title,
               author_id = EXCLUDED.author_id,
@@ -827,6 +928,7 @@ export class DatabaseService
         `,
         [
           post.id,
+          post.authorId,
           post.title,
           post.videoUrl,
           post.thumbnailUrl,
@@ -876,16 +978,11 @@ export class DatabaseService
 
     await this.pool.query(`
       INSERT INTO comments (id, post_id, author_id, body)
-      VALUES (1, 1, 1, 'useEffect dependency ?ㅻ챸???낅Ц?먯뿉寃??뱁엳 醫뗭븘??')
-      ON CONFLICT (id) DO NOTHING;
-
-      INSERT INTO playlists (id, owner_id, title, description)
-      VALUES (1, 1, 'React 湲곗큹 蹂듭뒿 猷⑦듃', 'React ?낃낵 ?쒕쾭 ?곹깭 愿由щ? 李⑤??濡?蹂듭뒿?⑸땲??')
-      ON CONFLICT (id) DO NOTHING;
-
-      INSERT INTO playlist_items (playlist_id, post_id, position)
-      VALUES (1, 1, 1), (1, 2, 2)
-      ON CONFLICT DO NOTHING;
+      VALUES (1, 1, 1, 'useEffect dependency 설명이 입문자에게 특히 좋아요.')
+      ON CONFLICT (id) DO UPDATE
+      SET post_id = EXCLUDED.post_id,
+          author_id = EXCLUDED.author_id,
+          body = EXCLUDED.body;
 
       SELECT setval(pg_get_serial_sequence('users', 'id'), COALESCE((SELECT MAX(id) FROM users), 1));
       SELECT setval(pg_get_serial_sequence('posts', 'id'), COALESCE((SELECT MAX(id) FROM posts), 1));
@@ -894,7 +991,7 @@ export class DatabaseService
       SELECT setval(pg_get_serial_sequence('playlist_feedback', 'id'), COALESCE((SELECT MAX(id) FROM playlist_feedback), 1));
     `);
 
-    const seedPlaylists = await super.listPlaylists(1);
+    const seedPlaylists = await super.listPlaylists();
 
     for (const playlist of seedPlaylists) {
       await this.pool.query(
@@ -902,7 +999,8 @@ export class DatabaseService
           INSERT INTO playlists (id, owner_id, title, description)
           VALUES ($1, $2, $3, $4)
           ON CONFLICT (id) DO UPDATE
-          SET title = EXCLUDED.title,
+          SET owner_id = EXCLUDED.owner_id,
+              title = EXCLUDED.title,
               description = EXCLUDED.description
         `,
         [playlist.id, playlist.ownerId, playlist.title, playlist.description],

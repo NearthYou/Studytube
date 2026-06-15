@@ -28,6 +28,13 @@ export function assertPostInput(input: Omit<CreatePostInput, 'authorId'>) {
   assertText(input.videoUrl, 'videoUrl');
   assertText(input.summary, 'summary');
   assertText(input.translatedNotes, 'translatedNotes');
+  assertVideoTags(input.tags);
+}
+
+export function assertVideoTags(tags: string[] | undefined) {
+  if ((tags ?? []).filter((tag) => tag.trim()).length > 3) {
+    throw new BadRequestException('tags must contain at most 3 items');
+  }
 }
 
 export function normalizePreferences(

@@ -6,17 +6,12 @@ import {
   ParseIntPipe,
   Post,
   Query,
-  Req,
   UseGuards,
 } from '@nestjs/common';
-import { Request } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthUser } from '../common/types/auth-user.type';
 import { FollowsService } from './follows.service';
-
-type RequestWithUser = Request & {
-  user: AuthUser;
-};
 
 @Controller('users')
 export class FollowsController {
@@ -26,18 +21,18 @@ export class FollowsController {
   @Post(':userId/follow')
   async followUser(
     @Param('userId', ParseIntPipe) userId: number,
-    @Req() request: RequestWithUser,
+    @CurrentUser() user: AuthUser,
   ) {
-    return this.followsService.followUser(request.user.id, userId);
+    return this.followsService.followUser(user.id, userId);
   }
 
   @UseGuards(JwtAuthGuard)
   @Delete(':userId/follow')
   async unfollowUser(
     @Param('userId', ParseIntPipe) userId: number,
-    @Req() request: RequestWithUser,
+    @CurrentUser() user: AuthUser,
   ) {
-    return this.followsService.unfollowUser(request.user.id, userId);
+    return this.followsService.unfollowUser(user.id, userId);
   }
 
   @Get(':userId/followers')

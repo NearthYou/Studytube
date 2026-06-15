@@ -4,10 +4,9 @@ import {
   Get,
   Post,
   Query,
-  Req,
   UseGuards,
 } from '@nestjs/common';
-import { Request } from 'express';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthUser } from '../common/types/auth-user.type';
 import { AuthService } from './auth.service';
 import { CheckEmailDto } from './dto/check-email.dto';
@@ -17,10 +16,6 @@ import { LoginDto } from './dto/login.dto';
 import { RequestEmailVerificationDto } from './dto/request-email-verification.dto';
 import { SignupDto } from './dto/signup.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
-
-type RequestWithUser = Request & {
-  user: AuthUser;
-};
 
 @Controller('auth')
 export class AuthController {
@@ -68,8 +63,8 @@ export class AuthController {
 
   @UseGuards(JwtAuthGuard)
   @Get('me')
-  async getMe(@Req() request: RequestWithUser) {
-    return this.authService.getMe(request.user.id);
+  async getMe(@CurrentUser() user: AuthUser) {
+    return this.authService.getMe(user.id);
   }
 
   @UseGuards(JwtAuthGuard)

@@ -4,11 +4,14 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
-import { Request } from 'express';
+import { AuthUser } from '../../common/types/auth-user.type';
 import { JwtStrategy } from '../strategies/jwt.strategy';
 
-type RequestWithUser = Request & {
-  user?: unknown;
+type RequestWithUser = {
+  headers: {
+    authorization?: string | string[];
+  };
+  user?: AuthUser;
 };
 
 @Injectable()
@@ -27,10 +30,10 @@ export class JwtAuthGuard implements CanActivate {
     return true;
   }
 
-  private extractBearerToken(request: Request) {
+  private extractBearerToken(request: RequestWithUser) {
     const authorization = request.headers.authorization;
 
-    if (!authorization) {
+    if (!authorization || Array.isArray(authorization)) {
       return null;
     }
 

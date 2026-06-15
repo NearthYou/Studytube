@@ -8,20 +8,15 @@ import {
   Patch,
   Post,
   Query,
-  Req,
   UseGuards,
 } from '@nestjs/common';
-import { Request } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthUser } from '../common/types/auth-user.type';
 import { CreatePostDto } from './dto/create-post.dto';
 import { GetPostsQueryDto } from './dto/get-posts.query.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
 import { PostsService } from './posts.service';
-
-type RequestWithUser = Request & {
-  user: AuthUser;
-};
 
 @Controller('posts')
 export class PostsController {
@@ -40,29 +35,29 @@ export class PostsController {
   @UseGuards(JwtAuthGuard)
   @Post()
   async createPost(
-    @Req() request: RequestWithUser,
+    @CurrentUser() user: AuthUser,
     @Body() createPostDto: CreatePostDto,
   ) {
-    return this.postsService.createPost(request.user, createPostDto);
+    return this.postsService.createPost(user, createPostDto);
   }
 
   @UseGuards(JwtAuthGuard)
   @Patch(':postId')
   async updatePost(
     @Param('postId', ParseIntPipe) postId: number,
-    @Req() request: RequestWithUser,
+    @CurrentUser() user: AuthUser,
     @Body() updatePostDto: UpdatePostDto,
   ) {
-    return this.postsService.updatePost(postId, request.user, updatePostDto);
+    return this.postsService.updatePost(postId, user, updatePostDto);
   }
 
   @UseGuards(JwtAuthGuard)
   @Delete(':postId')
   async deletePost(
     @Param('postId', ParseIntPipe) postId: number,
-    @Req() request: RequestWithUser,
+    @CurrentUser() user: AuthUser,
   ) {
-    return this.postsService.deletePost(postId, request.user);
+    return this.postsService.deletePost(postId, user);
   }
 
   @Post(':postId/view')

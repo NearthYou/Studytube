@@ -7,21 +7,16 @@ import {
   ParseIntPipe,
   Patch,
   Post,
-  Req,
   UseGuards,
 } from '@nestjs/common';
-import { Request } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthUser } from '../common/types/auth-user.type';
 import { CommentsService } from './comments.service';
 import { CreateCommentDto } from './dto/create-comment.dto';
 import { CreateReplyDto } from './dto/create-reply.dto';
 import { UpdateCommentDto } from './dto/update-comment.dto';
 import { UpdateReplyDto } from './dto/update-reply.dto';
-
-type RequestWithUser = Request & {
-  user: AuthUser;
-};
 
 @Controller()
 export class CommentsController {
@@ -36,12 +31,12 @@ export class CommentsController {
   @Post('posts/:postId/comments')
   async createComment(
     @Param('postId', ParseIntPipe) postId: number,
-    @Req() request: RequestWithUser,
+    @CurrentUser() user: AuthUser,
     @Body() createCommentDto: CreateCommentDto,
   ) {
     return this.commentsService.createComment(
       postId,
-      request.user,
+      user,
       createCommentDto,
     );
   }
@@ -50,12 +45,12 @@ export class CommentsController {
   @Post('comments/:commentId/replies')
   async createReply(
     @Param('commentId', ParseIntPipe) commentId: number,
-    @Req() request: RequestWithUser,
+    @CurrentUser() user: AuthUser,
     @Body() createReplyDto: CreateReplyDto,
   ) {
     return this.commentsService.createReply(
       commentId,
-      request.user,
+      user,
       createReplyDto,
     );
   }
@@ -64,12 +59,12 @@ export class CommentsController {
   @Patch('comments/:commentId')
   async updateComment(
     @Param('commentId', ParseIntPipe) commentId: number,
-    @Req() request: RequestWithUser,
+    @CurrentUser() user: AuthUser,
     @Body() updateCommentDto: UpdateCommentDto,
   ) {
     return this.commentsService.updateComment(
       commentId,
-      request.user,
+      user,
       updateCommentDto,
     );
   }
@@ -78,21 +73,21 @@ export class CommentsController {
   @Delete('comments/:commentId')
   async deleteComment(
     @Param('commentId', ParseIntPipe) commentId: number,
-    @Req() request: RequestWithUser,
+    @CurrentUser() user: AuthUser,
   ) {
-    return this.commentsService.deleteComment(commentId, request.user);
+    return this.commentsService.deleteComment(commentId, user);
   }
 
   @UseGuards(JwtAuthGuard)
   @Patch('replies/:replyId')
   async updateReply(
     @Param('replyId', ParseIntPipe) replyId: number,
-    @Req() request: RequestWithUser,
+    @CurrentUser() user: AuthUser,
     @Body() updateReplyDto: UpdateReplyDto,
   ) {
     return this.commentsService.updateReply(
       replyId,
-      request.user,
+      user,
       updateReplyDto,
     );
   }
@@ -101,8 +96,8 @@ export class CommentsController {
   @Delete('replies/:replyId')
   async deleteReply(
     @Param('replyId', ParseIntPipe) replyId: number,
-    @Req() request: RequestWithUser,
+    @CurrentUser() user: AuthUser,
   ) {
-    return this.commentsService.deleteReply(replyId, request.user);
+    return this.commentsService.deleteReply(replyId, user);
   }
 }

@@ -55,7 +55,7 @@ export function useKakaoPetPlaceMap({
   useEffect(() => {
     if (!mapContainerRef.current || !kakaoMapKey) {
       if (!kakaoMapKey) {
-        onError?.('카카오 지도 키가 설정되지 않았습니다. frontend/.env에 VITE_KAKAO_MAP_JS_KEY를 추가한 뒤 프론트 서버를 재시작해주세요.')
+        onError?.('지도를 불러오지 못했습니다. 기본 위치 기준 장소 목록을 확인해주세요.')
       }
 
       return undefined

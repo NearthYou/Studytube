@@ -142,12 +142,45 @@ describe('runtime config', () => {
       process.env.UPLOAD_STORAGE_DRIVER = 'local';
       process.env.UPLOAD_LOCAL_ROOT = directory;
       process.env.UPLOAD_LOCAL_ROOT_IS_PERSISTENT = 'true';
+      setProductionMailConfig();
       delete process.env.ALLOW_LOCAL_UPLOADS_IN_PRODUCTION;
 
       expect(() => validateRuntimeConfig()).not.toThrow();
     } finally {
       await rm(directory, { force: true, recursive: true });
     }
+  });
+
+  it('requires SMTP config in production', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'tailtalk-uploads-'));
+
+    try {
+      process.env.NODE_ENV = 'production';
+      process.env.DATABASE_URL =
+        'postgres://tailtalk:tailtalk@localhost:5432/tailtalk';
+      process.env.FRONTEND_ORIGINS = 'https://example.com';
+      process.env.JWT_SECRET = productionJwtSecret;
+      process.env.TOUR_API_SERVICE_KEY = 'tour-api-key';
+      process.env.UPLOAD_STORAGE_DRIVER = 'local';
+      process.env.UPLOAD_LOCAL_ROOT = directory;
+      process.env.UPLOAD_LOCAL_ROOT_IS_PERSISTENT = 'true';
+      setProductionMailConfig();
+      delete process.env.MAIL_HOST;
+
+      expect(() => validateRuntimeConfig()).toThrow('MAIL_HOST is required.');
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
+  it('rejects invalid MAIL_SECURE values', () => {
+    process.env.DATABASE_URL =
+      'postgres://tailtalk:tailtalk@localhost:5432/tailtalk';
+    process.env.MAIL_SECURE = 'yes';
+
+    expect(() => validateRuntimeConfig()).toThrow(
+      'MAIL_SECURE must be true or false.',
+    );
   });
 
   it('rejects invalid upload public prefixes', () => {
@@ -192,4 +225,23 @@ describe('runtime config', () => {
     expect(callback).toHaveBeenNthCalledWith(1, null, true);
     expect(callback).toHaveBeenNthCalledWith(2, null, true);
   });
+
+  it('rejects unknown frontend origins without throwing CORS errors', () => {
+    process.env.FRONTEND_ORIGINS = 'https://pongki.shop';
+    const options = createCorsOptions();
+    const callback = jest.fn();
+
+    options.origin?.('https://evil.example', callback);
+
+    expect(callback).toHaveBeenCalledWith(null, false);
+  });
 });
+
+function setProductionMailConfig() {
+  process.env.MAIL_HOST = 'smtp.example.com';
+  process.env.MAIL_PORT = '587';
+  process.env.MAIL_SECURE = 'false';
+  process.env.MAIL_USER = 'tailtalk';
+  process.env.MAIL_PASSWORD = 'mail-password';
+  process.env.MAIL_FROM = 'Tail Talk <noreply@pongki.shop>';
+}

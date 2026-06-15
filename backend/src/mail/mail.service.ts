@@ -13,11 +13,12 @@ export class MailService {
 
   constructor(private readonly configService: ConfigService) {
     const port = Number(this.configService.getOrThrow<string>('MAIL_PORT'));
+    const secure = this.getMailSecure(port);
 
     this.transporter = nodemailer.createTransport({
       host: this.configService.getOrThrow<string>('MAIL_HOST'),
       port,
-      secure: port === 465,
+      secure,
       auth: {
         user: this.configService.getOrThrow<string>('MAIL_USER'),
         pass: this.configService.getOrThrow<string>('MAIL_PASSWORD'),
@@ -51,5 +52,15 @@ export class MailService {
         '인증 이메일 발송에 실패했습니다. 잠시 후 다시 시도해주세요.',
       );
     }
+  }
+
+  private getMailSecure(port: number) {
+    const value = this.configService.get<string>('MAIL_SECURE', '').trim();
+
+    if (!value) {
+      return port === 465;
+    }
+
+    return value === 'true';
   }
 }

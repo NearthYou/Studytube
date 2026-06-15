@@ -22,6 +22,7 @@ async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
   app.set('trust proxy', 1);
+  app.disable('x-powered-by');
   app.enableCors(createCorsOptions());
 
   app.setGlobalPrefix('api');

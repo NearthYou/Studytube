@@ -117,8 +117,8 @@ export class PetPlacesService {
         overview: this.getString(commonItem.overview),
         homepage: this.getString(commonItem.homepage),
         images: images.items.map((image) => ({
-          originUrl: this.getString(image.originimgurl),
-          thumbnailUrl: this.getString(image.smallimageurl),
+          originUrl: this.normalizeExternalAssetUrl(image.originimgurl),
+          thumbnailUrl: this.normalizeExternalAssetUrl(image.smallimageurl),
           imageName: this.getString(image.imgname),
           serialNumber: this.getString(image.serialnum),
         })),
@@ -234,8 +234,8 @@ export class PetPlacesService {
       mapX: this.getString(item.mapx),
       mapY: this.getString(item.mapy),
       distance: this.getString(item.dist),
-      firstImage: this.getString(item.firstimage),
-      firstImage2: this.getString(item.firstimage2),
+      firstImage: this.normalizeExternalAssetUrl(item.firstimage),
+      firstImage2: this.normalizeExternalAssetUrl(item.firstimage2),
       copyrightType: this.getString(item.cpyrhtDivCd),
       areaCode: this.getString(item.areacode),
       sigunguCode: this.getString(item.sigungucode),
@@ -300,6 +300,16 @@ export class PetPlacesService {
     }
 
     return '';
+  }
+
+  private normalizeExternalAssetUrl(value: unknown): string {
+    const url = this.getString(value);
+
+    if (url.startsWith('http://tong.visitkorea.or.kr/')) {
+      return url.replace('http://', 'https://');
+    }
+
+    return url;
   }
 
   private getTourApiTimeoutMs() {

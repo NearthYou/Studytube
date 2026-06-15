@@ -33,10 +33,12 @@ export function validateRuntimeConfig() {
     ]);
     validateProductionJwtSecret();
     validateProductionUploadStorage();
+    requireProductionMailConfig();
   }
 
   validateUploadStorageDriver();
   validateUploadPathConfig();
+  validateBooleanEnv('MAIL_SECURE');
   validateSocialProviderPair('GOOGLE', true);
   validateSocialProviderPair('KAKAO', false);
   validateSocialProviderPair('NAVER', true);
@@ -71,7 +73,7 @@ export function createCorsOptions(): CorsOptions {
         return;
       }
 
-      callback(new Error('CORS origin is not allowed'), false);
+      callback(null, false);
     },
   };
 }
@@ -99,6 +101,27 @@ function validateProductionJwtSecret() {
 
   if (/^(.)\1+$/.test(value)) {
     throw new Error('JWT_SECRET must not use a repeated character pattern.');
+  }
+}
+
+function requireProductionMailConfig() {
+  requireEnv('MAIL_HOST');
+  requireEnv('MAIL_PORT');
+  requireEnv('MAIL_SECURE');
+  requireEnv('MAIL_USER');
+  requireEnv('MAIL_PASSWORD');
+  requireEnv('MAIL_FROM');
+}
+
+function validateBooleanEnv(key: string) {
+  const value = process.env[key]?.trim();
+
+  if (!value) {
+    return;
+  }
+
+  if (!['true', 'false'].includes(value)) {
+    throw new Error(`${key} must be true or false.`);
   }
 }
 

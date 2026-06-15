@@ -4,6 +4,7 @@ import { useFeedbackModal } from '../../hooks/useFeedbackModal'
 import { useLoginForm } from '../../hooks/useLoginForm'
 import { appPaths } from '../../utils/paths'
 import { SocialAuthLinks } from './SocialAuthLinks'
+import { getEnabledSocialProviders } from '../../data/socialProviders'
 
 type LoginPanelProps = {
   onSwitchToSignup?: () => void
@@ -26,6 +27,7 @@ export function LoginPanel({ onSwitchToSignup, presentation = 'page', redirectPa
     setRememberMe,
   } = useLoginForm({ onError: openErrorModal, redirectPath: redirectPathOverride })
   const isModal = presentation === 'modal'
+  const hasSocialProviders = getEnabledSocialProviders().length > 0
 
   return (
     <>
@@ -94,8 +96,12 @@ export function LoginPanel({ onSwitchToSignup, presentation = 'page', redirectPa
           )}
         </form>
 
-        <p className="auth-divider">또는</p>
-        <SocialAuthLinks mode="login" redirectPath={redirectPath} />
+        {hasSocialProviders && (
+          <>
+            <p className="auth-divider">또는</p>
+            <SocialAuthLinks mode="login" redirectPath={redirectPath} />
+          </>
+        )}
 
         <div className="signup-row">
           <span>아직 계정이 없나요?</span>

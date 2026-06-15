@@ -7,6 +7,7 @@ import { ProfileImagePicker } from './ProfileImagePicker'
 import { SignupAccountFields } from './SignupAccountFields'
 import { SocialAuthLinks } from './SocialAuthLinks'
 import { appPaths } from '../../utils/paths'
+import { getEnabledSocialProviders } from '../../data/socialProviders'
 
 type SignupPanelProps = {
   onSignupComplete?: () => void
@@ -53,6 +54,7 @@ export function SignupPanel({
     setVerificationCode,
   } = useSignupForm({ onError: openErrorModal, onSignupComplete })
   const isModal = presentation === 'modal'
+  const hasSocialProviders = getEnabledSocialProviders().length > 0
 
   return (
     <>
@@ -112,8 +114,12 @@ export function SignupPanel({
           )}
         </form>
 
-        <p className="auth-divider">또는</p>
-        <SocialAuthLinks mode="signup" redirectPath={redirectPath} />
+        {hasSocialProviders && (
+          <>
+            <p className="auth-divider">또는</p>
+            <SocialAuthLinks mode="signup" redirectPath={redirectPath} />
+          </>
+        )}
 
         <div className="signup-row">
           <span>이미 계정이 있나요?</span>

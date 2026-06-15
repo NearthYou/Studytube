@@ -1,4 +1,4 @@
-export const DEFAULT_PLAYLIST_DRAFT_TITLE = '나만의 학습 코스';
+export const DEFAULT_PLAYLIST_DRAFT_TITLE = "나만의 학습 플레이리스트";
 
 export type PlaylistDraft<TVideo> = {
   id: string;
@@ -23,13 +23,13 @@ type NormalizeOptions<TVideo> = {
 };
 
 type DraftPatch<TVideo> = Partial<
-  Pick<PlaylistDraft<TVideo>, 'title' | 'description' | 'videos'>
+  Pick<PlaylistDraft<TVideo>, "title" | "description" | "videos">
 >;
 
 export function createPlaylistDraft<TVideo>({
   id = createPlaylistDraftId(),
   title = DEFAULT_PLAYLIST_DRAFT_TITLE,
-  description = '',
+  description = "",
   videos = [],
   now = new Date().toISOString(),
 }: {
@@ -54,7 +54,7 @@ export function normalizePlaylistDraftState<TVideo>(
   options: NormalizeOptions<TVideo>,
 ): PlaylistDraftState<TVideo> {
   const parsedActiveDraftId =
-    isRecord(input) && typeof input.activeDraftId === 'string'
+    isRecord(input) && typeof input.activeDraftId === "string"
       ? input.activeDraftId
       : null;
   const rawDrafts = Array.isArray(input)
@@ -65,7 +65,13 @@ export function normalizePlaylistDraftState<TVideo>(
   const now = options.now ?? new Date().toISOString();
   const drafts = rawDrafts
     .map((draft, index) =>
-      normalizePlaylistDraft(draft, index, options.normalizeVideo, now, options.createId),
+      normalizePlaylistDraft(
+        draft,
+        index,
+        options.normalizeVideo,
+        now,
+        options.createId,
+      ),
     )
     .filter((draft): draft is PlaylistDraft<TVideo> => Boolean(draft));
 
@@ -90,7 +96,10 @@ export function normalizePlaylistDraftState<TVideo>(
 export function selectActivePlaylistDraft<TVideo>(
   state: PlaylistDraftState<TVideo>,
 ): PlaylistDraft<TVideo> {
-  return state.drafts.find((draft) => draft.id === state.activeDraftId) ?? state.drafts[0];
+  return (
+    state.drafts.find((draft) => draft.id === state.activeDraftId) ??
+    state.drafts[0]
+  );
 }
 
 export function patchActivePlaylistDraft<TVideo>(
@@ -118,7 +127,8 @@ export function removePlaylistDraft<TVideo>(
   replacementDraft: PlaylistDraft<TVideo>,
 ): PlaylistDraftState<TVideo> {
   const remainingDrafts = state.drafts.filter((draft) => draft.id !== draftId);
-  const drafts = remainingDrafts.length > 0 ? remainingDrafts : [replacementDraft];
+  const drafts =
+    remainingDrafts.length > 0 ? remainingDrafts : [replacementDraft];
   const activeDraftId =
     state.activeDraftId === draftId
       ? drafts[0].id
@@ -147,17 +157,17 @@ function normalizePlaylistDraft<TVideo>(
     : [];
 
   return createPlaylistDraft({
-    id: typeof draft.id === 'string' && draft.id ? draft.id : createId?.(),
+    id: typeof draft.id === "string" && draft.id ? draft.id : createId?.(),
     title:
-      typeof draft.title === 'string' && draft.title.trim()
+      typeof draft.title === "string" && draft.title.trim()
         ? draft.title
         : index === 0
           ? DEFAULT_PLAYLIST_DRAFT_TITLE
-          : `학습 코스 초안 ${index + 1}`,
-    description: typeof draft.description === 'string' ? draft.description : '',
+          : `작성 중인 플레이리스트 ${index + 1}`,
+    description: typeof draft.description === "string" ? draft.description : "",
     videos,
     now:
-      typeof draft.createdAt === 'string' && draft.createdAt
+      typeof draft.createdAt === "string" && draft.createdAt
         ? draft.createdAt
         : now,
   });
@@ -168,5 +178,5 @@ function createPlaylistDraftId() {
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }

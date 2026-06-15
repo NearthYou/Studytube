@@ -4,6 +4,8 @@ import {
   captionStatusText,
   disableNativeYouTubeCaptions,
   hasDisplayableLiveCaptionResponse,
+  isSourceCaptionTranslationPending,
+  mergeTranslatedCaptionResponse,
   nativeYouTubeCaptionLanguage,
   selectActiveCaption,
   shouldUseNativeYouTubeCaptions,
@@ -180,9 +182,83 @@ test('displays translated captions in the selected language', () => {
   assert.equal(displayable, true);
 });
 
+test('merges translated caption windows without adding source captions', () => {
+  const firstWindow = {
+    mode: 'youtube-captions',
+    provider: 'openai-caption-translation',
+    videoId: 'long-video',
+    language: 'ko',
+    sourceLanguage: 'en',
+    translated: true,
+    segments: [{ start: 0, end: 4, text: '첫 구간' }],
+    message: 'Translated caption window loaded.',
+  } as const;
+  const secondWindow = {
+    ...firstWindow,
+    segments: [
+      { start: 4, end: 8, text: '두 번째 구간' },
+      { start: 8, end: 12, text: '세 번째 구간' },
+    ],
+  };
+  const sourceResponse = {
+    ...firstWindow,
+    provider: 'youtube-source-captions',
+    translated: false,
+    segments: [{ start: 12, end: 16, text: 'English source only' }],
+  };
+
+  const merged = mergeTranslatedCaptionResponse(firstWindow, secondWindow);
+  const sourceIgnored = mergeTranslatedCaptionResponse(merged, sourceResponse);
+
+  assert.deepEqual(
+    merged.segments.map((segment) => segment.text),
+    ['첫 구간', '두 번째 구간', '세 번째 구간'],
+  );
+  assert.equal(sourceIgnored.provider, 'openai-caption-translation');
+  assert.deepEqual(
+    sourceIgnored.segments.map((segment) => segment.text),
+    ['첫 구간', '두 번째 구간', '세 번째 구간'],
+  );
+});
+
 test('checks background translated captions quickly after source captions load', () => {
   assert.equal(sourceCaptionTranslationPollDelay(0), 1200);
   assert.equal(sourceCaptionTranslationPollDelay(1), 2500);
+});
+
+test('reports AI translation progress while source captions wait for translation', () => {
+  const response = {
+    mode: 'youtube-captions',
+    provider: 'youtube-source-captions',
+    videoId: 'freecodecamp-video',
+    language: 'ko',
+    sourceLanguage: 'en',
+    translated: false,
+    segments: [{ start: 0, end: 5, text: 'Learn JavaScript with projects' }],
+    message: 'Source captions loaded while translation is unavailable.',
+  } as const;
+
+  assert.equal(
+    isSourceCaptionTranslationPending({
+      captionLanguage: 'ko',
+      response,
+    }),
+    true,
+  );
+  assert.match(
+    captionStatusText({
+      captionError: '',
+      captionLanguage: 'ko',
+      captionResponse: response,
+      captionResponseMatchesVideo: true,
+      captionsEnabled: true,
+      hasCurrentVideo: true,
+      hasLiveCaptionResponse: false,
+      isCaptionLoading: false,
+      shouldUseNativeCaptionFallback: false,
+    }),
+    /AI/,
+  );
 });
 
 test('disables native YouTube captions instead of leaving auto-translate active', () => {
@@ -345,6 +421,25 @@ test('uses the available source language for native YouTube captions', () => {
         translated: false,
         segments: [],
         message: 'Use native captions.',
+      },
+    }),
+    'en',
+  );
+});
+
+test('uses the source language for native captions while AI translation is pending', () => {
+  assert.equal(
+    nativeYouTubeCaptionLanguage({
+      fallbackLanguage: 'ko',
+      response: {
+        mode: 'youtube-captions',
+        provider: 'youtube-source-captions',
+        videoId: 'source123',
+        language: 'ko',
+        sourceLanguage: 'en',
+        translated: false,
+        segments: [{ start: 0, end: 5, text: 'Hello learners' }],
+        message: 'Source captions loaded while translation is unavailable.',
       },
     }),
     'en',

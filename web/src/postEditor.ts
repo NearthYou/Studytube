@@ -27,7 +27,9 @@ export function isPostEditorReadyToSave(editor: PostEditorLike) {
   );
 }
 
-export function postRegistrationRefreshSearch(_currentSearch: string) {
+export function postRegistrationRefreshSearch(currentSearch: string) {
+  void currentSearch;
+
   return '';
 }
 

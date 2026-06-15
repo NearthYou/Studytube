@@ -1,8 +1,8 @@
-import type { VideoSummaryResponse } from './types.ts';
-import type { QueueVideo } from './watchQueue.ts';
+import type { VideoSummaryResponse } from "./types.ts";
+import type { QueueVideo } from "./watchQueue.ts";
 
 export function formatVideoSummarySections(
-  sections: VideoSummaryResponse['sections'],
+  sections: VideoSummaryResponse["sections"],
 ) {
   return sections
     .map((section) => {
@@ -10,13 +10,13 @@ export function formatVideoSummarySections(
       const body = section.body.trim();
 
       if (!label || !body) {
-        return '';
+        return "";
       }
 
       return `${label}\n${body}`;
     })
     .filter(Boolean)
-    .join('\n\n');
+    .join("\n\n");
 }
 
 export function buildVideoSummaryDetails(video: QueueVideo) {
@@ -26,7 +26,7 @@ export function buildVideoSummaryDetails(video: QueueVideo) {
 
   if (isReadableCaptionSource(summary)) {
     details.push({
-      label: '핵심 요약',
+      label: "핵심 요약",
       body: summary,
     });
   }
@@ -39,7 +39,7 @@ export function buildVideoSummaryDetails(video: QueueVideo) {
     } else {
       details.push(
         ...splitSummaryParagraphs(notes).map((body, index) => ({
-          label: index === 0 ? '학습 포인트' : `추가 정리 ${index + 1}`,
+          label: index === 0 ? "학습 포인트" : `추가 정리 ${index + 1}`,
           body,
         })),
       );
@@ -49,8 +49,8 @@ export function buildVideoSummaryDetails(video: QueueVideo) {
   if (details.length === 0) {
     return [
       {
-        label: '요약 준비 중',
-        body: '이 영상에는 아직 자세한 요약이 저장되지 않았습니다. 영상의 AI 분석 요약을 보강하면 이 영역에 학습 정리가 표시됩니다.',
+        label: "요약 준비 중",
+        body: "이 영상에는 아직 자세한 요약이 저장되지 않았습니다. 영상의 AI 분석 요약을 보강하면 이 영역에 한국어 학습 정리가 표시됩니다.",
       },
     ];
   }
@@ -62,13 +62,13 @@ export function formatTime(totalSeconds: number) {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = Math.floor(totalSeconds % 60)
     .toString()
-    .padStart(2, '0');
+    .padStart(2, "0");
 
   return `${minutes}:${seconds}`;
 }
 
 export function clipText(value: string, maxLength: number) {
-  const normalized = value.replace(/\s+/g, ' ').trim();
+  const normalized = value.replace(/\s+/g, " ").trim();
 
   if (normalized.length <= maxLength) {
     return normalized;
@@ -78,16 +78,14 @@ export function clipText(value: string, maxLength: number) {
 }
 
 function extractTimedSummaryBlocks(text: string) {
-  const matches = [
-    ...text.matchAll(/(?:(\d{1,2}):)?(\d{1,2}):(\d{2})/g),
-  ];
+  const matches = [...text.matchAll(/(?:(\d{1,2}):)?(\d{1,2}):(\d{2})/g)];
 
   return matches
     .map((match, index) => {
       const nextMatch = matches[index + 1];
       const body = text
         .slice(match.index! + match[0].length, nextMatch?.index ?? text.length)
-        .replace(/\s+/g, ' ')
+        .replace(/\s+/g, " ")
         .trim();
 
       return isReadableCaptionSource(body)
@@ -97,7 +95,9 @@ function extractTimedSummaryBlocks(text: string) {
           }
         : null;
     })
-    .filter((block): block is { label: string; body: string } => Boolean(block));
+    .filter((block): block is { label: string; body: string } =>
+      Boolean(block),
+    );
 }
 
 function splitSummaryParagraphs(text: string) {
@@ -108,7 +108,7 @@ function splitSummaryParagraphs(text: string) {
   const chunks: string[] = [];
 
   for (let index = 0; index < sentences.length; index += 2) {
-    chunks.push(sentences.slice(index, index + 2).join(' '));
+    chunks.push(sentences.slice(index, index + 2).join(" "));
   }
 
   return chunks.length > 0 ? chunks : [text];
@@ -118,14 +118,14 @@ function normalizeCaptionSource(value: string) {
   return value
     .split(/\n+/)
     .map((line) => line.trim())
-    .filter((line) => line && !line.startsWith('AI 분석 요약:'))
-    .join(' ')
-    .replace(/\s+/g, ' ')
+    .filter((line) => line && !line.startsWith("AI 분석 요약:"))
+    .join(" ")
+    .replace(/\s+/g, " ")
     .trim();
 }
 
 function isReadableCaptionSource(value: string) {
-  const compact = value.replace(/\s+/g, '');
+  const compact = value.replace(/\s+/g, "");
 
   if (compact.length < 3) {
     return false;

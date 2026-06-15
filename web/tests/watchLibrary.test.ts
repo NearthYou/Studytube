@@ -77,8 +77,8 @@ test('builds watch choices from saved playlists and local drafts', () => {
       [
         'draft-draft-a',
         'Draft Course',
-        '아직 보드에 올리지 않은 작업 초안입니다.',
-        '1개 영상 · 초안',
+        '아직 보드에 공개하지 않은 작성 중인 플레이리스트입니다.',
+        '1개 영상 · 작성 중',
         1,
       ],
     ],

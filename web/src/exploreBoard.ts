@@ -3,6 +3,7 @@ export type ExploreCommentPost = {
 };
 
 export const EXPLORE_BOARD_PAGE_SIZE = 9;
+export const EXPLORE_COURSE_SUMMARY_THRESHOLD = 4;
 
 export function paginateExplorePlaylists<TPlaylist>(
   playlists: TPlaylist[],
@@ -34,4 +35,11 @@ export function selectExploreCommentPost<TPost extends ExploreCommentPost>(
     posts[0] ??
     null
   );
+}
+
+export function selectExploreCoursePost<TPost extends ExploreCommentPost>(
+  posts: TPost[],
+  requestedPostId: number | null,
+) {
+  return selectExploreCommentPost(posts, requestedPostId);
 }

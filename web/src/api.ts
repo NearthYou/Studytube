@@ -5,23 +5,24 @@ import type {
   McpResponse,
   PaginatedPosts,
   Playlist,
+  PlaylistFeedback,
   RagResponse,
   Session,
   StudyPost,
   User,
   VideoSummaryResponse,
-} from './types';
+} from "./types";
 
 const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, '') ??
-  'http://localhost:3000';
+  import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ??
+  "http://localhost:3000";
 
 export class ApiRequestError extends Error {
   status: number;
 
   constructor(status: number, message: string) {
     super(message);
-    this.name = 'ApiRequestError';
+    this.name = "ApiRequestError";
     this.status = status;
   }
 }
@@ -38,7 +39,7 @@ export async function requestJson<T>(
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
     headers: {
-      'Content-Type': 'application/json',
+      "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...options.headers,
     },
@@ -53,7 +54,7 @@ export async function requestJson<T>(
         message?: string | string[];
       };
       const bodyMessage = Array.isArray(errorBody.message)
-        ? errorBody.message.join(' ')
+        ? errorBody.message.join(" ")
         : errorBody.message;
       message = bodyMessage || errorBody.error || message;
     } catch {
@@ -71,7 +72,7 @@ export function apiBaseUrl() {
 }
 
 export function demoSession(): Promise<Session> {
-  return requestJson<Session>('/auth/demo', { method: 'POST' });
+  return requestJson<Session>("/auth/demo", { method: "POST" });
 }
 
 export function signUp(input: {
@@ -79,8 +80,8 @@ export function signUp(input: {
   email: string;
   password: string;
 }): Promise<Session> {
-  return requestJson<Session>('/auth/signup', {
-    method: 'POST',
+  return requestJson<Session>("/auth/signup", {
+    method: "POST",
     body: JSON.stringify(input),
   });
 }
@@ -89,14 +90,27 @@ export function login(input: {
   email: string;
   password: string;
 }): Promise<Session> {
-  return requestJson<Session>('/auth/login', {
-    method: 'POST',
+  return requestJson<Session>("/auth/login", {
+    method: "POST",
     body: JSON.stringify(input),
   });
 }
 
 export function fetchMe(token: string): Promise<User> {
-  return requestJson<User>('/me', {}, token);
+  return requestJson<User>("/me", {}, token);
+}
+
+export function verifyMe(
+  token: string,
+  input: {
+    currentPassword: string;
+  },
+): Promise<User> {
+  return requestJson<User>(
+    "/me/verify",
+    { method: "POST", body: JSON.stringify(input) },
+    token,
+  );
 }
 
 export function updateMe(
@@ -113,8 +127,8 @@ export function updateMe(
   },
 ): Promise<User> {
   return requestJson<User>(
-    '/me',
-    { method: 'PUT', body: JSON.stringify(input) },
+    "/me",
+    { method: "PUT", body: JSON.stringify(input) },
     token,
   );
 }
@@ -131,7 +145,7 @@ export function fetchPosts(
   });
 
   if (search.trim()) {
-    params.set('search', search.trim());
+    params.set("search", search.trim());
   }
 
   return requestJson<PaginatedPosts>(`/posts?${params.toString()}`, {}, token);
@@ -148,7 +162,7 @@ export function fetchPublicPosts(
   });
 
   if (search.trim()) {
-    params.set('search', search.trim());
+    params.set("search", search.trim());
   }
 
   return requestJson<PaginatedPosts>(`/explore/posts?${params.toString()}`);
@@ -167,8 +181,8 @@ export function createPost(
   },
 ): Promise<StudyPost> {
   return requestJson<StudyPost>(
-    '/posts',
-    { method: 'POST', body: JSON.stringify(input) },
+    "/posts",
+    { method: "POST", body: JSON.stringify(input) },
     token,
   );
 }
@@ -180,7 +194,7 @@ export function updatePost(
 ): Promise<StudyPost> {
   return requestJson<StudyPost>(
     `/posts/${id}`,
-    { method: 'PUT', body: JSON.stringify(input) },
+    { method: "PUT", body: JSON.stringify(input) },
     token,
   );
 }
@@ -188,7 +202,7 @@ export function updatePost(
 export function deletePost(token: string, id: number) {
   return requestJson<{ deleted: boolean }>(
     `/posts/${id}`,
-    { method: 'DELETE' },
+    { method: "DELETE" },
     token,
   );
 }
@@ -196,7 +210,7 @@ export function deletePost(token: string, id: number) {
 export function addComment(token: string, postId: number, body: string) {
   return requestJson<StudyComment>(
     `/posts/${postId}/comments`,
-    { method: 'POST', body: JSON.stringify({ body }) },
+    { method: "POST", body: JSON.stringify({ body }) },
     token,
   );
 }
@@ -208,17 +222,17 @@ export function deleteComment(
 ) {
   return requestJson<{ deleted: boolean }>(
     `/posts/${postId}/comments/${commentId}`,
-    { method: 'DELETE' },
+    { method: "DELETE" },
     token,
   );
 }
 
 export function fetchPlaylists(token: string): Promise<Playlist[]> {
-  return requestJson<Playlist[]>('/playlists', {}, token);
+  return requestJson<Playlist[]>("/playlists", {}, token);
 }
 
 export function fetchPublicPlaylists(): Promise<Playlist[]> {
-  return requestJson<Playlist[]>('/playlists');
+  return requestJson<Playlist[]>("/playlists");
 }
 
 export function createPlaylist(
@@ -226,15 +240,27 @@ export function createPlaylist(
   input: { title: string; description: string; postIds: number[] },
 ) {
   return requestJson<Playlist>(
-    '/playlists',
-    { method: 'POST', body: JSON.stringify(input) },
+    "/playlists",
+    { method: "POST", body: JSON.stringify(input) },
+    token,
+  );
+}
+
+export function addPlaylistFeedback(
+  token: string,
+  playlistId: number,
+  body: string,
+) {
+  return requestJson<PlaylistFeedback>(
+    `/playlists/${playlistId}/feedback`,
+    { method: "POST", body: JSON.stringify({ rating: 5, body }) },
     token,
   );
 }
 
 export function askRag(query: string): Promise<RagResponse> {
-  return requestJson<RagResponse>('/ai/rag/recommend', {
-    method: 'POST',
+  return requestJson<RagResponse>("/ai/rag/recommend", {
+    method: "POST",
     body: JSON.stringify({ query, limit: 5 }),
   });
 }
@@ -243,25 +269,25 @@ export function askMcp(
   input: string | { query?: string; url?: string; limit?: number },
 ): Promise<McpResponse> {
   const body =
-    typeof input === 'string'
+    typeof input === "string"
       ? { query: input }
       : {
           ...input,
         };
 
-  return requestJson<McpResponse>('/ai/mcp/youtube', {
-    method: 'POST',
+  return requestJson<McpResponse>("/ai/mcp/youtube", {
+    method: "POST",
     body: JSON.stringify(body),
   });
 }
 
 export function askAgent(goal: string): Promise<AgentResponse> {
-  return requestJson<AgentResponse>('/ai/agent/study-plan', {
-    method: 'POST',
+  return requestJson<AgentResponse>("/ai/agent/study-plan", {
+    method: "POST",
     body: JSON.stringify({
       goal,
-      language: 'ko',
-      interests: ['youtube', 'study'],
+      language: "ko",
+      interests: ["youtube", "study"],
     }),
   });
 }
@@ -274,12 +300,14 @@ export function fetchTranslatedCaptions(input: {
   allowFallback?: boolean;
   translateFallback?: boolean;
   durationSeconds?: number;
+  startSeconds?: number;
+  endSeconds?: number;
 }): Promise<CaptionResponse> {
-  return requestJson<CaptionResponse>('/ai/youtube/captions', {
-    method: 'POST',
+  return requestJson<CaptionResponse>("/ai/youtube/captions", {
+    method: "POST",
     body: JSON.stringify({
       ...input,
-      targetLanguage: input.targetLanguage ?? 'ko',
+      targetLanguage: input.targetLanguage ?? "ko",
     }),
   });
 }
@@ -293,11 +321,11 @@ export function fetchVideoSummary(input: {
   translatedNotes?: string;
   segments: Array<{ start: number; end: number; text: string }>;
 }): Promise<VideoSummaryResponse> {
-  return requestJson<VideoSummaryResponse>('/ai/youtube/summary', {
-    method: 'POST',
+  return requestJson<VideoSummaryResponse>("/ai/youtube/summary", {
+    method: "POST",
     body: JSON.stringify({
       ...input,
-      language: input.language ?? 'ko',
+      language: "ko",
     }),
   });
 }

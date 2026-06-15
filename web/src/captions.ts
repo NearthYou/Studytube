@@ -30,6 +30,26 @@ export function sourceCaptionTranslationPollDelay(attempts: number) {
     : SOURCE_CAPTION_TRANSLATION_POLL_MS;
 }
 
+export function isSourceCaptionTranslationPending({
+  captionLanguage,
+  response,
+}: {
+  captionLanguage: string;
+  response: CaptionResponse | null | undefined;
+}) {
+  return Boolean(
+    response &&
+      response.provider === 'youtube-source-captions' &&
+      !response.translated &&
+      response.language === captionLanguage &&
+      response.sourceLanguage &&
+      !['unavailable', 'youtube', captionLanguage].includes(
+        response.sourceLanguage,
+      ) &&
+      response.segments.length > 0,
+  );
+}
+
 export type NativeYouTubeCaptionPlayer = {
   loadModule?: (module: string) => void;
   unloadModule?: (module: string) => void;
@@ -135,7 +155,9 @@ export function nativeYouTubeCaptionLanguage({
   const sourceLanguage = response?.sourceLanguage;
 
   if (
-    response?.provider === 'youtube-native-captions' &&
+    ['youtube-native-captions', 'youtube-source-captions'].includes(
+      response?.provider ?? '',
+    ) &&
     sourceLanguage &&
     !['unavailable', 'youtube'].includes(sourceLanguage)
   ) {
@@ -181,8 +203,19 @@ export function captionStatusText({
   }
 
   if (captionResponseMatchesVideo && captionResponse) {
+    const sourceTranslationPending = isSourceCaptionTranslationPending({
+      captionLanguage,
+      response: captionResponse,
+    });
+
     if (hasLiveCaptionResponse) {
       return `AI 번역 자막 · ${captionResponse.sourceLanguage} → ${captionResponse.language}`;
+    }
+
+    if (sourceTranslationPending) {
+      return shouldUseNativeCaptionFallback
+        ? 'YouTube 기본 자막 사용 중 · AI 번역 자막 생성 중'
+        : 'AI 번역 자막 생성 중';
     }
 
     if (
@@ -264,6 +297,37 @@ export function hasDisplayableLiveCaptionResponse({
   }
 
   return true;
+}
+
+export function mergeTranslatedCaptionResponse(
+  current: CaptionResponse | null,
+  next: CaptionResponse,
+): CaptionResponse {
+  if (next.provider !== 'openai-caption-translation') {
+    return current ?? next;
+  }
+
+  if (
+    !current ||
+    current.provider !== 'openai-caption-translation' ||
+    current.videoId !== next.videoId ||
+    current.language !== next.language
+  ) {
+    return next;
+  }
+
+  const segmentsByTime = new Map<string, CaptionSegment>();
+
+  for (const segment of [...current.segments, ...next.segments]) {
+    segmentsByTime.set(`${segment.start}:${segment.end}`, segment);
+  }
+
+  return {
+    ...next,
+    segments: Array.from(segmentsByTime.values()).sort(
+      (left, right) => left.start - right.start || left.end - right.end,
+    ),
+  };
 }
 
 export function selectActiveCaption({

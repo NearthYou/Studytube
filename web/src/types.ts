@@ -53,6 +53,7 @@ export type PlaylistFeedback = {
   id: number;
   playlistId: number;
   authorId: number;
+  authorName: string;
   rating: number;
   body: string;
   createdAt: string;

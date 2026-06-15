@@ -20,7 +20,6 @@ function toCommunityUser(user: {
   id: number
   loginId: string
   name: string
-  email: string
   nickname: string
   bio: string | null
   location: string | null
@@ -30,7 +29,7 @@ function toCommunityUser(user: {
     userId: user.loginId,
     password: '',
     name: user.name,
-    email: user.email,
+    email: '',
     nickname: user.nickname,
     bio: user.bio ?? '',
     location: user.location ?? '',

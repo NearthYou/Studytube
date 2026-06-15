@@ -5,7 +5,6 @@ type UserRow = {
   id: number;
   login_id: string;
   name: string;
-  email: string;
   nickname: string;
   bio: string | null;
   location: string | null;
@@ -17,7 +16,6 @@ export type PublicUser = {
   id: number;
   loginId: string;
   name: string;
-  email: string;
   nickname: string;
   bio: string;
   location: string;
@@ -36,7 +34,6 @@ export class UsersRepository {
           id,
           login_id,
           name,
-          email,
           nickname,
           bio,
           location,
@@ -101,7 +98,6 @@ export class UsersRepository {
           id,
           login_id,
           name,
-          email,
           nickname,
           bio,
           location,
@@ -139,7 +135,6 @@ export class UsersRepository {
       id: row.id,
       loginId: row.login_id,
       name: row.name,
-      email: row.email,
       nickname: row.nickname,
       bio: row.bio ?? '',
       location: row.location ?? '',

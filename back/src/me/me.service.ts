@@ -49,13 +49,19 @@ export class MeService {
       ? await argon2.hash(dto.password)
       : undefined;
 
-    const user = await this.usersRepository.updateUserProfile({
+    const updatedUser = await this.usersRepository.updateUserProfile({
       userId,
       nickname: dto.nickname,
       passwordHash,
       bio: dto.bio,
       location: dto.location,
     });
+
+    if (!updatedUser) {
+      throw new NotFoundException('User not found.');
+    }
+
+    const user = await this.authService.findUserById(userId);
 
     if (!user) {
       throw new NotFoundException('User not found.');

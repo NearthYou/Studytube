@@ -10,9 +10,22 @@ from typing import Any, AsyncIterator
 from mcp import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
+from app.settings import BACK_API_BASE_URL
+
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[3]
 MCP_SERVER_PATH = WORKSPACE_ROOT / "mcp-server" / "server.py"
+MCP_ENV_KEYS = (
+    "APP_ENV",
+    "ENV",
+    "NODE_ENV",
+    "BACK_API_BASE_URL",
+    "DATABASE_URL",
+    "OPENAI_API_KEY",
+    "GPT_API_KEY",
+    "EMBEDDING_MODEL",
+    "EMBEDDING_DIMENSIONS",
+)
 
 
 class TravelMCPClient:
@@ -24,8 +37,15 @@ class TravelMCPClient:
     async def __aenter__(self) -> "TravelMCPClient":
         env = {
             "PYTHONIOENCODING": "utf-8",
-            "BACK_API_BASE_URL": os.getenv("BACK_API_BASE_URL", "http://127.0.0.1:3000/api"),
+            "BACK_API_BASE_URL": BACK_API_BASE_URL,
         }
+        env.update(
+            {
+                key: value
+                for key in MCP_ENV_KEYS
+                if (value := os.getenv(key)) is not None
+            }
+        )
         server_params = StdioServerParameters(
             command=sys.executable,
             args=[str(MCP_SERVER_PATH)],

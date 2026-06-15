@@ -4,6 +4,21 @@ type MarkdownMessageProps = {
   content: string
 }
 
+const SAFE_LINK_PROTOCOLS = new Set(['http:', 'https:'])
+
+function isSafeLinkHref(value: string) {
+  if (value.startsWith('/') && !value.startsWith('//')) {
+    return true
+  }
+
+  try {
+    const url = new URL(value)
+    return SAFE_LINK_PROTOCOLS.has(url.protocol)
+  } catch {
+    return false
+  }
+}
+
 function renderInline(text: string, keyPrefix: string): ReactNode[] {
   const parts = text.split(/(`[^`]+`)/g)
   const nodes: ReactNode[] = []
@@ -25,14 +40,21 @@ function renderInline(text: string, keyPrefix: string): ReactNode[] {
 
       const linkMatch = token.match(/^\[([^\]]+)\]\(([^)]+)\)$/)
       if (linkMatch) {
+        const [, label, href] = linkMatch
+
+        if (!isSafeLinkHref(href)) {
+          nodes.push(label)
+          return
+        }
+
         nodes.push(
           <a
-            href={linkMatch[2]}
+            href={href}
             key={tokenKey}
             rel="noreferrer"
             target="_blank"
           >
-            {linkMatch[1]}
+            {label}
           </a>,
         )
         return

@@ -1,6 +1,7 @@
 import type { Language } from './language'
+import { AI_BASE_URL } from './env'
 
-export const AI_BASE_URL = import.meta.env.VITE_AI_BASE_URL ?? 'http://localhost:8000'
+export { AI_BASE_URL }
 
 export type TravelAgentRequest = {
   query: string

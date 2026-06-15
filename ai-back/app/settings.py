@@ -6,14 +6,15 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 
-ROOT_DIR = Path(__file__).resolve().parents[1]
-load_dotenv(ROOT_DIR / "ai-back" / ".env", override=False)
-load_dotenv(ROOT_DIR / "back" / ".env", override=False)
-
-
+AI_BACK_ROOT = Path(__file__).resolve().parents[1]
+WORKSPACE_ROOT = AI_BACK_ROOT.parent
 DEFAULT_DEV_DATABASE_URL = "postgresql://postgres:1234@localhost:5433/travel_app"
 DEFAULT_DEV_BACK_API_BASE_URL = "http://127.0.0.1:3000/api"
+DEFAULT_DEV_CORS_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")
 PLACEHOLDER_API_KEYS = {"your-openai-api-key"}
+
+load_dotenv(AI_BACK_ROOT / ".env", override=False)
+load_dotenv(WORKSPACE_ROOT / "back" / ".env", override=False)
 
 
 def is_production() -> bool:
@@ -42,19 +43,32 @@ def get_setting(name: str, dev_default: str | None = None) -> str:
     return dev_default
 
 
-def get_openai_api_key() -> str:
-    value = os.getenv("OPENAI_API_KEY", "").strip() or os.getenv(
-        "GPT_API_KEY",
-        "",
-    ).strip()
+def get_csv_setting(name: str, dev_default: tuple[str, ...]) -> list[str]:
+    value = os.getenv(name, "").strip()
 
     if value:
+        items = [item.strip() for item in value.split(",") if item.strip()]
+        if is_production() and "*" in items:
+            raise RuntimeError(f"{name} cannot include * in production.")
+        return items
+
+    if is_production():
+        raise RuntimeError(f"{name} is required in production.")
+
+    return list(dev_default)
+
+
+def get_api_key(*names: str) -> str:
+    for name in names:
+        value = os.getenv(name, "").strip()
+        if not value:
+            continue
         if is_production() and value in PLACEHOLDER_API_KEYS:
-            raise RuntimeError("OPENAI_API_KEY must be changed in production.")
+            raise RuntimeError(f"{name} must be changed in production.")
         return value
 
     if is_production():
-        raise RuntimeError("OPENAI_API_KEY is required in production.")
+        raise RuntimeError(f"{names[0]} is required in production.")
 
     return ""
 
@@ -70,8 +84,8 @@ def _is_local_url(value: str) -> bool:
     )
 
 
-BACK_API_BASE_URL = get_setting("BACK_API_BASE_URL", DEFAULT_DEV_BACK_API_BASE_URL)
 DATABASE_URL = get_setting("DATABASE_URL", DEFAULT_DEV_DATABASE_URL)
-OPENAI_API_KEY = get_openai_api_key()
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
-EMBEDDING_DIMENSIONS = int(os.getenv("EMBEDDING_DIMENSIONS", "1536"))
+BACK_API_BASE_URL = get_setting("BACK_API_BASE_URL", DEFAULT_DEV_BACK_API_BASE_URL)
+CORS_ORIGINS = get_csv_setting("CORS_ORIGINS", DEFAULT_DEV_CORS_ORIGINS)
+OPENAI_API_KEY = get_api_key("OPENAI_API_KEY", "GPT_API_KEY")
+GPT_MODEL = os.getenv("GPT_MODEL", "gpt-4.1-mini").strip() or "gpt-4.1-mini"

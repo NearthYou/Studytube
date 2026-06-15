@@ -31,6 +31,7 @@ import {
 } from './utils/authApi'
 import { getInitialLanguage, type Language } from './utils/language'
 import { fetchMyBookmarks, fetchMyFollows, updateMyProfile as updateMyProfileApi } from './utils/meApi'
+import type { PublicApiUser } from './utils/usersApi'
 import {
   createPost as createPostApi,
   deletePost as deletePostApi,
@@ -78,6 +79,19 @@ function mapAuthUserToCommunityUser(user: AuthApiUser): User {
     password: '',
     name: user.name,
     email: user.email,
+    nickname: user.nickname,
+    bio: user.bio ?? '',
+    location: user.location ?? '',
+  }
+}
+
+function mapPublicUserToCommunityUser(user: PublicApiUser): User {
+  return {
+    id: user.id,
+    userId: user.loginId,
+    password: '',
+    name: user.name,
+    email: '',
     nickname: user.nickname,
     bio: user.bio ?? '',
     location: user.location ?? '',
@@ -273,7 +287,7 @@ function App() {
 
         setUsers((current) =>
           followsResponse.items.reduce(
-            (nextUsers, user) => upsertUser(nextUsers, mapAuthUserToCommunityUser(user)),
+            (nextUsers, user) => upsertUser(nextUsers, mapPublicUserToCommunityUser(user)),
             current,
           ),
         )

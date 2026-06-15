@@ -1,22 +1,11 @@
 from __future__ import annotations
 
-import os
-from pathlib import Path
 from typing import Any
 
-from dotenv import load_dotenv
 from psycopg import connect
 from psycopg.rows import dict_row
 
-
-ROOT_DIR = Path(__file__).resolve().parents[2]
-load_dotenv(ROOT_DIR / ".env", override=False)
-load_dotenv(ROOT_DIR.parent / "back" / ".env", override=False)
-
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql://postgres:1234@localhost:5433/travel_app",
-)
+from app.settings import DATABASE_URL
 
 
 class DatabaseClient:

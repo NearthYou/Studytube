@@ -1,13 +1,23 @@
-import type { AuthApiUser } from './authApi'
 import { appendQueryParam, requestJson } from './apiClient'
 import type { PostWithMeta } from '../types/community'
 
+export type PublicApiUser = {
+  id: number
+  loginId: string
+  name: string
+  nickname: string
+  bio: string | null
+  location: string | null
+  createdAt: string
+  updatedAt: string
+}
+
 type UserProfileResponse = {
-  user: AuthApiUser
+  user: PublicApiUser
 }
 
 type UserPostsResponse = {
-  user: AuthApiUser
+  user: PublicApiUser
   items: PostWithMeta[]
   totalCount: number
   page: number

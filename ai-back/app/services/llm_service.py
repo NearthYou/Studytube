@@ -1,19 +1,15 @@
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Literal
 
 import httpx
-from dotenv import load_dotenv
 
 from app.schemas.agent import AgentSource, TravelAgentRequest, WeatherInsight
+from app.settings import GPT_MODEL, OPENAI_API_KEY
 
 
 OPENAI_URL = "https://api.openai.com/v1/chat/completions"
-ROOT_DIR = Path(__file__).resolve().parents[2]
-load_dotenv(ROOT_DIR / ".env", override=False)
 
 
 @dataclass
@@ -81,14 +77,11 @@ async def _try_openai_completion(
     mode: Literal["chat", "plan"],
     user_request: TravelAgentRequest,
 ) -> tuple[str | None, str]:
-    api_key = os.getenv("GPT_API_KEY", "").strip()
-    model = os.getenv("GPT_MODEL", "gpt-4.1-mini").strip()
-
-    if not api_key:
-        return None, "GPT_API_KEY is missing."
+    if not OPENAI_API_KEY:
+        return None, "OPENAI_API_KEY or GPT_API_KEY is missing."
 
     payload = {
-        "model": model,
+        "model": GPT_MODEL,
         "messages": [
             {
                 "role": "system",
@@ -117,7 +110,7 @@ async def _try_openai_completion(
             response = await client.post(
                 OPENAI_URL,
                 headers={
-                    "Authorization": f"Bearer {api_key}",
+                    "Authorization": f"Bearer {OPENAI_API_KEY}",
                     "Content-Type": "application/json",
                 },
                 json=payload,
@@ -134,7 +127,7 @@ async def _try_openai_completion(
     message = choices[0].get("message", {})
     content = message.get("content")
     if isinstance(content, str) and content.strip():
-        return content.strip(), f"OpenAI model {model} generated the answer."
+        return content.strip(), f"OpenAI model {GPT_MODEL} generated the answer."
 
     return None, "OpenAI returned an empty message."
 

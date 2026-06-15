@@ -1,6 +1,7 @@
 import type { AuthApiUser } from './authApi'
 import { appendQueryParam, getAuthHeaders, requestJson } from './apiClient'
 import type { PostWithMeta } from '../types/community'
+import type { PublicApiUser } from './usersApi'
 
 export type PaginationParams = {
   page?: number
@@ -17,7 +18,7 @@ export type CommentActivity = {
   type: 'comment' | 'reply'
 }
 
-export type FollowUser = AuthApiUser
+export type FollowUser = PublicApiUser
 
 type PaginatedPostsResponse = {
   items: PostWithMeta[]

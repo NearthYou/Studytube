@@ -9,7 +9,6 @@ type FollowUserRow = {
   id: number;
   login_id: string;
   name: string;
-  email: string;
   nickname: string;
   bio: string | null;
   location: string | null;
@@ -21,7 +20,6 @@ export type FollowUserItem = {
   id: number;
   loginId: string;
   name: string;
-  email: string;
   nickname: string;
   bio: string;
   location: string;
@@ -143,7 +141,6 @@ export class FollowsRepository {
           u.id,
           u.login_id,
           u.name,
-          u.email,
           u.nickname,
           u.bio,
           u.location,
@@ -168,7 +165,6 @@ export class FollowsRepository {
       id: row.id,
       loginId: row.login_id,
       name: row.name,
-      email: row.email,
       nickname: row.nickname,
       bio: row.bio ?? '',
       location: row.location ?? '',

@@ -10,12 +10,14 @@ import { MeModule } from './me/me.module';
 import { PostsModule } from './posts/posts.module';
 import { AiSyncModule } from './ai-sync/ai-sync.module';
 import { UsersModule } from './users/users.module';
+import { validateEnvironment } from './config/env.validation';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: '.env',
+      validate: validateEnvironment,
     }),
     DatabaseModule,
     AiSyncModule,

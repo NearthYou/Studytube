@@ -12,6 +12,7 @@ import { RequestEmailVerificationDto } from './dto/request-email-verification.dt
 import { JwtPayload } from './interfaces/jwt-payload.interface';
 import { LoginDto } from './dto/login.dto';
 import { SignupDto } from './dto/signup.dto';
+import { getJwtSecret } from '../config/security.config';
 
 type UserRow = {
   id: number;
@@ -274,10 +275,7 @@ export class AuthService {
   }
 
   getJwtSecret() {
-    return (
-      this.configService.get<string>('JWT_SECRET') ??
-      'dev-jwt-secret-change-me'
-    );
+    return getJwtSecret(this.configService);
   }
 
   getJwtExpiresIn() {

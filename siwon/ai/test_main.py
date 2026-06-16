@@ -1683,7 +1683,8 @@ class AiServiceTest(unittest.TestCase):
         self.assertEqual(response["segments"], [])
         self.assertIn("429", response["message"])
 
-    def test_caption_cache_keeps_rate_limited_caption_response(self):
+    def test_caption_cache_does_not_pin_rate_limited_caption_response(self):
+        original_httpx = main.httpx
         original_fetch_tracks = main.fetch_youtube_caption_tracks
         original_fetch_urls = main.fetch_caption_segments_from_urls
         original_transcript = main.fetch_transcript_api_segments
@@ -1701,6 +1702,7 @@ class AiServiceTest(unittest.TestCase):
                 }
             ]
 
+        main.httpx = object()
         main.fetch_youtube_caption_tracks = fake_fetch_tracks
         main.fetch_caption_segments_from_urls = lambda *_args: (
             [],
@@ -1724,14 +1726,14 @@ class AiServiceTest(unittest.TestCase):
             first = load_translated_captions(payload)
             second = load_translated_captions(payload)
         finally:
+            main.httpx = original_httpx
             main.fetch_youtube_caption_tracks = original_fetch_tracks
             main.fetch_caption_segments_from_urls = original_fetch_urls
             main.fetch_transcript_api_segments = original_transcript
             main.fetch_yt_dlp_caption_segments = original_yt_dlp
             main.CAPTION_RESPONSE_CACHE.clear()
 
-        self.assertEqual(fetch_count, 1)
-        self.assertEqual(first, second)
+        self.assertEqual(fetch_count, 2)
         self.assertEqual(second["provider"], "youtube-caption-rate-limited")
         self.assertEqual(second["segments"], [])
 

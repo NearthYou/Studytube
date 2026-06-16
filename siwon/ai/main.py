@@ -1009,12 +1009,7 @@ def write_caption_response_cache(
 
 
 def is_cacheable_caption_response(response: dict[str, Any]) -> bool:
-    if response.get("segments"):
-        return True
-
-    return response.get("provider") in {
-        "youtube-caption-rate-limited",
-    }
+    return bool(response.get("segments"))
 
 
 def is_youtube_caption_rate_limited(error: Exception | None) -> bool:

@@ -46,6 +46,35 @@ export function captionTranslationWindow(
   };
 }
 
+export function captionTranslationPrefetchWindows(
+  currentTime: number,
+  windowSeconds = CAPTION_TRANSLATION_WINDOW_SECONDS,
+  adjacentWindowCount = 1,
+) {
+  const safeWindowSeconds = Math.max(1, windowSeconds);
+  const currentWindow = captionTranslationWindow(currentTime, safeWindowSeconds);
+  const windows = [currentWindow];
+
+  for (let offset = 1; offset <= Math.max(0, adjacentWindowCount); offset += 1) {
+    windows.push({
+      startSeconds: currentWindow.startSeconds + offset * safeWindowSeconds,
+      endSeconds: currentWindow.endSeconds + offset * safeWindowSeconds,
+    });
+
+    const previousStart =
+      currentWindow.startSeconds - offset * safeWindowSeconds;
+
+    if (previousStart >= 0) {
+      windows.push({
+        startSeconds: previousStart,
+        endSeconds: previousStart + safeWindowSeconds,
+      });
+    }
+  }
+
+  return windows;
+}
+
 export function captionTranslationRequestKey({
   captionLanguage,
   videoId,

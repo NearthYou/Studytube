@@ -22,6 +22,34 @@ describe('AiProxyService', () => {
     );
   });
 
+  it('allows summary generation timeout to be configured for long videos', async () => {
+    const post = jest.fn().mockReturnValue(of({ data: { mode: 'summary' } }));
+    const service = new AiProxyService(
+      {
+        get: jest.fn((key: string) => {
+          if (key === 'AI_SERVICE_URL') {
+            return 'http://ai.local';
+          }
+
+          if (key === 'AI_SUMMARY_TIMEOUT_MS') {
+            return '180000';
+          }
+
+          return undefined;
+        }),
+      } as never,
+      { post } as never,
+    );
+
+    await service.summary({ videoId: 'long123' });
+
+    expect(post).toHaveBeenCalledWith(
+      'http://ai.local/youtube/summary',
+      { videoId: 'long123' },
+      expect.objectContaining({ timeout: 180000 }),
+    );
+  });
+
   it('allows agent study plans to run longer than the generic AI timeout', async () => {
     const post = jest.fn().mockReturnValue(of({ data: { mode: 'agent' } }));
     const service = new AiProxyService(

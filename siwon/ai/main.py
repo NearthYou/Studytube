@@ -95,6 +95,10 @@ CAPTION_CACHE_POLICY_VERSION = "translation-window-v3"
 CAPTION_RESPONSE_CACHE_TTL_SECONDS = 10 * 60
 CAPTION_RESPONSE_CACHE_MAX_SIZE = 64
 CAPTION_RESPONSE_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+SUMMARY_CACHE_POLICY_VERSION = "transcript-summary-v1"
+SUMMARY_RESPONSE_CACHE_TTL_SECONDS = 30 * 60
+SUMMARY_RESPONSE_CACHE_MAX_SIZE = 64
+SUMMARY_RESPONSE_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 YOUTUBE_SUBTITLE_PO_TOKEN_CACHE_TTL_SECONDS = 5 * 60 * 60
 YOUTUBE_SUBTITLE_PO_TOKEN_CACHE: dict[str, tuple[float, tuple[str, str]]] = {}
 CAPTION_TRANSLATION_JOBS: set[str] = set()
@@ -1095,6 +1099,17 @@ def build_youtube_summary(payload: dict[str, Any]) -> dict[str, Any]:
     stored_notes = clean_text(str(payload.get("translatedNotes") or "")).strip()
     segments = summary_caption_segments(payload, video_id, target_language)
     transcript = transcript_text_from_segments(segments)
+    summary_cache_key = summary_response_cache_key(
+        video_id=video_id,
+        title=title,
+        channel_name=channel_name,
+        target_language=target_language,
+        transcript=transcript,
+    )
+    cached_summary = read_summary_response_cache(summary_cache_key)
+
+    if cached_summary:
+        return cached_summary
 
     if OpenAI is not None and os.getenv("OPENAI_API_KEY") and transcript:
         sections = summarize_video_with_openai(
@@ -1105,7 +1120,7 @@ def build_youtube_summary(payload: dict[str, Any]) -> dict[str, Any]:
         )
 
         if sections:
-            return {
+            response = {
                 "mode": "youtube-summary",
                 "provider": "openai-transcript-summary",
                 "videoId": video_id,
@@ -1113,6 +1128,9 @@ def build_youtube_summary(payload: dict[str, Any]) -> dict[str, Any]:
                 "sections": append_transcript_section(sections, segments),
                 "message": "Caption transcript summarized into detailed study notes.",
             }
+            write_summary_response_cache(summary_cache_key, response)
+
+            return response
 
     return {
         "mode": "youtube-summary",
@@ -1131,6 +1149,69 @@ def build_youtube_summary(payload: dict[str, Any]) -> dict[str, Any]:
         ),
         "message": "Detailed AI summary unavailable; generated structured notes locally.",
     }
+
+
+def summary_response_cache_key(
+    *,
+    video_id: str,
+    title: str,
+    channel_name: str,
+    target_language: str,
+    transcript: str,
+) -> str:
+    if not video_id or not transcript:
+        return ""
+
+    cache_parts = {
+        "videoId": video_id,
+        "title": title,
+        "channelName": channel_name,
+        "targetLanguage": target_language,
+        "transcriptHash": hashlib.sha256(transcript.encode("utf-8")).hexdigest(),
+        "model": os.getenv("LLM_MODEL", "gpt-4o-mini"),
+        "policyVersion": SUMMARY_CACHE_POLICY_VERSION,
+    }
+
+    return json.dumps(cache_parts, sort_keys=True)
+
+
+def read_summary_response_cache(cache_key: str) -> dict[str, Any] | None:
+    if not cache_key:
+        return None
+
+    cached = SUMMARY_RESPONSE_CACHE.get(cache_key)
+
+    if not cached:
+        return None
+
+    created_at, response = cached
+
+    if time.time() - created_at > SUMMARY_RESPONSE_CACHE_TTL_SECONDS:
+        SUMMARY_RESPONSE_CACHE.pop(cache_key, None)
+        return None
+
+    return copy.deepcopy(response)
+
+
+def write_summary_response_cache(
+    cache_key: str,
+    response: dict[str, Any],
+) -> None:
+    if (
+        not cache_key
+        or response.get("provider") != "openai-transcript-summary"
+        or not response.get("sections")
+    ):
+        return
+
+    while len(SUMMARY_RESPONSE_CACHE) >= SUMMARY_RESPONSE_CACHE_MAX_SIZE:
+        oldest_key = min(
+            SUMMARY_RESPONSE_CACHE,
+            key=lambda key: SUMMARY_RESPONSE_CACHE[key][0],
+        )
+        SUMMARY_RESPONSE_CACHE.pop(oldest_key, None)
+
+    SUMMARY_RESPONSE_CACHE[cache_key] = (time.time(), copy.deepcopy(response))
 
 
 def summary_caption_segments(

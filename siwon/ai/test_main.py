@@ -661,6 +661,77 @@ class AiServiceTest(unittest.TestCase):
         transcript_section = response["sections"][-1]
         self.assertIn("React Query는 서버 상태를 캐시합니다.", transcript_section["body"])
 
+    def test_youtube_summary_reuses_cached_response_for_same_transcript(self):
+        class FakeOpenAI:
+            calls = 0
+
+            def __init__(self):
+                self.chat = self.Chat()
+
+            class Chat:
+                def __init__(self):
+                    self.completions = self.Completions()
+
+                class Completions:
+                    @staticmethod
+                    def create(**_kwargs):
+                        FakeOpenAI.calls += 1
+                        message = type(
+                            "Message",
+                            (),
+                            {
+                                "content": json.dumps(
+                                    {
+                                        "sections": [
+                                            {
+                                                "label": "핵심 요약",
+                                                "body": "React Query 핵심을 서버 상태 중심으로 정리합니다.",
+                                            }
+                                        ]
+                                    },
+                                    ensure_ascii=False,
+                                )
+                            },
+                        )()
+                        choice = type("Choice", (), {"message": message})()
+                        return type("Response", (), {"choices": [choice]})()
+
+        original_openai = main.OpenAI
+        original_key = os.environ.get("OPENAI_API_KEY")
+        main.OpenAI = FakeOpenAI
+        os.environ["OPENAI_API_KEY"] = "test-key"
+        main.SUMMARY_RESPONSE_CACHE.clear()
+
+        payload = {
+            "videoId": "summary-cache",
+            "title": "React Query Crash Course",
+            "channelName": "The Net Ninja",
+            "segments": [
+                {
+                    "start": 0,
+                    "end": 5,
+                    "text": "React Query caches server state.",
+                }
+            ],
+        }
+
+        try:
+            first = main.build_youtube_summary(payload)
+            calls_after_first_summary = FakeOpenAI.calls
+            second = main.build_youtube_summary(payload)
+        finally:
+            main.SUMMARY_RESPONSE_CACHE.clear()
+            main.OpenAI = original_openai
+            if original_key is None:
+                os.environ.pop("OPENAI_API_KEY", None)
+            else:
+                os.environ["OPENAI_API_KEY"] = original_key
+
+        self.assertEqual(first["provider"], "openai-transcript-summary")
+        self.assertEqual(second["provider"], "openai-transcript-summary")
+        self.assertGreater(calls_after_first_summary, 0)
+        self.assertEqual(FakeOpenAI.calls, calls_after_first_summary)
+
     def test_youtube_summary_is_korean_and_includes_timestamped_transcript(self):
         captured_payloads = []
 

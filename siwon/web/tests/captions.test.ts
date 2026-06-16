@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   CAPTION_TRANSLATION_WINDOW_SECONDS,
   captionTranslationRequestKey,
+  captionTranslationPrefetchWindows,
   captionTranslationWindow,
   captionStatusText,
   disableNativeYouTubeCaptions,
@@ -256,6 +257,19 @@ test('requests AI caption translation in short playback windows', () => {
     }),
     'video-1:ko:120:180',
   );
+});
+
+test('prefetches neighboring caption translation windows around playback time', () => {
+  assert.deepEqual(captionTranslationPrefetchWindows(121.2), [
+    { startSeconds: 120, endSeconds: 180 },
+    { startSeconds: 180, endSeconds: 240 },
+    { startSeconds: 60, endSeconds: 120 },
+  ]);
+
+  assert.deepEqual(captionTranslationPrefetchWindows(10), [
+    { startSeconds: 0, endSeconds: 60 },
+    { startSeconds: 60, endSeconds: 120 },
+  ]);
 });
 
 test('reports AI translation progress while source captions wait for translation', () => {

@@ -73,7 +73,7 @@ export class AiProxyService {
       '/youtube/summary',
       body,
       this.summaryFallback(body),
-      90000,
+      Number(this.configService.get<string>('AI_SUMMARY_TIMEOUT_MS')) || 180000,
     );
   }
 

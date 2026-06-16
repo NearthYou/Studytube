@@ -46,6 +46,7 @@ import {
 } from "./exploreBoard";
 import {
   CAPTION_TRANSLATION_WINDOW_SECONDS,
+  captionTranslationPrefetchWindows,
   captionTranslationRequestKey,
   captionTranslationWindow,
   captionStatusText,
@@ -4938,25 +4939,45 @@ function WatchPage({ session }: { session: Session }) {
       return;
     }
 
-    const captionWindow = captionTranslationWindow(
+    const captionWindows = captionTranslationPrefetchWindows(
       activeCaptionWindowStart,
       CAPTION_TRANSLATION_WINDOW_SECONDS,
-    );
-    const requestKey = captionTranslationRequestKey({
-      captionLanguage,
-      videoId: currentVideo.videoId,
-      window: captionWindow,
+    ).filter((window) => {
+      const requestKey = captionTranslationRequestKey({
+        captionLanguage,
+        videoId: currentVideo.videoId,
+        window,
+      });
+
+      return !captionWindowRequestKeysRef.current.has(requestKey);
     });
 
-    if (captionWindowRequestKeysRef.current.has(requestKey)) {
+    if (captionWindows.length === 0) {
       return;
     }
 
-    captionWindowRequestKeysRef.current.add(requestKey);
+    for (const captionWindow of captionWindows) {
+      captionWindowRequestKeysRef.current.add(
+        captionTranslationRequestKey({
+          captionLanguage,
+          videoId: currentVideo.videoId,
+          window: captionWindow,
+        }),
+      );
+    }
+
     setCaptionRefreshAttempts(0);
     let cancelled = false;
 
-    async function loadCaptionWindow() {
+    async function loadCaptionWindow(
+      captionWindow: ReturnType<typeof captionTranslationWindow>,
+    ) {
+      const requestKey = captionTranslationRequestKey({
+        captionLanguage,
+        videoId: currentVideo!.videoId,
+        window: captionWindow,
+      });
+
       try {
         const response = await fetchTranslatedCaptions({
           videoId: currentVideo!.videoId,
@@ -4999,7 +5020,9 @@ function WatchPage({ session }: { session: Session }) {
       }
     }
 
-    void loadCaptionWindow();
+    for (const captionWindow of captionWindows) {
+      void loadCaptionWindow(captionWindow);
+    }
 
     return () => {
       cancelled = true;

@@ -8,6 +8,7 @@ import { AppService } from './app.service';
 import { DatabaseService } from './database.service';
 import { StudyBoardController } from './study-board.controller';
 import { StudyBoardService } from './study-board.service';
+import { VideoAssetService } from './video-asset.service';
 
 @Module({
   imports: [
@@ -23,10 +24,20 @@ import { StudyBoardService } from './study-board.service';
     DatabaseService,
     AiProxyService,
     {
+      provide: VideoAssetService,
+      useFactory: (
+        databaseService: DatabaseService,
+        aiProxyService: AiProxyService,
+      ) => new VideoAssetService(databaseService, aiProxyService),
+      inject: [DatabaseService, AiProxyService],
+    },
+    {
       provide: StudyBoardService,
-      useFactory: (databaseService: DatabaseService) =>
-        new StudyBoardService(databaseService),
-      inject: [DatabaseService],
+      useFactory: (
+        databaseService: DatabaseService,
+        videoAssetService: VideoAssetService,
+      ) => new StudyBoardService(databaseService, videoAssetService),
+      inject: [DatabaseService, VideoAssetService],
     },
   ],
 })

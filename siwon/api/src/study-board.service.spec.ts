@@ -1,5 +1,6 @@
 import { StudyBoardService } from './study-board.service';
 import { MemoryBoardRepository } from './memory-board.repository';
+import type { VideoAssetService } from './video-asset.service';
 import {
   BadRequestException,
   ForbiddenException,
@@ -342,6 +343,36 @@ describe('StudyBoardService', () => {
     await expect(
       service.getVideoAsset(session.token, post.id),
     ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('enqueues video asset preparation after creating a post without awaiting it', async () => {
+    const enqueuePost = jest.fn(() => new Promise(() => undefined));
+    const serviceWithAssets = new StudyBoardService(
+      new MemoryBoardRepository(),
+      { enqueuePost } as unknown as VideoAssetService,
+    );
+    const session = await serviceWithAssets.demoSession();
+    const result = await Promise.race([
+      serviceWithAssets.createPost(session.token, {
+        title: 'Queued asset lesson',
+        videoUrl: 'https://www.youtube.com/watch?v=queuedAsset',
+        thumbnailUrl: 'https://i.ytimg.com/vi/queuedAsset/hqdefault.jpg',
+        channelName: 'StudyTube',
+        summary: 'A lesson that should enqueue asset preparation.',
+        translatedNotes: 'Queued asset preparation notes.',
+        tags: ['asset', 'queue'],
+      }),
+      new Promise<'timeout'>((resolve) => {
+        setTimeout(() => resolve('timeout'), 50);
+      }),
+    ]);
+
+    expect(result).not.toBe('timeout');
+    expect(enqueuePost).toHaveBeenCalledWith(
+      expect.objectContaining({
+        videoUrl: 'https://www.youtube.com/watch?v=queuedAsset',
+      }),
+    );
   });
 
   it('persists video asset updates by post id in the repository', async () => {

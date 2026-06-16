@@ -31,11 +31,15 @@ import type {
   UpdatePostInput,
   User,
 } from './study-board.types';
+import type { VideoAssetService } from './video-asset.service';
 import type { VideoAsset } from './video-asset.types';
 
 @Injectable()
 export class StudyBoardService {
-  constructor(private readonly repository: BoardRepository) {}
+  constructor(
+    private readonly repository: BoardRepository,
+    private readonly videoAssetService?: VideoAssetService,
+  ) {}
 
   async signUp(input: {
     name: string;
@@ -231,11 +235,15 @@ export class StudyBoardService {
     const session = await this.requireSession(token);
     assertPostInput(input);
 
-    return this.repository.createPost({
+    const post = await this.repository.createPost({
       ...input,
       authorId: session.user.id,
       tags: input.tags ?? [],
     });
+
+    this.videoAssetService?.enqueuePost(post);
+
+    return post;
   }
 
   async getVideoAsset(

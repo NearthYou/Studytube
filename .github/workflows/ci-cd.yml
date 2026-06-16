@@ -5,10 +5,16 @@ on:
     branches:
       - main
       - sw
+    paths:
+      - "siwon/**"
+      - ".github/workflows/ci-cd.yml"
   push:
     branches:
       - main
       - sw
+    paths:
+      - "siwon/**"
+      - ".github/workflows/ci-cd.yml"
   workflow_dispatch:
 
 concurrency:

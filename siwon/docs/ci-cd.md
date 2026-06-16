@@ -10,7 +10,7 @@ The workflow at `.github/workflows/ci-cd.yml` runs three jobs in parallel:
 - API: install, lint, Jest tests, Nest build.
 - AI: install Python dependencies, unittest discovery.
 
-CI runs on pull requests and pushes to `main` and `sw`.
+CI runs on pull requests and pushes to `main` and `sw` only when files under `siwon/` change. Changes to `.github/workflows/ci-cd.yml` also trigger CI so workflow edits can be validated.
 
 ## What CD Does
 

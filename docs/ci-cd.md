@@ -31,13 +31,15 @@ Runtime secrets such as `.env`, YouTube cookies, and PO token files stay on EC2.
 
 Set these in GitHub:
 
-- `EC2_HOST`: EC2 public IP or DNS, for example `15.164.98.162`.
-- `EC2_USER`: SSH user, for example `ubuntu`.
 - `EC2_SSH_KEY`: private key content for the EC2 key pair.
 
 Optional:
 
+- `EC2_HOST`: EC2 public IP or DNS. Defaults to `15.164.98.162`.
+- `EC2_USER`: SSH user. Defaults to `ubuntu`.
 - `EC2_APP_DIR`: app path on EC2. Defaults to `/home/ubuntu/agentic-board` if empty.
+
+If `EC2_SSH_KEY` is missing, the deploy job succeeds with a notice and skips deployment. This keeps CI green while deployment credentials are not configured.
 
 ## Manual Deploy
 

@@ -1391,6 +1391,7 @@ def summary_transcript_segments(
 KEY_TRANSCRIPT_MAX_SEGMENTS = 8
 KEY_TRANSCRIPT_MIN_REVIEW_INTERVAL_SECONDS = 45
 KEY_TRANSCRIPT_MIN_TEXT_CHARS = 3
+FULL_TRANSCRIPT_INTERVAL_SECONDS = 60
 KEY_TRANSCRIPT_CUE_WORDS = (
     "핵심",
     "중요",
@@ -1568,15 +1569,36 @@ def key_transcript_score(text: str, index: int, total_count: int) -> float:
 
 
 def timestamped_transcript_body(segments: list[dict[str, Any]]) -> str:
-    lines: list[str] = []
+    buckets: list[dict[str, Any]] = []
 
-    for segment in key_transcript_segments(segments):
+    for segment in normalize_caption_segments(segments):
         text = clean_text(str(segment.get("text") or "")).strip()
 
         if not text:
             continue
 
-        lines.append(f"{format_caption_time(float(segment.get('start') or 0))} {text}")
+        try:
+            start = float(segment.get("start") or 0)
+        except (TypeError, ValueError):
+            start = 0.0
+
+        bucket_start = (
+            math.floor(max(0.0, start) / FULL_TRANSCRIPT_INTERVAL_SECONDS)
+            * FULL_TRANSCRIPT_INTERVAL_SECONDS
+        )
+        current_bucket = buckets[-1] if buckets else None
+
+        if not current_bucket or current_bucket["start"] != bucket_start:
+            current_bucket = {"start": bucket_start, "texts": []}
+            buckets.append(current_bucket)
+
+        current_bucket["texts"].append(text)
+
+    lines = [
+        f"{format_caption_time(float(bucket['start']))} {' '.join(bucket['texts'])}"
+        for bucket in buckets
+        if bucket["texts"]
+    ]
 
     return "\n".join(lines)
 

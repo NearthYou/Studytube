@@ -800,10 +800,12 @@ class AiServiceTest(unittest.TestCase):
             for section in response["sections"]
             if section["label"] == "전체 스크립트 전사문"
         )
-        self.assertIn("00:00 첫 번째 설명입니다.", transcript_section["body"])
-        self.assertIn("00:04 두 번째 예제입니다.", transcript_section["body"])
+        self.assertIn(
+            "00:00 첫 번째 설명입니다. 두 번째 예제입니다.",
+            transcript_section["body"],
+        )
 
-    def test_timestamped_transcript_keeps_only_key_review_points(self):
+    def test_timestamped_transcript_uses_long_timestamp_intervals(self):
         segments = [
             {"start": 0, "end": 4, "text": "인트로에서 오늘 배울 내용을 짧게 소개합니다."},
             {"start": 30, "end": 34, "text": "환경 설정을 빠르게 확인합니다."},
@@ -858,6 +860,32 @@ class AiServiceTest(unittest.TestCase):
                 "04:30",
             ][: len(lines)],
         )
+
+    def test_timestamped_transcript_includes_every_segment_in_long_intervals(self):
+        segments = [
+            {"start": 0, "end": 4, "text": "Intro overview."},
+            {"start": 30, "end": 34, "text": "Environment setup."},
+            {"start": 60, "end": 66, "text": "Core concept."},
+            {"start": 90, "end": 94, "text": "Folder structure."},
+            {"start": 150, "end": 158, "text": "Cache example."},
+            {"start": 180, "end": 184, "text": "Short bridge."},
+            {"start": 240, "end": 248, "text": "Retry warning."},
+            {"start": 270, "end": 274, "text": "Next screen."},
+            {"start": 330, "end": 338, "text": "Practice query keys."},
+            {"start": 360, "end": 364, "text": "Design notes."},
+            {"start": 420, "end": 428, "text": "Final summary."},
+        ]
+
+        body = main.timestamped_transcript_body(segments)
+        lines = body.splitlines()
+
+        self.assertLess(len(lines), len(segments))
+        self.assertEqual(
+            [line.split(" ", 1)[0] for line in lines],
+            ["00:00", "01:00", "02:00", "03:00", "04:00", "05:00", "06:00", "07:00"],
+        )
+        for segment in segments:
+            self.assertIn(segment["text"], body)
 
     def test_youtube_summary_falls_back_to_timed_transcript_notes(self):
         original_openai = main.OpenAI

@@ -1,0 +1,112 @@
+.mypage-page {
+  display: grid;
+  gap: var(--page-section-gap);
+}
+
+.profile-banner,
+.mypage-panel {
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow-soft);
+}
+
+.profile-banner {
+  display: grid;
+  gap: var(--page-hero-gap);
+  min-height: var(--page-hero-height);
+  align-content: end;
+  padding: var(--page-hero-padding);
+  background:
+    var(--page-hero-overlay),
+    var(--page-hero-image) center / cover;
+}
+
+.profile-banner span {
+  color: var(--accent-strong);
+  font-size: var(--page-eyebrow-size);
+  font-weight: 800;
+  letter-spacing: var(--page-eyebrow-letter-spacing);
+  text-transform: uppercase;
+}
+
+.profile-banner h1 {
+  max-width: var(--page-title-max-width);
+  margin: 0;
+  color: var(--text-strong);
+  font-size: var(--page-title-size);
+  font-weight: 400;
+  line-height: var(--page-title-line-height);
+}
+
+.profile-banner p {
+  max-width: var(--page-copy-max-width);
+  margin: 0;
+  color: var(--text-body);
+  line-height: 1.65;
+}
+
+.mypage-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.mypage-panel {
+  padding: var(--page-card-padding);
+}
+
+.mypage-item {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.95rem;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: rgba(255, 253, 247, 0.82);
+  color: inherit;
+  text-decoration: none;
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease,
+    border-color 160ms ease;
+}
+
+.mypage-item + .mypage-item {
+  margin-top: 0.65rem;
+}
+
+.mypage-item:hover {
+  transform: translateY(-2px);
+  border-color: var(--border-strong);
+  box-shadow: 0 14px 28px rgba(67, 55, 39, 0.08);
+}
+
+.mypage-item span,
+.mypage-item small {
+  color: var(--text-muted);
+  font-size: 0.86rem;
+}
+
+.mypage-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+@media (max-width: 760px) {
+  .profile-banner,
+  .mypage-panel {
+    padding: 1rem;
+  }
+
+  .profile-banner {
+    min-height: var(--page-hero-mobile-height);
+  }
+
+  .mypage-tabs button {
+    flex: 1 1 calc(50% - 0.55rem);
+  }
+}

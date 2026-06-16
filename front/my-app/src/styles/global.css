@@ -1,0 +1,138 @@
+@import url("https://fonts.googleapis.com/css2?family=Gowun+Dodum&family=Noto+Sans+KR:wght@400;500;700;800&display=swap");
+
+:root {
+  --bg-base: #f7f2e9;
+  --bg-wash: #efe7da;
+  --surface: rgba(255, 253, 247, 0.94);
+  --surface-strong: #fffdf7;
+  --surface-soft: #eee5d7;
+  --surface-note: #f6f0e6;
+  --border-soft: rgba(61, 68, 52, 0.12);
+  --border-strong: rgba(61, 68, 52, 0.24);
+  --text-strong: #26241f;
+  --text-body: #575047;
+  --text-muted: #847769;
+  --accent: #667657;
+  --accent-strong: #3f5137;
+  --accent-soft: rgba(102, 118, 87, 0.12);
+  --accent-warm: #a86f4c;
+  --danger: #b65a4a;
+  --success: #647849;
+  --shadow-soft: 0 18px 45px rgba(67, 55, 39, 0.08);
+  --shadow-mid: 0 26px 70px rgba(67, 55, 39, 0.12);
+  --font-body: "Noto Sans KR", "Pretendard Variable", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  --font-display: "Gowun Dodum", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  --page-max-width: 1240px;
+  --page-gutter: 2rem;
+  --page-mobile-gutter: 1rem;
+  --page-top-padding: 1.25rem;
+  --page-bottom-padding: 3.25rem;
+  --page-section-gap: 1rem;
+  --page-grid-gap: 1rem;
+  --page-card-padding: 1rem;
+  --page-side-column: 280px;
+  --page-hero-side-column: 280px;
+  --page-hero-height: 230px;
+  --page-hero-mobile-height: 220px;
+  --page-hero-padding: 1.25rem;
+  --page-hero-gap: 0.55rem;
+  --page-eyebrow-size: 0.72rem;
+  --page-eyebrow-letter-spacing: 0.16em;
+  --page-title-size: clamp(2.25rem, 4vw, 3.35rem);
+  --page-title-line-height: 1.06;
+  --page-title-max-width: 14ch;
+  --page-copy-max-width: 720px;
+  --page-section-title-size: 1.35rem;
+  --page-hero-image: url("https://images.unsplash.com/photo-1497250681960-ef046c08a56e?auto=format&fit=crop&w=1200&q=80");
+  --page-hero-overlay: linear-gradient(90deg, rgba(255, 253, 247, 0.94) 0%, rgba(255, 253, 247, 0.58) 58%, rgba(255, 253, 247, 0.12) 100%);
+}
+
+html {
+  min-height: 100%;
+  font-family: var(--font-body);
+  line-height: 1.5;
+  font-weight: 400;
+  color: var(--text-strong);
+  background: var(--bg-base);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  scroll-behavior: smooth;
+  scrollbar-gutter: stable;
+  overflow-y: scroll;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--font-display);
+  letter-spacing: 0;
+  overflow-wrap: break-word;
+  word-break: keep-all;
+}
+
+p,
+a,
+button,
+span,
+strong,
+label {
+  overflow-wrap: break-word;
+  word-break: keep-all;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100%;
+  overflow-x: clip;
+  background:
+    linear-gradient(90deg, rgba(102, 118, 87, 0.05) 0 1px, transparent 1px 100%),
+    linear-gradient(180deg, #fbf7ef 0%, #f1eadf 58%, #e9dece 100%);
+  background-size: 64px 64px, auto;
+  color: var(--text-strong);
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: -1;
+  width: min(210px, 42vw);
+  aspect-ratio: 4 / 5;
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(247, 242, 233, 0.08), rgba(247, 242, 233, 0.72)),
+    url("https://images.unsplash.com/photo-1501004318641-b39e6451bec6?auto=format&fit=crop&w=520&q=70") center / cover;
+  opacity: 0.22;
+  pointer-events: none;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+button {
+  color: inherit;
+}
+
+a {
+  color: inherit;
+}
+
+#root {
+  min-height: 100vh;
+  position: relative;
+}

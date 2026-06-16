@@ -1,2 +1,2 @@
-# agentic-board
-Week15~16
+# AgenticBoard
+krafton jungle week15~16 agentic board

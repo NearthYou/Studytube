@@ -1085,10 +1085,7 @@ def build_youtube_summary(payload: dict[str, Any]) -> dict[str, Any]:
     target_language = "ko"
     stored_summary = clean_text(str(payload.get("summary") or "")).strip()
     stored_notes = clean_text(str(payload.get("translatedNotes") or "")).strip()
-    raw_segments = payload.get("segments")
-    segments = normalize_caption_segments(
-        raw_segments if isinstance(raw_segments, list) else []
-    )
+    segments = summary_caption_segments(payload, video_id, target_language)
     transcript = transcript_text_from_segments(segments)
 
     if OpenAI is not None and os.getenv("OPENAI_API_KEY") and transcript:
@@ -1126,6 +1123,41 @@ def build_youtube_summary(payload: dict[str, Any]) -> dict[str, Any]:
         ),
         "message": "Detailed AI summary unavailable; generated structured notes locally.",
     }
+
+
+def summary_caption_segments(
+    payload: dict[str, Any],
+    video_id: str,
+    target_language: str,
+) -> list[dict[str, Any]]:
+    raw_segments = payload.get("segments")
+    segments = normalize_caption_segments(
+        raw_segments if isinstance(raw_segments, list) else []
+    )
+
+    if segments or not video_id:
+        return segments
+
+    caption_payload: dict[str, Any] = {
+        "videoId": video_id,
+        "targetLanguage": target_language,
+        "allowFallback": False,
+        "translateFallback": False,
+    }
+
+    for key in ["videoUrl", "url", "sourceUrl", "durationSeconds", "duration"]:
+        if payload.get(key) is not None:
+            caption_payload[key] = payload[key]
+
+    try:
+        caption_response = load_translated_captions(caption_payload)
+    except Exception:
+        return []
+
+    response_segments = caption_response.get("segments")
+    return normalize_caption_segments(
+        response_segments if isinstance(response_segments, list) else []
+    )
 
 
 def summarize_video_with_openai(

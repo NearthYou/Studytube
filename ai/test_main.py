@@ -577,6 +577,90 @@ class AiServiceTest(unittest.TestCase):
         self.assertEqual(response["sections"][0]["label"], "핵심 요약")
         self.assertIn("표현", response["sections"][0]["body"])
 
+    def test_youtube_summary_fetches_caption_segments_when_payload_has_none(self):
+        class FakeOpenAI:
+            def __init__(self):
+                self.chat = self.Chat()
+
+            class Chat:
+                def __init__(self):
+                    self.completions = self.Completions()
+
+                class Completions:
+                    @staticmethod
+                    def create(**kwargs):
+                        payload = json.loads(kwargs["messages"][1]["content"])
+                        message = type(
+                            "Message",
+                            (),
+                            {
+                                "content": json.dumps(
+                                    {
+                                        "sections": [
+                                            {
+                                                "label": "핵심 요약",
+                                                "body": f"{payload['title']} 자막을 기준으로 학습 요약을 만들었습니다.",
+                                            }
+                                        ]
+                                    },
+                                    ensure_ascii=False,
+                                )
+                            },
+                        )()
+                        choice = type("Choice", (), {"message": message})()
+                        return type("Response", (), {"choices": [choice]})()
+
+        captured_caption_payloads = []
+
+        def fake_load_translated_captions(payload):
+            captured_caption_payloads.append(payload)
+            return {
+                "mode": "youtube-captions",
+                "provider": "openai-caption-translation",
+                "videoId": payload["videoId"],
+                "language": "ko",
+                "sourceLanguage": "en",
+                "translated": True,
+                "segments": [
+                    {
+                        "start": 0,
+                        "end": 4,
+                        "text": "React Query는 서버 상태를 캐시합니다.",
+                    }
+                ],
+                "message": "translated",
+            }
+
+        original_openai = main.OpenAI
+        original_key = os.environ.get("OPENAI_API_KEY")
+        original_load_captions = main.load_translated_captions
+        main.OpenAI = FakeOpenAI
+        os.environ["OPENAI_API_KEY"] = "test-key"
+        main.load_translated_captions = fake_load_translated_captions
+
+        try:
+            response = main.build_youtube_summary(
+                {
+                    "videoId": "novnyCaa7To",
+                    "title": "React Query Crash Course",
+                    "channelName": "The Net Ninja",
+                    "segments": [],
+                }
+            )
+        finally:
+            main.OpenAI = original_openai
+            main.load_translated_captions = original_load_captions
+            if original_key is None:
+                os.environ.pop("OPENAI_API_KEY", None)
+            else:
+                os.environ["OPENAI_API_KEY"] = original_key
+
+        self.assertEqual(captured_caption_payloads[0]["videoId"], "novnyCaa7To")
+        self.assertFalse(captured_caption_payloads[0]["allowFallback"])
+        self.assertEqual(response["provider"], "openai-transcript-summary")
+        transcript_section = response["sections"][-1]
+        self.assertIn("React Query는 서버 상태를 캐시합니다.", transcript_section["body"])
+
     def test_youtube_summary_is_korean_and_includes_timestamped_transcript(self):
         captured_payloads = []
 

@@ -1445,6 +1445,44 @@ class AiServiceTest(unittest.TestCase):
         self.assertEqual(response["segments"], [])
         self.assertIn("youtube-caption-track-unavailable", response["message"])
 
+    def test_youtube_captions_report_track_fetch_rate_limit_before_native_fallback(self):
+        original_httpx = main.httpx
+        original_fetch_tracks = main.fetch_youtube_caption_tracks
+        original_transcript = main.fetch_transcript_api_segments
+        original_yt_dlp = main.fetch_yt_dlp_caption_segments
+
+        def fake_fetch_tracks(_video_id):
+            raise RuntimeError("HTTP Error 429: Too Many Requests")
+
+        main.httpx = object()
+        main.fetch_youtube_caption_tracks = fake_fetch_tracks
+        main.fetch_transcript_api_segments = lambda *_args: ([], "", False)
+        main.fetch_yt_dlp_caption_segments = lambda *_args: (
+            [],
+            "",
+            False,
+            RuntimeError("yt-dlp-caption-track-unavailable"),
+        )
+
+        try:
+            response = load_translated_captions(
+                {
+                    "videoId": "tracklimited123",
+                    "targetLanguage": "ko",
+                    "allowFallback": False,
+                }
+            )
+        finally:
+            main.httpx = original_httpx
+            main.fetch_youtube_caption_tracks = original_fetch_tracks
+            main.fetch_transcript_api_segments = original_transcript
+            main.fetch_yt_dlp_caption_segments = original_yt_dlp
+
+        self.assertEqual(response["provider"], "youtube-caption-rate-limited")
+        self.assertFalse(response["translated"])
+        self.assertEqual(response["segments"], [])
+        self.assertIn("429", response["message"])
+
     def test_youtube_captions_do_not_align_summary_when_translation_fails(self):
         class FakeResponse:
             def __init__(self, text="", data=None):
@@ -2103,6 +2141,57 @@ class AiServiceTest(unittest.TestCase):
         self.assertEqual(candidate["sourceLanguage"], "ko")
         self.assertFalse(candidate["translated"])
         self.assertNotIn("tlang=", candidate["url"])
+
+    def test_yt_dlp_caption_candidate_prefers_non_target_source_language(self):
+        metadata = {
+            "automatic_captions": {
+                "ko": [
+                    {
+                        "ext": "json3",
+                        "url": "https://www.youtube.com/api/timedtext?lang=ko",
+                    }
+                ],
+                "en": [
+                    {
+                        "ext": "json3",
+                        "url": "https://www.youtube.com/api/timedtext?lang=en",
+                    }
+                ],
+            },
+            "subtitles": {},
+        }
+
+        candidate = main.choose_yt_dlp_caption_candidate(
+            metadata,
+            "ko",
+            prefer_source_captions=True,
+        )
+
+        self.assertIsNotNone(candidate)
+        self.assertEqual(candidate["sourceLanguage"], "en")
+        self.assertFalse(candidate["translated"])
+
+    def test_caption_track_prefers_translatable_source_when_openai_can_translate(self):
+        tracks = [
+            {
+                "baseUrl": "https://www.youtube.com/api/timedtext?v=abc&lang=ko",
+                "languageCode": "ko",
+                "isTranslatable": False,
+            },
+            {
+                "baseUrl": "https://www.youtube.com/api/timedtext?v=abc&lang=en",
+                "languageCode": "en",
+                "isTranslatable": True,
+            },
+        ]
+
+        track = main.choose_caption_track(
+            tracks,
+            "ko",
+            prefer_source_captions=True,
+        )
+
+        self.assertEqual(track["languageCode"], "en")
 
     def test_parse_timedtext_response_accepts_webvtt_from_yt_dlp(self):
         class FakeResponse:

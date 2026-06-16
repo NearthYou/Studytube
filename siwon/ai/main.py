@@ -625,7 +625,11 @@ def load_translated_captions_uncached(
             tracks = []
             track_fetch_error = sanitized_caption_exception(exc)
 
-        track = choose_caption_track(tracks, target_language)
+        track = choose_caption_track(
+            tracks,
+            target_language,
+            prefer_source_captions=can_translate_captions_with_openai(),
+        )
 
         if not track:
             transcript_segments, transcript_source_language, transcript_translated = (
@@ -656,17 +660,21 @@ def load_translated_captions_uncached(
                     caption_window=caption_window,
                 )
 
-            rate_limit_error = _yt_dlp_error or track_fetch_error
+            rate_limit_error = preferred_caption_error(
+                track_fetch_error,
+                _yt_dlp_error,
+            )
             if is_youtube_caption_rate_limited(rate_limit_error):
+                rate_limit_source = (
+                    "youtube-track-fetch-rate-limited"
+                    if rate_limit_error is track_fetch_error
+                    else "yt-dlp-caption-rate-limited"
+                )
                 return caption_rate_limited_response(
                     video_id,
                     target_language,
                     yt_dlp_source_language or "youtube",
-                    (
-                        f"yt-dlp-caption-rate-limited: {rate_limit_error}"
-                        if _yt_dlp_error
-                        else f"youtube-track-fetch-rate-limited: {rate_limit_error}"
-                    ),
+                    f"{rate_limit_source}: {rate_limit_error}",
                 )
 
             return native_caption_response(
@@ -777,7 +785,7 @@ def load_translated_captions_uncached(
                     caption_window=caption_window,
                 )
 
-            last_error = yt_dlp_error or last_error
+            last_error = preferred_caption_error(last_error, yt_dlp_error)
 
         if not segments and is_youtube_caption_rate_limited(last_error):
             return caption_rate_limited_response(
@@ -1014,6 +1022,20 @@ def is_youtube_caption_rate_limited(error: Exception | None) -> bool:
         return False
 
     return "429" in str(error) or "Too Many Requests" in str(error)
+
+
+def preferred_caption_error(
+    *errors: Exception | None,
+) -> Exception | None:
+    for error in errors:
+        if is_youtube_caption_rate_limited(error):
+            return error
+
+    for error in errors:
+        if error is not None:
+            return error
+
+    return None
 
 
 def can_translate_captions_with_openai() -> bool:
@@ -1810,9 +1832,26 @@ def parse_json_assignment(source: str, names: list[str]) -> dict[str, Any]:
 def choose_caption_track(
     tracks: list[dict[str, Any]],
     target_language: str,
+    *,
+    prefer_source_captions: bool = False,
 ) -> dict[str, Any] | None:
     if not tracks:
         return None
+
+    if prefer_source_captions:
+        for track in tracks:
+            source_language = normalize_language(track.get("languageCode"))
+
+            if source_language and source_language != target_language and track.get(
+                "isTranslatable"
+            ):
+                return track
+
+        for track in tracks:
+            source_language = normalize_language(track.get("languageCode"))
+
+            if source_language and source_language != target_language:
+                return track
 
     for track in tracks:
         if normalize_language(track.get("languageCode")) == target_language:
@@ -2491,7 +2530,11 @@ def find_yt_dlp_caption_candidate(
             else {}
         ),
     ]
-    preferred_sources = [target_language, "en", "ko", "ja", "zh"]
+    preferred_sources = [
+        language
+        for language in ["en", "ko", "ja", "zh"]
+        if language != target_language
+    ]
 
     for tracks in groups:
         languages = list(tracks.keys())
@@ -2500,8 +2543,22 @@ def find_yt_dlp_caption_candidate(
             ordered_languages = [
                 *[
                     language
+                    for preferred in preferred_sources
                     for language in languages
+                    if normalize_language(language) == preferred
+                    and yt_dlp_language_has_untranslated_entry(tracks, language)
+                ],
+                *[
+                    language
+                    for language in languages
+                    if normalize_language(language) != target_language
                     if yt_dlp_language_has_untranslated_entry(tracks, language)
+                ],
+                *[
+                    language
+                    for language in languages
+                    if normalize_language(language) == target_language
+                    and yt_dlp_language_has_untranslated_entry(tracks, language)
                 ],
                 *languages,
             ]

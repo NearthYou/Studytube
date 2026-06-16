@@ -32,8 +32,24 @@ pkill -f '[s]cripts/dev-all.mjs' || true
 pkill -f '[u]vicorn' || true
 pkill -f '[v]ite' || true
 pkill -f '[n]est start' || true
+pkill -f '[a]pi/dist/main' || true
+
+for port in 3000 5173 8000; do
+  pids="$(sudo lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true)"
+  if [ -n "$pids" ]; then
+    echo "$pids" | xargs -r kill
+  fi
+done
 
 sleep 2
+
+for port in 3000 5173 8000; do
+  pids="$(sudo lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true)"
+  if [ -n "$pids" ]; then
+    echo "$pids" | xargs -r kill -9
+  fi
+done
+
 setsid nohup npm run all > npm-run-all.log 2>&1 < /dev/null &
 
 sleep 15

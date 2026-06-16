@@ -227,7 +227,23 @@ def health():
         "status": "ok",
         "llmModel": os.getenv("LLM_MODEL", "gpt-4o-mini"),
         "embeddingModel": os.getenv("EMBEDDING_MODEL", "text-embedding-3-small"),
+        "openaiConfigured": OpenAI is not None and bool(os.getenv("OPENAI_API_KEY")),
+        "youtubeCaptions": youtube_caption_runtime_health(),
         "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def youtube_caption_runtime_health() -> dict[str, bool]:
+    return {
+        "ytDlpAvailable": bool(yt_dlp_commands()),
+        "poTokenConfigured": explicit_youtube_subtitle_po_token() is not None,
+        "autoPoTokenEnabled": truthy_env_default("YOUTUBE_AUTO_SUBTITLE_PO_TOKEN", True),
+        "bgutilConfigured": bool(youtube_bgutil_server_home()),
+        "proxyConfigured": bool(os.getenv("YOUTUBE_PROXY_URL", "").strip()),
+        "cookiesConfigured": bool(
+            os.getenv("YOUTUBE_COOKIES_FILE", "").strip()
+            or os.getenv("YOUTUBE_COOKIES_FROM_BROWSER", "").strip()
+        ),
     }
 
 
@@ -978,7 +994,6 @@ def is_cacheable_caption_response(response: dict[str, Any]) -> bool:
 
     return response.get("provider") in {
         "youtube-caption-rate-limited",
-        "youtube-native-captions",
     }
 
 

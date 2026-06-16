@@ -14,6 +14,54 @@ from main import (
 
 
 class AiServiceTest(unittest.TestCase):
+    def test_health_reports_caption_runtime_configuration_without_secret_values(self):
+        original_env = {
+            name: os.environ.get(name)
+            for name in [
+                "OPENAI_API_KEY",
+                "YOUTUBE_PO_TOKEN",
+                "YOUTUBE_PROXY_URL",
+                "YOUTUBE_COOKIES_FILE",
+                "YOUTUBE_COOKIES_FROM_BROWSER",
+            ]
+        }
+        original_yt_dlp_commands = main.yt_dlp_commands
+        original_bgutil_home = main.youtube_bgutil_server_home
+
+        os.environ["OPENAI_API_KEY"] = "sk-test-secret"
+        os.environ["YOUTUBE_PO_TOKEN"] = "web.subs+po-secret"
+        os.environ["YOUTUBE_PROXY_URL"] = "http://proxy.example"
+        os.environ["YOUTUBE_COOKIES_FILE"] = "/tmp/youtube-cookies.txt"
+        os.environ.pop("YOUTUBE_COOKIES_FROM_BROWSER", None)
+        main.yt_dlp_commands = lambda: [["yt-dlp"]]
+        main.youtube_bgutil_server_home = lambda: "/app/.tools/bgutil/server"
+
+        try:
+            response = main.health()
+        finally:
+            main.yt_dlp_commands = original_yt_dlp_commands
+            main.youtube_bgutil_server_home = original_bgutil_home
+            for name, value in original_env.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+
+        self.assertTrue(response["openaiConfigured"])
+        self.assertEqual(
+            response["youtubeCaptions"],
+            {
+                "ytDlpAvailable": True,
+                "poTokenConfigured": True,
+                "autoPoTokenEnabled": True,
+                "bgutilConfigured": True,
+                "proxyConfigured": True,
+                "cookiesConfigured": True,
+            },
+        )
+        self.assertNotIn("sk-test-secret", json.dumps(response))
+        self.assertNotIn("po-secret", json.dumps(response))
+
     def test_caption_payload_language_alias_selects_target_language(self):
         self.assertEqual(
             main.caption_target_language({"videoId": "abc123", "language": "en"}),
@@ -1430,6 +1478,46 @@ class AiServiceTest(unittest.TestCase):
         self.assertEqual(fetch_count, 1)
         self.assertEqual(first, second)
         self.assertEqual(second["provider"], "youtube-caption-rate-limited")
+        self.assertEqual(second["segments"], [])
+
+    def test_caption_cache_does_not_pin_empty_native_caption_fallback(self):
+        original_fetch_tracks = main.fetch_youtube_caption_tracks
+        original_transcript = main.fetch_transcript_api_segments
+        original_yt_dlp = main.fetch_yt_dlp_caption_segments
+        fetch_count = 0
+
+        def fake_fetch_tracks(_video_id):
+            nonlocal fetch_count
+            fetch_count += 1
+            return []
+
+        main.fetch_youtube_caption_tracks = fake_fetch_tracks
+        main.fetch_transcript_api_segments = lambda *_args: ([], "", False)
+        main.fetch_yt_dlp_caption_segments = lambda *_args: (
+            [],
+            "",
+            False,
+            RuntimeError("yt-dlp-caption-track-unavailable"),
+        )
+        main.CAPTION_RESPONSE_CACHE.clear()
+
+        try:
+            payload = {
+                "videoId": "cache-native-empty",
+                "targetLanguage": "ko",
+                "allowFallback": False,
+            }
+            first = load_translated_captions(payload)
+            second = load_translated_captions(payload)
+        finally:
+            main.fetch_youtube_caption_tracks = original_fetch_tracks
+            main.fetch_transcript_api_segments = original_transcript
+            main.fetch_yt_dlp_caption_segments = original_yt_dlp
+            main.CAPTION_RESPONSE_CACHE.clear()
+
+        self.assertEqual(fetch_count, 2)
+        self.assertEqual(first["provider"], "youtube-native-captions")
+        self.assertEqual(second["provider"], "youtube-native-captions")
         self.assertEqual(second["segments"], [])
 
     def test_youtube_captions_reports_rate_limit_from_yt_dlp_metadata(self):

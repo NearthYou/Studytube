@@ -344,6 +344,130 @@ describe('StudyBoardService', () => {
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
+  it('persists video asset updates by post id in the repository', async () => {
+    const repository = new MemoryBoardRepository();
+    const post = await repository.createPost({
+      authorId: 1,
+      title: 'Repository asset lesson',
+      videoUrl: 'https://www.youtube.com/watch?v=asset-test',
+      thumbnailUrl: 'https://i.ytimg.com/vi/asset-test/hqdefault.jpg',
+      channelName: 'StudyTube',
+      summary: 'A post-scoped asset persistence lesson.',
+      translatedNotes: 'Repository asset persistence notes.',
+      tags: ['asset', 'repository'],
+    });
+
+    const pending = await repository.upsertVideoAsset({
+      postId: post.id,
+      videoId: 'asset-test',
+      videoUrl: 'https://www.youtube.com/watch?v=asset-test',
+      language: 'ko',
+    });
+
+    expect(pending).toMatchObject({
+      postId: post.id,
+      videoId: 'asset-test',
+      videoUrl: 'https://www.youtube.com/watch?v=asset-test',
+      language: 'ko',
+      status: 'pending',
+      sourceCaptionStatus: 'pending',
+      translationStatus: 'pending',
+      summaryStatus: 'pending',
+      sourceSegments: [],
+      translatedSegments: [],
+      summarySections: [],
+      transcriptBody: '',
+      errorMessage: '',
+    });
+
+    await expect(
+      repository.updateVideoAsset(post.id, {
+        status: 'ready',
+        sourceCaptionStatus: 'ready',
+        translationStatus: 'ready',
+        summaryStatus: 'ready',
+        translatedSegments: [{ start: 0, end: 3, text: '안녕하세요.' }],
+        transcriptBody: '00:00 안녕하세요.',
+      }),
+    ).resolves.toMatchObject({
+      postId: post.id,
+      status: 'ready',
+      sourceCaptionStatus: 'ready',
+      translationStatus: 'ready',
+      summaryStatus: 'ready',
+      translatedSegments: [{ start: 0, end: 3, text: '안녕하세요.' }],
+      transcriptBody: '00:00 안녕하세요.',
+    });
+
+    await expect(repository.findVideoAsset(post.id)).resolves.toMatchObject({
+      postId: post.id,
+      videoId: 'asset-test',
+      videoUrl: 'https://www.youtube.com/watch?v=asset-test',
+      language: 'ko',
+      status: 'ready',
+      sourceCaptionStatus: 'ready',
+      translationStatus: 'ready',
+      summaryStatus: 'ready',
+      translatedSegments: [{ start: 0, end: 3, text: '안녕하세요.' }],
+      transcriptBody: '00:00 안녕하세요.',
+    });
+
+    await repository.deletePost(post.id);
+
+    await expect(repository.findVideoAsset(post.id)).resolves.toBeNull();
+  });
+
+  it('rejects video asset upserts for missing posts', async () => {
+    const repository = new MemoryBoardRepository();
+
+    await expect(
+      repository.upsertVideoAsset({
+        postId: 999,
+        videoId: 'missing-post-video',
+        videoUrl: 'https://www.youtube.com/watch?v=missing-post-video',
+        language: 'ko',
+      }),
+    ).rejects.toThrow('Post not found for video asset');
+  });
+
+  it('keeps video asset arrays isolated from caller mutations', async () => {
+    const repository = new MemoryBoardRepository();
+    const post = await repository.createPost({
+      authorId: 1,
+      title: 'Immutable asset lesson',
+      videoUrl: 'https://www.youtube.com/watch?v=immutable-asset',
+      thumbnailUrl: 'https://i.ytimg.com/vi/immutable-asset/hqdefault.jpg',
+      channelName: 'StudyTube',
+      summary: 'A lesson with asset segment snapshots.',
+      translatedNotes: 'Immutable asset persistence notes.',
+      tags: ['asset', 'immutable'],
+    });
+    await repository.upsertVideoAsset({
+      postId: post.id,
+      videoId: 'immutable-asset',
+      videoUrl: 'https://www.youtube.com/watch?v=immutable-asset',
+      language: 'ko',
+    });
+    const sourceSegments = [{ start: 1, end: 2, text: 'hello' }];
+    const translatedSegments = [{ start: 1, end: 2, text: '안녕하세요.' }];
+    const summarySections = [{ label: 'Intro', body: 'Greeting.' }];
+
+    await repository.updateVideoAsset(post.id, {
+      sourceSegments,
+      translatedSegments,
+      summarySections,
+    });
+    sourceSegments[0].text = 'mutated';
+    translatedSegments[0].text = '변경됨';
+    summarySections[0].body = 'Changed.';
+
+    await expect(repository.findVideoAsset(post.id)).resolves.toMatchObject({
+      sourceSegments: [{ start: 1, end: 2, text: 'hello' }],
+      translatedSegments: [{ start: 1, end: 2, text: '안녕하세요.' }],
+      summarySections: [{ label: 'Intro', body: 'Greeting.' }],
+    });
+  });
+
   it('creates a video post and lets users discuss it in comments', async () => {
     const session = await service.demoSession();
     const post = await service.createPost(session.token, {

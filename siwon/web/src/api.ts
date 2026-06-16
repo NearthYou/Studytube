@@ -13,9 +13,53 @@ import type {
   VideoSummaryResponse,
 } from "./types";
 
-const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ??
-  "http://localhost:3000";
+type BrowserLocation = Pick<Location, "hostname" | "protocol">;
+
+const viteEnv = (
+  import.meta as ImportMeta & {
+    env?: Record<string, string | undefined>;
+  }
+).env;
+
+const API_BASE_URL = resolveApiBaseUrl(
+  viteEnv?.VITE_API_BASE_URL,
+  globalThis.location,
+);
+
+export function resolveApiBaseUrl(
+  configuredUrl?: string,
+  currentLocation?: BrowserLocation,
+) {
+  const fallbackUrl =
+    currentLocation && !isLocalHostname(currentLocation.hostname)
+      ? `${currentLocation.protocol}//${currentLocation.hostname}:3000`
+      : "http://localhost:3000";
+  const normalizedUrl = configuredUrl?.trim().replace(/\/$/, "") || fallbackUrl;
+
+  try {
+    const parsedUrl = new URL(normalizedUrl);
+
+    if (
+      currentLocation &&
+      isLocalHostname(parsedUrl.hostname) &&
+      !isLocalHostname(currentLocation.hostname)
+    ) {
+      parsedUrl.protocol = currentLocation.protocol;
+      parsedUrl.hostname = currentLocation.hostname;
+      parsedUrl.port ||= "3000";
+
+      return parsedUrl.toString().replace(/\/$/, "");
+    }
+  } catch {
+    return normalizedUrl;
+  }
+
+  return normalizedUrl;
+}
+
+function isLocalHostname(hostname: string) {
+  return ["localhost", "127.0.0.1", "::1", "[::1]"].includes(hostname);
+}
 
 export class ApiRequestError extends Error {
   status: number;

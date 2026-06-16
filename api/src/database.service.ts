@@ -826,6 +826,10 @@ export class DatabaseService
   }
 
   private async ensureSchema() {
+    const defaultPreferences = JSON.stringify(
+      DEFAULT_LEARNING_PREFERENCES,
+    ).replace(/'/g, "''");
+
     await this.pool.query('CREATE EXTENSION IF NOT EXISTS vector');
     await this.pool.query(`
       CREATE TABLE IF NOT EXISTS users (
@@ -833,7 +837,7 @@ export class DatabaseService
         name TEXT NOT NULL,
         email TEXT NOT NULL UNIQUE,
         password_hash TEXT NOT NULL,
-        preferences JSONB NOT NULL DEFAULT '{"interests":["YouTube ?숈뒿","?꾨줎?몄뿏??],"pace":"?섎（ 20遺?,"goal":"吏㏃? ?곸긽?쇰줈 袁몄???蹂듭뒿?섍린"}'::jsonb,
+        preferences JSONB NOT NULL DEFAULT '${defaultPreferences}'::jsonb,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now()
       );
 
@@ -906,9 +910,6 @@ export class DatabaseService
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
       );
     `);
-    const defaultPreferences = JSON.stringify(
-      DEFAULT_LEARNING_PREFERENCES,
-    ).replace(/'/g, "''");
 
     await this.pool.query(`
       ALTER TABLE users

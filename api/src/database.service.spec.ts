@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DEFAULT_LEARNING_PREFERENCES } from './database-board.mapper';
 import { DatabaseService } from './database.service';
 
 class TestDatabaseService extends DatabaseService {
@@ -104,6 +105,47 @@ describe('DatabaseService fallback persistence', () => {
       expect(attempts).toBe(3);
       expect(service.fallbackLoaded).toBe(false);
       expect(service.databaseAvailableForTest()).toBe(true);
+    } finally {
+      await service.onModuleDestroy();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('uses valid default learning preferences JSON in the users schema', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'agentic-board-fallback-'));
+    const fallbackPath = join(directory, 'board.json');
+    const service = new TestDatabaseService(
+      configServiceForFallbackPath(fallbackPath),
+    );
+    const queries: string[] = [];
+
+    (
+      service as unknown as {
+        pool: { query: (sql: string) => Promise<void>; end: () => Promise<void> };
+      }
+    ).pool = {
+      query: jest.fn(async (sql: string) => {
+        queries.push(sql);
+      }),
+      end: jest.fn(async () => undefined),
+    };
+
+    try {
+      await (
+        service as unknown as { ensureSchema: () => Promise<void> }
+      ).ensureSchema();
+
+      const usersSchema = queries.find((query) =>
+        query.includes('CREATE TABLE IF NOT EXISTS users'),
+      );
+      const expectedDefault = JSON.stringify(
+        DEFAULT_LEARNING_PREFERENCES,
+      ).replace(/'/g, "''");
+
+      expect(usersSchema).toContain(`DEFAULT '${expectedDefault}'::jsonb`);
+      expect(JSON.parse(expectedDefault)).toEqual(
+        DEFAULT_LEARNING_PREFERENCES,
+      );
     } finally {
       await service.onModuleDestroy();
       await rm(directory, { recursive: true, force: true });

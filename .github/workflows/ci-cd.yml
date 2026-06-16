@@ -1,0 +1,156 @@
+name: CI/CD
+
+on:
+  pull_request:
+    branches:
+      - main
+      - sw
+  push:
+    branches:
+      - main
+      - sw
+  workflow_dispatch:
+
+concurrency:
+  group: ci-cd-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    name: Web
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: node --test tests/*.test.ts
+
+      - name: Build
+        run: npm run build
+
+  api:
+    name: API
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: api/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test -- --runInBand
+
+      - name: Build
+        run: npm run build
+
+  ai:
+    name: AI
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ai
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: ai/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Test
+        run: python -m unittest discover -s .
+
+  deploy:
+    name: Deploy EC2
+    runs-on: ubuntu-latest
+    needs:
+      - web
+      - api
+      - ai
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/sw')
+    env:
+      EC2_HOST: ${{ secrets.EC2_HOST }}
+      EC2_USER: ${{ secrets.EC2_USER }}
+      EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+      EC2_APP_DIR: ${{ secrets.EC2_APP_DIR }}
+      DEPLOY_BRANCH: ${{ github.ref_name }}
+    steps:
+      - name: Check deployment secrets
+        run: |
+          test -n "$EC2_HOST"
+          test -n "$EC2_USER"
+          test -n "$EC2_SSH_KEY"
+
+      - name: Configure SSH
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$EC2_SSH_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
+
+      - name: Deploy application
+        run: |
+          APP_DIR="${EC2_APP_DIR:-/home/ubuntu/agentic-board}"
+          ssh "$EC2_USER@$EC2_HOST" "APP_DIR='$APP_DIR' DEPLOY_BRANCH='$DEPLOY_BRANCH' bash -s" <<'REMOTE'
+          set -euo pipefail
+
+          cd "$APP_DIR"
+          git fetch origin "$DEPLOY_BRANCH"
+          git checkout "$DEPLOY_BRANCH"
+          git pull --ff-only origin "$DEPLOY_BRANCH"
+
+          npm ci --prefix web
+          npm ci --prefix api
+
+          python3 -m venv ai/.venv
+          ai/.venv/bin/python -m pip install --upgrade pip
+          ai/.venv/bin/python -m pip install -r ai/requirements.txt
+
+          pkill -f 'npm run all|scripts/dev-all.mjs|uvicorn|vite|nest start' || true
+          sleep 2
+          setsid nohup npm run all > npm-run-all.log 2>&1 < /dev/null &
+
+          sleep 15
+          curl -fsS http://localhost:3000/health
+          curl -fsS http://localhost:3000/health/ai
+          curl -fsS http://localhost:5173/ >/dev/null
+          REMOTE

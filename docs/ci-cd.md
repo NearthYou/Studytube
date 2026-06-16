@@ -1,0 +1,44 @@
+# CI/CD Setup
+
+This project uses GitHub Actions for CI and EC2 deployment.
+
+## What CI Checks
+
+The workflow at `.github/workflows/ci-cd.yml` runs three jobs in parallel:
+
+- Web: install, lint, Node tests, Vite build.
+- API: install, lint, Jest tests, Nest build.
+- AI: install Python dependencies, unittest discovery.
+
+CI runs on pull requests and pushes to `main` and `sw`.
+
+## What CD Does
+
+The deploy job runs after all CI jobs pass when:
+
+- code is pushed to `sw`, or
+- the workflow is manually started with `workflow_dispatch`.
+
+The deploy job connects to EC2 over SSH, updates the selected branch, installs dependencies, restarts `npm run all`, and checks:
+
+- `http://localhost:3000/health`
+- `http://localhost:3000/health/ai`
+- `http://localhost:5173/`
+
+Runtime secrets such as `.env`, YouTube cookies, and PO token files stay on EC2. They are not copied into GitHub Actions.
+
+## Required GitHub Secrets
+
+Set these in GitHub:
+
+- `EC2_HOST`: EC2 public IP or DNS, for example `15.164.98.162`.
+- `EC2_USER`: SSH user, for example `ubuntu`.
+- `EC2_SSH_KEY`: private key content for the EC2 key pair.
+
+Optional:
+
+- `EC2_APP_DIR`: app path on EC2. Defaults to `/home/ubuntu/agentic-board` if empty.
+
+## Manual Deploy
+
+Open GitHub Actions, choose `CI/CD`, then run the workflow manually. Use the `sw` branch unless you intentionally want to deploy another branch.

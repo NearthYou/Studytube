@@ -89,15 +89,17 @@ describe('DatabaseService fallback persistence', () => {
     let attempts = 0;
 
     (service as unknown as { ensureSchema: () => Promise<void> }).ensureSchema =
-      jest.fn(async () => {
+      jest.fn(() => {
         attempts += 1;
 
         if (attempts < 3) {
-          throw new Error('database is still starting');
+          return Promise.reject(new Error('database is still starting'));
         }
+
+        return Promise.resolve();
       });
     (service as unknown as { seedDatabase: () => Promise<void> }).seedDatabase =
-      jest.fn(async () => undefined);
+      jest.fn(() => Promise.resolve());
 
     try {
       await service.onModuleInit();
@@ -121,13 +123,17 @@ describe('DatabaseService fallback persistence', () => {
 
     (
       service as unknown as {
-        pool: { query: (sql: string) => Promise<void>; end: () => Promise<void> };
+        pool: {
+          query: (sql: string) => Promise<void>;
+          end: () => Promise<void>;
+        };
       }
     ).pool = {
-      query: jest.fn(async (sql: string) => {
+      query: jest.fn((sql: string) => {
         queries.push(sql);
+        return Promise.resolve();
       }),
-      end: jest.fn(async () => undefined),
+      end: jest.fn(() => Promise.resolve()),
     };
 
     try {
@@ -143,9 +149,7 @@ describe('DatabaseService fallback persistence', () => {
       ).replace(/'/g, "''");
 
       expect(usersSchema).toContain(`DEFAULT '${expectedDefault}'::jsonb`);
-      expect(JSON.parse(expectedDefault)).toEqual(
-        DEFAULT_LEARNING_PREFERENCES,
-      );
+      expect(JSON.parse(expectedDefault)).toEqual(DEFAULT_LEARNING_PREFERENCES);
     } finally {
       await service.onModuleDestroy();
       await rm(directory, { recursive: true, force: true });

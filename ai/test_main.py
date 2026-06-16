@@ -916,7 +916,9 @@ class AiServiceTest(unittest.TestCase):
                 )
 
         original_httpx = main.httpx
+        original_openai_key = os.environ.get("OPENAI_API_KEY")
         main.httpx = FakeHttpx
+        os.environ["OPENAI_API_KEY"] = "test-key"
 
         try:
             response = load_translated_captions(
@@ -928,6 +930,10 @@ class AiServiceTest(unittest.TestCase):
             )
         finally:
             main.httpx = original_httpx
+            if original_openai_key is None:
+                os.environ.pop("OPENAI_API_KEY", None)
+            else:
+                os.environ["OPENAI_API_KEY"] = original_openai_key
 
         self.assertEqual(response["provider"], "youtube-timedtext")
         self.assertEqual(response["language"], "ko")

@@ -437,10 +437,10 @@ function SiteNav({
       {session ? (
         <>
           <nav>
-            <GuardedNavLink to="/search">학습</GuardedNavLink>
-            <GuardedNavLink to="/watch">시청</GuardedNavLink>
+            <GuardedNavLink to="/watch">학습</GuardedNavLink>
             <GuardedNavLink to="/explore">보드</GuardedNavLink>
             <GuardedNavLink to="/board">등록</GuardedNavLink>
+            <GuardedNavLink to="/search">AI 추천</GuardedNavLink>
             <GuardedNavLink to="/me">내 정보</GuardedNavLink>
           </nav>
           <div className="nav-account">

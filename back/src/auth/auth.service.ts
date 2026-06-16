@@ -1,11 +1,13 @@
 import {
   ConflictException,
   Injectable,
+  ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as argon2 from 'argon2';
+import { createHmac, timingSafeEqual } from 'crypto';
 import { DatabaseService } from '../database/database.service';
 import { AuthUser } from '../common/types/auth-user.type';
 import { RequestEmailVerificationDto } from './dto/request-email-verification.dto';
@@ -13,6 +15,8 @@ import { JwtPayload } from './interfaces/jwt-payload.interface';
 import { LoginDto } from './dto/login.dto';
 import { SignupDto } from './dto/signup.dto';
 import { getJwtSecret } from '../config/security.config';
+
+const EMAIL_VERIFICATION_TTL_MS = 10 * 60 * 1000;
 
 type UserRow = {
   id: number;
@@ -39,6 +43,11 @@ export class AuthService {
     if (signupDto.password !== signupDto.passwordConfirm) {
       throw new ConflictException('비밀번호와 비밀번호 확인이 일치하지 않습니다.');
     }
+
+    this.assertEmailVerificationToken(
+      signupDto.email,
+      signupDto.emailVerificationToken,
+    );
 
     await this.ensureSignupAvailability(signupDto);
 
@@ -144,6 +153,9 @@ export class AuthService {
     return {
       message: '인증 메일을 발송했습니다. 메일함을 확인해주세요.',
       verified: true,
+      verificationToken: this.createEmailVerificationToken(
+        requestEmailVerificationDto.email,
+      ),
     };
   }
 
@@ -280,5 +292,96 @@ export class AuthService {
 
   getJwtExpiresIn() {
     return this.configService.get<string>('JWT_EXPIRES_IN') ?? '7d';
+  }
+
+  private createEmailVerificationToken(email: string) {
+    this.assertMockEmailVerificationAllowed();
+
+    const payload = Buffer.from(
+      JSON.stringify({
+        email: this.normalizeEmail(email),
+        exp: Date.now() + EMAIL_VERIFICATION_TTL_MS,
+      }),
+    ).toString('base64url');
+    const signature = this.signEmailVerificationPayload(payload);
+
+    return `${payload}.${signature}`;
+  }
+
+  private assertEmailVerificationToken(email: string, token?: string) {
+    if (!token) {
+      throw new UnauthorizedException('이메일 인증을 먼저 완료해 주세요.');
+    }
+
+    const [payload, signature] = token.split('.');
+    if (!payload || !signature) {
+      throw new UnauthorizedException('유효하지 않은 이메일 인증입니다.');
+    }
+
+    const expectedSignature = this.signEmailVerificationPayload(payload);
+    if (!this.safeEqual(signature, expectedSignature)) {
+      throw new UnauthorizedException('유효하지 않은 이메일 인증입니다.');
+    }
+
+    try {
+      const decoded = JSON.parse(
+        Buffer.from(payload, 'base64url').toString('utf8'),
+      ) as {
+        email?: unknown;
+        exp?: unknown;
+      };
+
+      if (
+        decoded.email !== this.normalizeEmail(email) ||
+        typeof decoded.exp !== 'number' ||
+        decoded.exp < Date.now()
+      ) {
+        throw new UnauthorizedException('이메일 인증이 만료되었습니다.');
+      }
+    } catch (error) {
+      if (error instanceof UnauthorizedException) {
+        throw error;
+      }
+
+      throw new UnauthorizedException('유효하지 않은 이메일 인증입니다.');
+    }
+  }
+
+  private signEmailVerificationPayload(payload: string) {
+    const secret =
+      this.configService.get<string>('EMAIL_VERIFICATION_SECRET')?.trim() ||
+      this.getJwtSecret();
+
+    return createHmac('sha256', secret).update(payload).digest('base64url');
+  }
+
+  private safeEqual(left: string, right: string) {
+    const leftBuffer = Buffer.from(left);
+    const rightBuffer = Buffer.from(right);
+
+    if (leftBuffer.length !== rightBuffer.length) {
+      return false;
+    }
+
+    return timingSafeEqual(leftBuffer, rightBuffer);
+  }
+
+  private normalizeEmail(email: string) {
+    return email.trim().toLowerCase();
+  }
+
+  private assertMockEmailVerificationAllowed() {
+    const isProduction =
+      this.configService.get<string>('NODE_ENV')?.toLowerCase() === 'production';
+    const mockEnabled =
+      this.configService
+        .get<string>('EMAIL_VERIFICATION_MOCK_ENABLED')
+        ?.toLowerCase() === 'true';
+
+    if (isProduction && !mockEnabled) {
+      throw new ServiceUnavailableException(
+        'Email verification provider is not configured.',
+      );
+    }
   }
 }

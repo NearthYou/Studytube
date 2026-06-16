@@ -1,9 +1,9 @@
-import type { ChangeEvent } from 'react'
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
 import { FilterSelect } from '../components/FilterSelect'
 import { usePostFilterLookups } from '../hooks/usePostFilterLookups'
 import type { Filters } from '../types/community'
+import { getPostImageUrl } from '../utils/community'
 import type { Language } from '../utils/language'
 import { fetchPostById } from '../utils/postsApi'
 import '../styles/pages/WritePage.css'
@@ -36,7 +36,8 @@ const COPY = {
     body: '',
     title: '제목',
     travelDate: '여행 날짜',
-    imageUpload: '사진 업로드',
+    imageUrl: '이미지 URL',
+    imageUrlPlaceholder: 'https://...',
     companion: '동행',
     region: '지역',
     budget: '예산',
@@ -63,7 +64,8 @@ const COPY = {
     body: '',
     title: 'Title',
     travelDate: 'Travel date',
-    imageUpload: 'Upload image',
+    imageUrl: 'Image URL',
+    imageUrlPlaceholder: 'https://...',
     companion: 'Companion',
     region: 'Region',
     budget: 'Budget',
@@ -168,20 +170,9 @@ export function WritePage({ onCreatePost, onUpdatePost, language }: WritePagePro
     setForm((current) => ({ ...current, [key]: value }))
   }
 
-  const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-
-    if (!file) {
-      return
-    }
-
-    const reader = new FileReader()
-    reader.onload = () => {
-      const result = typeof reader.result === 'string' ? reader.result : ''
-      setPreviewUrl(result)
-      setForm((current) => ({ ...current, imageUrl: result }))
-    }
-    reader.readAsDataURL(file)
+  const handleImageUrlChange = (value: string) => {
+    setPreviewUrl(value)
+    setForm((current) => ({ ...current, imageUrl: value }))
   }
 
   if (isLoadingLookups || isLoadingCurrentPost) {
@@ -227,7 +218,7 @@ export function WritePage({ onCreatePost, onUpdatePost, language }: WritePagePro
               const payload = {
                 title: form.title.trim(),
                 travelDate: form.travelDate,
-                imageUrl: form.imageUrl || previewUrl,
+                imageUrl: form.imageUrl.trim(),
                 regionCode: form.region,
                 budgetCode: form.budget,
                 themeCode: form.theme,
@@ -258,12 +249,25 @@ export function WritePage({ onCreatePost, onUpdatePost, language }: WritePagePro
             <input type="date" value={form.travelDate} onChange={(event) => setForm((current) => ({ ...current, travelDate: event.target.value }))} />
           </label>
           <label>
-            {copy.imageUpload}
-            <input accept="image/*" type="file" onChange={handleFileChange} />
+            {copy.imageUrl}
+            <input
+              maxLength={2048}
+              placeholder={copy.imageUrlPlaceholder}
+              type="url"
+              value={form.imageUrl}
+              onChange={(event) => handleImageUrlChange(event.target.value)}
+            />
           </label>
           {previewUrl ? (
             <div className="image-preview">
-              <img alt="preview" src={previewUrl} />
+              <img
+                alt="preview"
+                src={getPostImageUrl(previewUrl)}
+                onError={(event) => {
+                  event.currentTarget.onerror = null
+                  event.currentTarget.src = getPostImageUrl()
+                }}
+              />
             </div>
           ) : null}
           <div className="filter-grid form-filter-grid">

@@ -49,6 +49,10 @@ type UpdateMyProfileResponse = {
   user: AuthApiUser
 }
 
+type VerifyCurrentPasswordResponse = {
+  message: string
+}
+
 function createPaginationQuery(params: PaginationParams) {
   const searchParams = new URLSearchParams()
 
@@ -84,8 +88,10 @@ export function fetchMyFollows(params: PaginationParams = {}) {
 }
 
 export function updateMyProfile(payload: {
+  currentPassword: string
   nickname?: string
   password?: string
+  passwordConfirm?: string
   bio?: string
   location?: string
 }) {
@@ -93,5 +99,13 @@ export function updateMyProfile(payload: {
     method: 'PATCH',
     headers: getAuthHeaders(),
     body: JSON.stringify(payload),
+  })
+}
+
+export function verifyCurrentPassword(currentPassword: string) {
+  return requestJson<VerifyCurrentPasswordResponse>('/me/profile/password/verify', {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ currentPassword }),
   })
 }

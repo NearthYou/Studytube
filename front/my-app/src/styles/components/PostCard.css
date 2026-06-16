@@ -167,26 +167,6 @@
   color: #873d32;
 }
 
-.post-card__assist-link {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 40px;
-  padding: 0.62rem 0.82rem;
-  border: 1px solid var(--border-soft);
-  border-radius: 8px;
-  background: #fffdf7;
-  color: var(--text-body);
-  font-size: 0.86rem;
-  font-weight: 700;
-  text-decoration: none;
-}
-
-.post-card__assist-link:hover {
-  border-color: var(--border-strong);
-  color: var(--accent-strong);
-}
-
 @media (max-width: 760px) {
   .post-card__footer-top,
   .post-card__actions {
@@ -194,8 +174,7 @@
     align-items: stretch;
   }
 
-  .like-button,
-  .post-card__assist-link {
+  .like-button {
     justify-content: center;
     width: 100%;
   }

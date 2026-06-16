@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import type { CommentActivity, PostWithMeta, User } from '../types/community'
+import { formatCalendarDate, formatRelativeTime } from '../utils/community'
 import type { Language } from '../utils/language'
 import { fetchMyBookmarks, fetchMyComments, fetchMyFollows, fetchMyPosts, type FollowUser } from '../utils/meApi'
 import '../styles/pages/MyPage.css'
@@ -8,11 +9,14 @@ import '../styles/pages/MyPage.css'
 type MyPageProps = {
   currentUser: User
   onUpdateProfile: (payload: {
+    currentPassword: string
     nickname: string
     password: string
+    passwordConfirm: string
     bio: string
     location: string
   }) => Promise<boolean>
+  onVerifyCurrentPassword: (currentPassword: string) => Promise<boolean>
   language: Language
 }
 
@@ -42,6 +46,8 @@ const COPY = {
     previous: '이전',
     next: '다음',
     nickname: '닉네임',
+    currentPassword: '현재 비밀번호',
+    currentPasswordPlaceholder: '회원 정보를 수정하려면 현재 비밀번호를 입력하세요.',
     newPassword: '새 비밀번호',
     passwordPlaceholder: '변경하지 않으면 비워 두세요.',
     bio: '소개글',
@@ -51,6 +57,7 @@ const COPY = {
     name: '이름',
     email: '이메일',
     enterNickname: '닉네임을 입력해 주세요.',
+    enterCurrentPassword: '현재 비밀번호를 입력해 주세요.',
     profileSaved: '회원 정보가 수정되었습니다.',
     loadFailed: '마이페이지 정보를 불러오지 못했습니다.',
   },
@@ -73,6 +80,8 @@ const COPY = {
     previous: 'Previous',
     next: 'Next',
     nickname: 'Nickname',
+    currentPassword: 'Current password',
+    currentPasswordPlaceholder: 'Enter your current password to save changes.',
     newPassword: 'New password',
     passwordPlaceholder: 'Leave blank to keep the current password.',
     bio: 'Bio',
@@ -82,16 +91,20 @@ const COPY = {
     name: 'Name',
     email: 'Email',
     enterNickname: 'Enter a nickname.',
+    enterCurrentPassword: 'Enter your current password.',
     profileSaved: 'Profile updated.',
     loadFailed: 'Failed to load My Page data.',
   },
 } satisfies Record<Language, Record<string, string>>
 
-export function MyPage({ currentUser, onUpdateProfile, language }: MyPageProps) {
+export function MyPage({ currentUser, onUpdateProfile, onVerifyCurrentPassword, language }: MyPageProps) {
   const copy = COPY[language]
   const [tab, setTab] = useState<MyPageTab>('posts')
   const [nickname, setNickname] = useState(currentUser.nickname)
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [verifiedCurrentPassword, setVerifiedCurrentPassword] = useState('')
   const [password, setPassword] = useState('')
+  const [passwordConfirm, setPasswordConfirm] = useState('')
   const [bio, setBio] = useState(currentUser.bio)
   const [location, setLocation] = useState(currentUser.location)
   const [myPosts, setMyPosts] = useState<PostWithMeta[]>([])
@@ -112,12 +125,26 @@ export function MyPage({ currentUser, onUpdateProfile, language }: MyPageProps) 
   })
   const [isLoading, setIsLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isVerifyingPassword, setIsVerifyingPassword] = useState(false)
+  const verifyPasswordLabel = language === 'ko' ? '확인' : 'Confirm'
+  const verifyingPasswordLabel = language === 'ko' ? '확인 중...' : 'Checking...'
+  const passwordConfirmLabel = language === 'ko' ? '새 비밀번호 확인' : 'Confirm new password'
+  const passwordConfirmPlaceholder =
+    language === 'ko' ? '새 비밀번호를 한 번 더 입력하세요.' : 'Enter the new password again.'
+  const enterPasswordConfirmMessage =
+    language === 'ko' ? '새 비밀번호 확인을 입력해 주세요.' : 'Confirm the new password.'
+  const passwordMismatchMessage =
+    language === 'ko' ? '새 비밀번호가 일치하지 않습니다.' : 'New passwords do not match.'
 
   useEffect(() => {
     queueMicrotask(() => {
       setNickname(currentUser.nickname)
       setBio(currentUser.bio)
       setLocation(currentUser.location)
+      setCurrentPassword('')
+      setVerifiedCurrentPassword('')
+      setPassword('')
+      setPasswordConfirm('')
     })
   }, [currentUser.bio, currentUser.location, currentUser.nickname])
 
@@ -281,7 +308,7 @@ export function MyPage({ currentUser, onUpdateProfile, language }: MyPageProps) 
                 <Link className="mypage-item" key={post.id} to={`/posts/${post.id}`}>
                   <strong>{post.title}</strong>
                   <span>
-                    {post.region} | {post.travelDate}
+                    {post.region} | {formatCalendarDate(post.travelDate, language)}
                   </span>
                 </Link>
               ))
@@ -318,7 +345,7 @@ export function MyPage({ currentUser, onUpdateProfile, language }: MyPageProps) 
                   <strong>{entry.type === 'comment' ? copy.commentType : copy.replyType}</strong>
                   <span>{entry.content}</span>
                   <small>
-                    {entry.postTitle} | {entry.createdAt}
+                    {entry.postTitle} | {formatRelativeTime(entry.createdAt, language)}
                   </small>
                 </Link>
               ))
@@ -346,65 +373,131 @@ export function MyPage({ currentUser, onUpdateProfile, language }: MyPageProps) 
 
       {tab === 'profile' ? (
         <section className="mypage-panel">
-          <form
-            className="profile-edit-form"
-            onSubmit={async (event) => {
-              event.preventDefault()
+          {!verifiedCurrentPassword ? (
+            <form
+              className="profile-edit-form"
+              onSubmit={async (event) => {
+                event.preventDefault()
 
-              if (!nickname.trim()) {
-                window.alert(copy.enterNickname)
-                return
-              }
-
-              setIsSubmitting(true)
-
-              try {
-                const success = await onUpdateProfile({
-                  nickname: nickname.trim(),
-                  password: password.trim(),
-                  bio: bio.trim(),
-                  location: location.trim(),
-                })
-
-                if (!success) {
+                if (!currentPassword.trim()) {
+                  window.alert(copy.enterCurrentPassword)
                   return
                 }
 
-                setPassword('')
-                window.alert(copy.profileSaved)
-              } finally {
-                setIsSubmitting(false)
-              }
-            }}
-          >
-            <label>
-              {copy.name}
-              <input disabled value={currentUser.name} />
-            </label>
-            <label>
-              {copy.email}
-              <input disabled value={currentUser.email} />
-            </label>
-            <label>
-              {copy.nickname}
-              <input value={nickname} onChange={(event) => setNickname(event.target.value)} />
-            </label>
-            <label>
-              {copy.newPassword}
-              <input placeholder={copy.passwordPlaceholder} type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
-            </label>
-            <label>
-              {copy.bio}
-              <textarea value={bio} onChange={(event) => setBio(event.target.value)} />
-            </label>
-            <label>
-              {copy.location}
-              <input value={location} onChange={(event) => setLocation(event.target.value)} />
-            </label>
-            <button className="primary-button" disabled={isSubmitting} type="submit">
-              {isSubmitting ? copy.saving : copy.save}
-            </button>
-          </form>
+                setIsVerifyingPassword(true)
+
+                try {
+                  const success = await onVerifyCurrentPassword(currentPassword)
+
+                  if (!success) {
+                    return
+                  }
+
+                  setVerifiedCurrentPassword(currentPassword)
+                  setCurrentPassword('')
+                } finally {
+                  setIsVerifyingPassword(false)
+                }
+              }}
+            >
+              <label>
+                {copy.currentPassword}
+                <input
+                  autoComplete="current-password"
+                  placeholder={copy.currentPasswordPlaceholder}
+                  type="password"
+                  value={currentPassword}
+                  onChange={(event) => setCurrentPassword(event.target.value)}
+                />
+              </label>
+              <button className="primary-button" disabled={isVerifyingPassword} type="submit">
+                {isVerifyingPassword ? verifyingPasswordLabel : verifyPasswordLabel}
+              </button>
+            </form>
+          ) : (
+            <form
+              className="profile-edit-form"
+              onSubmit={async (event) => {
+                event.preventDefault()
+
+                if (!nickname.trim()) {
+                  window.alert(copy.enterNickname)
+                  return
+                }
+
+                if (password.trim() && !passwordConfirm.trim()) {
+                  window.alert(enterPasswordConfirmMessage)
+                  return
+                }
+
+                if (password.trim() !== passwordConfirm.trim()) {
+                  window.alert(passwordMismatchMessage)
+                  return
+                }
+
+                setIsSubmitting(true)
+
+                try {
+                  const success = await onUpdateProfile({
+                    currentPassword: verifiedCurrentPassword,
+                    nickname: nickname.trim(),
+                    password: password.trim(),
+                    passwordConfirm: passwordConfirm.trim(),
+                    bio: bio.trim(),
+                    location: location.trim(),
+                  })
+
+                  if (!success) {
+                    return
+                  }
+
+                  setVerifiedCurrentPassword('')
+                  setCurrentPassword('')
+                  setPassword('')
+                  setPasswordConfirm('')
+                  window.alert(copy.profileSaved)
+                } finally {
+                  setIsSubmitting(false)
+                }
+              }}
+            >
+              <label>
+                {copy.nickname}
+                <input value={nickname} onChange={(event) => setNickname(event.target.value)} />
+              </label>
+              <label>
+                {copy.newPassword}
+                <input
+                  autoComplete="new-password"
+                  placeholder={copy.passwordPlaceholder}
+                  type="password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                />
+              </label>
+              <label>
+                {passwordConfirmLabel}
+                <input
+                  autoComplete="new-password"
+                  placeholder={passwordConfirmPlaceholder}
+                  type="password"
+                  value={passwordConfirm}
+                  onChange={(event) => setPasswordConfirm(event.target.value)}
+                />
+              </label>
+              <label>
+                {copy.bio}
+                <textarea value={bio} onChange={(event) => setBio(event.target.value)} />
+              </label>
+              <label>
+                {copy.location}
+                <input value={location} onChange={(event) => setLocation(event.target.value)} />
+              </label>
+              <button className="primary-button" disabled={isSubmitting} type="submit">
+                {isSubmitting ? copy.saving : copy.save}
+              </button>
+            </form>
+          )}
         </section>
       ) : null}
     </main>

@@ -6,14 +6,14 @@ from pydantic import BaseModel, Field
 
 
 class TravelAgentRequest(BaseModel):
-    query: str = Field(min_length=1)
-    session_id: str = ""
-    region: str = ""
-    budget: str = ""
-    theme: str = ""
-    season: str = ""
-    companion: str = ""
-    travel_date: str = ""
+    query: str = Field(min_length=1, max_length=1000)
+    session_id: str = Field(default="", max_length=64)
+    region: str = Field(default="", max_length=100)
+    budget: str = Field(default="", max_length=100)
+    theme: str = Field(default="", max_length=100)
+    season: str = Field(default="", max_length=20)
+    companion: str = Field(default="", max_length=20)
+    travel_date: str = Field(default="", max_length=20)
     duration: int = Field(default=2, ge=1, le=5)
     language: Literal["ko", "en"] = "ko"
     plan_style: Literal["balanced", "budget", "slow"] = "balanced"

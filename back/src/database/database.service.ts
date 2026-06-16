@@ -4,7 +4,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Pool, QueryResult, QueryResultRow } from 'pg';
+import { Pool, PoolConfig, QueryResult, QueryResultRow } from 'pg';
 
 type DatabaseHealthRow = {
   database_name: string;
@@ -22,6 +22,13 @@ export class DatabaseService implements OnModuleDestroy {
 
     this.pool = new Pool({
       connectionString: databaseUrl,
+      max: this.getPositiveInteger('DB_POOL_MAX', 10),
+      idleTimeoutMillis: this.getPositiveInteger('DB_IDLE_TIMEOUT_MS', 30_000),
+      connectionTimeoutMillis: this.getPositiveInteger(
+        'DB_CONNECTION_TIMEOUT_MS',
+        5_000,
+      ),
+      ssl: this.getSslConfig(),
     });
   }
 
@@ -63,5 +70,32 @@ export class DatabaseService implements OnModuleDestroy {
 
   async onModuleDestroy() {
     await this.pool.end();
+  }
+
+  private getPositiveInteger(key: string, fallback: number) {
+    const value = this.configService.get<string>(key);
+    const parsed = Number(value);
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+  }
+
+  private getSslConfig(): PoolConfig['ssl'] {
+    const configured = this.configService.get<string>('DB_SSL')?.toLowerCase();
+    const isProduction =
+      this.configService.get<string>('NODE_ENV')?.toLowerCase() === 'production';
+    const enabled =
+      configured === 'true' ||
+      configured === 'require' ||
+      (isProduction && configured !== 'false');
+
+    if (!enabled) {
+      return undefined;
+    }
+
+    const rejectUnauthorized =
+      this.configService
+        .get<string>('DB_SSL_REJECT_UNAUTHORIZED')
+        ?.toLowerCase() !== 'false';
+
+    return { rejectUnauthorized };
   }
 }

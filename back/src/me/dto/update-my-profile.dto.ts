@@ -16,6 +16,11 @@ function toTrimmedString({ value }: { value: unknown }) {
 }
 
 export class UpdateMyProfileDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(100)
+  currentPassword!: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(50)
@@ -27,6 +32,12 @@ export class UpdateMyProfileDto {
   @MinLength(8)
   @MaxLength(100)
   password?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(8)
+  @MaxLength(100)
+  passwordConfirm?: string;
 
   @IsOptional()
   @IsString()

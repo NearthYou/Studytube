@@ -1,6 +1,7 @@
 import {
   IsEmail,
   IsNotEmpty,
+  IsOptional,
   IsString,
   Matches,
   MaxLength,
@@ -41,4 +42,9 @@ export class SignupDto {
   @MinLength(2)
   @MaxLength(50)
   nickname!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(512)
+  emailVerificationToken?: string;
 }

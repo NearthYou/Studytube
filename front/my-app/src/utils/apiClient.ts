@@ -1,4 +1,3 @@
-import { getAuthToken } from './authApi'
 import { API_BASE_URL } from './env'
 
 export { API_BASE_URL }
@@ -23,6 +22,7 @@ export function appendQueryParam(
 
 export async function requestJson<T>(path: string, init?: RequestInit) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       ...init?.headers,
@@ -56,14 +56,7 @@ export async function requestJson<T>(path: string, init?: RequestInit) {
 }
 
 export function getAuthHeaders() {
-  const token = getAuthToken()
-
-  if (!token) {
-    throw new Error('Login is required.')
-  }
-
   return {
-    Authorization: `Bearer ${token}`,
     'Content-Type': 'application/json',
   }
 }

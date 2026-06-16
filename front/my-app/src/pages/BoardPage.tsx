@@ -6,7 +6,6 @@ import { PostCard } from '../components/PostCard'
 import { usePostFilterLookups } from '../hooks/usePostFilterLookups'
 import type { Filters, PostWithMeta, SortOption, User } from '../types/community'
 import { PAGE_SIZE } from '../utils/community'
-import { localizeLookupValue } from '../utils/i18n'
 import type { Language } from '../utils/language'
 import { fetchPosts } from '../utils/postsApi'
 import '../styles/pages/BoardPage.css'
@@ -271,55 +270,6 @@ export function BoardPage({
     })
   }
 
-  const buildChatHref = (post?: PostWithMeta) => {
-    const params = new URLSearchParams()
-
-    if (post) {
-      const region = localizeLookupValue('region', post.region, language, post.regionCode)
-      const theme = localizeLookupValue('theme', post.theme, language, post.themeCode)
-      const companion = localizeLookupValue('companion', post.companion, language)
-
-      params.set(
-        'q',
-        language === 'ko'
-          ? `${region}에서 ${companion}과 함께할 ${theme} 여행을 추천해 줘.`
-          : `Recommend a ${theme.toLowerCase()} trip in ${region} for ${companion.toLowerCase()}.`,
-      )
-      params.set('region', region)
-      params.set('theme', theme)
-      params.set('companion', companion)
-      params.set('budget', localizeLookupValue('budget', post.budget, language, post.budgetCode))
-      params.set('travelDate', post.travelDate)
-    }
-
-    return `/chat?${params.toString()}`
-  }
-
-  const buildPlannerHref = (post?: PostWithMeta) => {
-    const params = new URLSearchParams()
-
-    if (post) {
-      const region = localizeLookupValue('region', post.region, language, post.regionCode)
-      const theme = localizeLookupValue('theme', post.theme, language, post.themeCode)
-      const companion = localizeLookupValue('companion', post.companion, language)
-
-      params.set(
-        'q',
-        language === 'ko'
-          ? `${region}에서 ${companion}과 가는 ${theme} 여행 일정을 짜 줘.`
-          : `Plan a ${theme.toLowerCase()} trip in ${region} for ${companion.toLowerCase()}.`,
-      )
-      params.set('region', region)
-      params.set('theme', theme)
-      params.set('companion', companion)
-      params.set('budget', localizeLookupValue('budget', post.budget, language, post.budgetCode))
-      params.set('travelDate', post.travelDate)
-      params.set('duration', '3')
-    }
-
-    return `/planner?${params.toString()}`
-  }
-
   return (
     <main className="page board-page">
       <section className="board-hero">
@@ -334,12 +284,6 @@ export function BoardPage({
           <div className="board-hero__actions">
             <Link className="primary-button" to="/write">
               {copy.write}
-            </Link>
-            <Link className="secondary-button" to="/chat">
-              {copy.chat}
-            </Link>
-            <Link className="secondary-button" to="/planner">
-              {copy.planner}
             </Link>
           </div>
         </div>
@@ -358,8 +302,6 @@ export function BoardPage({
             <span className="sidebar-panel__label">{copy.quickLinks}</span>
             <Link to="/mypage">{copy.myPage}</Link>
             <Link to="/write">{copy.write}</Link>
-            <Link to="/chat">{copy.chat}</Link>
-            <Link to="/planner">{copy.planner}</Link>
           </section>
         </aside>
 
@@ -518,12 +460,10 @@ export function BoardPage({
             {!isLoading && !displayErrorMessage
               ? posts.map((post) => (
                   <PostCard
-                    chatHref={buildChatHref(post)}
                     isLiked={likedPostIds.has(post.id)}
                     key={post.id}
                     language={language}
                     onToggleLike={onToggleLike}
-                    plannerHref={buildPlannerHref(post)}
                     post={post}
                   />
                 ))

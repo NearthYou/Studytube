@@ -15,6 +15,7 @@ from app.services.chat_memory_service import (
     load_recent_history,
     store_chat_exchange,
 )
+from app.services.guardrail_service import build_guardrail_weather, check_travel_guardrail
 from app.services.llm_service import generate_grounded_answer
 from app.services.rag_service import (
     build_plan_days,
@@ -101,6 +102,28 @@ async def _collect_context(request: TravelAgentRequest) -> tuple[dict[str, Any],
 
 async def run_chat_agent(request: TravelAgentRequest) -> AgentChatResponse:
     session_id = request.session_id.strip() or create_session_id()
+    guardrail = check_travel_guardrail(request)
+
+    if not guardrail.allowed:
+        trace = [
+            ToolTrace(
+                tool="travel_guardrail",
+                purpose="Keep the chatbot limited to travel planning and ignore prompt-injection attempts.",
+                summary=guardrail.summary,
+            )
+        ]
+        store_chat_exchange(session_id, request.language, request.query, guardrail.answer)
+
+        return AgentChatResponse(
+            session_id=session_id,
+            answer=guardrail.answer,
+            retrieval_summary=guardrail.summary,
+            weather=build_guardrail_weather(request),
+            sources=[],
+            plan=[],
+            trace=trace,
+        )
+
     history = load_recent_history(session_id)
     context, trace = await _collect_context(request)
     sources = format_sources(context["search"], context["details"], context["comments"])
@@ -139,6 +162,28 @@ async def run_chat_agent(request: TravelAgentRequest) -> AgentChatResponse:
 
 
 async def run_plan_agent(request: TravelAgentRequest) -> AgentPlanResponse:
+    guardrail = check_travel_guardrail(request)
+
+    if not guardrail.allowed:
+        trace = [
+            ToolTrace(
+                tool="travel_guardrail",
+                purpose="Keep the planner limited to travel planning and ignore prompt-injection attempts.",
+                summary=guardrail.summary,
+            )
+        ]
+
+        return AgentPlanResponse(
+            session_id=request.session_id.strip() or None,
+            answer=guardrail.answer,
+            retrieval_summary=guardrail.summary,
+            weather=build_guardrail_weather(request),
+            sources=[],
+            plan=[],
+            trace=trace,
+            style=request.plan_style,
+        )
+
     context, trace = await _collect_context(request)
     sources = format_sources(context["search"], context["details"], context["comments"])
     weather = build_weather_insight(context["weather"], request)

@@ -1,6 +1,6 @@
 import { Link } from 'react-router'
 import type { PostWithMeta } from '../types/community'
-import { formatDate } from '../utils/community'
+import { formatCalendarDate, formatDate, getPostImageUrl } from '../utils/community'
 import { localizeLookupValue } from '../utils/i18n'
 import type { Language } from '../utils/language'
 import '../styles/components/PostCard.css'
@@ -10,8 +10,6 @@ type PostCardProps = {
   isLiked: boolean
   onToggleLike: (postId: number) => void
   language: Language
-  chatHref?: string
-  plannerHref?: string
 }
 
 const COPY = {
@@ -42,8 +40,6 @@ export function PostCard({
   isLiked,
   onToggleLike,
   language,
-  chatHref,
-  plannerHref,
 }: PostCardProps) {
   const copy = COPY[language]
 
@@ -57,7 +53,15 @@ export function PostCard({
   return (
     <article className="post-card">
       <Link className="post-card__image-link" to={`/posts/${post.id}`}>
-        <img alt={post.title} className="post-card__image" src={post.imageUrl} />
+        <img
+          alt={post.title}
+          className="post-card__image"
+          src={getPostImageUrl(post.imageUrl)}
+          onError={(event) => {
+            event.currentTarget.onerror = null
+            event.currentTarget.src = getPostImageUrl()
+          }}
+        />
         <span className="post-card__image-badge">{copy.detail}</span>
       </Link>
 
@@ -65,7 +69,7 @@ export function PostCard({
         <div className="post-card__meta">
           <span>{formatDate(post.createdAt, language)}</span>
           <span>
-            {copy.travelDate} {post.travelDate}
+            {copy.travelDate} {formatCalendarDate(post.travelDate, language)}
           </span>
         </div>
 
@@ -115,17 +119,6 @@ export function PostCard({
               <span>{isLiked ? copy.saved : copy.save}</span>
             </button>
 
-            {chatHref ? (
-              <Link className="post-card__assist-link" to={chatHref}>
-                {copy.chat}
-              </Link>
-            ) : null}
-
-            {plannerHref ? (
-              <Link className="post-card__assist-link" to={plannerHref}>
-                {copy.planner}
-              </Link>
-            ) : null}
           </div>
         </div>
       </div>

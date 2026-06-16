@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { PostCard } from '../components/PostCard'
 import type { PostWithMeta, User } from '../types/community'
-import { localizeLookupValue } from '../utils/i18n'
 import type { Language } from '../utils/language'
 import { fetchUserPosts, fetchUserProfile } from '../utils/usersApi'
 import '../styles/pages/ProfilePage.css'
@@ -180,47 +179,15 @@ export function ProfilePage({
       </section>
 
       <section className="post-grid">
-        {authorPosts.map((post) => {
-          const region = localizeLookupValue('region', post.region, language, post.regionCode)
-          const theme = localizeLookupValue('theme', post.theme, language, post.themeCode)
-          const companion = localizeLookupValue('companion', post.companion, language)
-          const budget = localizeLookupValue('budget', post.budget, language, post.budgetCode)
-
-          return (
-            <PostCard
-              chatHref={`/chat?${new URLSearchParams({
-                q:
-                  language === 'ko'
-                    ? `${region} ${theme} 여행 추천`
-                    : `Recommend a ${theme.toLowerCase()} trip in ${region} for ${companion.toLowerCase()}.`,
-                region,
-                budget,
-                theme,
-                season: localizeLookupValue('season', post.season, language),
-                companion,
-                travelDate: post.travelDate,
-              }).toString()}`}
-              isLiked={likedPostIds.has(post.id)}
-              key={post.id}
-              language={language}
-              onToggleLike={onToggleLike}
-              plannerHref={`/planner?${new URLSearchParams({
-                q:
-                  language === 'ko'
-                    ? `${region} 여행 일정`
-                    : `Plan a trip in ${region}.`,
-                region,
-                budget,
-                theme,
-                season: localizeLookupValue('season', post.season, language),
-                companion,
-                travelDate: post.travelDate,
-                duration: '3',
-              }).toString()}`}
-              post={post}
-            />
-          )
-        })}
+        {authorPosts.map((post) => (
+          <PostCard
+            isLiked={likedPostIds.has(post.id)}
+            key={post.id}
+            language={language}
+            onToggleLike={onToggleLike}
+            post={post}
+          />
+        ))}
       </section>
     </main>
   )

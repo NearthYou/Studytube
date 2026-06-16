@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections import defaultdict
 from typing import Any
 
@@ -33,6 +34,7 @@ SELECT *
 FROM ranked
 ORDER BY similarity DESC, chunk_id ASC
 """
+logger = logging.getLogger(__name__)
 
 POST_DETAIL_QUERY = """
 SELECT
@@ -157,6 +159,38 @@ def _normalize_filter(value: str, mapping: dict[str, str]) -> str:
     return mapping.get(normalized, "")
 
 
+def _merge_ranked_results(
+    vector_items: list[dict[str, Any]],
+    api_items: list[dict[str, Any]],
+    limit: int,
+) -> list[dict[str, Any]]:
+    merged: list[dict[str, Any]] = []
+    seen_post_ids: set[int] = set()
+    max_length = max(len(vector_items), len(api_items))
+
+    for index in range(max_length):
+        for source_items in (vector_items, api_items):
+            if index >= len(source_items):
+                continue
+
+            item = source_items[index]
+            post_id = item.get("postId")
+            if post_id is None:
+                continue
+
+            normalized_post_id = int(post_id)
+            if normalized_post_id in seen_post_ids:
+                continue
+
+            merged.append(item)
+            seen_post_ids.add(normalized_post_id)
+
+            if len(merged) >= limit:
+                return merged
+
+    return merged
+
+
 async def _search_with_vectors(
     query: str,
     region: str,
@@ -247,19 +281,20 @@ async def _search_with_api(
     from clients.back_api_client import BackApiClient
 
     client = BackApiClient()
+    params = {
+        "q": full_query,
+        "regionCode": _normalize_filter(region, REGION_MAP) or None,
+        "budgetCode": _normalize_filter(budget, BUDGET_MAP) or None,
+        "themeCode": _normalize_filter(theme, THEME_MAP) or None,
+        "season": _normalize_filter(season, SEASON_MAP) or None,
+        "companion": _normalize_filter(companion, COMPANION_MAP) or None,
+        "limit": max(1, min(limit, 10)),
+        "page": 1,
+        "sort": "latest",
+    }
     response = await client.get_json(
         "/posts",
-        params={
-            "q": full_query,
-            "regionCode": _normalize_filter(region, REGION_MAP) or None,
-            "budgetCode": _normalize_filter(budget, BUDGET_MAP) or None,
-            "themeCode": _normalize_filter(theme, THEME_MAP) or None,
-            "season": _normalize_filter(season, SEASON_MAP) or None,
-            "companion": _normalize_filter(companion, COMPANION_MAP) or None,
-            "limit": max(1, min(limit, 10)),
-            "page": 1,
-            "sort": "latest",
-        },
+        params={key: value for key, value in params.items() if value is not None},
     )
 
     items = response.get("items", [])
@@ -292,30 +327,33 @@ async def search_posts(
     limit: int = 5,
 ) -> dict[str, Any]:
     full_query = _normalize_query_parts(query, region, budget, theme, season, companion)
+    normalized_limit = max(1, min(limit, 10))
 
     try:
-        normalized_items = await _search_with_vectors(
+        vector_items = await _search_with_vectors(
             query=full_query,
             region=region,
             budget=budget,
             theme=theme,
             season=season,
             companion=companion,
-            limit=max(1, min(limit, 10)),
+            limit=normalized_limit,
         )
     except Exception:
-        normalized_items = []
+        logger.exception("Vector search failed; falling back to backend API search.")
+        vector_items = []
 
-    if not normalized_items:
-        normalized_items = await _search_with_api(
-            full_query=full_query,
-            region=region,
-            budget=budget,
-            theme=theme,
-            season=season,
-            companion=companion,
-            limit=max(1, min(limit, 10)),
-        )
+    api_items = await _search_with_api(
+        full_query=full_query,
+        region=region,
+        budget=budget,
+        theme=theme,
+        season=season,
+        companion=companion,
+        limit=normalized_limit,
+    )
+
+    normalized_items = _merge_ranked_results(vector_items, api_items, normalized_limit)
 
     return {
         "query": full_query,

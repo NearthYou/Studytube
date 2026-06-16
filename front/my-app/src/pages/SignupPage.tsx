@@ -10,6 +10,7 @@ type SignupPageProps = {
     password: string
     passwordConfirm: string
     email: string
+    emailVerificationToken?: string
     nickname: string
   }) => Promise<boolean>
   onCheckLoginId: (userId: string) => Promise<boolean>
@@ -17,6 +18,7 @@ type SignupPageProps = {
   onRequestEmailVerification: (email: string) => Promise<{
     message: string
     verified: boolean
+    verificationToken?: string
   }>
   language: Language
   onToggleLanguage: () => void
@@ -150,6 +152,7 @@ export function SignupPage({
   const [checkedUserId, setCheckedUserId] = useState('')
   const [checkedNickname, setCheckedNickname] = useState('')
   const [verifiedEmail, setVerifiedEmail] = useState('')
+  const [emailVerificationToken, setEmailVerificationToken] = useState('')
   const [userIdMessage, setUserIdMessage] = useState('')
   const [userIdTone, setUserIdTone] = useState<StatusTone>('idle')
   const [nicknameMessage, setNicknameMessage] = useState('')
@@ -162,7 +165,8 @@ export function SignupPage({
 
   const isUserIdVerified = checkedUserId === form.userId.trim()
   const isNicknameVerified = checkedNickname === form.nickname.trim()
-  const isEmailVerified = verifiedEmail === form.email.trim()
+  const isEmailVerified =
+    verifiedEmail === form.email.trim() && Boolean(emailVerificationToken)
 
   const updateField = (key: keyof typeof form, value: string) => {
     setForm((current) => ({ ...current, [key]: value }))
@@ -183,6 +187,7 @@ export function SignupPage({
 
     if (key === 'email') {
       setVerifiedEmail('')
+      setEmailVerificationToken('')
       setEmailMessage('')
       setEmailTone('idle')
     }
@@ -260,13 +265,14 @@ export function SignupPage({
     try {
       const response = await onRequestEmailVerification(value)
 
-      if (!response.verified) {
+      if (!response.verified || !response.verificationToken) {
         setEmailMessage(copy.emailVerificationFailed as string)
         setEmailTone('error')
         return
       }
 
       setVerifiedEmail(value)
+      setEmailVerificationToken(response.verificationToken)
       setEmailMessage(response.message || (copy.emailVerified as string))
       setEmailTone('success')
     } catch (error) {
@@ -343,6 +349,7 @@ export function SignupPage({
                 password: form.password,
                 passwordConfirm: form.passwordConfirm,
                 email: form.email.trim(),
+                emailVerificationToken,
                 nickname: form.nickname.trim(),
               })
 

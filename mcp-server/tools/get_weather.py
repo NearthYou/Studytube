@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime
 from typing import Any
 
@@ -7,6 +8,7 @@ import httpx
 
 
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
+logger = logging.getLogger(__name__)
 
 REGION_COORDS = {
     "busan": (35.1796, 129.0756, "Busan", "부산"),
@@ -222,6 +224,6 @@ async def get_weather(region: str = "", travel_date: str = "") -> dict[str, Any]
         if live_forecast is not None:
             return live_forecast
     except Exception:
-        pass
+        logger.exception("Live weather lookup failed; using seasonal fallback.")
 
     return _seasonal_fallback(region, travel_date)

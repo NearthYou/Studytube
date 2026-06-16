@@ -1,7 +1,9 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import * as argon2 from 'argon2';
 import { AuthService } from '../auth/auth.service';
@@ -28,11 +30,25 @@ export class MeService {
     return this.authService.getMe(userId);
   }
 
+  async verifyCurrentPassword(userId: number, currentPassword: string) {
+    await this.assertCurrentPassword(userId, currentPassword);
+
+    return {
+      message: 'Password verified.',
+    };
+  }
+
   async updateMyProfile(userId: number, dto: UpdateMyProfileDto) {
     const currentUser = await this.usersRepository.findUserById(userId);
 
     if (!currentUser) {
       throw new NotFoundException('User not found.');
+    }
+
+    await this.assertCurrentPassword(userId, dto.currentPassword);
+
+    if (dto.password && dto.password !== dto.passwordConfirm) {
+      throw new BadRequestException('New password confirmation does not match.');
     }
 
     if (
@@ -135,5 +151,17 @@ export class MeService {
       limit,
       totalPages: Math.max(1, Math.ceil(result.totalCount / limit)),
     };
+  }
+
+  private async assertCurrentPassword(userId: number, currentPassword: string) {
+    const currentPasswordHash =
+      await this.usersRepository.findPasswordHashById(userId);
+    const isCurrentPasswordValid =
+      currentPasswordHash &&
+      (await argon2.verify(currentPasswordHash, currentPassword));
+
+    if (!isCurrentPasswordValid) {
+      throw new UnauthorizedException('현재 비밀번호가 일치하지 않습니다.');
+    }
   }
 }

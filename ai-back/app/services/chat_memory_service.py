@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 from uuid import uuid4
 
@@ -7,6 +8,7 @@ from app.database import DatabaseClient
 
 
 MESSAGE_LIMIT = 12
+logger = logging.getLogger(__name__)
 
 
 def create_session_id() -> str:
@@ -30,6 +32,7 @@ def load_recent_history(session_id: str, limit: int = MESSAGE_LIMIT) -> list[dic
             (session_id, limit),
         )
     except Exception:
+        logger.exception("Failed to load chat history for session_id=%s", session_id)
         return []
 
     rows.reverse()
@@ -72,6 +75,7 @@ def store_chat_exchange(
             (session_id, user_message, session_id, assistant_message),
         )
     except Exception:
+        logger.exception("Failed to store chat history for session_id=%s", session_id)
         return
 
 

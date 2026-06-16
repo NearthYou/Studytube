@@ -12,6 +12,10 @@ type UserRow = {
   updated_at: Date;
 };
 
+type UserPasswordRow = {
+  password_hash: string;
+};
+
 export type PublicUser = {
   id: number;
   loginId: string;
@@ -50,6 +54,19 @@ export class UsersRepository {
     }
 
     return this.toPublicUser(result.rows[0]);
+  }
+
+  async findPasswordHashById(userId: number) {
+    const result = await this.databaseService.query<UserPasswordRow>(
+      `
+        SELECT password_hash
+        FROM users
+        WHERE id = $1
+      `,
+      [userId],
+    );
+
+    return result.rows[0]?.password_hash ?? null;
   }
 
   async updateUserProfile(params: {

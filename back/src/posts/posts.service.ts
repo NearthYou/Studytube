@@ -105,7 +105,7 @@ export class PostsService {
       throw new NotFoundException('Created post not found.');
     }
 
-    await this.aiSyncService.syncPost(post.id);
+    void this.aiSyncService.syncPost(post.id);
 
     return {
       message: 'Post created.',
@@ -179,7 +179,7 @@ export class PostsService {
       throw new NotFoundException('Updated post not found.');
     }
 
-    await this.aiSyncService.syncPost(post.id);
+    void this.aiSyncService.syncPost(post.id);
 
     return {
       message: 'Post updated.',
@@ -199,7 +199,7 @@ export class PostsService {
     }
 
     await this.postsRepository.deletePost(postId);
-    await this.aiSyncService.syncPost(postId);
+    void this.aiSyncService.syncPost(postId);
 
     return {
       message: 'Post deleted.',

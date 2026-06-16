@@ -12,7 +12,14 @@ import {
   updateComment,
   updateReply,
 } from '../utils/commentsApi'
-import { formatDate, getUserLabel } from '../utils/community'
+import {
+  formatCalendarDate,
+  formatDate,
+  formatRelativeTime,
+  getPostImageUrl,
+  getUserLabel,
+  toDateInputValue,
+} from '../utils/community'
 import { localizeLookupValue } from '../utils/i18n'
 import type { Language } from '../utils/language'
 import { fetchPostById } from '../utils/postsApi'
@@ -254,7 +261,7 @@ export function PostDetailPage({
         setPost(postResponse.post)
         setEditPostForm({
           title: postResponse.post.title,
-          travelDate: postResponse.post.travelDate,
+          travelDate: toDateInputValue(postResponse.post.travelDate),
           imageUrl: postResponse.post.imageUrl,
           regionCode: postResponse.post.regionCode ?? '',
           budgetCode: postResponse.post.budgetCode ?? '',
@@ -337,6 +344,7 @@ export function PostDetailPage({
   const theme = localizeLookupValue('theme', post.theme, language, post.themeCode)
   const season = localizeLookupValue('season', post.season, language)
   const companion = localizeLookupValue('companion', post.companion, language)
+  const travelDate = toDateInputValue(post.travelDate)
   const chatHref = `/chat?${new URLSearchParams({
     q:
       language === 'ko'
@@ -347,7 +355,7 @@ export function PostDetailPage({
     theme,
     season,
     companion,
-    travelDate: post.travelDate,
+    travelDate,
   }).toString()}`
   const plannerHref = `/planner?${new URLSearchParams({
     q:
@@ -359,7 +367,7 @@ export function PostDetailPage({
     theme,
     season,
     companion,
-    travelDate: post.travelDate,
+    travelDate,
     duration: '3',
   }).toString()}`
 
@@ -369,13 +377,20 @@ export function PostDetailPage({
     <main className="page detail-page">
       <article className="detail-card">
         <div className="detail-card__media">
-          <img alt={post.title} src={post.imageUrl} />
+          <img
+            alt={post.title}
+            src={getPostImageUrl(post.imageUrl)}
+            onError={(event) => {
+              event.currentTarget.onerror = null
+              event.currentTarget.src = getPostImageUrl()
+            }}
+          />
         </div>
         <div className="detail-card__content">
           <div className="detail-card__meta">
             <span>{formatDate(post.createdAt, language)}</span>
             <span>{region}</span>
-            <span>{post.travelDate}</span>
+            <span>{formatCalendarDate(post.travelDate, language)}</span>
           </div>
 
           {isEditingPost ? (
@@ -421,7 +436,7 @@ export function PostDetailPage({
                   setPost(refreshed.post)
                   setEditPostForm({
                     title: refreshed.post.title,
-                    travelDate: refreshed.post.travelDate,
+                    travelDate: toDateInputValue(refreshed.post.travelDate),
                     imageUrl: refreshed.post.imageUrl,
                     regionCode: refreshed.post.regionCode ?? '',
                     budgetCode: refreshed.post.budgetCode ?? '',
@@ -525,7 +540,7 @@ export function PostDetailPage({
                   onClick={() => {
                     setEditPostForm({
                       title: post.title,
-                      travelDate: post.travelDate,
+                      travelDate: toDateInputValue(post.travelDate),
                       imageUrl: post.imageUrl,
                       regionCode: post.regionCode ?? '',
                       budgetCode: post.budgetCode ?? '',
@@ -647,7 +662,7 @@ export function PostDetailPage({
               <div className="comment-card__head">
                 <strong>{comment.author?.nickname ?? getUserLabel(users, comment.authorId, language)}</strong>
                 <span>
-                  {formatDate(comment.createdAt, language)}
+                  {formatRelativeTime(comment.createdAt, language)}
                   {isEdited(comment.createdAt, comment.updatedAt) ? (
                     <em className="detail-edited-badge">{copy.edited}</em>
                   ) : null}
@@ -736,7 +751,7 @@ export function PostDetailPage({
                   <div className="reply-card" key={reply.id}>
                     <strong>{reply.author?.nickname ?? getUserLabel(users, reply.authorId, language)}</strong>
                     <span>
-                      {formatDate(reply.createdAt, language)}
+                      {formatRelativeTime(reply.createdAt, language)}
                       {isEdited(reply.createdAt, reply.updatedAt) ? (
                         <em className="detail-edited-badge">{copy.edited}</em>
                       ) : null}

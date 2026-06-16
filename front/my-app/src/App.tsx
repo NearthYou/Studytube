@@ -20,7 +20,6 @@ import type { Post, PostWithMeta, User } from './types/community'
 import {
   clearAuthToken,
   fetchMe,
-  getAuthToken,
   isLoginIdAvailable,
   isNicknameAvailable,
   loginUser,
@@ -30,7 +29,12 @@ import {
   type AuthApiUser,
 } from './utils/authApi'
 import { getInitialLanguage, type Language } from './utils/language'
-import { fetchMyBookmarks, fetchMyFollows, updateMyProfile as updateMyProfileApi } from './utils/meApi'
+import {
+  fetchMyBookmarks,
+  fetchMyFollows,
+  updateMyProfile as updateMyProfileApi,
+  verifyCurrentPassword as verifyCurrentPasswordApi,
+} from './utils/meApi'
 import type { PublicApiUser } from './utils/usersApi'
 import {
   createPost as createPostApi,
@@ -46,6 +50,7 @@ type SignupPayload = {
   password: string
   passwordConfirm: string
   email: string
+  emailVerificationToken?: string
   nickname: string
 }
 
@@ -184,7 +189,7 @@ function App() {
   const navigate = useNavigate()
   const [users, setUsers] = useState<User[]>(INITIAL_USERS)
   const [currentUserId, setCurrentUserId] = useState<number | null>(null)
-  const [isAuthReady, setIsAuthReady] = useState(() => !getAuthToken())
+  const [isAuthReady, setIsAuthReady] = useState(false)
   const [posts, setPosts] = useState<Post[]>(INITIAL_POSTS)
   const [likedByUser, setLikedByUser] = useState<Record<number, number[]>>(INITIAL_LIKED_BY_USER)
   const [followedByUser, setFollowedByUser] = useState<Record<number, number[]>>(INITIAL_FOLLOWED_BY_USER)
@@ -198,12 +203,6 @@ function App() {
   }, [language])
 
   useEffect(() => {
-    const token = getAuthToken()
-
-    if (!token) {
-      return
-    }
-
     let isMounted = true
 
     const restoreSession = async () => {
@@ -258,7 +257,7 @@ function App() {
   })
 
   useEffect(() => {
-    if (!currentUserId || !getAuthToken()) {
+    if (!currentUserId) {
       return
     }
 
@@ -342,6 +341,7 @@ function App() {
         password: payload.password,
         passwordConfirm: payload.passwordConfirm,
         email: payload.email,
+        emailVerificationToken: payload.emailVerificationToken,
         nickname: payload.nickname,
       })
 
@@ -549,8 +549,10 @@ function App() {
   }, [])
 
   const updateProfile = async (payload: {
+    currentPassword: string
     nickname: string
     password: string
+    passwordConfirm: string
     bio: string
     location: string
   }) => {
@@ -560,8 +562,10 @@ function App() {
 
     try {
       const response = await updateMyProfileApi({
+        currentPassword: payload.currentPassword,
         nickname: payload.nickname,
         password: payload.password || undefined,
+        passwordConfirm: payload.password ? payload.passwordConfirm : undefined,
         bio: payload.bio,
         location: payload.location,
       })
@@ -579,6 +583,16 @@ function App() {
         ),
       )
 
+      return true
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : copy.profileFallback)
+      return false
+    }
+  }
+
+  const verifyProfilePassword = async (currentPassword: string) => {
+    try {
+      await verifyCurrentPasswordApi(currentPassword)
       return true
     } catch (error) {
       window.alert(error instanceof Error ? error.message : copy.profileFallback)
@@ -693,7 +707,12 @@ function App() {
           path="/mypage"
           element={
             currentUser ? (
-              <MyPage currentUser={currentUser} language={language} onUpdateProfile={updateProfile} />
+              <MyPage
+                currentUser={currentUser}
+                language={language}
+                onUpdateProfile={updateProfile}
+                onVerifyCurrentPassword={verifyProfilePassword}
+              />
             ) : (
               <Navigate replace to="/login" />
             )

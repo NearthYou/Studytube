@@ -11,6 +11,7 @@ const DEFAULT_DEV_CORS_ORIGINS = [
   'http://localhost:5173',
   'http://127.0.0.1:5173',
 ];
+export const AUTH_COOKIE_NAME = 'tripy_access_token';
 
 function isProduction(configService: ConfigService): boolean {
   return configService.get<string>('NODE_ENV')?.toLowerCase() === 'production';
@@ -78,6 +79,33 @@ export function getCorsOptions(configService: ConfigService): CorsOptions {
     origin: getCorsOrigins(configService),
     methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
-    credentials: false,
+    credentials: true,
   };
+}
+
+export function getAuthCookieOptions(configService: ConfigService) {
+  const sameSite =
+    configService.get<string>('AUTH_COOKIE_SAME_SITE') ??
+    (isProduction(configService) ? 'none' : 'lax');
+  const secure =
+    configService.get<string>('AUTH_COOKIE_SECURE')?.toLowerCase() === 'true' ||
+    isProduction(configService);
+  const maxAge = Number(configService.get<string>('AUTH_COOKIE_MAX_AGE_MS'));
+
+  return {
+    httpOnly: true,
+    secure,
+    sameSite,
+    path: '/',
+    maxAge: Number.isInteger(maxAge) && maxAge > 0 ? maxAge : 7 * 24 * 60 * 60 * 1000,
+  };
+}
+
+export function getClearAuthCookieOptions(configService: ConfigService) {
+  const cookieOptions: Partial<ReturnType<typeof getAuthCookieOptions>> = {
+    ...getAuthCookieOptions(configService),
+  };
+  delete cookieOptions.maxAge;
+
+  return cookieOptions;
 }

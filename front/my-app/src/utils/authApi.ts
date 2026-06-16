@@ -1,6 +1,6 @@
 import { API_BASE_URL } from './env'
 
-const AUTH_TOKEN_KEY = 'tripboard.accessToken'
+const LEGACY_AUTH_TOKEN_KEY = 'tripboard.accessToken'
 
 export type AuthApiUser = {
   id: number
@@ -21,7 +21,6 @@ type ApiErrorResponse = {
 }
 
 type LoginResponse = {
-  accessToken: string
   user: AuthApiUser
 }
 
@@ -36,10 +35,12 @@ type AvailabilityResponse = {
 type EmailVerificationResponse = {
   message: string
   verified: boolean
+  verificationToken?: string
 }
 
 async function request<T>(path: string, init?: RequestInit) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       ...init?.headers,
@@ -73,15 +74,11 @@ async function request<T>(path: string, init?: RequestInit) {
 }
 
 export function getAuthToken() {
-  return window.localStorage.getItem(AUTH_TOKEN_KEY)
+  return null
 }
 
 export function clearAuthToken() {
-  window.localStorage.removeItem(AUTH_TOKEN_KEY)
-}
-
-function setAuthToken(token: string) {
-  window.localStorage.setItem(AUTH_TOKEN_KEY, token)
+  window.localStorage.removeItem(LEGACY_AUTH_TOKEN_KEY)
 }
 
 export async function loginUser(payload: { loginId: string; password: string }) {
@@ -90,7 +87,7 @@ export async function loginUser(payload: { loginId: string; password: string }) 
     body: JSON.stringify(payload),
   })
 
-  setAuthToken(response.accessToken)
+  clearAuthToken()
   return response
 }
 
@@ -100,6 +97,7 @@ export async function signupUser(payload: {
   password: string
   passwordConfirm: string
   email: string
+  emailVerificationToken?: string
   nickname: string
 }) {
   return request<{ message: string; user: AuthApiUser }>('/auth/signup', {
@@ -109,33 +107,13 @@ export async function signupUser(payload: {
 }
 
 export async function fetchMe() {
-  const token = getAuthToken()
-
-  if (!token) {
-    throw new Error('인증 토큰이 없습니다.')
-  }
-
-  return request<MeResponse>('/auth/me', {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  })
+  return request<MeResponse>('/auth/me')
 }
 
 export async function logoutUser() {
-  const token = getAuthToken()
-
-  if (!token) {
-    clearAuthToken()
-    return { message: '로그아웃되었습니다.' }
-  }
-
   try {
     return await request<{ message: string }>('/auth/logout', {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
     })
   } finally {
     clearAuthToken()

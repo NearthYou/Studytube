@@ -15,9 +15,9 @@ const COPY = {
     nav: [
       { label: '홈', path: '/main' },
       { label: '내 여행', path: '/mypage' },
+      { label: '챗봇', path: '/chat' },
+      { label: '플래너', path: '/planner' },
       { label: '작성', path: '/write' },
-      { label: 'AI', path: '/chat' },
-      { label: '일정', path: '/planner' },
     ],
     sectionTitles: {
       '/main': '여행 게시판',
@@ -34,9 +34,9 @@ const COPY = {
     nav: [
       { label: 'Home', path: '/main' },
       { label: 'My Trip', path: '/mypage' },
+      { label: 'Chatbot', path: '/chat' },
+      { label: 'Planner', path: '/planner' },
       { label: 'Write', path: '/write' },
-      { label: 'AI', path: '/chat' },
-      { label: 'Plan', path: '/planner' },
     ],
     sectionTitles: {
       '/main': 'Travel board',

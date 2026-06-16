@@ -23,3 +23,14 @@ test('youtube player has loading and failure fallbacks', () => {
   assert.match(appSource, /playerLoadError/);
   assert.match(appSource, /className="youtube-unavailable youtube-loading"/);
 });
+
+test('translated captions are loaded through playback windows instead of the whole video', () => {
+  assert.match(appSource, /const initialCaptionWindow = captionTranslationWindow\(/);
+  assert.match(appSource, /\.\.\.initialCaptionWindow/);
+  assert.match(appSource, /const captionWindow = captionTranslationWindow\(/);
+  assert.match(appSource, /\.\.\.captionWindow/);
+  assert.doesNotMatch(
+    appSource,
+    /fetchTranslatedCaptions\(\{\s*videoId:[\s\S]*?durationSeconds: DEFAULT_CAPTION_DURATION_SECONDS,\s*\}\)/,
+  );
+});

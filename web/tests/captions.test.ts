@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  CAPTION_TRANSLATION_WINDOW_SECONDS,
+  captionTranslationRequestKey,
+  captionTranslationWindow,
   captionStatusText,
   disableNativeYouTubeCaptions,
   hasDisplayableLiveCaptionResponse,
@@ -224,6 +227,35 @@ test('merges translated caption windows without adding source captions', () => {
 test('checks background translated captions quickly after source captions load', () => {
   assert.equal(sourceCaptionTranslationPollDelay(0), 1200);
   assert.equal(sourceCaptionTranslationPollDelay(1), 2500);
+});
+
+test('requests AI caption translation in short playback windows', () => {
+  assert.equal(CAPTION_TRANSLATION_WINDOW_SECONDS, 60);
+
+  assert.deepEqual(captionTranslationWindow(0), {
+    startSeconds: 0,
+    endSeconds: 60,
+  });
+  assert.deepEqual(captionTranslationWindow(59.9), {
+    startSeconds: 0,
+    endSeconds: 60,
+  });
+  assert.deepEqual(captionTranslationWindow(121.2), {
+    startSeconds: 120,
+    endSeconds: 180,
+  });
+  assert.deepEqual(captionTranslationWindow(-10), {
+    startSeconds: 0,
+    endSeconds: 60,
+  });
+  assert.equal(
+    captionTranslationRequestKey({
+      captionLanguage: 'ko',
+      videoId: 'video-1',
+      window: captionTranslationWindow(121.2),
+    }),
+    'video-1:ko:120:180',
+  );
 });
 
 test('reports AI translation progress while source captions wait for translation', () => {

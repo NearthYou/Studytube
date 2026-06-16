@@ -45,6 +45,9 @@ import {
   selectExplorePlaylist,
 } from "./exploreBoard";
 import {
+  CAPTION_TRANSLATION_WINDOW_SECONDS,
+  captionTranslationRequestKey,
+  captionTranslationWindow,
   captionStatusText,
   hasDisplayableLiveCaptionResponse,
   isSourceCaptionTranslationPending,
@@ -264,7 +267,6 @@ const emptyPlaylistEditor: PlaylistManagementEditor = {
 };
 
 const DEFAULT_CAPTION_DURATION_SECONDS = 600;
-const CAPTION_TRANSLATION_WINDOW_SECONDS = 180;
 const MAX_SOURCE_CAPTION_TRANSLATION_POLLS = 13;
 const MY_PLAYLISTS_PAGE_SIZE = 5;
 const COURSE_ANALYSIS_PRELOAD_LIMIT = 24;
@@ -4506,12 +4508,23 @@ function WatchPage({ session }: { session: Session }) {
     [displayCaptionResponse, hasLiveCaptionResponse],
   );
   const captions = liveCaptions;
+  const activeCaptionWindowStart =
+    Math.floor(
+      Math.max(0, currentTime) / CAPTION_TRANSLATION_WINDOW_SECONDS,
+    ) * CAPTION_TRANSLATION_WINDOW_SECONDS;
   const sourceCaptionTranslationPending =
     captionResponseMatchesVideo &&
     isSourceCaptionTranslationPending({
       captionLanguage,
       response: captionResponse,
     });
+  const translatedCaptionWindowsReady =
+    translatedCaptionResponseMatchesVideo &&
+    translatedCaptionResponse?.provider === "openai-caption-translation" &&
+    Boolean(translatedCaptionResponse.sourceLanguage) &&
+    translatedCaptionResponse.sourceLanguage !== captionLanguage;
+  const shouldRequestCaptionTranslationWindows =
+    sourceCaptionTranslationPending || translatedCaptionWindowsReady;
   const shouldUseNativeCaptionFallback =
     Boolean(currentVideo) &&
     captionResponseMatchesVideo &&
@@ -4861,6 +4874,18 @@ function WatchPage({ session }: { session: Session }) {
       captionWindowRequestKeysRef.current.clear();
 
       try {
+        const initialCaptionWindow = captionTranslationWindow(
+          0,
+          CAPTION_TRANSLATION_WINDOW_SECONDS,
+        );
+        captionWindowRequestKeysRef.current.add(
+          captionTranslationRequestKey({
+            captionLanguage,
+            videoId: currentVideo!.videoId,
+            window: initialCaptionWindow,
+          }),
+        );
+
         const response = await fetchTranslatedCaptions({
           videoId: currentVideo!.videoId,
           videoUrl: currentVideo!.videoUrl,
@@ -4868,6 +4893,7 @@ function WatchPage({ session }: { session: Session }) {
           allowFallback: false,
           translateFallback: false,
           durationSeconds: DEFAULT_CAPTION_DURATION_SECONDS,
+          ...initialCaptionWindow,
         });
 
         if (!cancelled) {
@@ -4879,7 +4905,9 @@ function WatchPage({ session }: { session: Session }) {
               response,
             })
           ) {
-            setTranslatedCaptionResponse(response);
+            setTranslatedCaptionResponse((current) =>
+              mergeTranslatedCaptionResponse(current, response),
+            );
           }
           setCaptionError("");
         }
@@ -4902,27 +4930,30 @@ function WatchPage({ session }: { session: Session }) {
   }, [captionLanguage, currentVideo]);
 
   useEffect(() => {
-    if (!currentVideo || !captionsEnabled || !sourceCaptionTranslationPending) {
+    if (
+      !currentVideo ||
+      !captionsEnabled ||
+      !shouldRequestCaptionTranslationWindows
+    ) {
       return;
     }
 
-    const windowStart =
-      Math.floor(
-        Math.max(0, currentTime) / CAPTION_TRANSLATION_WINDOW_SECONDS,
-      ) * CAPTION_TRANSLATION_WINDOW_SECONDS;
-    const windowEnd = windowStart + CAPTION_TRANSLATION_WINDOW_SECONDS;
-    const requestKey = [
-      currentVideo.videoId,
+    const captionWindow = captionTranslationWindow(
+      activeCaptionWindowStart,
+      CAPTION_TRANSLATION_WINDOW_SECONDS,
+    );
+    const requestKey = captionTranslationRequestKey({
       captionLanguage,
-      windowStart,
-      windowEnd,
-    ].join(":");
+      videoId: currentVideo.videoId,
+      window: captionWindow,
+    });
 
     if (captionWindowRequestKeysRef.current.has(requestKey)) {
       return;
     }
 
     captionWindowRequestKeysRef.current.add(requestKey);
+    setCaptionRefreshAttempts(0);
     let cancelled = false;
 
     async function loadCaptionWindow() {
@@ -4934,8 +4965,7 @@ function WatchPage({ session }: { session: Session }) {
           allowFallback: false,
           translateFallback: false,
           durationSeconds: DEFAULT_CAPTION_DURATION_SECONDS,
-          startSeconds: windowStart,
-          endSeconds: windowEnd,
+          ...captionWindow,
         });
 
         if (cancelled) {
@@ -4953,6 +4983,16 @@ function WatchPage({ session }: { session: Session }) {
             mergeTranslatedCaptionResponse(current, response),
           );
           setCaptionError("");
+          return;
+        }
+
+        if (
+          isSourceCaptionTranslationPending({
+            captionLanguage,
+            response,
+          })
+        ) {
+          setCaptionResponse(response);
         }
       } catch {
         captionWindowRequestKeysRef.current.delete(requestKey);
@@ -4965,11 +5005,11 @@ function WatchPage({ session }: { session: Session }) {
       cancelled = true;
     };
   }, [
+    activeCaptionWindowStart,
     captionLanguage,
     captionsEnabled,
-    currentTime,
     currentVideo,
-    sourceCaptionTranslationPending,
+    shouldRequestCaptionTranslationWindows,
   ]);
 
   useEffect(() => {
@@ -4987,6 +5027,10 @@ function WatchPage({ session }: { session: Session }) {
     const translationPollDelay = sourceCaptionTranslationPollDelay(
       captionRefreshAttempts,
     );
+    const captionWindow = captionTranslationWindow(
+      activeCaptionWindowStart,
+      CAPTION_TRANSLATION_WINDOW_SECONDS,
+    );
     const timeout = window.setTimeout(() => {
       async function refreshTranslatedCaptions() {
         try {
@@ -4997,6 +5041,7 @@ function WatchPage({ session }: { session: Session }) {
             allowFallback: false,
             translateFallback: false,
             durationSeconds: DEFAULT_CAPTION_DURATION_SECONDS,
+            ...captionWindow,
           });
 
           if (!cancelled) {
@@ -5028,6 +5073,7 @@ function WatchPage({ session }: { session: Session }) {
       window.clearTimeout(timeout);
     };
   }, [
+    activeCaptionWindowStart,
     captionLanguage,
     captionRefreshAttempts,
     captionResponse,

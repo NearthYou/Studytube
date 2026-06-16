@@ -7,6 +7,7 @@ const MAX_CAPTION_DISPLAY_CHARS = 48;
 const CAPTION_DISPLAY_CHARS_PER_SECOND = 12;
 const SOURCE_CAPTION_TRANSLATION_INITIAL_POLL_MS = 1200;
 const SOURCE_CAPTION_TRANSLATION_POLL_MS = 2500;
+export const CAPTION_TRANSLATION_WINDOW_SECONDS = 60;
 const DANGLING_CAPTION_END_WORDS = new Set([
   'a',
   'an',
@@ -28,6 +29,38 @@ export function sourceCaptionTranslationPollDelay(attempts: number) {
   return attempts <= 0
     ? SOURCE_CAPTION_TRANSLATION_INITIAL_POLL_MS
     : SOURCE_CAPTION_TRANSLATION_POLL_MS;
+}
+
+export function captionTranslationWindow(
+  currentTime: number,
+  windowSeconds = CAPTION_TRANSLATION_WINDOW_SECONDS,
+) {
+  const safeWindowSeconds = Math.max(1, windowSeconds);
+  const startSeconds =
+    Math.floor(Math.max(0, currentTime) / safeWindowSeconds) *
+    safeWindowSeconds;
+
+  return {
+    startSeconds,
+    endSeconds: startSeconds + safeWindowSeconds,
+  };
+}
+
+export function captionTranslationRequestKey({
+  captionLanguage,
+  videoId,
+  window,
+}: {
+  captionLanguage: string;
+  videoId: string;
+  window: ReturnType<typeof captionTranslationWindow>;
+}) {
+  return [
+    videoId,
+    captionLanguage,
+    window.startSeconds,
+    window.endSeconds,
+  ].join(':');
 }
 
 export function isSourceCaptionTranslationPending({

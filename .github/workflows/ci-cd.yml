@@ -164,7 +164,7 @@ jobs:
           ai/.venv/bin/python -m pip install --upgrade pip
           ai/.venv/bin/python -m pip install -r ai/requirements.txt
 
-          pkill -f 'npm run all|scripts/dev-all.mjs|uvicorn|vite|nest start' || true
+          pkill -f '[n]pm run all|[s]cripts/dev-all.mjs|[u]vicorn|[v]ite|[n]est start' || true
           sleep 2
           setsid nohup npm run all > npm-run-all.log 2>&1 < /dev/null &
 

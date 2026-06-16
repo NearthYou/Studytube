@@ -29,6 +29,19 @@ The EC2 deploy step also ensures a 2GB `/swapfile` is active before installing d
 
 Runtime secrets such as `.env`, YouTube cookies, and PO token files stay on EC2. They are not copied into GitHub Actions.
 
+## Pull-Based CD Without GitHub Secrets
+
+If `EC2_SSH_KEY` is not configured in GitHub, EC2 can still deploy automatically by polling GitHub. The script `scripts/ec2-autodeploy.sh` checks `origin/sw`, waits for the matching `CI/CD` workflow run to finish successfully, and then runs `scripts/deploy-ec2.sh`.
+
+Install the EC2 timer once:
+
+```bash
+cd /home/ubuntu/agentic-board
+APP_DIR=/home/ubuntu/agentic-board DEPLOY_BRANCH=sw bash scripts/install-ec2-autodeploy.sh
+```
+
+This creates a user systemd timer that checks every two minutes. If user systemd is unavailable, the installer falls back to cron.
+
 ## Required GitHub Secrets
 
 Set these in GitHub:

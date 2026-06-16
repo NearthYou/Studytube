@@ -45,6 +45,8 @@ export class DatabaseService
   private readonly logger = new Logger(DatabaseService.name);
   private readonly pool: Pool;
   private readonly fallbackDataPath: string;
+  private readonly databaseInitAttempts: number;
+  private readonly databaseInitRetryDelayMs: number;
   private databaseAvailable = false;
 
   constructor(configService: ConfigService) {
@@ -52,6 +54,14 @@ export class DatabaseService
     this.fallbackDataPath = resolve(
       configService.get<string>('BOARD_FALLBACK_DATA_PATH') ??
         this.defaultFallbackDataPath(),
+    );
+    this.databaseInitAttempts = this.positiveInteger(
+      configService.get<string>('DB_INIT_ATTEMPTS'),
+      15,
+    );
+    this.databaseInitRetryDelayMs = this.nonNegativeInteger(
+      configService.get<string>('DB_INIT_RETRY_DELAY_MS'),
+      1000,
     );
     this.pool = new Pool({
       connectionString:
@@ -63,9 +73,7 @@ export class DatabaseService
 
   async onModuleInit() {
     try {
-      await this.ensureSchema();
-      await this.seedDatabase();
-      this.databaseAvailable = true;
+      await this.initializeDatabaseWithRetry();
     } catch (error) {
       this.databaseAvailable = false;
       await this.loadFallbackState();
@@ -75,6 +83,34 @@ export class DatabaseService
         )}`,
       );
     }
+  }
+
+  private async initializeDatabaseWithRetry() {
+    let lastError: unknown;
+
+    for (let attempt = 1; attempt <= this.databaseInitAttempts; attempt += 1) {
+      try {
+        await this.ensureSchema();
+        await this.seedDatabase();
+        this.databaseAvailable = true;
+        return;
+      } catch (error) {
+        lastError = error;
+
+        if (attempt >= this.databaseInitAttempts) {
+          break;
+        }
+
+        this.logger.warn(
+          `PostgreSQL not ready, retrying database initialization (${attempt}/${this.databaseInitAttempts}): ${this.toErrorMessage(
+            error,
+          )}`,
+        );
+        await this.wait(this.databaseInitRetryDelayMs);
+      }
+    }
+
+    throw lastError;
   }
 
   async onModuleDestroy() {
@@ -1245,6 +1281,24 @@ export class DatabaseService
     return basename(process.cwd()).toLowerCase() === 'api'
       ? '.data/board-fallback.json'
       : 'api/.data/board-fallback.json';
+  }
+
+  private positiveInteger(value: string | undefined, fallback: number) {
+    const parsed = Number(value);
+
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+  }
+
+  private nonNegativeInteger(value: string | undefined, fallback: number) {
+    const parsed = Number(value);
+
+    return Number.isInteger(parsed) && parsed >= 0 ? parsed : fallback;
+  }
+
+  private wait(milliseconds: number) {
+    return new Promise<void>((resolve) => {
+      setTimeout(resolve, milliseconds);
+    });
   }
 
   private toErrorMessage(error: unknown): string {

@@ -44,6 +44,8 @@ const services = [
 
 const children = new Map();
 let stopping = false;
+const databaseWaitAttempts = Number(process.env.DB_WAIT_ATTEMPTS ?? 30);
+const databaseWaitDelayMs = Number(process.env.DB_WAIT_DELAY_MS ?? 1000);
 
 function prefixLines(name, stream, write) {
   stream.setEncoding('utf8');
@@ -68,6 +70,38 @@ function runDatabase() {
     console.error('[db] failed to start. Check Docker Desktop and try again.');
     process.exit(result.status ?? 1);
   }
+}
+
+function sleep(milliseconds) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
+}
+
+function waitForDatabase() {
+  console.log('[db] waiting for postgres readiness');
+
+  for (let attempt = 1; attempt <= databaseWaitAttempts; attempt += 1) {
+    const result = spawnSync(
+      'docker',
+      ['compose', 'exec', '-T', 'postgres', 'pg_isready', '-U', 'app', '-d', 'app_dev'],
+      {
+        cwd: root,
+        shell: isWindows,
+        stdio: 'ignore',
+      },
+    );
+
+    if (result.status === 0) {
+      console.log('[db] postgres is ready');
+      return;
+    }
+
+    if (attempt < databaseWaitAttempts) {
+      sleep(databaseWaitDelayMs);
+    }
+  }
+
+  console.error('[db] postgres did not become ready in time.');
+  process.exit(1);
 }
 
 function startService(service) {
@@ -123,6 +157,7 @@ process.on('SIGINT', () => stopAll(0));
 process.on('SIGTERM', () => stopAll(0));
 
 runDatabase();
+waitForDatabase();
 
 for (const service of services) {
   startService(service);

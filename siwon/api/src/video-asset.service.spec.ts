@@ -299,14 +299,255 @@ describe('VideoAssetService', () => {
       expect(preparePostAsset).toHaveBeenCalledWith(secondPost);
     });
   });
+
+  it('creates a processing post-scoped asset before starting preparation', async () => {
+    const repository = new MemoryBoardRepository();
+    class ManualPrepareProbeService extends VideoAssetService {
+      readonly started: StudyPost[] = [];
+
+      override preparePostAsset(post: StudyPost): Promise<null> {
+        this.started.push(post);
+
+        return new Promise(() => undefined);
+      }
+    }
+    const service = new ManualPrepareProbeService(repository, {
+      captions: jest.fn(),
+      summary: jest.fn(),
+    } as unknown as AiProxyService);
+    const post = await repository.createPost({
+      authorId: 1,
+      title: 'Manual prepare lesson',
+      videoUrl: 'https://www.youtube.com/watch?v=manualPrepare',
+      thumbnailUrl: 'https://i.ytimg.com/vi/manualPrepare/hqdefault.jpg',
+      channelName: 'StudyTube',
+      summary: 'Manual prepare should return quickly.',
+      translatedNotes: 'Manual prepare notes.',
+      tags: ['asset'],
+    });
+
+    await expect(service.preparePostAssetRequest(post)).resolves.toMatchObject({
+      postId: post.id,
+      videoId: 'manualPrepare',
+      videoUrl: post.videoUrl,
+      status: 'processing',
+      sourceCaptionStatus: 'pending',
+      translationStatus: 'pending',
+      summaryStatus: 'pending',
+      errorMessage: '',
+    });
+
+    await expect(repository.findVideoAsset(post.id)).resolves.toMatchObject({
+      postId: post.id,
+      status: 'processing',
+    });
+    await waitFor(() => {
+      expect(service.started).toEqual([post]);
+    });
+  });
+
+  it('does not reset persisted caption statuses during duplicate active prepares', async () => {
+    const repository = new MemoryBoardRepository();
+    let resolveSummary!: (value: {
+      sections: { label: string; body: string }[];
+    }) => void;
+    const summaryResponse = new Promise<{
+      sections: { label: string; body: string }[];
+    }>((resolve) => {
+      resolveSummary = resolve;
+    });
+    const captions = jest.fn().mockResolvedValue({
+      translated: true,
+      sourceLanguage: 'en',
+      segments: [{ start: 0, end: 4, text: 'Translated intro' }],
+      sourceSegments: [{ start: 0, end: 4, text: 'Source intro' }],
+      translatedSegments: [{ start: 0, end: 4, text: 'Translated intro' }],
+    });
+    const summary = jest.fn().mockReturnValue(summaryResponse);
+    const service = new VideoAssetService(repository, {
+      captions,
+      summary,
+    } as unknown as AiProxyService);
+    const post = await repository.createPost({
+      authorId: 1,
+      title: 'Duplicate active prepare lesson',
+      videoUrl: 'https://www.youtube.com/watch?v=duplicateActive',
+      thumbnailUrl: 'https://i.ytimg.com/vi/duplicateActive/hqdefault.jpg',
+      channelName: 'StudyTube',
+      summary: 'Duplicate active prepare should be idempotent.',
+      translatedNotes: 'Duplicate active prepare notes.',
+      tags: ['asset'],
+    });
+
+    await service.preparePostAssetRequest(post);
+    await waitFor(async () => {
+      await expect(repository.findVideoAsset(post.id)).resolves.toMatchObject({
+        status: 'processing',
+        sourceCaptionStatus: 'ready',
+        translationStatus: 'ready',
+        summaryStatus: 'pending',
+      });
+    });
+
+    await expect(service.preparePostAssetRequest(post)).resolves.toMatchObject({
+      status: 'processing',
+      sourceCaptionStatus: 'ready',
+      translationStatus: 'ready',
+      summaryStatus: 'pending',
+    });
+    await expect(repository.findVideoAsset(post.id)).resolves.toMatchObject({
+      status: 'processing',
+      sourceCaptionStatus: 'ready',
+      translationStatus: 'ready',
+      summaryStatus: 'pending',
+    });
+    expect(captions).toHaveBeenCalledTimes(1);
+    expect(summary).toHaveBeenCalledTimes(1);
+
+    resolveSummary({
+      sections: [{ label: 'Summary', body: 'Prepared once.' }],
+    });
+    await waitFor(async () => {
+      await expect(repository.findVideoAsset(post.id)).resolves.toMatchObject({
+        status: 'ready',
+      });
+    });
+  });
+
+  it('replaces a ready asset when the post video url changes', async () => {
+    const repository = new MemoryBoardRepository();
+    class ManualPrepareProbeService extends VideoAssetService {
+      readonly started: StudyPost[] = [];
+
+      override preparePostAsset(post: StudyPost): Promise<null> {
+        this.started.push(post);
+
+        return new Promise(() => undefined);
+      }
+    }
+    const service = new ManualPrepareProbeService(repository, {
+      captions: jest.fn(),
+      summary: jest.fn(),
+    } as unknown as AiProxyService);
+    const post = await repository.createPost({
+      authorId: 1,
+      title: 'Changed video lesson',
+      videoUrl: 'https://www.youtube.com/watch?v=oldVideo',
+      thumbnailUrl: 'https://i.ytimg.com/vi/oldVideo/hqdefault.jpg',
+      channelName: 'StudyTube',
+      summary: 'Changing the video should replace the asset.',
+      translatedNotes: 'Changed video notes.',
+      tags: ['asset'],
+    });
+    await repository.upsertVideoAsset({
+      postId: post.id,
+      videoId: 'oldVideo',
+      videoUrl: post.videoUrl,
+      language: 'ko',
+    });
+    await repository.updateVideoAsset(post.id, {
+      status: 'ready',
+      sourceCaptionStatus: 'ready',
+      translationStatus: 'ready',
+      summaryStatus: 'ready',
+      translatedSegments: [{ start: 0, end: 2, text: 'old transcript' }],
+      transcriptBody: 'old transcript',
+    });
+    const updatedPost = await repository.updatePost(post.id, {
+      videoUrl: 'https://www.youtube.com/watch?v=newVideo',
+    });
+
+    await expect(
+      service.preparePostAssetRequest(updatedPost!),
+    ).resolves.toMatchObject({
+      postId: post.id,
+      videoId: 'newVideo',
+      videoUrl: 'https://www.youtube.com/watch?v=newVideo',
+      status: 'processing',
+      sourceCaptionStatus: 'pending',
+      translationStatus: 'pending',
+      summaryStatus: 'pending',
+    });
+
+    await expect(repository.findVideoAsset(post.id)).resolves.toMatchObject({
+      postId: post.id,
+      videoId: 'newVideo',
+      videoUrl: 'https://www.youtube.com/watch?v=newVideo',
+      status: 'processing',
+    });
+    await waitFor(() => {
+      expect(service.started).toEqual([
+        expect.objectContaining({
+          id: post.id,
+          videoUrl: 'https://www.youtube.com/watch?v=newVideo',
+        }),
+      ]);
+    });
+  });
+
+  it('retries a persisted processing asset when no job is active', async () => {
+    const repository = new MemoryBoardRepository();
+    class ManualPrepareProbeService extends VideoAssetService {
+      readonly started: StudyPost[] = [];
+
+      override preparePostAsset(post: StudyPost): Promise<null> {
+        this.started.push(post);
+
+        return new Promise(() => undefined);
+      }
+    }
+    const service = new ManualPrepareProbeService(repository, {
+      captions: jest.fn(),
+      summary: jest.fn(),
+    } as unknown as AiProxyService);
+    const post = await repository.createPost({
+      authorId: 1,
+      title: 'Restarted processing lesson',
+      videoUrl: 'https://www.youtube.com/watch?v=stuckProcessing',
+      thumbnailUrl: 'https://i.ytimg.com/vi/stuckProcessing/hqdefault.jpg',
+      channelName: 'StudyTube',
+      summary: 'A processing asset can outlive its worker.',
+      translatedNotes: 'Restarted processing notes.',
+      tags: ['asset'],
+    });
+    await repository.upsertVideoAsset({
+      postId: post.id,
+      videoId: 'stuckProcessing',
+      videoUrl: post.videoUrl,
+      language: 'ko',
+    });
+    await repository.updateVideoAsset(post.id, {
+      status: 'processing',
+      sourceCaptionStatus: 'ready',
+      translationStatus: 'ready',
+      summaryStatus: 'pending',
+      translatedSegments: [{ start: 0, end: 2, text: 'stuck transcript' }],
+      errorMessage: 'Worker disappeared before summary finished.',
+    });
+
+    await expect(service.preparePostAssetRequest(post)).resolves.toMatchObject({
+      postId: post.id,
+      videoId: 'stuckProcessing',
+      videoUrl: post.videoUrl,
+      status: 'processing',
+      sourceCaptionStatus: 'pending',
+      translationStatus: 'pending',
+      summaryStatus: 'pending',
+      errorMessage: '',
+    });
+
+    await waitFor(() => {
+      expect(service.started).toEqual([post]);
+    });
+  });
 });
 
-async function waitFor(assertion: () => void): Promise<void> {
+async function waitFor(assertion: () => void | Promise<void>): Promise<void> {
   let lastError: unknown;
 
   for (let attempt = 0; attempt < 20; attempt += 1) {
     try {
-      assertion();
+      await assertion();
       return;
     } catch (error) {
       lastError = error;

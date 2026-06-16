@@ -34,18 +34,72 @@ export class VideoAssetService {
     private readonly aiProxyService: AiProxyService,
   ) {}
 
-  enqueuePost(post: StudyPost): void {
+  async preparePostAssetRequest(post: StudyPost): Promise<VideoAsset | null> {
+    const videoId = this.extractYoutubeVideoId(post.videoUrl);
+
+    if (!videoId) {
+      return null;
+    }
+
+    const current = await this.repository.findVideoAsset(post.id);
+    const currentMatchesPost =
+      current?.videoId === videoId && current.videoUrl === post.videoUrl;
+    const postActive = this.isPostActive(post.id);
+
+    if (currentMatchesPost && current.status === 'ready') {
+      return current;
+    }
+
+    if (currentMatchesPost && current.status === 'processing' && postActive) {
+      return current;
+    }
+
+    if (currentMatchesPost && current.status === 'pending' && postActive) {
+      return current;
+    }
+
+    if (!this.activatePost(post.id)) {
+      return current;
+    }
+
+    try {
+      const asset = await this.repository.upsertVideoAsset({
+        postId: post.id,
+        videoId,
+        videoUrl: post.videoUrl,
+        language: 'ko',
+      });
+      const processing = await this.repository.updateVideoAsset(post.id, {
+        status: 'processing',
+        sourceCaptionStatus: 'pending',
+        translationStatus: 'pending',
+        summaryStatus: 'pending',
+        errorMessage: '',
+      });
+
+      this.queuedPosts.push(post);
+      this.scheduleDrain();
+
+      return processing ?? asset;
+    } catch (error) {
+      this.activePostIds.delete(post.id);
+      throw error;
+    }
+  }
+
+  enqueuePost(post: StudyPost): boolean {
     if (!this.extractYoutubeVideoId(post.videoUrl)) {
-      return;
+      return false;
     }
 
-    if (this.activePostIds.has(post.id)) {
-      return;
+    if (!this.activatePost(post.id)) {
+      return false;
     }
 
-    this.activePostIds.add(post.id);
     this.queuedPosts.push(post);
     this.scheduleDrain();
+
+    return true;
   }
 
   async preparePostAsset(post: StudyPost): Promise<VideoAsset | null> {
@@ -184,6 +238,20 @@ export class VideoAssetService {
         this.scheduleDrain();
       }
     });
+  }
+
+  private isPostActive(postId: number): boolean {
+    return this.activePostIds.has(postId);
+  }
+
+  private activatePost(postId: number): boolean {
+    if (this.isPostActive(postId)) {
+      return false;
+    }
+
+    this.activePostIds.add(postId);
+
+    return true;
   }
 
   private async drainQueue(): Promise<void> {

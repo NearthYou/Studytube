@@ -8,6 +8,7 @@ import { AppService } from './app.service';
 import { DatabaseService } from './database.service';
 import { StudyBoardController } from './study-board.controller';
 import { StudyBoardService } from './study-board.service';
+import { VideoAssetController } from './video-asset.controller';
 import { VideoAssetService } from './video-asset.service';
 
 @Module({
@@ -18,7 +19,12 @@ import { VideoAssetService } from './video-asset.service';
     }),
     HttpModule,
   ],
-  controllers: [AppController, StudyBoardController, AiController],
+  controllers: [
+    AppController,
+    StudyBoardController,
+    AiController,
+    VideoAssetController,
+  ],
   providers: [
     AppService,
     DatabaseService,

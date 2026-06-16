@@ -613,7 +613,14 @@ def load_translated_captions_uncached(
         )
 
     try:
-        tracks = fetch_youtube_caption_tracks(video_id)
+        track_fetch_error: Exception | None = None
+
+        try:
+            tracks = fetch_youtube_caption_tracks(video_id)
+        except Exception as exc:
+            tracks = []
+            track_fetch_error = sanitized_caption_exception(exc)
+
         track = choose_caption_track(tracks, target_language)
 
         if not track:
@@ -645,15 +652,16 @@ def load_translated_captions_uncached(
                     caption_window=caption_window,
                 )
 
-            if is_youtube_caption_rate_limited(_yt_dlp_error):
+            rate_limit_error = _yt_dlp_error or track_fetch_error
+            if is_youtube_caption_rate_limited(rate_limit_error):
                 return caption_rate_limited_response(
                     video_id,
                     target_language,
-                    yt_dlp_source_language,
+                    yt_dlp_source_language or "youtube",
                     (
-                        f"yt-dlp-caption-rate-limited: {_yt_dlp_error}"
+                        f"yt-dlp-caption-rate-limited: {rate_limit_error}"
                         if _yt_dlp_error
-                        else "yt-dlp-caption-rate-limited"
+                        else f"youtube-track-fetch-rate-limited: {rate_limit_error}"
                     ),
                 )
 

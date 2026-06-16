@@ -1670,6 +1670,40 @@ class AiServiceTest(unittest.TestCase):
         self.assertEqual(response["segments"][0]["text"], "Hello from yt-dlp")
         self.assertEqual(response["sourceLanguage"], "en")
 
+    def test_youtube_captions_uses_yt_dlp_when_track_fetch_is_rate_limited(self):
+        original_fetch_tracks = main.fetch_youtube_caption_tracks
+        original_transcript = main.fetch_transcript_api_segments
+        original_yt_dlp = main.fetch_yt_dlp_caption_segments
+
+        def raise_rate_limit(_video_id):
+            raise RuntimeError("HTTP 429 Too Many Requests from watch page")
+
+        main.fetch_youtube_caption_tracks = raise_rate_limit
+        main.fetch_transcript_api_segments = lambda *_args: ([], "", False)
+        main.fetch_yt_dlp_caption_segments = lambda *_args: (
+            [{"start": 0, "end": 2.5, "text": "Recovered by yt-dlp"}],
+            "en",
+            False,
+            None,
+        )
+
+        try:
+            response = load_translated_captions(
+                {
+                    "videoId": "rate-limited-watch",
+                    "targetLanguage": "en",
+                    "allowFallback": False,
+                }
+            )
+        finally:
+            main.fetch_youtube_caption_tracks = original_fetch_tracks
+            main.fetch_transcript_api_segments = original_transcript
+            main.fetch_yt_dlp_caption_segments = original_yt_dlp
+
+        self.assertEqual(response["provider"], "yt-dlp-captions")
+        self.assertEqual(response["segments"][0]["text"], "Recovered by yt-dlp")
+        self.assertEqual(response["sourceLanguage"], "en")
+
     def test_yt_dlp_caption_segments_falls_back_to_subtitle_file_download(self):
         original_metadata = main.fetch_yt_dlp_metadata
         original_url_fetch = main.fetch_caption_segments_from_urls

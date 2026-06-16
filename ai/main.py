@@ -1290,10 +1290,189 @@ def summary_transcript_segments(
     return translated_segments
 
 
+KEY_TRANSCRIPT_MAX_SEGMENTS = 8
+KEY_TRANSCRIPT_MIN_REVIEW_INTERVAL_SECONDS = 45
+KEY_TRANSCRIPT_MIN_TEXT_CHARS = 3
+KEY_TRANSCRIPT_CUE_WORDS = (
+    "핵심",
+    "중요",
+    "정리",
+    "요약",
+    "예를",
+    "예시",
+    "실습",
+    "주의",
+    "문제",
+    "비교",
+    "방법",
+    "개념",
+    "원리",
+    "이유",
+    "전략",
+    "다시",
+    "remember",
+    "important",
+    "key",
+    "example",
+    "practice",
+    "warning",
+    "summary",
+    "because",
+)
+
+
+def key_transcript_segments(
+    segments: list[dict[str, Any]],
+    max_segments: int = KEY_TRANSCRIPT_MAX_SEGMENTS,
+) -> list[dict[str, Any]]:
+    candidates = transcript_review_candidates(segments)
+
+    if len(candidates) <= 2:
+        return [candidate["segment"] for candidate in candidates]
+
+    starts = [candidate["start"] for candidate in candidates]
+    duration = max(starts) - min(starts)
+    target_count = key_transcript_target_count(duration, len(candidates), max_segments)
+    bucketed = best_key_transcript_candidate_per_bucket(
+        candidates,
+        target_count,
+        min(starts),
+        max(starts),
+    )
+    selected = spaced_key_transcript_candidates(bucketed, target_count)
+
+    if len(selected) < target_count:
+        selected = spaced_key_transcript_candidates(
+            [*selected, *sorted(candidates, key=lambda item: item["score"], reverse=True)],
+            target_count,
+        )
+
+    return [
+        candidate["segment"]
+        for candidate in sorted(selected, key=lambda item: item["start"])
+    ]
+
+
+def transcript_review_candidates(
+    segments: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+
+    for index, segment in enumerate(segments):
+        text = clean_text(str(segment.get("text") or "")).strip()
+
+        if len(text.replace(" ", "")) < KEY_TRANSCRIPT_MIN_TEXT_CHARS:
+            continue
+
+        try:
+            start = float(segment.get("start") or 0)
+        except (TypeError, ValueError):
+            start = 0.0
+
+        candidates.append(
+            {
+                "segment": {**segment, "text": text, "start": start},
+                "start": start,
+                "score": key_transcript_score(text, index, len(segments)),
+            }
+        )
+
+    return candidates
+
+
+def key_transcript_target_count(
+    duration_seconds: float,
+    candidate_count: int,
+    max_segments: int,
+) -> int:
+    if candidate_count <= 2:
+        return candidate_count
+
+    duration_count = max(3, min(max_segments, math.ceil(duration_seconds / 120)))
+    return min(max_segments, candidate_count, duration_count)
+
+
+def best_key_transcript_candidate_per_bucket(
+    candidates: list[dict[str, Any]],
+    target_count: int,
+    first_start: float,
+    last_start: float,
+) -> list[dict[str, Any]]:
+    if target_count <= 1 or first_start >= last_start:
+        return candidates[:target_count]
+
+    buckets: list[dict[str, Any] | None] = [None] * target_count
+    duration = max(1.0, last_start - first_start)
+
+    for candidate in candidates:
+        bucket_index = min(
+            target_count - 1,
+            int(((candidate["start"] - first_start) / duration) * target_count),
+        )
+        current = buckets[bucket_index]
+
+        if current is None or candidate["score"] > current["score"]:
+            buckets[bucket_index] = candidate
+
+    return [candidate for candidate in buckets if candidate is not None]
+
+
+def spaced_key_transcript_candidates(
+    candidates: list[dict[str, Any]],
+    target_count: int,
+) -> list[dict[str, Any]]:
+    selected: list[dict[str, Any]] = []
+    seen_starts: set[float] = set()
+
+    for candidate in sorted(candidates, key=lambda item: item["score"], reverse=True):
+        start = candidate["start"]
+
+        if start in seen_starts:
+            continue
+
+        if any(
+            abs(start - chosen["start"]) < KEY_TRANSCRIPT_MIN_REVIEW_INTERVAL_SECONDS
+            for chosen in selected
+        ):
+            continue
+
+        selected.append(candidate)
+        seen_starts.add(start)
+
+        if len(selected) >= target_count:
+            break
+
+    if len(selected) >= min(target_count, len(candidates)):
+        return selected
+
+    for candidate in sorted(candidates, key=lambda item: item["start"]):
+        start = candidate["start"]
+
+        if start in seen_starts:
+            continue
+
+        selected.append(candidate)
+        seen_starts.add(start)
+
+        if len(selected) >= target_count:
+            break
+
+    return selected
+
+
+def key_transcript_score(text: str, index: int, total_count: int) -> float:
+    normalized = text.lower()
+    cue_score = sum(1 for cue in KEY_TRANSCRIPT_CUE_WORDS if cue in normalized)
+    length_score = min(2.0, len(text) / 60)
+    position_score = 0.2 if 0 < index < total_count - 1 else 0.0
+
+    return cue_score * 3 + length_score + position_score
+
+
 def timestamped_transcript_body(segments: list[dict[str, Any]]) -> str:
     lines: list[str] = []
 
-    for segment in segments:
+    for segment in key_transcript_segments(segments):
         text = clean_text(str(segment.get("text") or "")).strip()
 
         if not text:

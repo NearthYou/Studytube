@@ -732,6 +732,62 @@ class AiServiceTest(unittest.TestCase):
         self.assertIn("00:00 첫 번째 설명입니다.", transcript_section["body"])
         self.assertIn("00:04 두 번째 예제입니다.", transcript_section["body"])
 
+    def test_timestamped_transcript_keeps_only_key_review_points(self):
+        segments = [
+            {"start": 0, "end": 4, "text": "인트로에서 오늘 배울 내용을 짧게 소개합니다."},
+            {"start": 30, "end": 34, "text": "환경 설정을 빠르게 확인합니다."},
+            {
+                "start": 60,
+                "end": 66,
+                "text": "핵심 개념은 서버 상태와 클라이언트 상태를 분리하는 것입니다.",
+            },
+            {"start": 90, "end": 94, "text": "폴더 구조를 잠깐 살펴봅니다."},
+            {
+                "start": 150,
+                "end": 158,
+                "text": "예를 들어 캐시가 오래 남으면 사용자는 이전 데이터를 볼 수 있습니다.",
+            },
+            {"start": 180, "end": 184, "text": "짧은 연결 문장입니다."},
+            {
+                "start": 240,
+                "end": 248,
+                "text": "주의할 점은 실패한 요청을 다시 시도할 때 로딩 상태를 분리하는 것입니다.",
+            },
+            {"start": 270, "end": 274, "text": "다음 화면으로 이동합니다."},
+            {
+                "start": 330,
+                "end": 338,
+                "text": "실습에서는 쿼리 키를 바꿔서 데이터가 갱신되는 흐름을 확인합니다.",
+            },
+            {"start": 360, "end": 364, "text": "잠깐 쉬어 가는 설명입니다."},
+            {
+                "start": 420,
+                "end": 428,
+                "text": "정리하면 캐시 무효화 전략을 다시 보는 것이 중요합니다.",
+            },
+        ]
+
+        body = main.timestamped_transcript_body(segments)
+        lines = body.splitlines()
+
+        self.assertLess(len(lines), len(segments))
+        self.assertLessEqual(len(lines), 8)
+        self.assertIn("01:00 핵심 개념은 서버 상태와 클라이언트 상태를 분리하는 것입니다.", body)
+        self.assertIn("07:00 정리하면 캐시 무효화 전략을 다시 보는 것이 중요합니다.", body)
+        self.assertNotEqual(
+            [line.split(" ", 1)[0] for line in lines],
+            [
+                "00:00",
+                "00:30",
+                "01:00",
+                "01:30",
+                "02:30",
+                "03:00",
+                "04:00",
+                "04:30",
+            ][: len(lines)],
+        )
+
     def test_youtube_summary_falls_back_to_timed_transcript_notes(self):
         original_openai = main.OpenAI
         original_key = os.environ.get("OPENAI_API_KEY")

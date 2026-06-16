@@ -59,8 +59,26 @@ done
 
 setsid nohup npm run all > npm-run-all.log 2>&1 < /dev/null &
 
-sleep 15
-curl -fsS http://localhost:3000/health
-curl -fsS http://localhost:3000/health/ai
-curl -fsS http://localhost:5173/ >/dev/null
+wait_for_url() {
+  url="$1"
+  label="$2"
+
+  for _attempt in $(seq 1 60); do
+    if curl -fsS "$url" >/tmp/agentic-board-healthcheck.out 2>/dev/null; then
+      cat /tmp/agentic-board-healthcheck.out
+      rm -f /tmp/agentic-board-healthcheck.out
+      return 0
+    fi
+
+    sleep 1
+  done
+
+  echo "Timed out waiting for $label at $url" >&2
+  tail -120 npm-run-all.log >&2 || true
+  return 1
+}
+
+wait_for_url http://localhost:3000/health api
+wait_for_url http://localhost:3000/health/ai ai
+wait_for_url http://localhost:5173/ web >/dev/null
 git rev-parse --short HEAD

@@ -1,9 +1,11 @@
 import { spawn, spawnSync } from 'node:child_process';
 import path from 'node:path';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+loadDotenv(path.join(root, '.env'));
+
 const isWindows = process.platform === 'win32';
 const npmCommand = isWindows ? 'npm.cmd' : 'npm';
 const pythonPath = isWindows
@@ -46,6 +48,32 @@ const children = new Map();
 let stopping = false;
 const databaseWaitAttempts = Number(process.env.DB_WAIT_ATTEMPTS ?? 30);
 const databaseWaitDelayMs = Number(process.env.DB_WAIT_DELAY_MS ?? 1000);
+
+function loadDotenv(envPath) {
+  if (!existsSync(envPath)) {
+    return;
+  }
+
+  for (const line of readFileSync(envPath, 'utf8').split(/\r?\n/)) {
+    const trimmed = line.trim();
+
+    if (!trimmed || trimmed.startsWith('#')) {
+      continue;
+    }
+
+    const equalsIndex = trimmed.indexOf('=');
+
+    if (equalsIndex <= 0) {
+      continue;
+    }
+
+    const key = trimmed.slice(0, equalsIndex).trim();
+    const rawValue = trimmed.slice(equalsIndex + 1).trim();
+    const value = rawValue.replace(/^(['"])(.*)\1$/, '$2');
+
+    process.env[key] ??= value;
+  }
+}
 
 function prefixLines(name, stream, write) {
   stream.setEncoding('utf8');

@@ -148,8 +148,17 @@ jobs:
           git checkout "$DEPLOY_BRANCH"
           git pull --ff-only origin "$DEPLOY_BRANCH"
 
-          npm ci --prefix web
-          npm ci --prefix api
+          if ! sudo swapon --show --noheadings | grep -q '/swapfile'; then
+            if [ ! -f /swapfile ]; then
+              sudo fallocate -l 2G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=2048
+            fi
+            sudo chmod 600 /swapfile
+            sudo mkswap /swapfile || true
+            sudo swapon /swapfile
+          fi
+
+          npm ci --prefix web --no-audit --fund=false
+          npm ci --prefix api --no-audit --fund=false
 
           python3 -m venv ai/.venv
           ai/.venv/bin/python -m pip install --upgrade pip

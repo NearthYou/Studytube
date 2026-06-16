@@ -25,6 +25,8 @@ The deploy job connects to EC2 over SSH, updates the selected branch, installs d
 - `http://localhost:3000/health/ai`
 - `http://localhost:5173/`
 
+The EC2 deploy step also ensures a 2GB `/swapfile` is active before installing dependencies. This keeps `npm ci --prefix api` from being killed on small instances.
+
 Runtime secrets such as `.env`, YouTube cookies, and PO token files stay on EC2. They are not copied into GitHub Actions.
 
 ## Required GitHub Secrets

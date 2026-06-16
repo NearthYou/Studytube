@@ -1,0 +1,4 @@
+@echo off
+cd /d C:\sw\agentic-board\siwon\api
+set AI_SERVICE_URL=http://localhost:8001
+"C:\Program Files\nodejs\node.exe" dist\main.js > C:\sw\agentic-board\siwon\logs\api-dev.out.log 2> C:\sw\agentic-board\siwon\logs\api-dev.err.log

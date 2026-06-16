@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
-const appSource = readFileSync('web/src/App.tsx', 'utf8');
+const testDirectory = dirname(fileURLToPath(import.meta.url));
+const appSource = readFileSync(resolve(testDirectory, '../src/App.tsx'), 'utf8');
 
 test('loop range number inputs have explicit accessible labels', () => {
   assert.match(appSource, /aria-label="구간 반복 시작"/);

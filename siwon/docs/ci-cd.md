@@ -1,6 +1,6 @@
 # CI/CD Setup
 
-This project uses GitHub Actions for CI and EC2 deployment. The EC2 deployment steps live in `scripts/deploy-ec2.sh` so local/manual deploys and GitHub Actions run the same commands.
+This project lives under the `siwon/` directory and uses GitHub Actions for CI and EC2 deployment. The EC2 deployment steps live in `siwon/scripts/deploy-ec2.sh` so local/manual deploys and GitHub Actions run the same commands.
 
 ## What CI Checks
 
@@ -28,16 +28,17 @@ The deploy job connects to EC2 over SSH, updates the selected branch, installs d
 The EC2 deploy step also ensures a 2GB `/swapfile` is active before installing dependencies. This keeps `npm ci --prefix api` from being killed on small instances.
 
 Runtime secrets such as `.env`, YouTube cookies, and PO token files stay on EC2. They are not copied into GitHub Actions.
+When deploying from an older EC2 checkout, the deploy script links `.env`, `secrets`, and `.tools` from the repository root into `siwon/` if they already exist there.
 
 ## Pull-Based CD Without GitHub Secrets
 
-If `EC2_SSH_KEY` is not configured in GitHub, EC2 can still deploy automatically by polling GitHub. The script `scripts/ec2-autodeploy.sh` checks `origin/sw`, waits for the matching `CI/CD` workflow run to finish successfully, and then runs `scripts/deploy-ec2.sh`.
+If `EC2_SSH_KEY` is not configured in GitHub, EC2 can still deploy automatically by polling GitHub. The script `siwon/scripts/ec2-autodeploy.sh` checks `origin/sw`, waits for the matching `CI/CD` workflow run to finish successfully, and then runs `siwon/scripts/deploy-ec2.sh`.
 
 Install the EC2 timer once:
 
 ```bash
-cd /home/ubuntu/agentic-board
-APP_DIR=/home/ubuntu/agentic-board DEPLOY_BRANCH=sw bash scripts/install-ec2-autodeploy.sh
+cd /home/ubuntu/agentic-board/siwon
+APP_DIR=/home/ubuntu/agentic-board/siwon DEPLOY_BRANCH=sw bash scripts/install-ec2-autodeploy.sh
 ```
 
 This creates a user systemd timer that checks every two minutes. If user systemd is unavailable, the installer falls back to cron.
@@ -52,7 +53,8 @@ Optional:
 
 - `EC2_HOST`: EC2 public IP or DNS. Defaults to `15.164.98.162`.
 - `EC2_USER`: SSH user. Defaults to `ubuntu`.
-- `EC2_APP_DIR`: app path on EC2. Defaults to `/home/ubuntu/agentic-board` if empty.
+- `EC2_APP_DIR`: app path on EC2. Defaults to `/home/ubuntu/agentic-board/siwon` if empty.
+- `EC2_REPO_DIR`: repository checkout path on EC2. Defaults to `/home/ubuntu/agentic-board` if empty.
 
 If `EC2_SSH_KEY` is missing, the deploy job succeeds with a notice and skips deployment. This keeps CI green while deployment credentials are not configured.
 
@@ -65,6 +67,6 @@ Open GitHub Actions, choose `CI/CD`, then run the workflow manually. Use the `sw
 After SSHing into EC2:
 
 ```bash
-cd /home/ubuntu/agentic-board
-APP_DIR=/home/ubuntu/agentic-board DEPLOY_BRANCH=sw bash scripts/deploy-ec2.sh sw
+cd /home/ubuntu/agentic-board/siwon
+APP_DIR=/home/ubuntu/agentic-board/siwon DEPLOY_BRANCH=sw bash scripts/deploy-ec2.sh sw
 ```

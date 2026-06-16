@@ -1,13 +1,18 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
-const appSource = readFileSync("web/src/App.tsx", "utf8");
+const testDirectory = dirname(fileURLToPath(import.meta.url));
+const sourcePath = (fileName: string) => resolve(testDirectory, "../src", fileName);
+
+const appSource = readFileSync(sourcePath("App.tsx"), "utf8");
 const boardPageSource = appSource.slice(
   appSource.indexOf("function BoardPage"),
   appSource.indexOf("function CoursePage"),
 );
-const draftSource = readFileSync("web/src/playlistDrafts.ts", "utf8");
+const draftSource = readFileSync(sourcePath("playlistDrafts.ts"), "utf8");
 
 const text = {
   boardHeading: "\uC601\uC0C1 \uB4F1\uB85D",
@@ -71,7 +76,7 @@ test("registration screen supports multiple private playlists before publishing"
 });
 
 test("board layout puts saved videos second and playlist building third", () => {
-  const cssSource = readFileSync("web/src/App.css", "utf8");
+  const cssSource = readFileSync(sourcePath("App.css"), "utf8");
 
   assert.match(
     cssSource,
@@ -96,7 +101,7 @@ test("board layout puts saved videos second and playlist building third", () => 
 });
 
 test("saved video shelf stays compact in the desktop board layout", () => {
-  const cssSource = readFileSync("web/src/App.css", "utf8");
+  const cssSource = readFileSync(sourcePath("App.css"), "utf8");
 
   assert.match(
     cssSource,

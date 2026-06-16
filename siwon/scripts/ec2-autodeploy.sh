@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-app_dir="${APP_DIR:-/home/ubuntu/agentic-board}"
+app_dir="${APP_DIR:-/home/ubuntu/agentic-board/siwon}"
 deploy_branch="${DEPLOY_BRANCH:-sw}"
 repo_full_name="${GITHUB_REPOSITORY:-NearthYou/agentic-board}"
 workflow_name="${GITHUB_WORKFLOW_NAME:-CI/CD}"

@@ -1,3 +1,5 @@
+name: agentic-board
+
 services:
   postgres:
     image: pgvector/pgvector:pg16

@@ -38,7 +38,7 @@ const services = [
   {
     name: 'web',
     command: npmCommand,
-    args: ['--prefix', 'web', 'run', 'dev', '--', '--host', '127.0.0.1'],
+    args: ['--prefix', 'web', 'run', 'dev', '--', '--host', '0.0.0.0'],
   },
 ];
 
@@ -128,4 +128,4 @@ for (const service of services) {
   startService(service);
 }
 
-console.log('[all] services are starting: web http://127.0.0.1:5173, api http://localhost:3000, ai http://localhost:8000');
+console.log('[all] services are starting: web http://0.0.0.0:5173, api http://localhost:3000, ai http://localhost:8000');

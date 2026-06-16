@@ -1604,6 +1604,33 @@ class AiServiceTest(unittest.TestCase):
         self.assertEqual(second["provider"], "youtube-native-captions")
         self.assertEqual(second["segments"], [])
 
+    def test_yt_dlp_metadata_ignores_missing_video_formats_for_caption_only_fetches(self):
+        captured_commands = []
+
+        class FakeCompletedProcess:
+            returncode = 0
+            stdout = json.dumps({"id": "caption-only", "automatic_captions": {}})
+            stderr = ""
+
+        def fake_run(command, **_kwargs):
+            captured_commands.append(command)
+            return FakeCompletedProcess()
+
+        original_commands = main.yt_dlp_commands
+        original_run = main.subprocess.run
+        main.yt_dlp_commands = lambda: [["yt-dlp"]]
+        main.subprocess.run = fake_run
+
+        try:
+            metadata, error = main.fetch_yt_dlp_metadata("caption-only")
+        finally:
+            main.yt_dlp_commands = original_commands
+            main.subprocess.run = original_run
+
+        self.assertIsNone(error)
+        self.assertEqual(metadata["id"], "caption-only")
+        self.assertIn("--ignore-no-formats", captured_commands[0])
+
     def test_youtube_captions_reports_rate_limit_from_yt_dlp_metadata(self):
         original_fetch_tracks = main.fetch_youtube_caption_tracks
         original_transcript = main.fetch_transcript_api_segments

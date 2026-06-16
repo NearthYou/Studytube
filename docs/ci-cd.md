@@ -1,6 +1,6 @@
 # CI/CD Setup
 
-This project uses GitHub Actions for CI and EC2 deployment.
+This project uses GitHub Actions for CI and EC2 deployment. The EC2 deployment steps live in `scripts/deploy-ec2.sh` so local/manual deploys and GitHub Actions run the same commands.
 
 ## What CI Checks
 
@@ -46,3 +46,12 @@ If `EC2_SSH_KEY` is missing, the deploy job succeeds with a notice and skips dep
 ## Manual Deploy
 
 Open GitHub Actions, choose `CI/CD`, then run the workflow manually. Use the `sw` branch unless you intentionally want to deploy another branch.
+
+## Manual EC2 Deploy Check
+
+After SSHing into EC2:
+
+```bash
+cd /home/ubuntu/agentic-board
+APP_DIR=/home/ubuntu/agentic-board DEPLOY_BRANCH=sw bash scripts/deploy-ec2.sh sw
+```

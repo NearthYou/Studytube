@@ -1,0 +1,8 @@
+.DS_Store
+.env
+.venv/
+node_modules/
+dist/
+build/
+.vite/
+my-app/.vite/

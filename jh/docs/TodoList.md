@@ -1,4 +1,4 @@
-- SDK란?
+
 
 - agent SDK 공식 문서란?
 https://developers.openai.com/api/docs/guides/agents
@@ -16,3 +16,4 @@ remote 기능
 - 프롬프트 범용화
 
 - migration
+

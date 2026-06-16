@@ -114,6 +114,8 @@ Image Registry
 
 ## 3. 프로젝트 아키텍쳐
 
+현재 구현 기준 아키텍처와 자체 리뷰 루프는 [docs/current-architecture.md](docs/current-architecture.md)에 정리되어 있다.
+
 ## 4. 주요 기능
 - 기본 게시판 기능
   - 회원가입 / 로그인

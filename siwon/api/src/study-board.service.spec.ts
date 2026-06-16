@@ -326,6 +326,24 @@ describe('StudyBoardService', () => {
     );
   });
 
+  it('creates posts through a repository that supports pending video asset persistence', async () => {
+    const session = await service.demoSession();
+    const post = await service.createPost(session.token, {
+      title: 'Asset ready lesson',
+      videoUrl: 'https://www.youtube.com/watch?v=novnyCaa7To',
+      thumbnailUrl: 'https://i.ytimg.com/vi/novnyCaa7To/hqdefault.jpg',
+      channelName: 'The Net Ninja',
+      summary: 'React Query server state lesson.',
+      translatedNotes: 'React Query server state learning material.',
+      tags: ['react', 'query'],
+    });
+
+    expect(post.videoUrl).toContain('novnyCaa7To');
+    await expect(
+      service.getVideoAsset(session.token, post.id),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
   it('creates a video post and lets users discuss it in comments', async () => {
     const session = await service.demoSession();
     const post = await service.createPost(session.token, {

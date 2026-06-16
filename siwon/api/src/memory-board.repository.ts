@@ -13,6 +13,11 @@ import {
   UpdatePostInput,
   User,
 } from './study-board.types';
+import type {
+  CreateVideoAssetInput,
+  UpdateVideoAssetInput,
+  VideoAsset,
+} from './video-asset.types';
 
 type StoredUser = User & { passwordHash: string };
 export type MemoryBoardState = {
@@ -981,6 +986,31 @@ export class MemoryBoardRepository implements BoardRepository {
     }
 
     return this.posts.length !== before;
+  }
+
+  async findVideoAsset(postId: number): Promise<VideoAsset | null> {
+    void postId;
+    await this.idle();
+
+    return null;
+  }
+
+  async upsertVideoAsset(input: CreateVideoAssetInput): Promise<VideoAsset> {
+    void input;
+    await this.idle();
+
+    throw new Error('Video asset persistence is not implemented');
+  }
+
+  async updateVideoAsset(
+    postId: number,
+    input: UpdateVideoAssetInput,
+  ): Promise<VideoAsset | null> {
+    void postId;
+    void input;
+    await this.idle();
+
+    return null;
   }
 
   async addComment(input: {

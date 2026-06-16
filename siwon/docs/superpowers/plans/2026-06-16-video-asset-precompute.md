@@ -6,6 +6,14 @@
 
 **Architecture:** Nest owns asset persistence, job orchestration, and HTTP endpoints. FastAPI remains the caption and summary generation engine through the existing `/youtube/captions` and `/youtube/summary` endpoints. The web app reads prepared assets first and only falls back to current windowed caption generation when prepared ranges are missing.
 
+**Authoritative correction after Task 1 review:** Video assets are scoped by
+saved post, not by bare YouTube `videoId`. `videoId` is stored on the asset and
+used for AI calls, but repository lookups, updates, and public routes must use
+`postId`: `findVideoAsset(postId)`, `updateVideoAsset(postId, input)`,
+`GET /posts/:postId/video-asset`, and
+`POST /posts/:postId/video-asset/prepare`. Any older `videoId`-keyed snippets
+below should be interpreted through this post-scoped rule.
+
 **Tech Stack:** NestJS, TypeScript, PostgreSQL JSONB, file-backed memory fallback, FastAPI AI service, React/Vite frontend, Node test runner/Jest.
 
 ---
@@ -14,7 +22,7 @@
 
 - Create `siwon/api/src/video-asset.types.ts`: shared API-side asset status, segment, summary, and repository input types.
 - Create `siwon/api/src/video-asset.service.ts`: in-process job queue, AI orchestration, and asset status transitions.
-- Create `siwon/api/src/video-asset.controller.ts`: `GET /video-assets/:videoId` and `POST /video-assets/:videoId/prepare`.
+- Create `siwon/api/src/video-asset.controller.ts`: `GET /posts/:postId/video-asset` and `POST /posts/:postId/video-asset/prepare`.
 - Create `siwon/api/src/video-asset.service.spec.ts`: service/job behavior tests with fake repository and fake AI proxy.
 - Create `siwon/api/src/video-asset.controller.spec.ts`: endpoint wiring tests.
 - Modify `siwon/api/src/study-board.types.ts`: extend `BoardRepository` with video asset persistence methods.
@@ -56,11 +64,10 @@ it('creates posts through a repository that supports video assets', async () => 
     tags: ['react', 'query'],
   });
 
-  const asset = await service.getVideoAsset(session.token, 'novnyCaa7To');
-
   expect(post.videoUrl).toContain('novnyCaa7To');
-  expect(asset.videoId).toBe('novnyCaa7To');
-  expect(asset.status).toBe('pending');
+  await expect(
+    service.getVideoAsset(session.token, post.id),
+  ).rejects.toBeInstanceOf(NotFoundException);
 });
 ```
 
@@ -151,10 +158,10 @@ import type {
 ```
 
 ```ts
-  findVideoAsset(videoId: string): Promise<VideoAsset | null>;
+  findVideoAsset(postId: number): Promise<VideoAsset | null>;
   upsertVideoAsset(input: CreateVideoAssetInput): Promise<VideoAsset>;
   updateVideoAsset(
-    videoId: string,
+    postId: number,
     input: UpdateVideoAssetInput,
   ): Promise<VideoAsset | null>;
 ```
@@ -166,10 +173,11 @@ In `siwon/api/src/study-board.service.ts`, add:
 ```ts
   async getVideoAsset(
     token: string | undefined,
-    videoId: string,
+    postId: number,
   ): Promise<VideoAsset> {
-    await this.requireSession(token);
-    const asset = await this.repository.findVideoAsset(videoId);
+    const session = await this.requireSession(token);
+    await this.requireOwnedPost(postId, session.user.id);
+    const asset = await this.repository.findVideoAsset(postId);
 
     if (!asset) {
       throw new NotFoundException('Video asset not found');
@@ -217,7 +225,7 @@ it('stores and updates video assets in the repository', async () => {
   expect(asset.status).toBe('pending');
   expect(asset.sourceSegments).toEqual([]);
 
-  const updated = await repository.updateVideoAsset('asset-test', {
+  const updated = await repository.updateVideoAsset(999, {
     status: 'ready',
     sourceCaptionStatus: 'ready',
     translationStatus: 'ready',
@@ -228,7 +236,7 @@ it('stores and updates video assets in the repository', async () => {
 
   expect(updated?.status).toBe('ready');
   expect(updated?.translatedSegments).toHaveLength(1);
-  expect((await repository.findVideoAsset('asset-test'))?.transcriptBody).toBe(
+  expect((await repository.findVideoAsset(999))?.transcriptBody).toBe(
     '00:00 안녕하세요.',
   );
 });
@@ -271,16 +279,16 @@ Update `snapshotState()` and `loadState()` so `videoAssets` and `nextIds.videoAs
 Add methods to `MemoryBoardRepository`:
 
 ```ts
-  async findVideoAsset(videoId: string): Promise<VideoAsset | null> {
-    return this.videoAssets.find((asset) => asset.videoId === videoId) ?? null;
+  async findVideoAsset(postId: number): Promise<VideoAsset | null> {
+    return this.videoAssets.find((asset) => asset.postId === postId) ?? null;
   }
 
   async upsertVideoAsset(input: CreateVideoAssetInput): Promise<VideoAsset> {
-    const existing = await this.findVideoAsset(input.videoId);
+    const existing = await this.findVideoAsset(input.postId);
     const timestamp = nowIso();
 
     if (existing) {
-      return this.updateVideoAsset(input.videoId, {
+      return this.updateVideoAsset(input.postId, {
         language: input.language ?? existing.language,
         errorMessage: '',
       }) as Promise<VideoAsset>;
@@ -312,10 +320,10 @@ Add methods to `MemoryBoardRepository`:
   }
 
   async updateVideoAsset(
-    videoId: string,
+    postId: number,
     input: UpdateVideoAssetInput,
   ): Promise<VideoAsset | null> {
-    const asset = await this.findVideoAsset(videoId);
+    const asset = await this.findVideoAsset(postId);
 
     if (!asset) {
       return null;
@@ -336,8 +344,8 @@ In `DatabaseService.ensureSchema()`, add:
 ```sql
 CREATE TABLE IF NOT EXISTS video_assets (
   id SERIAL PRIMARY KEY,
-  post_id INTEGER NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
-  video_id TEXT NOT NULL UNIQUE,
+  post_id INTEGER NOT NULL UNIQUE REFERENCES posts(id) ON DELETE CASCADE,
+  video_id TEXT NOT NULL,
   video_url TEXT NOT NULL,
   language TEXT NOT NULL DEFAULT 'ko',
   source_language TEXT NOT NULL DEFAULT '',
@@ -364,10 +372,10 @@ Expected upsert SQL:
 ```sql
 INSERT INTO video_assets (post_id, video_id, video_url, language)
 VALUES ($1, $2, $3, $4)
-ON CONFLICT (video_id)
+ON CONFLICT (post_id)
 DO UPDATE SET
-  post_id = EXCLUDED.post_id,
   video_url = EXCLUDED.video_url,
+  video_id = EXCLUDED.video_id,
   language = EXCLUDED.language,
   error_message = '',
   updated_at = now()

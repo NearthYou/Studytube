@@ -32,7 +32,10 @@ This approach fixes the jump problem at the right layer: playback reads prepared
 
 ## Data Model
 
-Add a video asset record keyed by post and video id.
+Add a video asset record scoped to a saved post. `videoId` remains stored for
+YouTube requests and display, but repository lookups and public APIs must use
+`postId` so duplicate saved posts for the same YouTube video do not cross user
+ownership boundaries.
 
 Fields:
 
@@ -60,12 +63,15 @@ For PostgreSQL this should be a new `video_assets` table with JSONB columns for 
 
 Nest API:
 
-- `GET /video-assets/:videoId`
+- `GET /posts/:postId/video-asset`
   - Returns prepared asset data and status.
-  - Used by the watch page before requesting on-demand captions.
+  - Requires the caller to own the post.
+  - Used by the watch page before requesting on-demand captions when the
+    current queue item maps to a saved post.
 
-- `POST /video-assets/:videoId/prepare`
-  - Starts or retries asset preparation for a video.
+- `POST /posts/:postId/video-asset/prepare`
+  - Starts or retries asset preparation for a saved post.
+  - Requires the caller to own the post.
   - Used after post creation, and by a retry button when preparation fails.
 
 FastAPI AI service:
@@ -92,12 +98,15 @@ The first version can run jobs in the Nest process with a simple concurrency lim
 
 ## Watch Page Flow
 
-1. On video load, call `GET /video-assets/:videoId`.
+1. On video load, resolve the current queue item to a saved post and call
+   `GET /posts/:postId/video-asset`.
 2. If `status` is `ready` or `partial` and translated segments exist, seed `translatedCaptionResponse` from the asset.
 3. Use stored summary sections and transcript body in the summary panel.
 4. If the current playback position has no prepared translated segment, fall back to `/ai/youtube/captions` for that window.
 5. If the asset is `pending` or `processing`, show a small caption preparation state and poll asset status.
 6. If the asset is `failed`, show the failure reason and a retry action.
+7. If the current video is not backed by a saved post yet, keep the existing
+   on-demand caption and summary flow.
 
 ## Error Handling
 
@@ -126,7 +135,7 @@ Backend tests:
 - Asset preparation stores source segments, translated segments, summary sections, and transcript body.
 - Failed source caption retrieval marks the asset failed with a sanitized message.
 - Partial translation keeps source segments and marks asset partial.
-- `GET /video-assets/:videoId` returns a stable shape for pending, ready, partial, and failed assets.
+- `GET /posts/:postId/video-asset` returns a stable shape for pending, ready, partial, and failed assets, and rejects access to posts not owned by the caller.
 
 Frontend tests:
 

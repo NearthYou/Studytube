@@ -31,6 +31,7 @@ import type {
   UpdatePostInput,
   User,
 } from './study-board.types';
+import type { VideoAsset } from './video-asset.types';
 
 @Injectable()
 export class StudyBoardService {
@@ -235,6 +236,21 @@ export class StudyBoardService {
       authorId: session.user.id,
       tags: input.tags ?? [],
     });
+  }
+
+  async getVideoAsset(
+    token: string | undefined,
+    postId: number,
+  ): Promise<VideoAsset> {
+    const session = await this.requireSession(token);
+    await this.requireOwnedPost(postId, session.user.id);
+    const asset = await this.repository.findVideoAsset(postId);
+
+    if (!asset) {
+      throw new NotFoundException('Video asset not found');
+    }
+
+    return asset;
   }
 
   async updatePost(

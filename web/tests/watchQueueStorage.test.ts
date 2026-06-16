@@ -95,6 +95,22 @@ test('adds selected videos to the scoped queue without losing learning state', (
   assert.equal(readWatchQueue(storage)[0].learning?.captionLanguage, 'en');
 });
 
+test('ignores malformed legacy watch queue entries that cannot render the player', () => {
+  const storage = createMemoryStorage({
+    'studytube.watchQueue:anonymous': JSON.stringify([
+      { id: 'legacy-1', title: 'Missing video URL', videoId: 'abc123' },
+      video({ id: 'post-2', videoId: 'def456' }),
+    ]),
+  });
+
+  const queue = readWatchQueue(storage);
+
+  assert.deepEqual(
+    queue.map((item) => item.id),
+    ['post-2'],
+  );
+});
+
 test('migrates legacy watch queues into playlist drafts', () => {
   const storage = createMemoryStorage();
   saveWatchQueue([video({ id: 'post-1' })], storage);

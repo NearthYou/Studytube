@@ -19,7 +19,9 @@ export function readWatchQueue(storage: Storage = window.localStorage): QueueVid
   try {
     const raw = storage.getItem(scopedStorageKey(storage, QUEUE_STORAGE_KEY));
     return raw
-      ? (JSON.parse(raw) as QueueVideo[]).map((video) => normalizeQueueVideo(video))
+      ? (JSON.parse(raw) as unknown[])
+          .filter(isQueueVideoLike)
+          .map((video) => normalizeQueueVideo(video))
       : [];
   } catch {
     return [];

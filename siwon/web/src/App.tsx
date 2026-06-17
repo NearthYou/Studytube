@@ -314,6 +314,21 @@ function assetStatusMessageFromVideoAsset(asset: VideoAsset) {
 function isVideoAssetPreparing(asset: VideoAsset | null) {
   return asset?.status === "pending" || asset?.status === "processing";
 }
+
+function shouldAutoRetryVideoAssetPreparation(asset: VideoAsset) {
+  if (asset.status !== "failed") {
+    return false;
+  }
+
+  const message = asset.errorMessage.toLowerCase();
+
+  return (
+    message.includes("429") ||
+    message.includes("youtube timed-text") ||
+    message.includes("youtube-caption") ||
+    message.includes("server-side caption retrieval")
+  );
+}
 function App() {
   const [session, setSession] = useState<Session | null>(() => readSession());
 
@@ -4837,6 +4852,24 @@ function WatchPage({ session }: { session: Session }) {
             "저장된 영상 자산이 현재 영상과 일치하지 않아 필요한 구간은 즉시 생성합니다.",
           );
           return;
+        }
+
+        if (shouldAutoRetryVideoAssetPreparation(asset)) {
+          setAssetStatusMessage("저장된 영상 자산을 다시 준비하는 중입니다.");
+          setAssetLookup({ postId, status: "loading" });
+
+          const preparedAsset = await prepareVideoAsset(postId, session.token);
+
+          if (cancelled) {
+            return;
+          }
+
+          if (!applyVideoAsset(preparedAsset, expectedTarget)) {
+            setAssetLookup({ postId, status: "ready" });
+            setAssetStatusMessage(
+              "저장된 영상 자산이 현재 영상과 일치하지 않아 필요한 구간은 즉시 생성합니다.",
+            );
+          }
         }
       } catch (error) {
         if (!cancelled) {

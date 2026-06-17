@@ -156,6 +156,51 @@ describe('VideoAssetService', () => {
     expect(summary).not.toHaveBeenCalled();
   });
 
+  it('keeps the asset partial when YouTube automatic captions should be used', async () => {
+    const repository = new RecordingRepository();
+    const captions = jest.fn().mockResolvedValue({
+      provider: 'youtube-caption-rate-limited',
+      translated: false,
+      sourceLanguage: 'youtube',
+      segments: [],
+      message:
+        'Use the YouTube player automatic captions because server-side caption retrieval is unavailable.',
+    });
+    const summary = jest.fn();
+    const service = new VideoAssetService(repository, {
+      captions,
+      summary,
+    } as AiProxyService);
+    const post = await repository.createPost({
+      authorId: 1,
+      title: 'YouTube automatic captions lesson',
+      videoUrl: 'https://youtu.be/autoCaptionFallback',
+      thumbnailUrl: 'https://i.ytimg.com/vi/autoCaptionFallback/hqdefault.jpg',
+      channelName: 'StudyTube',
+      summary: 'Native caption fallback case.',
+      translatedNotes: 'Native caption fallback notes.',
+      tags: ['captions'],
+    });
+
+    await expect(service.preparePostAsset(post)).resolves.toMatchObject({
+      postId: post.id,
+      videoId: 'autoCaptionFallback',
+      status: 'partial',
+      sourceLanguage: 'youtube',
+      sourceCaptionStatus: 'partial',
+      translationStatus: 'partial',
+      summaryStatus: 'partial',
+      sourceSegments: [],
+      translatedSegments: [],
+      summarySections: [],
+      transcriptBody: '',
+      errorMessage:
+        'Use the YouTube player automatic captions because server-side caption retrieval is unavailable.',
+    });
+
+    expect(summary).not.toHaveBeenCalled();
+  });
+
   it('stores translated captions from primary segments when AI omits translatedSegments', async () => {
     const repository = new RecordingRepository();
     const translatedSegments = [

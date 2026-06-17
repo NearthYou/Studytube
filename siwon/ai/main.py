@@ -2300,7 +2300,44 @@ def youtube_httpx_request_kwargs(**kwargs: Any) -> dict[str, Any]:
     if proxy_url:
         kwargs["proxy"] = proxy_url
 
+    cookies = youtube_cookie_file_cookies()
+    if cookies:
+        kwargs["cookies"] = {**cookies, **kwargs.get("cookies", {})}
+
     return kwargs
+
+
+def youtube_cookie_file_cookies() -> dict[str, str]:
+    cookies_file = os.getenv("YOUTUBE_COOKIES_FILE", "").strip()
+    if not cookies_file:
+        return {}
+
+    try:
+        lines = Path(cookies_file).read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return {}
+
+    cookies: dict[str, str] = {}
+    for line in lines:
+        if not line or line.startswith("# Netscape"):
+            continue
+
+        if line.startswith("#HttpOnly_"):
+            line = line.removeprefix("#HttpOnly_")
+        elif line.startswith("#"):
+            continue
+
+        parts = line.split("\t")
+        if len(parts) < 7:
+            parts = line.split(maxsplit=6)
+
+        if len(parts) >= 7:
+            name = parts[5].strip()
+            value = parts[6].strip()
+            if name and value:
+                cookies[name] = value
+
+    return cookies
 
 
 def caption_url_with_recovery_params(caption_url: str, video_id: str = "") -> str:

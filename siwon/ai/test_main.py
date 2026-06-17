@@ -1,5 +1,6 @@
 import json
 import os
+import tempfile
 import time
 import unittest
 from urllib.parse import parse_qsl, urlparse
@@ -14,6 +15,47 @@ from main import (
 
 
 class AiServiceTest(unittest.TestCase):
+    def test_youtube_http_requests_include_configured_cookie_file(self):
+        class FakeResponse:
+            text = "<script>var ytInitialPlayerResponse = {};</script>"
+
+            @staticmethod
+            def raise_for_status():
+                return None
+
+        captured_kwargs = {}
+
+        class FakeHttpx:
+            @staticmethod
+            def get(_url, **kwargs):
+                captured_kwargs.update(kwargs)
+                return FakeResponse()
+
+        original_httpx = main.httpx
+        original_cookie_file = os.environ.get("YOUTUBE_COOKIES_FILE")
+
+        with tempfile.NamedTemporaryFile("w", delete=False) as cookie_file:
+            cookie_file.write("# Netscape HTTP Cookie File\n")
+            cookie_file.write(
+                ".youtube.com\tTRUE\t/\tTRUE\t1893456000\tSID\ttest-session\n"
+            )
+            cookie_file_path = cookie_file.name
+
+        main.httpx = FakeHttpx
+        os.environ["YOUTUBE_COOKIES_FILE"] = cookie_file_path
+
+        try:
+            main.fetch_youtube_caption_tracks("abc123")
+        finally:
+            main.httpx = original_httpx
+            os.unlink(cookie_file_path)
+            if original_cookie_file is None:
+                os.environ.pop("YOUTUBE_COOKIES_FILE", None)
+            else:
+                os.environ["YOUTUBE_COOKIES_FILE"] = original_cookie_file
+
+        self.assertEqual(captured_kwargs["cookies"]["SID"], "test-session")
+
     def test_health_reports_caption_runtime_configuration_without_secret_values(self):
         original_env = {
             name: os.environ.get(name)

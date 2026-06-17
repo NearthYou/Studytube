@@ -4689,6 +4689,7 @@ function WatchPage({ session }: { session: Session }) {
       findMatchingWatchPlaylistChoice(playlistChoices, queue, queueVideoKey),
     [playlistChoices, queue],
   );
+  const hasPlaylistChoices = playlistChoices.length > 0;
 
   function isCurrentAssetTarget(target: { postId: number; videoId: string }) {
     return (
@@ -5778,17 +5779,28 @@ function WatchPage({ session }: { session: Session }) {
         <section className="watch-empty-shell">
           <div className="watch-empty-copy">
             <p className="eyebrow">학습</p>
-            <h1>학습할 플레이리스트를 선택하세요</h1>
-            <p>
-              공개 플레이리스트와 작성 중인 플레이리스트를 바로 이어서 볼 수 있습니다.
-              선택하면 첫 영상부터 재생목록이 시작됩니다.
-            </p>
+            <h1>
+              {hasPlaylistChoices
+                ? "학습할 플레이리스트를 선택하세요"
+                : "아직 학습할 플레이리스트가 없어요"}
+            </h1>
+            {hasPlaylistChoices ? (
+              <p>
+                공개 플레이리스트와 작성 중인 플레이리스트를 바로 이어서 볼 수
+                있습니다. 선택하면 첫 영상부터 재생목록이 시작됩니다.
+              </p>
+            ) : (
+              <p>
+                코스 찾기에서 새 학습 코스를 만들거나, 등록 화면에서 영상을 담아
+                첫 플레이리스트를 시작할 수 있습니다.
+              </p>
+            )}
             <div className="watch-empty-actions">
               <Link className="primary-link" to="/playlists">
-                새 코스 찾기
+                {hasPlaylistChoices ? "새 코스 찾기" : "코스 찾기"}
               </Link>
               <Link className="quiet-link" to="/board">
-                등록 화면으로
+                {hasPlaylistChoices ? "등록 화면으로" : "영상 등록하기"}
               </Link>
             </div>
           </div>

@@ -65,6 +65,14 @@ test('watch page does not keep calling live captions after a saved asset fails',
   assert.match(appSource, /videoAssetFailedForCurrentVideo[\s\S]*shouldUseNativeYouTubeCaptions/);
 });
 
+test('watch page shows a clear empty state when no playlists are available', () => {
+  assert.match(appSource, /const hasPlaylistChoices = playlistChoices\.length > 0/);
+  assert.match(appSource, /아직 학습할 플레이리스트가 없어요/);
+  assert.match(appSource, /코스 찾기에서 새 학습 코스를 만들거나/);
+  assert.match(appSource, /\{hasPlaylistChoices \? "새 코스 찾기" : "코스 찾기"\}/);
+  assert.match(appSource, /\{hasPlaylistChoices \? "등록 화면으로" : "영상 등록하기"\}/);
+});
+
 test('watch page skips on-demand caption calls for prepared asset coverage', () => {
   assert.match(appSource, /const currentPostId = currentVideo\s*\?\s*findPostIdForQueueVideo\(currentVideo, libraryPosts\)\s*:\s*null/);
   assert.match(appSource, /const assetCaptionResponse = captionResponseFromVideoAsset\(videoAsset\)/);

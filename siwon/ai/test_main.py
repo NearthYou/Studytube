@@ -2141,6 +2141,54 @@ class AiServiceTest(unittest.TestCase):
         self.assertFalse(translated)
         self.assertEqual(segments[0]["text"], "Downloaded by yt-dlp")
 
+    def test_yt_dlp_caption_segments_tries_subtitle_file_when_metadata_has_no_candidate(self):
+        original_httpx = main.httpx
+        original_metadata = main.fetch_yt_dlp_metadata
+        original_file_fetch = main.fetch_yt_dlp_caption_file_segments
+        original_can_translate = main.can_translate_captions_with_openai
+        original_openai_key = os.environ.get("OPENAI_API_KEY")
+        file_fetch_calls = []
+
+        main.httpx = object()
+        os.environ["OPENAI_API_KEY"] = "sk-test"
+        main.can_translate_captions_with_openai = lambda: True
+        main.fetch_yt_dlp_metadata = lambda _video_id: (
+            {"automatic_captions": {}, "subtitles": {}},
+            None,
+        )
+
+        def fake_file_fetch(video_id, subtitle_language, target_language):
+            file_fetch_calls.append((video_id, subtitle_language, target_language))
+            return (
+                [{"start": 1, "end": 3, "text": "Downloaded without metadata"}],
+                "en",
+                False,
+                None,
+            )
+
+        main.fetch_yt_dlp_caption_file_segments = fake_file_fetch
+
+        try:
+            segments, language, translated, error = main.fetch_yt_dlp_caption_segments(
+                "abc123",
+                "ko",
+            )
+        finally:
+            main.httpx = original_httpx
+            main.fetch_yt_dlp_metadata = original_metadata
+            main.fetch_yt_dlp_caption_file_segments = original_file_fetch
+            main.can_translate_captions_with_openai = original_can_translate
+            if original_openai_key is None:
+                os.environ.pop("OPENAI_API_KEY", None)
+            else:
+                os.environ["OPENAI_API_KEY"] = original_openai_key
+
+        self.assertIsNone(error)
+        self.assertEqual(file_fetch_calls, [("abc123", "en", "ko")])
+        self.assertEqual(language, "en")
+        self.assertFalse(translated)
+        self.assertEqual(segments[0]["text"], "Downloaded without metadata")
+
     def test_yt_dlp_recovery_args_use_explicit_youtube_settings(self):
         env_updates = {
             "YT_DLP_JS_RUNTIME": r"node:C:\Program Files\nodejs\node.exe",

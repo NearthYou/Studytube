@@ -2041,7 +2041,22 @@ def fetch_yt_dlp_caption_segments(
     metadata, metadata_error = fetch_yt_dlp_metadata(video_id)
 
     if not metadata:
-        return [], "", False, metadata_error
+        fallback_language = yt_dlp_caption_file_fallback_language(
+            target_language,
+            prefer_source_captions=can_translate_captions_with_openai(),
+        )
+        file_segments, file_language, file_translated, file_error = (
+            fetch_yt_dlp_caption_file_segments(
+                video_id,
+                fallback_language,
+                target_language,
+            )
+        )
+
+        if file_segments:
+            return file_segments, file_language, file_translated, None
+
+        return [], "", False, file_error or metadata_error
 
     prefer_source_captions = can_translate_captions_with_openai()
     candidate = choose_yt_dlp_caption_candidate(
@@ -2051,7 +2066,24 @@ def fetch_yt_dlp_caption_segments(
     )
 
     if not candidate:
-        return [], "", False, RuntimeError("yt-dlp-caption-track-unavailable")
+        fallback_language = yt_dlp_caption_file_fallback_language(
+            target_language,
+            prefer_source_captions=prefer_source_captions,
+        )
+        file_segments, file_language, file_translated, file_error = (
+            fetch_yt_dlp_caption_file_segments(
+                video_id,
+                fallback_language,
+                target_language,
+            )
+        )
+
+        if file_segments:
+            return file_segments, file_language, file_translated, None
+
+        return [], "", False, file_error or RuntimeError(
+            "yt-dlp-caption-track-unavailable"
+        )
 
     segments, segment_error = fetch_caption_segments_from_urls(
         [candidate["url"]],
@@ -2081,6 +2113,18 @@ def fetch_yt_dlp_caption_segments(
         bool(candidate["translated"]),
         segment_error,
     )
+
+
+def yt_dlp_caption_file_fallback_language(
+    target_language: str,
+    prefer_source_captions: bool,
+) -> str:
+    normalized_target = normalize_language(target_language) or "en"
+
+    if prefer_source_captions and normalized_target != "en":
+        return "en"
+
+    return normalized_target
 
 
 def fetch_yt_dlp_metadata(video_id: str) -> tuple[dict[str, Any] | None, Exception | None]:

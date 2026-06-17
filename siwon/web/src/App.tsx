@@ -59,6 +59,7 @@ import {
   shouldUseNativeYouTubeCaptions,
   sourceCaptionTranslationPollDelay,
   syncNativeYouTubeCaptions,
+  videoAssetNeedsNativeCaptionFallback,
   videoAssetCoversRange,
   videoAssetCoversTime,
   youtubeCaptionPlayerVars,
@@ -4622,6 +4623,7 @@ function WatchPage({ session }: { session: Session }) {
   const shouldUseNativeCaptionFallback =
     Boolean(currentVideo) &&
     (videoAssetFailedForCurrentVideo ||
+      videoAssetNeedsNativeCaptionFallback(videoAsset) ||
       (captionResponseMatchesVideo &&
         (captionResponse?.provider === "youtube-native-captions" ||
           sourceCaptionTranslationPending))) &&

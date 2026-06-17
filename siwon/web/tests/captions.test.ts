@@ -18,6 +18,7 @@ import {
   syncNativeYouTubeCaptions,
   videoAssetCoversRange,
   videoAssetCoversTime,
+  videoAssetNeedsNativeCaptionFallback,
   youtubeCaptionPlayerVars,
 } from '../src/captions.ts';
 import type { VideoAsset } from '../src/types.ts';
@@ -76,6 +77,23 @@ test('does not build prepared caption responses without translated segments', ()
   );
 
   assert.equal(response, null);
+});
+
+test('uses native YouTube captions for partial assets without translated segments', () => {
+  assert.equal(
+    videoAssetNeedsNativeCaptionFallback(
+      readyVideoAsset({
+        status: 'partial',
+        sourceLanguage: 'youtube',
+        sourceCaptionStatus: 'partial',
+        translationStatus: 'partial',
+        summaryStatus: 'partial',
+        sourceSegments: [],
+        translatedSegments: [],
+      }),
+    ),
+    true,
+  );
 });
 
 test('checks whether prepared translated captions cover playback time', () => {

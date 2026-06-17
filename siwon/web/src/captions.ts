@@ -135,6 +135,17 @@ export function captionResponseFromVideoAsset(
   };
 }
 
+export function videoAssetNeedsNativeCaptionFallback(
+  asset: VideoAsset | null | undefined,
+) {
+  return Boolean(
+    asset &&
+      asset.status === 'partial' &&
+      asset.translationStatus === 'partial' &&
+      asset.translatedSegments.length === 0,
+  );
+}
+
 export function videoAssetCoversTime(
   asset: Pick<VideoAsset, 'translatedSegments'> | null | undefined,
   currentTime: number,

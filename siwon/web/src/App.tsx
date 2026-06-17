@@ -4543,7 +4543,7 @@ function WatchPage({ session }: { session: Session }) {
         ? videoDurationState.waitExpired
         : false;
   const currentPlayerLoadError =
-    playerLoadError?.videoId === currentVideo?.videoId
+    playerLoadError && currentVideo && playerLoadError.videoId === currentVideo.videoId
       ? playerLoadError.message
       : "";
   const isPlayerReady =

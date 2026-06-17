@@ -1,0 +1,41 @@
+@media (max-width: 640px) {
+  .pet-place-panel,
+  .pet-place-detail {
+    padding: 18px;
+  }
+
+  .pet-place-map {
+    min-height: 300px;
+  }
+
+  .pet-place-map-message {
+    padding: 16px;
+    font-size: 0.84rem;
+  }
+
+  .pet-place-map-footer {
+    display: grid;
+    gap: 4px;
+  }
+
+  .pet-place-search {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    width: 100%;
+  }
+
+  .pet-place-search .field-group {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .pet-place-grid,
+  .pet-info-grid {
+    grid-template-columns: 1fr;
+    max-height: none;
+  }
+
+  .pet-place-result-state {
+    padding: 16px;
+  }
+}

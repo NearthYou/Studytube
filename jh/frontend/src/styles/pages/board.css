@@ -1,0 +1,5 @@
+@import "./board/base.css";
+@import "./board/post-form.css";
+@import "./board/post-detail.css";
+@import "./board/delete.css";
+@import "./board/pet-places.css";

@@ -3,6 +3,54 @@
 
 # Log file
 *.log
+logs/
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Environment / local secrets
+.env
+.env.*
+!.env.example
+
+# Dependency directories
+node_modules/
+.pnp/
+.pnp.*
+
+# Build and test output
+dist/
+build/
+coverage/
+.nyc_output/
+
+# Python local runtime
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Local runtime artifacts
+uploads/
+.playwright-cli/
+tmp/
+output/
+
+# Local keys, certificates, and databases
+*.key
+*.pem
+*.p12
+*.pfx
+*.db
+*.sqlite
+*.sqlite3
+
+# OS / editor noise
+.DS_Store
+.idea/
 
 # BlueJ files
 *.ctxt

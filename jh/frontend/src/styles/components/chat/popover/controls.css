@@ -1,0 +1,26 @@
+.assistant-close-button,
+.assistant-send-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition:
+    background 160ms ease,
+    color 160ms ease,
+    transform 160ms ease;
+}
+
+.assistant-close-button {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  background: var(--surface-muted);
+  color: var(--text-muted);
+}
+
+.assistant-close-button:hover {
+  background: var(--primary-soft);
+  color: var(--primary-strong);
+}

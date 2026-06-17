@@ -1,0 +1,32 @@
+:root {
+  --header-height: 76px;
+  --logo-size: 56px;
+  --sidebar-width: 236px;
+  --content-max-width: 1180px;
+  --bottom-nav-height: 80px;
+  --page-bg: #f8f7f2;
+  --surface: #ffffff;
+  --surface-soft: #fff8f5;
+  --surface-muted: #f3efe8;
+  --surface-green: #edf6ef;
+  --text-strong: #2b2925;
+  --text-muted: #706960;
+  --text-soft: #92887d;
+  --line: #e5ddd3;
+  --line-strong: #d8cbbd;
+  --primary: #a84455;
+  --primary-strong: #7e3040;
+  --primary-soft: #fff0f1;
+  --accent: #3c7b59;
+  --accent-strong: #285f42;
+  --accent-soft: #e9f4ec;
+  --warning-soft: #fff4d8;
+  --shadow: 0 14px 30px rgb(59 45 35 / 9%);
+  --shadow-soft: 0 8px 18px rgb(59 45 35 / 7%);
+  --focus-ring: #246f4b;
+  --focus-ring-soft: rgb(36 111 75 / 22%);
+  --danger-bg: rgb(126 48 64 / 10%);
+  --danger-line: rgb(126 48 64 / 32%);
+  --transition-fast: 160ms ease;
+  --radius: 8px;
+}

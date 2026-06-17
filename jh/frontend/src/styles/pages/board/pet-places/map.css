@@ -1,0 +1,85 @@
+.pet-place-map-shell {
+  display: grid;
+  gap: 10px;
+}
+
+.pet-place-map-frame {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgb(229 221 211 / 86%);
+  border-radius: var(--radius);
+  background: var(--surface-muted);
+}
+
+.pet-place-map {
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  min-height: 460px;
+  background: var(--surface-muted);
+}
+
+.pet-place-map-actions {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  z-index: 5;
+  transform: translateX(-50%);
+}
+
+.pet-place-map-search-button {
+  box-shadow: var(--shadow);
+  white-space: nowrap;
+}
+
+.pet-place-map-message {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  gap: 8px;
+  max-width: 320px;
+  width: min(100%, 420px);
+  margin: auto;
+  padding: 20px;
+  color: var(--text-muted);
+  font-size: 0.92rem;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.pet-place-map-message strong {
+  color: var(--text-strong);
+  font-weight: 800;
+}
+
+.pet-place-map-message span {
+  color: var(--text-muted);
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.pet-place-map-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  color: var(--text-muted);
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.pet-place-map-footer strong {
+  color: var(--text-strong);
+}
+
+.pet-place-map-footer em {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-style: normal;
+}

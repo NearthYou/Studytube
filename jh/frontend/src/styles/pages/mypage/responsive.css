@@ -1,0 +1,24 @@
+@media (max-width: 640px) {
+  .mypage-panel {
+    padding: 22px;
+  }
+
+  .mypage-profile {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .mypage-avatar {
+    width: 88px;
+    height: 88px;
+    flex-basis: 88px;
+  }
+
+  .mypage-info-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .mypage-activity-grid {
+    grid-template-columns: 1fr;
+  }
+}

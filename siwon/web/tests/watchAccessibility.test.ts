@@ -48,6 +48,16 @@ test('watch page loads prepared video assets through the saved post id', () => {
   assert.doesNotMatch(appSource, /prepareVideoAsset\(\s*currentVideo\?\.videoId/);
 });
 
+test('watch page prepares missing saved video assets before falling back to live captions', () => {
+  assert.match(appSource, /isNotFoundRequest\(error\)/);
+  assert.match(appSource, /const preparedAsset = await prepareVideoAsset\(\s*postId,\s*session\.token,\s*\)/);
+  assert.match(appSource, /applyVideoAsset\(preparedAsset, expectedTarget\)/);
+  assert.doesNotMatch(
+    appSource,
+    /catch\s*\{\s*if \(!cancelled\) \{\s*setVideoAsset\(null\);\s*setAssetLookup\(\{ postId, status: "error" \}\);/,
+  );
+});
+
 test('watch page skips on-demand caption calls for prepared asset coverage', () => {
   assert.match(appSource, /const currentPostId = currentVideo\s*\?\s*findPostIdForQueueVideo\(currentVideo, libraryPosts\)\s*:\s*null/);
   assert.match(appSource, /const assetCaptionResponse = captionResponseFromVideoAsset\(videoAsset\)/);

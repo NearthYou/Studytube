@@ -180,6 +180,7 @@ import {
   fetchVideoAsset,
   fetchVideoSummary,
   fetchMe,
+  isNotFoundRequest,
   isUnauthorizedRequest,
   login,
   prepareVideoAsset,
@@ -4833,8 +4834,36 @@ function WatchPage({ session }: { session: Session }) {
           );
           return;
         }
-      } catch {
+      } catch (error) {
         if (!cancelled) {
+          if (isNotFoundRequest(error)) {
+            try {
+              setAssetStatusMessage("저장된 영상 자산을 준비하는 중입니다.");
+              const preparedAsset = await prepareVideoAsset(
+                postId,
+                session.token,
+              );
+
+              if (cancelled) {
+                return;
+              }
+
+              if (!applyVideoAsset(preparedAsset, expectedTarget)) {
+                setAssetLookup({ postId, status: "ready" });
+                setAssetStatusMessage(
+                  "저장된 영상 자산이 현재 영상과 일치하지 않아 필요한 구간은 즉시 생성합니다.",
+                );
+                return;
+              }
+
+              return;
+            } catch {
+              if (cancelled) {
+                return;
+              }
+            }
+          }
+
           setVideoAsset(null);
           setAssetLookup({ postId, status: "error" });
           setAssetStatusMessage(

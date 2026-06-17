@@ -76,6 +76,10 @@ export function isUnauthorizedRequest(error: unknown) {
   return error instanceof ApiRequestError && error.status === 401;
 }
 
+export function isNotFoundRequest(error: unknown) {
+  return error instanceof ApiRequestError && error.status === 404;
+}
+
 export async function requestJson<T>(
   path: string,
   options: RequestInit = {},

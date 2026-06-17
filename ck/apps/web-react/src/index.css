@@ -1,0 +1,50 @@
+:root {
+  font-family:
+    "SUIT Variable",
+    "Pretendard Variable",
+    "Noto Sans KR",
+    "Inter",
+    sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color: #34171d;
+  background: #fcf9f9;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: #fcf9f9;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+h1,
+h2,
+h3,
+p,
+pre {
+  margin: 0;
+}
+
+#root {
+  min-height: 100svh;
+}

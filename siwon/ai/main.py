@@ -668,6 +668,8 @@ def load_translated_captions_uncached(
                     target_language,
                     caption_window,
                 )
+                if audio_transcription_fallback_enabled()
+                else ([], "", False, None)
             )
 
             if audio_segments:
@@ -813,6 +815,8 @@ def load_translated_captions_uncached(
                     target_language,
                     caption_window,
                 )
+                if audio_transcription_fallback_enabled()
+                else ([], "", False, None)
             )
 
             if audio_segments:
@@ -2288,6 +2292,10 @@ def fetch_audio_transcript_caption_segments(
     return [], "", False, last_error or RuntimeError("audio transcription failed")
 
 
+def audio_transcription_fallback_enabled() -> bool:
+    return truthy_env("YOUTUBE_AUDIO_TRANSCRIPTION_FALLBACK")
+
+
 def audio_transcription_window(
     caption_window: tuple[float, float] | None,
 ) -> tuple[float, float]:
@@ -3547,7 +3555,10 @@ def native_caption_response(
         "sourceLanguage": normalize_language(source_language) or "youtube",
         "translated": False,
         "segments": [],
-        "message": f"YouTube native captions are available in the player; server timed-text fetch failed: {reason}",
+        "message": (
+            "Use the YouTube player automatic captions because server-side "
+            f"caption retrieval is unavailable: {reason}"
+        ),
     }
 
 

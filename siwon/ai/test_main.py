@@ -1992,9 +1992,11 @@ class AiServiceTest(unittest.TestCase):
         original_transcript = main.fetch_transcript_api_segments
         original_yt_dlp = main.fetch_yt_dlp_caption_segments
         original_audio_transcript = main.fetch_audio_transcript_caption_segments
+        original_audio_fallback = os.environ.get("YOUTUBE_AUDIO_TRANSCRIPTION_FALLBACK")
 
         main.httpx = object()
         main.CAPTION_RESPONSE_CACHE.clear()
+        os.environ["YOUTUBE_AUDIO_TRANSCRIPTION_FALLBACK"] = "true"
         main.fetch_youtube_caption_tracks = lambda _video_id: []
         main.fetch_transcript_api_segments = lambda *_args: ([], "", False)
         main.fetch_yt_dlp_caption_segments = lambda *_args: (
@@ -2026,12 +2028,70 @@ class AiServiceTest(unittest.TestCase):
             main.fetch_transcript_api_segments = original_transcript
             main.fetch_yt_dlp_caption_segments = original_yt_dlp
             main.fetch_audio_transcript_caption_segments = original_audio_transcript
+            if original_audio_fallback is None:
+                os.environ.pop("YOUTUBE_AUDIO_TRANSCRIPTION_FALLBACK", None)
+            else:
+                os.environ["YOUTUBE_AUDIO_TRANSCRIPTION_FALLBACK"] = (
+                    original_audio_fallback
+                )
             main.CAPTION_RESPONSE_CACHE.clear()
 
         self.assertEqual(response["provider"], "openai-caption-translation")
         self.assertEqual(response["sourceLanguage"], "ko")
         self.assertEqual(response["language"], "ko")
         self.assertEqual(response["segments"][0]["text"], "오디오에서 전사한 자막")
+
+    def test_youtube_captions_skip_audio_transcription_by_default(self):
+        original_httpx = main.httpx
+        original_fetch_tracks = main.fetch_youtube_caption_tracks
+        original_transcript = main.fetch_transcript_api_segments
+        original_yt_dlp = main.fetch_yt_dlp_caption_segments
+        original_audio_transcript = main.fetch_audio_transcript_caption_segments
+        original_audio_fallback = os.environ.get("YOUTUBE_AUDIO_TRANSCRIPTION_FALLBACK")
+        audio_called = False
+
+        def fake_audio_transcript(*_args):
+            nonlocal audio_called
+            audio_called = True
+            return [{"start": 0, "end": 4, "text": "Should not run"}], "en", False, None
+
+        main.httpx = object()
+        main.CAPTION_RESPONSE_CACHE.clear()
+        os.environ.pop("YOUTUBE_AUDIO_TRANSCRIPTION_FALLBACK", None)
+        main.fetch_youtube_caption_tracks = lambda _video_id: []
+        main.fetch_transcript_api_segments = lambda *_args: ([], "", False)
+        main.fetch_yt_dlp_caption_segments = lambda *_args: (
+            [],
+            "",
+            False,
+            RuntimeError("yt-dlp-caption-track-unavailable"),
+        )
+        main.fetch_audio_transcript_caption_segments = fake_audio_transcript
+
+        try:
+            response = load_translated_captions(
+                {
+                    "videoId": "native-auto-caption-video",
+                    "targetLanguage": "ko",
+                    "allowFallback": False,
+                }
+            )
+        finally:
+            main.httpx = original_httpx
+            main.fetch_youtube_caption_tracks = original_fetch_tracks
+            main.fetch_transcript_api_segments = original_transcript
+            main.fetch_yt_dlp_caption_segments = original_yt_dlp
+            main.fetch_audio_transcript_caption_segments = original_audio_transcript
+            if original_audio_fallback is None:
+                os.environ.pop("YOUTUBE_AUDIO_TRANSCRIPTION_FALLBACK", None)
+            else:
+                os.environ["YOUTUBE_AUDIO_TRANSCRIPTION_FALLBACK"] = (
+                    original_audio_fallback
+                )
+            main.CAPTION_RESPONSE_CACHE.clear()
+
+        self.assertFalse(audio_called)
+        self.assertEqual(response["provider"], "youtube-native-captions")
 
     def test_yt_dlp_caption_segments_falls_back_to_subtitle_file_download(self):
         original_httpx = main.httpx

@@ -87,8 +87,10 @@ export class VideoAssetService {
     }
   }
 
-  enqueuePost(post: StudyPost): boolean {
-    if (!this.extractYoutubeVideoId(post.videoUrl)) {
+  async enqueuePost(post: StudyPost): Promise<boolean> {
+    const videoId = this.extractYoutubeVideoId(post.videoUrl);
+
+    if (!videoId) {
       return false;
     }
 
@@ -96,10 +98,29 @@ export class VideoAssetService {
       return false;
     }
 
-    this.queuedPosts.push(post);
-    this.scheduleDrain();
+    try {
+      await this.repository.upsertVideoAsset({
+        postId: post.id,
+        videoId,
+        videoUrl: post.videoUrl,
+        language: 'ko',
+      });
+      await this.repository.updateVideoAsset(post.id, {
+        status: 'processing',
+        sourceCaptionStatus: 'pending',
+        translationStatus: 'pending',
+        summaryStatus: 'pending',
+        errorMessage: '',
+      });
 
-    return true;
+      this.queuedPosts.push(post);
+      this.scheduleDrain();
+
+      return true;
+    } catch (error) {
+      this.activePostIds.delete(post.id);
+      throw error;
+    }
   }
 
   async preparePostAsset(post: StudyPost): Promise<VideoAsset | null> {

@@ -241,7 +241,7 @@ export class StudyBoardService {
       tags: input.tags ?? [],
     });
 
-    this.videoAssetService?.enqueuePost(post);
+    await this.videoAssetService?.enqueuePost(post);
 
     return post;
   }

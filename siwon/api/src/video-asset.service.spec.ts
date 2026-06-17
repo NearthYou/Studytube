@@ -338,12 +338,12 @@ describe('VideoAssetService', () => {
       tags: ['queue'],
     });
 
-    service.enqueuePost(firstPost);
+    await service.enqueuePost(firstPost);
     await waitFor(() => {
       expect(preparePostAsset).toHaveBeenCalledWith(firstPost);
     });
 
-    service.enqueuePost(secondPost);
+    await service.enqueuePost(secondPost);
     await waitFor(() => {
       expect(preparePostAsset).toHaveBeenCalledWith(secondPost);
     });

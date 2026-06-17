@@ -1,6 +1,7 @@
 import { StudyBoardService } from './study-board.service';
 import { MemoryBoardRepository } from './memory-board.repository';
-import type { VideoAssetService } from './video-asset.service';
+import { VideoAssetService } from './video-asset.service';
+import type { AiProxyService } from './ai-proxy.service';
 import {
   BadRequestException,
   ForbiddenException,
@@ -327,9 +328,23 @@ describe('StudyBoardService', () => {
     );
   });
 
-  it('creates posts through a repository that supports pending video asset persistence', async () => {
-    const session = await service.demoSession();
-    const post = await service.createPost(session.token, {
+  it('creates a processing video asset before returning a saved video post', async () => {
+    const repository = new MemoryBoardRepository();
+    class DeferredPrepareVideoAssetService extends VideoAssetService {
+      override preparePostAsset(): Promise<null> {
+        return new Promise(() => undefined);
+      }
+    }
+    const videoAssetService = new DeferredPrepareVideoAssetService(repository, {
+      captions: jest.fn(),
+      summary: jest.fn(),
+    } as unknown as AiProxyService);
+    const serviceWithAssets = new StudyBoardService(
+      repository,
+      videoAssetService,
+    );
+    const session = await serviceWithAssets.demoSession();
+    const post = await serviceWithAssets.createPost(session.token, {
       title: 'Asset ready lesson',
       videoUrl: 'https://www.youtube.com/watch?v=novnyCaa7To',
       thumbnailUrl: 'https://i.ytimg.com/vi/novnyCaa7To/hqdefault.jpg',
@@ -341,12 +356,19 @@ describe('StudyBoardService', () => {
 
     expect(post.videoUrl).toContain('novnyCaa7To');
     await expect(
-      service.getVideoAsset(session.token, post.id),
-    ).rejects.toBeInstanceOf(NotFoundException);
+      serviceWithAssets.getVideoAsset(session.token, post.id),
+    ).resolves.toMatchObject({
+      postId: post.id,
+      videoId: 'novnyCaa7To',
+      status: 'processing',
+      sourceCaptionStatus: 'pending',
+      translationStatus: 'pending',
+      summaryStatus: 'pending',
+    });
   });
 
-  it('enqueues video asset preparation after creating a post without awaiting it', async () => {
-    const enqueuePost = jest.fn(() => new Promise(() => undefined));
+  it('waits only for the initial video asset row before returning a saved post', async () => {
+    const enqueuePost = jest.fn().mockResolvedValue(true);
     const serviceWithAssets = new StudyBoardService(
       new MemoryBoardRepository(),
       { enqueuePost } as unknown as VideoAssetService,

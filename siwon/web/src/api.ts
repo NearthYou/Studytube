@@ -268,7 +268,7 @@ export function deleteComment(
 }
 
 export function fetchPlaylists(token: string): Promise<Playlist[]> {
-  return requestJson<Playlist[]>("/playlists", {}, token);
+  return requestJson<Playlist[]>("/playlists?scope=mine", {}, token);
 }
 
 export function fetchPublicPlaylists(): Promise<Playlist[]> {

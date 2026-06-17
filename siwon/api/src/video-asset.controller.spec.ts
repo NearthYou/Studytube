@@ -44,7 +44,7 @@ const post: StudyPost = {
 describe('VideoAssetController', () => {
   let controller: VideoAssetController;
   let studyBoardService: jest.Mocked<
-    Pick<StudyBoardService, 'getPost' | 'getVideoAsset'>
+    Pick<StudyBoardService, 'getOwnedPost' | 'getVideoAsset'>
   >;
   let videoAssetService: jest.Mocked<
     Pick<VideoAssetService, 'preparePostAssetRequest'>
@@ -52,7 +52,7 @@ describe('VideoAssetController', () => {
 
   beforeEach(() => {
     studyBoardService = {
-      getPost: jest.fn(),
+      getOwnedPost: jest.fn(),
       getVideoAsset: jest.fn(),
     };
     videoAssetService = {
@@ -78,14 +78,14 @@ describe('VideoAssetController', () => {
   });
 
   it('prepares a post-owned video asset after validating the post owner session', async () => {
-    studyBoardService.getPost.mockResolvedValue(post);
+    studyBoardService.getOwnedPost.mockResolvedValue(post);
     videoAssetService.preparePostAssetRequest.mockResolvedValue(asset);
 
     await expect(
       controller.prepare('Bearer session-token', '42'),
     ).resolves.toBe(asset);
 
-    expect(studyBoardService.getPost).toHaveBeenCalledWith(
+    expect(studyBoardService.getOwnedPost).toHaveBeenCalledWith(
       'Bearer session-token',
       42,
     );
@@ -103,7 +103,7 @@ describe('VideoAssetController', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
 
     expect(studyBoardService.getVideoAsset).not.toHaveBeenCalled();
-    expect(studyBoardService.getPost).not.toHaveBeenCalled();
+    expect(studyBoardService.getOwnedPost).not.toHaveBeenCalled();
     expect(videoAssetService.preparePostAssetRequest).not.toHaveBeenCalled();
   });
 });

@@ -75,6 +75,10 @@ export class VideoAssetService {
         sourceCaptionStatus: 'pending',
         translationStatus: 'pending',
         summaryStatus: 'pending',
+        sourceSegments: currentMatchesPost ? undefined : [],
+        translatedSegments: currentMatchesPost ? undefined : [],
+        summarySections: currentMatchesPost ? undefined : [],
+        transcriptBody: currentMatchesPost ? undefined : '',
         errorMessage: '',
       });
 

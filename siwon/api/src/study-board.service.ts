@@ -200,14 +200,18 @@ export class StudyBoardService {
   }
 
   async getPost(token: string | undefined, id: number): Promise<StudyPost> {
+    await this.requireSession(token);
+
+    return this.requirePost(id);
+  }
+
+  async getOwnedPost(
+    token: string | undefined,
+    id: number,
+  ): Promise<StudyPost> {
     const session = await this.requireSession(token);
-    const post = await this.repository.findPost(id);
 
-    if (!post || post.authorId !== session.user.id) {
-      throw new NotFoundException('Post not found');
-    }
-
-    return post;
+    return this.requireOwnedPost(id, session.user.id);
   }
 
   async createPost(
@@ -232,8 +236,8 @@ export class StudyBoardService {
     token: string | undefined,
     postId: number,
   ): Promise<VideoAsset> {
-    const session = await this.requireSession(token);
-    await this.requireOwnedPost(postId, session.user.id);
+    await this.requireSession(token);
+    await this.requirePost(postId);
     const asset = await this.repository.findVideoAsset(postId);
 
     if (!asset) {
@@ -249,13 +253,20 @@ export class StudyBoardService {
     input: UpdatePostInput,
   ): Promise<StudyPost> {
     const session = await this.requireSession(token);
-    await this.requireOwnedPost(id, session.user.id);
+    const currentPost = await this.requireOwnedPost(id, session.user.id);
     assertVideoTags(input.tags);
+    const videoUrlChanged =
+      typeof input.videoUrl === 'string' &&
+      input.videoUrl !== currentPost.videoUrl;
 
     const post = await this.repository.updatePost(id, input);
 
     if (!post) {
       throw new NotFoundException('Post not found');
+    }
+
+    if (videoUrlChanged) {
+      this.videoAssetService?.enqueuePost(post);
     }
 
     return post;
@@ -320,10 +331,17 @@ export class StudyBoardService {
     };
   }
 
-  async listPlaylists(token?: string): Promise<Playlist[]> {
-    const session = token ? await this.requireSession(token) : null;
+  async listPlaylists(
+    token?: string,
+    scope: 'mine' | 'public' = 'public',
+  ): Promise<Playlist[]> {
+    if (scope === 'mine') {
+      const session = await this.requireSession(token);
 
-    return this.repository.listPlaylists(session?.user.id);
+      return this.repository.listPlaylists(session.user.id);
+    }
+
+    return this.repository.listPlaylists();
   }
 
   async createPlaylist(

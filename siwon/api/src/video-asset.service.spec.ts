@@ -518,6 +518,8 @@ describe('VideoAssetService', () => {
       videoId: 'newVideo',
       videoUrl: 'https://www.youtube.com/watch?v=newVideo',
       status: 'processing',
+      translatedSegments: [],
+      transcriptBody: '',
     });
     await waitFor(() => {
       expect(service.started).toEqual([

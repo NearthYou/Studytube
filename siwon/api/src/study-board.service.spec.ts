@@ -293,6 +293,38 @@ describe('StudyBoardService', () => {
     );
   });
 
+  it('lets signed-in users open public post details across accounts', async () => {
+    const ada = await service.signUp({
+      name: 'Ada',
+      email: 'ada-public-detail@example.com',
+      password: 'learn-fast',
+    });
+    const linus = await service.signUp({
+      name: 'Linus',
+      email: 'linus-public-detail@example.com',
+      password: 'learn-fast',
+    });
+    const post = await service.createPost(ada.token, {
+      title: 'Public details lesson',
+      videoUrl: 'https://www.youtube.com/watch?v=public-detail',
+      channelName: 'Ada Channel',
+      summary: 'Public details should be readable by signed-in users.',
+      translatedNotes: 'Public detail notes.',
+      tags: ['public'],
+    });
+
+    await expect(service.getPost(linus.token, post.id)).resolves.toMatchObject({
+      id: post.id,
+      title: 'Public details lesson',
+      authorId: ada.user.id,
+    });
+    await expect(
+      service.updatePost(linus.token, post.id, {
+        title: 'Cross-account rewrite',
+      }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
   it('ships diverse real-video seed playlists for the public board', async () => {
     const posts = await service.listPublicPosts({
       page: 1,
@@ -360,6 +392,45 @@ describe('StudyBoardService', () => {
     );
   });
 
+  it('keeps public playlist browsing available for signed-in users', async () => {
+    const ada = await service.signUp({
+      name: 'Ada',
+      email: 'ada-playlist-scope@example.com',
+      password: 'learn-fast',
+    });
+    const linus = await service.signUp({
+      name: 'Linus',
+      email: 'linus-playlist-scope@example.com',
+      password: 'learn-fast',
+    });
+    await service.createPlaylist(ada.token, {
+      title: 'Ada public playlist scope',
+      description: 'Visible in public browsing.',
+      postIds: [1, 2],
+    });
+    await service.createPlaylist(linus.token, {
+      title: 'Linus public playlist scope',
+      description: 'Also visible in public browsing.',
+      postIds: [3, 4],
+    });
+
+    const publicTitles = (await service.listPlaylists(ada.token)).map(
+      (playlist) => playlist.title,
+    );
+    const mineTitles = (await service.listPlaylists(ada.token, 'mine')).map(
+      (playlist) => playlist.title,
+    );
+
+    expect(publicTitles).toEqual(
+      expect.arrayContaining([
+        'Ada public playlist scope',
+        'Linus public playlist scope',
+      ]),
+    );
+    expect(mineTitles).toContain('Ada public playlist scope');
+    expect(mineTitles).not.toContain('Linus public playlist scope');
+  });
+
   it('creates posts through a repository that supports pending video asset persistence', async () => {
     const session = await createTestSession(service, 'asset');
     const post = await service.createPost(session.token, {
@@ -376,6 +447,73 @@ describe('StudyBoardService', () => {
     await expect(
       service.getVideoAsset(session.token, post.id),
     ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('lets signed-in users read video assets for public posts across accounts', async () => {
+    const ada = await service.signUp({
+      name: 'Ada',
+      email: 'ada-public-asset@example.com',
+      password: 'learn-fast',
+    });
+    const linus = await service.signUp({
+      name: 'Linus',
+      email: 'linus-public-asset@example.com',
+      password: 'learn-fast',
+    });
+    const post = await service.createPost(ada.token, {
+      title: 'Public asset lesson',
+      videoUrl: 'https://www.youtube.com/watch?v=publicAsset',
+      channelName: 'Ada Channel',
+      summary: 'Public asset should be readable by signed-in users.',
+      translatedNotes: 'Public asset notes.',
+      tags: ['asset', 'public'],
+    });
+    await (service as unknown as { repository: MemoryBoardRepository })
+      .repository.upsertVideoAsset({
+        postId: post.id,
+        videoId: 'publicAsset',
+        videoUrl: post.videoUrl,
+        language: 'ko',
+      });
+
+    await expect(
+      service.getVideoAsset(linus.token, post.id),
+    ).resolves.toMatchObject({
+      postId: post.id,
+      videoId: 'publicAsset',
+    });
+  });
+
+  it('queues a fresh video asset when the post video url changes', async () => {
+    const repository = new MemoryBoardRepository();
+    const videoAssetService = {
+      enqueuePost: jest.fn(),
+    } as unknown as VideoAssetService;
+    const targetService = new StudyBoardService(repository, videoAssetService);
+    const session = await createTestSession(targetService, 'asset-update');
+    const post = await targetService.createPost(session.token, {
+      title: 'Asset update lesson',
+      videoUrl: 'https://www.youtube.com/watch?v=oldAssetVideo',
+      channelName: 'StudyTube',
+      summary: 'Changing the URL should refresh generated assets.',
+      translatedNotes: 'Asset update notes.',
+      tags: ['asset'],
+    });
+
+    await expect(
+      targetService.updatePost(session.token, post.id, {
+        videoUrl: 'https://www.youtube.com/watch?v=newAssetVideo',
+      }),
+    ).resolves.toMatchObject({
+      id: post.id,
+      videoUrl: 'https://www.youtube.com/watch?v=newAssetVideo',
+    });
+    expect(videoAssetService.enqueuePost).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        id: post.id,
+        videoUrl: 'https://www.youtube.com/watch?v=newAssetVideo',
+      }),
+    );
   });
 
   it('enqueues video asset preparation after creating a post without awaiting it', async () => {

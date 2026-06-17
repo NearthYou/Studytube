@@ -171,8 +171,11 @@ export class StudyBoardController {
   }
 
   @Get('playlists')
-  listPlaylists(@Headers('authorization') authorization?: string) {
-    return this.studyBoardService.listPlaylists(authorization);
+  listPlaylists(
+    @Headers('authorization') authorization?: string,
+    @Query('scope') scope?: 'mine' | 'public',
+  ) {
+    return this.studyBoardService.listPlaylists(authorization, scope);
   }
 
   @Post('playlists')

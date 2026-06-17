@@ -33,7 +33,7 @@ export class VideoAssetController {
     @Param('postId') postId: string,
   ) {
     const parsedPostId = this.parsePostId(postId);
-    const post = await this.studyBoardService.getPost(
+    const post = await this.studyBoardService.getOwnedPost(
       authorization,
       parsedPostId,
     );

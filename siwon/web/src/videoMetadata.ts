@@ -1,0 +1,81 @@
+export const MAX_VIDEO_TAGS = 3;
+
+export function limitVideoTags(tags: string[]) {
+  return [
+    ...new Set(
+      tags
+        .map((tag) => tag.trim().toLowerCase())
+        .filter((tag) => tag.length > 0),
+    ),
+  ].slice(0, MAX_VIDEO_TAGS);
+}
+
+export function deriveTags(source: string) {
+  const tokens = source
+    .toLowerCase()
+    .replace(/[^a-z0-9가-힣+\s]/g, ' ')
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 2)
+    .filter(
+      (token) =>
+        ![
+          'the',
+          'and',
+          'with',
+          'course',
+          'video',
+          'youtube',
+          'tutorial',
+          'full',
+          '학습',
+          '영상',
+          '채널',
+          '채널의',
+        ].includes(token),
+    );
+
+  return limitVideoTags(tokens);
+}
+
+export function extractYouTubeId(url: string): string | null {
+  const patterns = [
+    /youtube\.com\/watch\?v=([^&]+)/,
+    /youtu\.be\/([^?]+)/,
+    /youtube\.com\/embed\/([^?]+)/,
+  ];
+
+  for (const pattern of patterns) {
+    const match = url.match(pattern);
+    if (match?.[1]) {
+      return match[1];
+    }
+  }
+
+  return null;
+}
+
+export function isPlayableYouTubeVideoId(value: string) {
+  return /^[a-zA-Z0-9_-]{11}$/.test(value);
+}
+
+export function playableYouTubeVideoId(videoUrl: string, fallbackVideoId = '') {
+  const urlVideoId = extractYouTubeId(videoUrl);
+
+  if (urlVideoId && isPlayableYouTubeVideoId(urlVideoId)) {
+    return urlVideoId;
+  }
+
+  return isPlayableYouTubeVideoId(fallbackVideoId) ? fallbackVideoId : null;
+}
+
+export function youtubeThumbnailUrl(videoId: string) {
+  return `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+}
+
+export function slugify(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9가-힣+]/g, '-')
+    .replace(/(^-|-$)/g, '');
+}

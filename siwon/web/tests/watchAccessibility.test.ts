@@ -58,6 +58,13 @@ test('watch page prepares missing saved video assets before falling back to live
   );
 });
 
+test('watch page does not keep calling live captions after a saved asset fails', () => {
+  assert.match(appSource, /const videoAssetFailedForCurrentVideo =/);
+  assert.match(appSource, /if \(videoAssetFailedForCurrentVideo\) \{\s*setCaptionResponse\(preparedCaptionResponse\);/);
+  assert.match(appSource, /setCaptionError\(assetStatusMessageFromVideoAsset\(videoAsset\)\)/);
+  assert.match(appSource, /videoAssetFailedForCurrentVideo[\s\S]*shouldUseNativeYouTubeCaptions/);
+});
+
 test('watch page skips on-demand caption calls for prepared asset coverage', () => {
   assert.match(appSource, /const currentPostId = currentVideo\s*\?\s*findPostIdForQueueVideo\(currentVideo, libraryPosts\)\s*:\s*null/);
   assert.match(appSource, /const assetCaptionResponse = captionResponseFromVideoAsset\(videoAsset\)/);

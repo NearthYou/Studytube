@@ -4542,6 +4542,8 @@ function WatchPage({ session }: { session: Session }) {
     Boolean(currentPostId) &&
     videoAsset?.postId === currentPostId &&
     videoAsset.videoId === currentVideo?.videoId;
+  const videoAssetFailedForCurrentVideo =
+    videoAssetMatchesCurrentVideo && videoAsset?.status === "failed";
   const assetCaptionResponse = captionResponseFromVideoAsset(videoAsset);
   const assetCaptionLanguageMatchesSelection =
     assetCaptionResponse?.language === captionLanguage;
@@ -4604,9 +4606,10 @@ function WatchPage({ session }: { session: Session }) {
     !videoAssetCoversTime(videoAsset, currentTime);
   const shouldUseNativeCaptionFallback =
     Boolean(currentVideo) &&
-    captionResponseMatchesVideo &&
-    (captionResponse?.provider === "youtube-native-captions" ||
-      sourceCaptionTranslationPending) &&
+    (videoAssetFailedForCurrentVideo ||
+      (captionResponseMatchesVideo &&
+        (captionResponse?.provider === "youtube-native-captions" ||
+          sourceCaptionTranslationPending))) &&
     shouldUseNativeYouTubeCaptions({
       captionsEnabled,
       customCaptionsAvailable: hasLiveCaptionResponse,
@@ -5182,6 +5185,14 @@ function WatchPage({ session }: { session: Session }) {
       return;
     }
 
+    if (videoAssetFailedForCurrentVideo) {
+      setCaptionResponse(preparedCaptionResponse);
+      setTranslatedCaptionResponse(preparedCaptionResponse);
+      setCaptionError(assetStatusMessageFromVideoAsset(videoAsset));
+      setIsCaptionLoading(false);
+      return;
+    }
+
     let cancelled = false;
     const videoId = currentVideoId;
     const videoUrl = currentVideoUrl;
@@ -5255,6 +5266,7 @@ function WatchPage({ session }: { session: Session }) {
     assetCaptionResponseMatchesVideo,
     shouldWaitForPreparedAsset,
     videoAsset,
+    videoAssetFailedForCurrentVideo,
   ]);
 
   useEffect(() => {

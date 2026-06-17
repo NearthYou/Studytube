@@ -80,6 +80,22 @@ describe('StudyBoardService', () => {
         goal: '퇴근 후 복습',
       },
     });
+
+    await expect(
+      service.updateMe(session.token, {
+        preferences: {
+          interests: ['Python', '데이터 분석'],
+          pace: '주 3회',
+          goal: '프로젝트에 쓸 수 있게 복습',
+        },
+      }),
+    ).resolves.toMatchObject({
+      preferences: {
+        interests: ['Python', '데이터 분석'],
+        pace: '주 3회',
+        goal: '프로젝트에 쓸 수 있게 복습',
+      },
+    });
   });
 
   it('returns a clear validation error when signing up with an existing email', async () => {

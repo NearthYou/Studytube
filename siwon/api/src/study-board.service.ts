@@ -114,11 +114,8 @@ export class StudyBoardService {
     const preferences = input.preferences
       ? normalizePreferences(input.preferences)
       : undefined;
-    const isInitialPreferenceSetup =
-      Boolean(preferences) &&
-      !nextName &&
-      !nextPassword &&
-      !hasLearningPreferences(session.user.preferences);
+    const isPreferenceOnlyUpdate =
+      Boolean(preferences) && !nextName && !nextPassword;
 
     if (!nextName && !nextPassword && !preferences) {
       throw new BadRequestException(
@@ -126,7 +123,7 @@ export class StudyBoardService {
       );
     }
 
-    if (!isInitialPreferenceSetup) {
+    if (!isPreferenceOnlyUpdate) {
       await this.requireCurrentPassword(session, currentPassword);
     }
 
@@ -536,14 +533,6 @@ export class StudyBoardService {
       page += 1;
     } while ((page - 1) * pageSize < total);
   }
-}
-
-function hasLearningPreferences(preferences: LearningPreferences) {
-  return (
-    preferences.interests.some((item) => item.trim()) &&
-    Boolean(preferences.pace.trim()) &&
-    Boolean(preferences.goal.trim())
-  );
 }
 
 function normalizePostVideoIdentity(videoUrl: string) {

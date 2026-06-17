@@ -26,7 +26,8 @@ export function buildWatchPlaylistChoices<TVideo>({
   const postById = new Map(posts.map((post) => [post.id, post]));
   const savedChoices = savedPlaylists
     .map((playlist) => {
-      const videos = playlist.postIds
+      const postIds = Array.isArray(playlist.postIds) ? playlist.postIds : [];
+      const videos = postIds
         .map((postId) => postById.get(postId))
         .filter((post): post is StudyPost => Boolean(post))
         .map(videoFromPost);
@@ -42,15 +43,19 @@ export function buildWatchPlaylistChoices<TVideo>({
     })
     .filter((choice) => choice.videos.length > 0);
   const draftChoices = drafts
-    .map((draft, index) => ({
-      id: `draft-${draft.id}`,
-      kind: 'draft' as const,
-      title: draft.title.trim() || `작성 중인 플레이리스트 ${index + 1}`,
-      description:
-        draft.description || '아직 보드에 공개하지 않은 작성 중인 플레이리스트입니다.',
-      videos: draft.videos,
-      metaLabel: `${draft.videos.length}개 영상 · 작성 중`,
-    }))
+    .map((draft, index) => {
+      const videos = Array.isArray(draft.videos) ? draft.videos : [];
+
+      return {
+        id: `draft-${draft.id}`,
+        kind: 'draft' as const,
+        title: draft.title.trim() || `작성 중인 플레이리스트 ${index + 1}`,
+        description:
+          draft.description || '아직 보드에 공개하지 않은 작성 중인 플레이리스트입니다.',
+        videos,
+        metaLabel: `${videos.length}개 영상 · 작성 중`,
+      };
+    })
     .filter((choice) => choice.videos.length > 0);
 
   return [...savedChoices, ...draftChoices];

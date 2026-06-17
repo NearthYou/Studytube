@@ -96,6 +96,38 @@ test('skips saved playlists when their posts are unavailable', () => {
   assert.deepEqual(choices, []);
 });
 
+test('treats malformed playlist video lists as empty instead of throwing', () => {
+  const choices = buildWatchPlaylistChoices<TestVideo>({
+    savedPlaylists: [
+      { ...playlist(1, 'Broken Saved Course', [1]), postIds: null as never },
+    ],
+    posts: [post(1, 'React')],
+    drafts: [
+      {
+        id: 'broken-draft',
+        title: 'Broken Draft',
+        description: '',
+        videos: null as never,
+        createdAt: '2026-06-11T00:00:00.000Z',
+        updatedAt: '2026-06-11T00:00:00.000Z',
+      },
+    ],
+    videoFromPost: (item) => ({ id: `post-${item.id}`, title: item.title }),
+  });
+
+  assert.deepEqual(choices, []);
+});
+
+test('keeps empty watch page copy pointing learners to registration and playlists', async () => {
+  const source = await import('node:fs/promises').then((fs) =>
+    fs.readFile(new URL('../src/App.tsx', import.meta.url), 'utf8'),
+  );
+
+  assert.match(source, /학습할 플레이리스트를 선택하세요/);
+  assert.match(source, /등록 화면으로/);
+  assert.match(source, /새 코스 찾기/);
+});
+
 test('finds the watch playlist that matches the current queue order', () => {
   const choices = [
     {

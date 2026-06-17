@@ -5452,17 +5452,17 @@ function WatchPage({ session }: { session: Session }) {
         <section className="watch-empty-shell">
           <div className="watch-empty-copy">
             <p className="eyebrow">학습</p>
-            <h1>아직 학습할 플레이리스트가 없습니다</h1>
+            <h1>학습할 플레이리스트를 선택하세요</h1>
             <p>
-              공개 플레이리스트를 가져오거나 AI 탐색에서 새 코스를 만들면 이
-              화면에서 바로 이어서 학습할 수 있습니다.
+              공개 플레이리스트와 작성 중인 플레이리스트를 바로 이어서 볼 수 있습니다.
+              선택하면 첫 영상부터 재생목록이 시작됩니다.
             </p>
             <div className="watch-empty-actions">
               <Link className="primary-link" to="/playlists">
-                공개 플레이리스트 보기
+                새 코스 찾기
               </Link>
-              <Link className="quiet-link" to="/search">
-                AI 탐색으로
+              <Link className="quiet-link" to="/board">
+                등록 화면으로
               </Link>
             </div>
           </div>

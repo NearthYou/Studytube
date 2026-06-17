@@ -1,0 +1,624 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>2026-06-06 오늘 작업 가이드</title>
+    <style>
+      :root {
+        --bg: #f6f7f9;
+        --panel: #ffffff;
+        --text: #17202a;
+        --muted: #5f6b7a;
+        --line: #dce3eb;
+        --blue: #2563eb;
+        --blue-soft: #e8f0ff;
+        --green: #0f766e;
+        --green-soft: #e7f5f2;
+        --amber: #a16207;
+        --amber-soft: #fff5df;
+        --red: #b91c1c;
+        --red-soft: #feecec;
+        --code-bg: #111827;
+        --code-text: #e5e7eb;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        line-height: 1.65;
+      }
+
+      main {
+        max-width: 1080px;
+        margin: 0 auto;
+        padding: 36px 22px 72px;
+      }
+
+      header,
+      section {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+      }
+
+      header {
+        padding: 30px;
+      }
+
+      section {
+        margin-top: 18px;
+        padding: 26px;
+      }
+
+      h1,
+      h2,
+      h3 {
+        line-height: 1.28;
+        letter-spacing: 0;
+      }
+
+      h1 {
+        margin: 0 0 10px;
+        font-size: 32px;
+      }
+
+      h2 {
+        margin: 0 0 16px;
+        font-size: 24px;
+      }
+
+      h3 {
+        margin: 22px 0 8px;
+        font-size: 18px;
+      }
+
+      p {
+        margin: 8px 0;
+      }
+
+      a {
+        color: var(--blue);
+        text-decoration: none;
+      }
+
+      a:hover {
+        text-decoration: underline;
+      }
+
+      code {
+        padding: 2px 6px;
+        border-radius: 4px;
+        background: #eef2f7;
+        color: #111827;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.93em;
+      }
+
+      pre {
+        margin: 12px 0 0;
+        padding: 16px;
+        overflow-x: auto;
+        border-radius: 8px;
+        background: var(--code-bg);
+        color: var(--code-text);
+      }
+
+      pre code {
+        padding: 0;
+        background: transparent;
+        color: inherit;
+      }
+
+      table {
+        width: 100%;
+        margin-top: 12px;
+        border-collapse: collapse;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        overflow: hidden;
+      }
+
+      th,
+      td {
+        padding: 12px 14px;
+        border-bottom: 1px solid var(--line);
+        text-align: left;
+        vertical-align: top;
+      }
+
+      th {
+        background: #f1f4f8;
+        font-size: 14px;
+      }
+
+      tr:last-child td {
+        border-bottom: 0;
+      }
+
+      ul,
+      ol {
+        margin: 10px 0;
+        padding-left: 24px;
+      }
+
+      li {
+        margin: 7px 0;
+      }
+
+      .label {
+        display: inline-flex;
+        align-items: center;
+        min-height: 28px;
+        padding: 3px 10px;
+        border-radius: 999px;
+        background: var(--blue-soft);
+        color: var(--blue);
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      .subtitle {
+        color: var(--muted);
+        font-size: 16px;
+      }
+
+      .callout {
+        margin-top: 14px;
+        padding: 15px 17px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fafbfc;
+      }
+
+      .callout.blue {
+        background: var(--blue-soft);
+        border-color: #bfd3ff;
+      }
+
+      .callout.green {
+        background: var(--green-soft);
+        border-color: #a8d8d0;
+      }
+
+      .callout.amber {
+        background: var(--amber-soft);
+        border-color: #f3ce92;
+      }
+
+      .callout.red {
+        background: var(--red-soft);
+        border-color: #f4b4b4;
+      }
+
+      .step {
+        margin-top: 18px;
+        padding: 18px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fcfdff;
+      }
+
+      .step h3 {
+        margin-top: 0;
+      }
+
+      .muted {
+        color: var(--muted);
+      }
+
+      .done {
+        color: var(--green);
+        font-weight: 700;
+      }
+
+      .pending {
+        color: var(--amber);
+        font-weight: 700;
+      }
+
+      .danger {
+        color: var(--red);
+        font-weight: 700;
+      }
+
+      @media (max-width: 760px) {
+        main {
+          padding: 22px 14px 44px;
+        }
+
+        header,
+        section {
+          padding: 20px;
+        }
+
+        h1 {
+          font-size: 26px;
+        }
+
+        table {
+          display: block;
+          overflow-x: auto;
+          white-space: nowrap;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <span class="label">2026년 6월 6일 토요일</span>
+        <h1>오늘 작업 가이드</h1>
+        <p class="subtitle">
+          이 문서는 공부 주제 목록이 아니라, 그대로 따라 하기 위한 작업 지시서다.
+          명령어, 확인 기준, 실패했을 때의 다음 행동까지 적어둔다.
+        </p>
+        <div class="callout green">
+          <strong>현재 기준</strong>
+          <p>
+            저장소 연결, 기본 폴더 구조, GitHub Issue #1~#13 생성은 끝났다.
+            이제 네가 할 일은 <strong>Issue #1을 직접 마무리하고 월요일 Issue #2를 시작할 준비</strong>를 하는 것이다.
+          </p>
+        </div>
+      </header>
+
+      <section>
+        <h2>0. 오늘의 최종 목표</h2>
+        <p>오늘 끝날 때 아래 문장을 말할 수 있으면 성공이다.</p>
+        <pre><code>나는 ai-workout-board 저장소를 만들었고,
+Issue #1 초기 세팅을 확인했으며,
+PostgreSQL + pgvector DB를 Docker로 실행할 수 있고,
+월요일에는 Issue #2 NestJS 백엔드 기본 세팅부터 시작하면 된다.</code></pre>
+
+        <table>
+          <thead>
+            <tr>
+              <th>항목</th>
+              <th>상태</th>
+              <th>설명</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>GitHub 저장소</td>
+              <td class="done">완료</td>
+              <td><a href="https://github.com/whiskend/ai-workout-board">whiskend/ai-workout-board</a></td>
+            </tr>
+            <tr>
+              <td>Issue 생성</td>
+              <td class="done">완료</td>
+              <td>#1부터 #13까지 생성됨</td>
+            </tr>
+            <tr>
+              <td>폴더 구조</td>
+              <td class="done">완료</td>
+              <td><code>frontend</code>, <code>backend</code>, <code>ai-server</code>, <code>docs</code></td>
+            </tr>
+            <tr>
+              <td>DB Docker 설정</td>
+              <td class="done">초안 완료</td>
+              <td><code>docker-compose.yml</code>에 PostgreSQL + pgvector 작성됨</td>
+            </tr>
+            <tr>
+              <td>오늘 남은 일</td>
+              <td class="pending">직접 확인</td>
+              <td>아래 명령어를 따라 치면서 Issue #1 완료 기준을 확인한다.</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>1. 터미널에서 프로젝트 폴더로 이동</h2>
+        <p>먼저 모든 명령어를 실행할 위치를 맞춘다. 앞으로 명령어는 이 폴더에서 친다.</p>
+
+        <div class="step">
+          <h3>입력할 명령어</h3>
+          <pre><code>cd /Users/igyeong-geun/Documents/jungle/week15/ai-workout-board
+pwd</code></pre>
+
+          <h3>정상 결과</h3>
+          <pre><code>/Users/igyeong-geun/Documents/jungle/week15/ai-workout-board</code></pre>
+
+          <h3>이게 무슨 뜻인가</h3>
+          <p>
+            지금부터 실행하는 Git, Docker, npm 명령어가 모두 이 프로젝트에 적용된다는 뜻이다.
+            다른 폴더에서 명령어를 치면 엉뚱한 프로젝트를 건드릴 수 있다.
+          </p>
+        </div>
+      </section>
+
+      <section>
+        <h2>2. Git 연결 상태 확인</h2>
+        <p>저장소가 제대로 연결됐는지 네 손으로 확인한다.</p>
+
+        <div class="step">
+          <h3>입력할 명령어</h3>
+          <pre><code>git status
+git branch --show-current
+git remote -v</code></pre>
+
+          <h3>정상 결과</h3>
+          <pre><code>현재 브랜치가 main으로 보인다.
+origin https://github.com/whiskend/ai-workout-board.git 이 보인다.
+작업 중인 변경 파일이 없거나, 오늘 작업 가이드 HTML만 변경 파일로 보인다.</code></pre>
+
+          <h3>해석</h3>
+          <ul>
+            <li><code>git status</code>: 지금 Git이 보는 변경 사항을 보여준다.</li>
+            <li><code>git branch --show-current</code>: 지금 내가 어느 작업 공간에 있는지 보여준다.</li>
+            <li><code>git remote -v</code>: 내 로컬 프로젝트가 어느 GitHub 저장소와 연결됐는지 보여준다.</li>
+          </ul>
+        </div>
+      </section>
+
+      <section>
+        <h2>3. Issue #1 작업 브랜치 만들기</h2>
+        <p>
+          이슈 하나마다 작업 브랜치를 만드는 습관을 들인다.
+          오늘은 Issue #1을 마무리하는 브랜치를 만든다.
+        </p>
+
+        <div class="step">
+          <h3>입력할 명령어</h3>
+          <pre><code>git switch -c feat/1-init</code></pre>
+
+          <h3>이미 브랜치가 있다고 나오면</h3>
+          <pre><code>git switch feat/1-init</code></pre>
+
+          <h3>확인 명령어</h3>
+          <pre><code>git branch --show-current</code></pre>
+
+          <h3>정상 결과</h3>
+          <pre><code>feat/1-init</code></pre>
+
+          <h3>이게 무슨 뜻인가</h3>
+          <p>
+            이제부터 하는 작업은 <code>main</code>이 아니라 <code>feat/1-init</code>이라는 작업 공간에 쌓인다.
+            나중에 작업이 안정되면 <code>main</code>에 합치면 된다.
+          </p>
+        </div>
+      </section>
+
+      <section>
+        <h2>4. Docker로 DB 실행하기</h2>
+        <p>
+          백엔드가 데이터를 저장하려면 DB가 필요하다.
+          오늘은 PostgreSQL을 직접 설치하지 않고 Docker로 실행한다.
+        </p>
+
+        <div class="step">
+          <h3>먼저 Docker Desktop 실행</h3>
+          <p>
+            macOS에서 Docker Desktop 앱을 켠다.
+            상단 메뉴바에 Docker 아이콘이 보이고 실행 중이어야 한다.
+          </p>
+
+          <h3>입력할 명령어</h3>
+          <pre><code>docker compose up -d</code></pre>
+
+          <h3>확인 명령어</h3>
+          <pre><code>docker compose ps</code></pre>
+
+          <h3>정상 결과</h3>
+          <pre><code>workout-board-postgres 컨테이너가 Up 또는 healthy 상태로 보인다.</code></pre>
+
+          <h3>실패했을 때</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>상황</th>
+                <th>원인</th>
+                <th>다음 행동</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>Cannot connect to the Docker daemon</code></td>
+                <td>Docker Desktop이 꺼져 있음</td>
+                <td>Docker Desktop을 켜고 다시 실행</td>
+              </tr>
+              <tr>
+                <td><code>port is already allocated</code></td>
+                <td>이미 5432 포트를 쓰는 PostgreSQL이 있음</td>
+                <td>나에게 오류 메시지를 그대로 보여주기</td>
+              </tr>
+              <tr>
+                <td>이미지가 다운로드되지 않음</td>
+                <td>네트워크 문제</td>
+                <td>인터넷 확인 후 다시 실행</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <h2>5. DB가 진짜 켜졌는지 확인하기</h2>
+        <p>컨테이너가 떠 있는 것과 DB가 실제로 준비된 것은 다를 수 있다. 로그를 확인한다.</p>
+
+        <div class="step">
+          <h3>입력할 명령어</h3>
+          <pre><code>docker compose logs postgres</code></pre>
+
+          <h3>정상 결과에서 찾을 문장</h3>
+          <pre><code>database system is ready to accept connections</code></pre>
+
+          <h3>해석</h3>
+          <p>
+            이 문장은 PostgreSQL이 요청을 받을 준비가 됐다는 뜻이다.
+            월요일에 NestJS가 이 DB에 연결하게 된다.
+          </p>
+        </div>
+      </section>
+
+      <section>
+        <h2>6. Issue #1 체크리스트를 네 기준으로 해석하기</h2>
+        <p>GitHub Issue #1에 적힌 체크리스트를 이렇게 이해하면 된다.</p>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Issue #1 항목</th>
+              <th>너는 무엇을 확인하면 되나</th>
+              <th>현재 판단</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>루트 Git 저장소 초기화</td>
+              <td><code>git status</code>가 동작하면 된다.</td>
+              <td class="done">완료</td>
+            </tr>
+            <tr>
+              <td>GitHub 원격 저장소 연결</td>
+              <td><code>git remote -v</code>에 GitHub URL이 나오면 된다.</td>
+              <td class="done">완료</td>
+            </tr>
+            <tr>
+              <td>폴더 구조 확인</td>
+              <td><code>frontend</code>, <code>backend</code>, <code>ai-server</code>, <code>docs</code>가 있으면 된다.</td>
+              <td class="done">완료</td>
+            </tr>
+            <tr>
+              <td>.env.example 작성</td>
+              <td>환경 변수 예시 파일이 있으면 된다.</td>
+              <td class="done">완료</td>
+            </tr>
+            <tr>
+              <td>Docker Compose 실행 확인</td>
+              <td><code>docker compose up -d</code>와 <code>docker compose ps</code>가 성공하면 된다.</td>
+              <td class="pending">네가 직접 확인</td>
+            </tr>
+            <tr>
+              <td>README 초안 생성</td>
+              <td>루트 README는 아직 나중에 제대로 만들면 된다. 오늘은 보류 가능하다.</td>
+              <td class="pending">월요일 이후</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>7. 오늘 작업을 Git에 남기기</h2>
+        <p>
+          Docker 실행 확인까지 끝났다면, 오늘 만든 작업 가이드 문서를 Git에 남긴다.
+          이 단계는 네가 직접 커밋 연습을 하기 위한 것이다.
+        </p>
+
+        <div class="step">
+          <h3>변경 파일 확인</h3>
+          <pre><code>git status --short</code></pre>
+
+          <h3>오늘 작업 가이드만 추가</h3>
+          <pre><code>git add docs/2026-06-06/오늘작업가이드.html</code></pre>
+
+          <h3>커밋 생성</h3>
+          <pre><code>git commit -m "docs: 오늘 작업 가이드 보강"</code></pre>
+
+          <h3>GitHub에 올리기</h3>
+          <pre><code>git push -u origin feat/1-init</code></pre>
+
+          <h3>정상 결과</h3>
+          <pre><code>GitHub에 feat/1-init 브랜치가 올라간다.
+브라우저에서 Pull Request를 만들 수 있다는 안내가 보일 수 있다.</code></pre>
+        </div>
+
+        <div class="callout amber">
+          <strong>주의</strong>
+          <p>
+            커밋할 때 다른 파일이 같이 잡히면 바로 커밋하지 말고 <code>git status --short</code> 결과를 확인한다.
+            의도하지 않은 파일을 함께 올리지 않는 습관이 중요하다.
+          </p>
+        </div>
+      </section>
+
+      <section>
+        <h2>8. 오늘은 여기까지만 하면 된다</h2>
+        <p>오늘 더 나아가고 싶어도 여기서 멈추는 편이 좋다. 다음 작업은 월요일 백엔드 세팅이다.</p>
+
+        <table>
+          <thead>
+            <tr>
+              <th>오늘 끝내는 것</th>
+              <th>월요일로 넘기는 것</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Issue #1 초기 세팅 확인</td>
+              <td>NestJS 프로젝트 생성</td>
+            </tr>
+            <tr>
+              <td>Docker DB 실행 확인</td>
+              <td>Prisma 설치</td>
+            </tr>
+            <tr>
+              <td>오늘 작업 가이드 커밋</td>
+              <td>DB 모델 작성</td>
+            </tr>
+            <tr>
+              <td>월요일 작업 순서 확인</td>
+              <td>게시글 CRUD 구현</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>9. 월요일 첫 작업 지시서</h2>
+        <p>월요일에 바로 따라 할 순서다. 오늘 외우지 말고, 월요일에 이 부분을 열면 된다.</p>
+
+        <div class="step">
+          <h3>1단계. main 최신화</h3>
+          <pre><code>git switch main
+git pull origin main</code></pre>
+
+          <h3>2단계. Issue #2 브랜치 생성</h3>
+          <pre><code>git switch -c feat/2-backend-setup</code></pre>
+
+          <h3>3단계. backend 폴더에 NestJS 프로젝트 만들기</h3>
+          <pre><code>cd backend</code></pre>
+
+          <p>
+            여기서부터는 NestJS CLI 사용 여부를 확인해야 한다.
+            CLI가 없으면 설치하거나 <code>npx</code>로 생성한다.
+            월요일에 내가 이 단계부터 정확히 다시 안내하면 된다.
+          </p>
+
+          <h3>월요일 목표</h3>
+          <pre><code>backend 서버가 실행된다.
+GET /health 요청에 응답한다.
+Prisma 설치 준비가 끝난다.</code></pre>
+        </div>
+      </section>
+
+      <section>
+        <h2>10. 네가 지금 나에게 물어봐야 할 것</h2>
+        <p>아래 상황이 생기면 고민하지 말고 오류 그대로 보여주면 된다.</p>
+
+        <ul>
+          <li><code>docker compose up -d</code>가 실패했다.</li>
+          <li><code>git switch -c feat/1-init</code>가 실패했다.</li>
+          <li><code>git push</code>가 거절됐다.</li>
+          <li>GitHub에서 Pull Request를 만들라는 화면이 떴는데 뭘 눌러야 할지 모르겠다.</li>
+          <li>Issue #1 체크리스트에서 뭘 체크해야 할지 모르겠다.</li>
+        </ul>
+
+        <div class="callout blue">
+          <strong>질문 예시</strong>
+          <p>
+            "docker compose up -d 했는데 이런 오류가 떠"라고 말하고 오류 메시지를 그대로 붙여넣으면 된다.
+            그러면 다음 행동만 다시 알려준다.
+          </p>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

@@ -9,6 +9,7 @@ import type {
 } from './video-asset.types';
 
 type CaptionResponse = {
+  provider: string;
   translated: boolean;
   segments: VideoAssetSegment[];
   sourceSegments: VideoAssetSegment[];
@@ -141,6 +142,23 @@ export class VideoAssetService {
       );
 
       if (captions.segments.length === 0) {
+        if (this.shouldUseNativeCaptionFallback(captions)) {
+          return this.repository.updateVideoAsset(post.id, {
+            status: 'partial',
+            sourceLanguage: captions.sourceLanguage || 'youtube',
+            sourceCaptionStatus: 'partial',
+            translationStatus: 'partial',
+            summaryStatus: 'partial',
+            sourceSegments: [],
+            translatedSegments: [],
+            summarySections: [],
+            transcriptBody: '',
+            errorMessage:
+              captions.message ||
+              'YouTube player automatic captions will be used.',
+          });
+        }
+
         return this.repository.updateVideoAsset(post.id, {
           status: 'failed',
           sourceLanguage: captions.sourceLanguage,
@@ -293,6 +311,7 @@ export class VideoAssetService {
     const translatedSegments = this.normalizeSegments(value.translatedSegments);
 
     return {
+      provider: this.stringValue(value.provider),
       translated: value.translated === true,
       segments,
       sourceSegments,
@@ -300,6 +319,14 @@ export class VideoAssetService {
       sourceLanguage: this.stringValue(value.sourceLanguage),
       message: this.stringValue(value.message),
     };
+  }
+
+  private shouldUseNativeCaptionFallback(captions: CaptionResponse): boolean {
+    return [
+      'youtube-native-captions',
+      'youtube-caption-rate-limited',
+      'caption-source-unavailable',
+    ].includes(captions.provider);
   }
 
   private normalizeSummaryResponse(response: unknown): SummaryResponse {

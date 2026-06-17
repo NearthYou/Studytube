@@ -156,6 +156,50 @@ describe('VideoAssetService', () => {
     expect(summary).not.toHaveBeenCalled();
   });
 
+  it('stores rate-limited caption responses as partial native-caption fallback assets', async () => {
+    const repository = new RecordingRepository();
+    const captions = jest.fn().mockResolvedValue({
+      provider: 'youtube-caption-rate-limited',
+      translated: false,
+      sourceLanguage: 'youtube',
+      segments: [],
+      message: 'YouTube timed-text caption download was blocked with HTTP 429.',
+    });
+    const summary = jest.fn();
+    const service = new VideoAssetService(repository, {
+      captions,
+      summary,
+    } as AiProxyService);
+    const post = await repository.createPost({
+      authorId: 1,
+      title: 'Rate limited captions lesson',
+      videoUrl: 'https://youtu.be/rateLimited',
+      thumbnailUrl: 'https://i.ytimg.com/vi/rateLimited/hqdefault.jpg',
+      channelName: 'StudyTube',
+      summary: 'Caption rate limit case.',
+      translatedNotes: 'Caption rate limit notes.',
+      tags: ['captions'],
+    });
+
+    await expect(service.preparePostAsset(post)).resolves.toMatchObject({
+      postId: post.id,
+      videoId: 'rateLimited',
+      status: 'partial',
+      sourceLanguage: 'youtube',
+      sourceCaptionStatus: 'partial',
+      translationStatus: 'partial',
+      summaryStatus: 'partial',
+      sourceSegments: [],
+      translatedSegments: [],
+      summarySections: [],
+      transcriptBody: '',
+      errorMessage:
+        'YouTube timed-text caption download was blocked with HTTP 429.',
+    });
+
+    expect(summary).not.toHaveBeenCalled();
+  });
+
   it('treats AI summary fallback sections as failed and keeps a partial asset', async () => {
     const repository = new RecordingRepository();
     const captions = jest.fn().mockResolvedValue({

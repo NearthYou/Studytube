@@ -10,6 +10,7 @@ import type {
   Session,
   StudyPost,
   User,
+  VideoAsset,
   VideoSummaryResponse,
 } from "./types";
 
@@ -247,6 +248,24 @@ export function deletePost(token: string, id: number) {
   return requestJson<{ deleted: boolean }>(
     `/posts/${id}`,
     { method: "DELETE" },
+    token,
+  );
+}
+
+export function fetchVideoAsset(
+  postId: number,
+  token?: string,
+): Promise<VideoAsset> {
+  return requestJson<VideoAsset>(`/posts/${postId}/video-asset`, {}, token);
+}
+
+export function prepareVideoAsset(
+  postId: number,
+  token?: string,
+): Promise<VideoAsset> {
+  return requestJson<VideoAsset>(
+    `/posts/${postId}/video-asset/prepare`,
+    { method: "POST" },
     token,
   );
 }

@@ -1,4 +1,4 @@
-import type { CaptionResponse, CaptionSegment } from './types';
+import type { CaptionResponse, CaptionSegment, VideoAsset } from './types';
 
 const FINAL_CAPTION_END_HOLD_SECONDS = 4;
 const VIDEO_END_TOLERANCE_SECONDS = 0.75;
@@ -109,6 +109,40 @@ export function isSourceCaptionTranslationPending({
         response.sourceLanguage,
       ) &&
       response.segments.length > 0,
+  );
+}
+
+export function captionResponseFromVideoAsset(
+  asset: VideoAsset | null | undefined,
+): CaptionResponse | null {
+  if (
+    !asset ||
+    !['ready', 'partial'].includes(asset.status) ||
+    asset.translatedSegments.length === 0
+  ) {
+    return null;
+  }
+
+  return {
+    mode: 'youtube-captions',
+    provider: 'prepared-video-asset',
+    videoId: asset.videoId,
+    language: asset.language,
+    sourceLanguage: asset.sourceLanguage,
+    translated: true,
+    segments: asset.translatedSegments,
+    message: 'Prepared video asset captions loaded.',
+  };
+}
+
+export function videoAssetCoversTime(
+  asset: Pick<VideoAsset, 'translatedSegments'> | null | undefined,
+  currentTime: number,
+) {
+  return Boolean(
+    asset?.translatedSegments.some(
+      (segment) => currentTime >= segment.start && currentTime < segment.end,
+    ),
   );
 }
 

@@ -1483,10 +1483,12 @@ class AiServiceTest(unittest.TestCase):
         self.assertEqual(response["segments"], [])
 
     def test_youtube_captions_use_native_fallback_when_track_list_is_empty(self):
+        original_httpx = main.httpx
         original_fetch_tracks = main.fetch_youtube_caption_tracks
         original_transcript = main.fetch_transcript_api_segments
         original_yt_dlp = main.fetch_yt_dlp_caption_segments
 
+        main.httpx = object()
         main.fetch_youtube_caption_tracks = lambda _video_id: []
         main.fetch_transcript_api_segments = lambda *_args: ([], "", False)
         main.fetch_yt_dlp_caption_segments = lambda *_args: (
@@ -1505,6 +1507,7 @@ class AiServiceTest(unittest.TestCase):
                 }
             )
         finally:
+            main.httpx = original_httpx
             main.fetch_youtube_caption_tracks = original_fetch_tracks
             main.fetch_transcript_api_segments = original_transcript
             main.fetch_yt_dlp_caption_segments = original_yt_dlp
@@ -1837,6 +1840,7 @@ class AiServiceTest(unittest.TestCase):
             first = load_translated_captions(payload)
             second = load_translated_captions(payload)
         finally:
+            main.httpx = original_httpx
             main.fetch_youtube_caption_tracks = original_fetch_tracks
             main.fetch_transcript_api_segments = original_transcript
             main.fetch_yt_dlp_caption_segments = original_yt_dlp
@@ -1897,6 +1901,7 @@ class AiServiceTest(unittest.TestCase):
                 }
             )
         finally:
+            main.httpx = original_httpx
             main.fetch_youtube_caption_tracks = original_fetch_tracks
             main.fetch_transcript_api_segments = original_transcript
             main.fetch_yt_dlp_caption_segments = original_yt_dlp
@@ -1907,10 +1912,12 @@ class AiServiceTest(unittest.TestCase):
         self.assertEqual(response["segments"], [])
 
     def test_youtube_captions_uses_yt_dlp_when_youtube_caption_apis_fail(self):
+        original_httpx = main.httpx
         original_fetch_tracks = main.fetch_youtube_caption_tracks
         original_transcript = main.fetch_transcript_api_segments
         original_yt_dlp = main.fetch_yt_dlp_caption_segments
 
+        main.httpx = object()
         main.fetch_youtube_caption_tracks = lambda _video_id: []
         main.fetch_transcript_api_segments = lambda *_args: ([], "", False)
         main.fetch_yt_dlp_caption_segments = lambda *_args: (
@@ -1932,6 +1939,7 @@ class AiServiceTest(unittest.TestCase):
                 }
             )
         finally:
+            main.httpx = original_httpx
             main.fetch_youtube_caption_tracks = original_fetch_tracks
             main.fetch_transcript_api_segments = original_transcript
             main.fetch_yt_dlp_caption_segments = original_yt_dlp
@@ -1941,9 +1949,12 @@ class AiServiceTest(unittest.TestCase):
         self.assertEqual(response["sourceLanguage"], "en")
 
     def test_youtube_captions_uses_yt_dlp_when_track_fetch_is_rate_limited(self):
+        original_httpx = main.httpx
         original_fetch_tracks = main.fetch_youtube_caption_tracks
         original_transcript = main.fetch_transcript_api_segments
         original_yt_dlp = main.fetch_yt_dlp_caption_segments
+
+        main.httpx = object()
 
         def raise_rate_limit(_video_id):
             raise RuntimeError("HTTP 429 Too Many Requests from watch page")
@@ -1966,6 +1977,7 @@ class AiServiceTest(unittest.TestCase):
                 }
             )
         finally:
+            main.httpx = original_httpx
             main.fetch_youtube_caption_tracks = original_fetch_tracks
             main.fetch_transcript_api_segments = original_transcript
             main.fetch_yt_dlp_caption_segments = original_yt_dlp
@@ -1974,11 +1986,60 @@ class AiServiceTest(unittest.TestCase):
         self.assertEqual(response["segments"][0]["text"], "Recovered by yt-dlp")
         self.assertEqual(response["sourceLanguage"], "en")
 
+    def test_youtube_captions_uses_audio_transcription_when_tracks_are_absent(self):
+        original_httpx = main.httpx
+        original_fetch_tracks = main.fetch_youtube_caption_tracks
+        original_transcript = main.fetch_transcript_api_segments
+        original_yt_dlp = main.fetch_yt_dlp_caption_segments
+        original_audio_transcript = main.fetch_audio_transcript_caption_segments
+
+        main.httpx = object()
+        main.CAPTION_RESPONSE_CACHE.clear()
+        main.fetch_youtube_caption_tracks = lambda _video_id: []
+        main.fetch_transcript_api_segments = lambda *_args: ([], "", False)
+        main.fetch_yt_dlp_caption_segments = lambda *_args: (
+            [],
+            "",
+            False,
+            RuntimeError("yt-dlp-caption-track-unavailable"),
+        )
+        main.fetch_audio_transcript_caption_segments = lambda *_args: (
+            [{"start": 0, "end": 4, "text": "오디오에서 전사한 자막"}],
+            "ko",
+            False,
+            None,
+        )
+
+        try:
+            response = load_translated_captions(
+                {
+                    "videoId": "audio-only-video",
+                    "targetLanguage": "ko",
+                    "startSeconds": 0,
+                    "endSeconds": 30,
+                    "allowFallback": False,
+                }
+            )
+        finally:
+            main.httpx = original_httpx
+            main.fetch_youtube_caption_tracks = original_fetch_tracks
+            main.fetch_transcript_api_segments = original_transcript
+            main.fetch_yt_dlp_caption_segments = original_yt_dlp
+            main.fetch_audio_transcript_caption_segments = original_audio_transcript
+            main.CAPTION_RESPONSE_CACHE.clear()
+
+        self.assertEqual(response["provider"], "openai-caption-translation")
+        self.assertEqual(response["sourceLanguage"], "ko")
+        self.assertEqual(response["language"], "ko")
+        self.assertEqual(response["segments"][0]["text"], "오디오에서 전사한 자막")
+
     def test_yt_dlp_caption_segments_falls_back_to_subtitle_file_download(self):
+        original_httpx = main.httpx
         original_metadata = main.fetch_yt_dlp_metadata
         original_url_fetch = main.fetch_caption_segments_from_urls
         original_file_fetch = main.fetch_yt_dlp_caption_file_segments
 
+        main.httpx = object()
         main.fetch_yt_dlp_metadata = lambda _video_id: (
             {
                 "automatic_captions": {
@@ -2010,6 +2071,7 @@ class AiServiceTest(unittest.TestCase):
                 "en",
             )
         finally:
+            main.httpx = original_httpx
             main.fetch_yt_dlp_metadata = original_metadata
             main.fetch_caption_segments_from_urls = original_url_fetch
             main.fetch_yt_dlp_caption_file_segments = original_file_fetch

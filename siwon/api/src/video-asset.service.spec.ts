@@ -156,6 +156,55 @@ describe('VideoAssetService', () => {
     expect(summary).not.toHaveBeenCalled();
   });
 
+  it('stores translated captions from primary segments when AI omits translatedSegments', async () => {
+    const repository = new RecordingRepository();
+    const translatedSegments = [
+      { start: 0, end: 4, text: '번역된 첫 문장입니다.' },
+      { start: 4, end: 8, text: '번역된 두 번째 문장입니다.' },
+    ];
+    const captions = jest.fn().mockResolvedValue({
+      provider: 'openai-caption-translation',
+      translated: true,
+      sourceLanguage: 'en',
+      segments: translatedSegments,
+      message:
+        'YouTube timed-text caption window translated for live playback.',
+    });
+    const summary = jest.fn().mockResolvedValue({
+      sections: [
+        { label: '전체 스크립트 전사문', body: '00:00 번역된 첫 문장입니다.' },
+      ],
+    });
+    const service = new VideoAssetService(repository, {
+      captions,
+      summary,
+    } as AiProxyService);
+    const post = await repository.createPost({
+      authorId: 1,
+      title: 'Translated segments shape lesson',
+      videoUrl: 'https://www.youtube.com/watch?v=translatedShape',
+      thumbnailUrl: 'https://i.ytimg.com/vi/translatedShape/hqdefault.jpg',
+      channelName: 'StudyTube',
+      summary: 'AI response shape case.',
+      translatedNotes: 'AI response shape notes.',
+      tags: ['captions'],
+    });
+
+    await expect(service.preparePostAsset(post)).resolves.toMatchObject({
+      postId: post.id,
+      status: 'ready',
+      sourceCaptionStatus: 'ready',
+      translationStatus: 'ready',
+      translatedSegments,
+      errorMessage: '',
+    });
+    expect(summary).toHaveBeenCalledWith(
+      expect.objectContaining({
+        segments: translatedSegments,
+      }),
+    );
+  });
+
   it('treats AI summary fallback sections as failed and keeps a partial asset', async () => {
     const repository = new RecordingRepository();
     const captions = jest.fn().mockResolvedValue({

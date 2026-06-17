@@ -160,7 +160,11 @@ export class VideoAssetService {
         ? captions.sourceSegments
         : captions.segments;
       const translatedSegments = captions.translated
-        ? captions.translatedSegments
+        ? captions.translatedSegments.length
+          ? captions.translatedSegments
+          : captions.sourceSegments.length
+            ? []
+            : captions.segments
         : [];
       const translationErrorMessage =
         captions.message || 'Translated caption segments were not returned.';

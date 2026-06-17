@@ -1,3 +1,9 @@
+import type {
+  CreateVideoAssetInput,
+  UpdateVideoAssetInput,
+  VideoAsset,
+} from './video-asset.types';
+
 export type User = {
   id: number;
   name: string;
@@ -117,6 +123,12 @@ export type BoardRepository = {
   createPost(input: CreatePostInput): Promise<StudyPost>;
   updatePost(id: number, input: UpdatePostInput): Promise<StudyPost | null>;
   deletePost(id: number): Promise<boolean>;
+  findVideoAsset(postId: number): Promise<VideoAsset | null>;
+  upsertVideoAsset(input: CreateVideoAssetInput): Promise<VideoAsset>;
+  updateVideoAsset(
+    postId: number,
+    input: UpdateVideoAssetInput,
+  ): Promise<VideoAsset | null>;
   addComment(input: {
     postId: number;
     authorId: number;

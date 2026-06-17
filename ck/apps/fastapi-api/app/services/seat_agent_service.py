@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import time
 from collections import Counter
 from dataclasses import dataclass
 
@@ -35,6 +36,9 @@ RATING_KEYS = {
     "expression": "expression",
     "stageVisibility": "stageVisibility",
 }
+METADATA_CACHE_TTL_SECONDS = 300
+OBSTRUCTION_RANGE_MAX_PAGES = 6
+_metadata_cache: dict[tuple[str, str], tuple[float, list[dict]]] = {}
 THEATER_ALIASES = {
     "세종": "세종문화회관 대극장",
     "세종대극장": "세종문화회관 대극장",
@@ -607,9 +611,17 @@ def _extract_focus_subject(question: str) -> str | None:
 
 
 def _safe_get(client: NestClient, path: str) -> list[dict]:
+    cache_key = (client.__class__.__name__, path)
+    cached = _metadata_cache.get(cache_key)
+    now = time.monotonic()
+    if cached and cached[0] > now:
+        return cached[1]
+
     try:
         value = client.get_json(path)
-        return value if isinstance(value, list) else []
+        items = value if isinstance(value, list) else []
+        _metadata_cache[cache_key] = (now + METADATA_CACHE_TTL_SECONDS, items)
+        return items
     except NestClientError:
         return []
 
@@ -780,7 +792,7 @@ def _search_obstruction_range_reviews(client: NestClient, filters: AgentFilters)
     reviews: list[dict] = []
     range_filters = filters.model_copy(update={"seat_row": None, "seat_number": None})
 
-    for page in range(1, 26):
+    for page in range(1, OBSTRUCTION_RANGE_MAX_PAGES + 1):
         try:
             search_result = client.get_json(
                 "/seat-reviews/search",
@@ -1383,13 +1395,17 @@ def _build_cautions(evidence: list[EvidenceReview], official_section: str | None
 
 
 def _to_evidence(review: dict) -> EvidenceReview:
-    seat = review.get("seat", {})
-    tags = [tag.get("name", "") for tag in review.get("tags", []) if tag.get("name")]
+    seat = review.get("seat") or {}
+    tags = [
+        tag.get("name", "")
+        for tag in (review.get("tags") or [])
+        if tag and tag.get("name")
+    ]
     performance = review.get("performance") or {}
     return EvidenceReview(
         id=review.get("id", ""),
-        theaterName=review.get("theater", {}).get("name", ""),
-        musicalTitle=review.get("musical", {}).get("title", ""),
+        theaterName=(review.get("theater") or {}).get("name", ""),
+        musicalTitle=(review.get("musical") or {}).get("title", ""),
         seasonLabel=performance.get("seasonLabel"),
         seat=" ".join(
             value
@@ -1401,7 +1417,7 @@ def _to_evidence(review: dict) -> EvidenceReview:
             ]
             if value
         ),
-        ratings=review.get("ratings", {}),
+        ratings=review.get("ratings") or {},
         tags=tags,
-        content=review.get("content", "")[:220],
+        content=(review.get("content") or "")[:220],
     )

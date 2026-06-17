@@ -49,6 +49,7 @@ describe('AuthService session security', () => {
       user: {
         update: jest.fn(),
       },
+      $transaction: jest.fn((queries: unknown[]) => Promise.all(queries)),
     };
 
     const configService = overrides?.configService ?? {
@@ -285,5 +286,7 @@ describe('AuthService session security', () => {
       where: { userId: 1n, revokedAt: null },
       data: { revokedAt: expect.any(Date) },
     });
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(prisma.$transaction.mock.calls[0][0]).toHaveLength(3);
   });
 });

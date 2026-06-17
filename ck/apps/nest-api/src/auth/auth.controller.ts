@@ -112,17 +112,23 @@ export class AuthController {
       return;
     }
 
-    const { redirectTo } = this.googleOAuthService.verifyState(state);
-    const profile = await this.googleOAuthService.exchangeCodeForProfile(code);
-    const result = await this.authService.loginWithGoogle(
-      profile,
-      this.getRequestContext(request),
-    );
+    try {
+      const { redirectTo } = this.googleOAuthService.verifyState(state);
+      const profile =
+        await this.googleOAuthService.exchangeCodeForProfile(code);
+      const result = await this.authService.loginWithGoogle(
+        profile,
+        this.getRequestContext(request),
+      );
 
-    this.setAuthCookies(response, result);
-    response.redirect(
-      this.googleOAuthService.createFrontendRedirectUrl(redirectTo),
-    );
+      this.setAuthCookies(response, result);
+      response.redirect(
+        this.googleOAuthService.createFrontendRedirectUrl(redirectTo),
+      );
+    } catch {
+      this.clearAuthCookies(response);
+      response.redirect(this.googleOAuthService.createFrontendOAuthErrorUrl());
+    }
   }
 
   @Post('password-reset/request')

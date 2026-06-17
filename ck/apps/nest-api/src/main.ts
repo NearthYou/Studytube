@@ -4,6 +4,10 @@ import { AppModule } from './app.module';
 import { createCorsOptions } from './common/cors-options';
 import { createRequestLoggingMiddleware } from './common/request-logging.middleware';
 
+(BigInt.prototype as unknown as { toJSON: () => string }).toJSON = function () {
+  return this.toString();
+};
+
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 

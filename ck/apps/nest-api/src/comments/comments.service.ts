@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -151,9 +152,20 @@ export class CommentsService {
 
     await this.assertCommentExists(commentId);
 
-    await this.prisma.commentLike.create({
-      data: { commentId, userId },
-    });
+    try {
+      await this.prisma.commentLike.create({
+        data: { commentId, userId },
+      });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new ConflictException('Comment is already liked');
+      }
+
+      throw error;
+    }
 
     return { liked: true };
   }

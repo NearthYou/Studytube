@@ -3,7 +3,7 @@ import re
 from unittest.mock import patch
 
 from app.schemas.agent import SeatRecommendationRequest
-from app.services.seat_agent_service import recommend_seat
+from app.services.seat_agent_service import _to_evidence, recommend_seat
 
 
 class FakeNestClient:
@@ -757,6 +757,28 @@ class FocusRoleRecommendationFakeNestClient(FakeNestClient):
 
 
 class SeatAgentServiceTest(unittest.TestCase):
+    def test_to_evidence_tolerates_null_nested_objects(self):
+        evidence = _to_evidence(
+            {
+                "id": "nullish",
+                "theater": None,
+                "musical": None,
+                "performance": None,
+                "seat": None,
+                "ratings": None,
+                "tags": None,
+                "content": None,
+            }
+        )
+
+        self.assertEqual(evidence.id, "nullish")
+        self.assertEqual(evidence.theater_name, "")
+        self.assertEqual(evidence.musical_title, "")
+        self.assertEqual(evidence.seat, "")
+        self.assertEqual(evidence.ratings, {})
+        self.assertEqual(evidence.tags, [])
+        self.assertEqual(evidence.content, "")
+
     @patch("app.services.seat_agent_service.NestClient", return_value=FakeNestClient())
     def test_recommends_with_evidence_and_mcp_status(self, _):
         result = recommend_seat(

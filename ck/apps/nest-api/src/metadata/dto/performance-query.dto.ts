@@ -1,11 +1,11 @@
-import { IsOptional, IsString } from 'class-validator';
+import { IsNumberString, IsOptional } from 'class-validator';
 
 export class PerformanceQueryDto {
-  @IsOptional() // 있어도 되고 없어도 됨
-  @IsString() // 문자열어이어야 함
+  @IsOptional()
+  @IsNumberString()
   theaterId?: string;
 
   @IsOptional()
-  @IsString()
+  @IsNumberString()
   musicalId?: string;
 }

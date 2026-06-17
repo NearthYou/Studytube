@@ -7,12 +7,11 @@ type EmbeddingResponse = {
   }>;
 };
 
-type ResponsesApiResponse = {
-  output_text?: string;
-  output?: Array<{
-    content?: Array<{
-      text?: string;
-    }>;
+type ChatCompletionsResponse = {
+  choices?: Array<{
+    message?: {
+      content?: string;
+    };
   }>;
 };
 
@@ -60,7 +59,7 @@ export class OpenAiRagClient {
   }) {
     this.assertApiKey();
 
-    const response = await fetch('https://api.openai.com/v1/responses', {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
@@ -68,10 +67,9 @@ export class OpenAiRagClient {
       },
       body: JSON.stringify({
         model: this.chatModel,
-        reasoning: { effort: 'low' },
-        input: [
+        messages: [
           {
-            role: 'developer',
+            role: 'system',
             content: [
               '너는 뮤지컬 좌석 후기 기반 좌석 상담 도우미다.',
               '반드시 제공된 관련 후기 안에서만 답한다.',
@@ -101,14 +99,8 @@ export class OpenAiRagClient {
       throw new InternalServerErrorException('Failed to create RAG answer');
     }
 
-    const data = (await response.json()) as ResponsesApiResponse;
-    const outputText =
-      data.output_text ??
-      data.output
-        ?.flatMap((item) => item.content ?? [])
-        .map((content) => content.text)
-        .filter(Boolean)
-        .join('\n');
+    const data = (await response.json()) as ChatCompletionsResponse;
+    const outputText = data.choices?.[0]?.message?.content?.trim();
 
     if (!outputText) {
       throw new InternalServerErrorException('RAG answer response is empty');

@@ -1,4 +1,9 @@
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+} from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from 'src/common/interfaces/authenticated-user.interface';
 import { CommentsService } from './comments.service';
 
@@ -222,6 +227,23 @@ describe('CommentsService', () => {
     expect(prisma.commentLike.deleteMany).toHaveBeenCalledWith({
       where: { commentId: 3n, userId: 7n },
     });
+  });
+
+  it('returns a conflict when liking an already-liked comment', async () => {
+    const prisma = makePrisma();
+    prisma.comment.findUnique.mockResolvedValue({ id: 3n });
+    prisma.commentLike.create.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError('duplicate like', {
+        code: 'P2002',
+        clientVersion: 'test',
+      }),
+    );
+
+    const service = new CommentsService(prisma as never);
+
+    await expect(service.like('3', user)).rejects.toBeInstanceOf(
+      ConflictException,
+    );
   });
 
   it('deletes only comments written by the current user', async () => {

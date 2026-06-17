@@ -239,18 +239,23 @@ export class AuthService {
       throw new UnauthorizedException('Invalid password reset token');
     }
 
-    await this.prisma.user.update({
-      where: { id: resetToken.userId },
-      data: { passwordHash: await bcrypt.hash(request.newPassword, 10) },
-    });
-    await this.prisma.passwordResetToken.update({
-      where: { id: resetToken.id },
-      data: { usedAt: new Date() },
-    });
-    await this.prisma.authSession.updateMany({
-      where: { userId: resetToken.userId, revokedAt: null },
-      data: { revokedAt: new Date() },
-    });
+    const now = new Date();
+    const passwordHash = await bcrypt.hash(request.newPassword, 10);
+
+    await this.prisma.$transaction([
+      this.prisma.user.update({
+        where: { id: resetToken.userId },
+        data: { passwordHash },
+      }),
+      this.prisma.passwordResetToken.update({
+        where: { id: resetToken.id },
+        data: { usedAt: now },
+      }),
+      this.prisma.authSession.updateMany({
+        where: { userId: resetToken.userId, revokedAt: null },
+        data: { revokedAt: now },
+      }),
+    ]);
 
     return { ok: true };
   }

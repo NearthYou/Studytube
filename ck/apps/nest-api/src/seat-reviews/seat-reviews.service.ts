@@ -236,6 +236,9 @@ export class SeatReviewsService {
         where: { seatReviewId: reviewId },
       }),
       this.prisma.comment.deleteMany({ where: { seatReviewId: reviewId } }),
+      this.prisma.reviewReport.deleteMany({
+        where: { seatReviewId: reviewId },
+      }),
       this.prisma.seatReview.delete({ where: { id: reviewId } }),
     ]);
 

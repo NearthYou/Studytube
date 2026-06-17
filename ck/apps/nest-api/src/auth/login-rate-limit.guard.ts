@@ -13,10 +13,12 @@ type LoginAttemptBucket = {
 
 const LOGIN_RATE_LIMIT_WINDOW_MS = 60_000;
 const LOGIN_RATE_LIMIT_MAX_ATTEMPTS = 5;
+const LOGIN_RATE_LIMIT_CLEANUP_INTERVAL_MS = 60_000;
 
 @Injectable()
 export class LoginRateLimitGuard implements CanActivate {
   private readonly attempts = new Map<string, LoginAttemptBucket>();
+  private nextCleanupAt = 0;
 
   canActivate(context: ExecutionContext) {
     const request = context.switchToHttp().getRequest<{
@@ -25,6 +27,7 @@ export class LoginRateLimitGuard implements CanActivate {
       body?: { email?: string };
     }>();
     const now = Date.now();
+    this.cleanupExpiredBuckets(now);
     const key = this.buildKey(request);
     const current = this.attempts.get(key);
 
@@ -56,5 +59,19 @@ export class LoginRateLimitGuard implements CanActivate {
     const email = request.body?.email?.trim().toLowerCase() ?? 'unknown-email';
 
     return `${ip}:${email}`;
+  }
+
+  private cleanupExpiredBuckets(now: number) {
+    if (now < this.nextCleanupAt) {
+      return;
+    }
+
+    this.nextCleanupAt = now + LOGIN_RATE_LIMIT_CLEANUP_INTERVAL_MS;
+
+    for (const [key, bucket] of this.attempts) {
+      if (bucket.resetAt <= now) {
+        this.attempts.delete(key);
+      }
+    }
   }
 }

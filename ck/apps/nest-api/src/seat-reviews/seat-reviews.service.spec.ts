@@ -19,6 +19,7 @@ describe('SeatReviewsService tags', () => {
       findFirst: jest.fn(),
       count: jest.fn(),
       update: jest.fn(),
+      delete: jest.fn(),
     },
     seatReviewEmbedding: {
       deleteMany: jest.fn(),
@@ -28,6 +29,9 @@ describe('SeatReviewsService tags', () => {
       createMany: jest.fn(),
     },
     comment: {
+      deleteMany: jest.fn(),
+    },
+    reviewReport: {
       deleteMany: jest.fn(),
     },
     $transaction: jest.fn(),
@@ -436,5 +440,27 @@ describe('SeatReviewsService tags', () => {
         { id: '4', name: 'first_timer', type: 'viewing_purpose' },
       ],
     });
+  });
+
+  it('deletes related reports when removing a review', async () => {
+    const { prisma, service } = makeService();
+    prisma.seatReview.findUnique.mockResolvedValue({
+      id: 11n,
+      authorId: 7n,
+    });
+    prisma.seatReview.delete.mockResolvedValue({ id: 11n });
+    prisma.$transaction.mockImplementation((queries: unknown[]) =>
+      Promise.all(queries),
+    );
+
+    await expect(service.remove('11', user)).resolves.toEqual({
+      delete: true,
+    });
+
+    expect(prisma.reviewReport.deleteMany).toHaveBeenCalledWith({
+      where: { seatReviewId: 11n },
+    });
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(prisma.$transaction.mock.calls[0][0]).toHaveLength(5);
   });
 });

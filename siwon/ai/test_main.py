@@ -1,5 +1,6 @@
 import json
 import os
+import tempfile
 import time
 import unittest
 from urllib.parse import parse_qsl, urlparse
@@ -61,6 +62,36 @@ class AiServiceTest(unittest.TestCase):
         )
         self.assertNotIn("sk-test-secret", json.dumps(response))
         self.assertNotIn("po-secret", json.dumps(response))
+
+    def test_youtube_http_requests_include_configured_cookie_file(self):
+        original_cookie_file = os.environ.get("YOUTUBE_COOKIES_FILE")
+
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False) as file:
+            file.write("# Netscape HTTP Cookie File\n")
+            file.write(".youtube.com\tTRUE\t/\tTRUE\t2147483647\tVISITOR_INFO1_LIVE\tvisitor-test\n")
+            file.write("#HttpOnly_.youtube.com\tTRUE\t/\tTRUE\t2147483647\tLOGIN_INFO\tlogin-test\n")
+            file.write(".example.com\tTRUE\t/\tTRUE\t2147483647\tIGNORED\tignored\n")
+            cookie_path = file.name
+
+        os.environ["YOUTUBE_COOKIES_FILE"] = cookie_path
+
+        try:
+            kwargs = main.youtube_httpx_request_kwargs(timeout=8.0)
+        finally:
+            os.unlink(cookie_path)
+            if original_cookie_file is None:
+                os.environ.pop("YOUTUBE_COOKIES_FILE", None)
+            else:
+                os.environ["YOUTUBE_COOKIES_FILE"] = original_cookie_file
+
+        self.assertEqual(
+            kwargs["cookies"],
+            {
+                "VISITOR_INFO1_LIVE": "visitor-test",
+                "LOGIN_INFO": "login-test",
+            },
+        )
+        self.assertEqual(kwargs["timeout"], 8.0)
 
     def test_caption_payload_language_alias_selects_target_language(self):
         self.assertEqual(

@@ -33,6 +33,7 @@ import {
   createPromptSuggestions,
   filterPlaylists,
   findMatchingCourses,
+  hasLearningPreferences,
   postsForPlaylistIds,
   tagsFromPosts,
 } from "./courseDiscovery";
@@ -328,7 +329,10 @@ function App() {
           path="/tutorial"
           element={
             <ProtectedRoute session={session}>
-              <TutorialPage session={session!} />
+              <TutorialPage
+                session={session!}
+                onSessionUpdate={handleUserUpdate}
+              />
             </ProtectedRoute>
           }
         />
@@ -534,7 +538,7 @@ function AuthPage({
   const [status, setStatus] = useState(
     mode === "login"
       ? "계정으로 로그인하면 모든 학습 서비스가 열립니다."
-      : "회원가입 후 바로 학습 서비스를 사용할 수 있습니다.",
+      : "회원가입 후 로그인 화면에서 다시 로그인해주세요.",
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const from =
@@ -555,10 +559,22 @@ function AuthPage({
     setIsSubmitting(true);
 
     try {
-      const nextSession =
-        mode === "signup"
-          ? await signUp(form)
-          : await login({ email: form.email, password: form.password });
+      if (mode === "signup") {
+        await signUp(form);
+        navigate("/login", {
+          replace: true,
+          state: {
+            from: "/tutorial",
+            next: signupTutorialNextDestination(from),
+          },
+        });
+        return;
+      }
+
+      const nextSession = await login({
+        email: form.email,
+        password: form.password,
+      });
       completeAuth(nextSession);
     } catch (error) {
       setStatus(
@@ -573,6 +589,13 @@ function AuthPage({
 
   function completeAuth(nextSession: Session) {
     const destination = authCompletionDestination({ mode, from });
+    const nextAfterTutorial =
+      typeof location.state === "object" &&
+      location.state &&
+      "next" in location.state &&
+      typeof location.state.next === "string"
+        ? tutorialNextDestination(location.state.next)
+        : undefined;
 
     onComplete(nextSession);
     navigate(destination, {
@@ -580,6 +603,8 @@ function AuthPage({
       state:
         mode === "signup"
           ? { next: signupTutorialNextDestination(from) }
+          : destination === "/tutorial" && nextAfterTutorial
+            ? { next: nextAfterTutorial }
           : undefined,
     });
   }
@@ -639,7 +664,13 @@ function AuthPage({
   );
 }
 
-function TutorialPage({ session }: { session: Session }) {
+function TutorialPage({
+  session,
+  onSessionUpdate,
+}: {
+  session: Session;
+  onSessionUpdate: (user: User) => void;
+}) {
   const navigate = useNavigate();
   const location = useLocation();
   const nextPath = tutorialNextDestination(
@@ -651,6 +682,17 @@ function TutorialPage({ session }: { session: Session }) {
   );
   const nextLabel =
     nextPath === "/board" ? "튜토리얼 마치기" : "가던 곳으로 계속";
+  const [preferenceDraft, setPreferenceDraft] = useState(() => ({
+    interests: session.user.preferences.interests.join(", "),
+    pace: session.user.preferences.pace,
+    goal: session.user.preferences.goal,
+  }));
+  const [preferenceStatus, setPreferenceStatus] = useState(
+    hasLearningPreferences(session.user.preferences)
+      ? "저장된 학습 취향을 추천에 사용합니다."
+      : "관심사, 학습 속도, 목표를 저장하면 AI 탐색 추천에 바로 반영됩니다.",
+  );
+  const [isSavingPreferences, setIsSavingPreferences] = useState(false);
   const tutorialSteps = [
     {
       number: "01",
@@ -693,6 +735,57 @@ function TutorialPage({ session }: { session: Session }) {
 
   function finishTutorial(destination: string) {
     navigate(destination, { replace: true });
+  }
+
+  async function saveTutorialPreferences(event: FormEvent) {
+    event.preventDefault();
+
+    if (isSavingPreferences) {
+      return;
+    }
+
+    const nextPreferences = {
+      interests: preferenceDraft.interests
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean),
+      pace: preferenceDraft.pace.trim(),
+      goal: preferenceDraft.goal.trim(),
+    };
+
+    if (
+      nextPreferences.interests.length === 0 ||
+      !nextPreferences.pace ||
+      !nextPreferences.goal
+    ) {
+      setPreferenceStatus("관심사, 학습 속도, 목표를 모두 입력하세요.");
+      return;
+    }
+
+    setIsSavingPreferences(true);
+    setPreferenceStatus("학습 취향을 저장하는 중입니다.");
+
+    try {
+      const nextUser = await updateMe(session.token, {
+        preferences: nextPreferences,
+      });
+
+      onSessionUpdate(nextUser);
+      setPreferenceDraft({
+        interests: nextUser.preferences.interests.join(", "),
+        pace: nextUser.preferences.pace,
+        goal: nextUser.preferences.goal,
+      });
+      setPreferenceStatus("학습 취향을 저장했습니다. AI 탐색에 반영됩니다.");
+    } catch (error) {
+      setPreferenceStatus(
+        error instanceof Error
+          ? error.message
+          : "학습 취향을 저장하지 못했어요.",
+      );
+    } finally {
+      setIsSavingPreferences(false);
+    }
   }
 
   return (
@@ -756,6 +849,69 @@ function TutorialPage({ session }: { session: Session }) {
           </div>
         </aside>
       </section>
+
+      <form
+        className="profile-form tutorial-preference-form"
+        onSubmit={saveTutorialPreferences}
+      >
+        <section className="profile-form-section preference-section tutorial-preferences">
+          <div>
+            <strong>학습 취향 선택</strong>
+            <p>
+              AI 탐색과 코스 추천에 사용할 관심사, 학습 속도, 목표를 먼저
+              정합니다.
+            </p>
+          </div>
+          <label>
+            관심사
+            <input
+              value={preferenceDraft.interests}
+              onChange={(event) =>
+                setPreferenceDraft({
+                  ...preferenceDraft,
+                  interests: event.target.value,
+                })
+              }
+              placeholder="React, 영어 회화, 홈트"
+              disabled={isSavingPreferences}
+            />
+          </label>
+          <label>
+            학습 속도
+            <input
+              value={preferenceDraft.pace}
+              onChange={(event) =>
+                setPreferenceDraft({
+                  ...preferenceDraft,
+                  pace: event.target.value,
+                })
+              }
+              placeholder="하루 20분"
+              disabled={isSavingPreferences}
+            />
+          </label>
+          <label>
+            목표
+            <textarea
+              value={preferenceDraft.goal}
+              onChange={(event) =>
+                setPreferenceDraft({
+                  ...preferenceDraft,
+                  goal: event.target.value,
+                })
+              }
+              placeholder="어떤 목표로 영상을 공부하고 싶은지"
+              disabled={isSavingPreferences}
+            />
+          </label>
+          <div className="section-title compact-title">
+            <span>{preferenceStatus}</span>
+            <button type="submit" disabled={isSavingPreferences}>
+              {isSavingPreferences ? "저장 중" : "취향 저장"}
+            </button>
+          </div>
+        </section>
+      </form>
 
       <section className="tutorial-flow" aria-label="서비스 이용 흐름">
         {tutorialSteps.map((step) => (
@@ -3009,6 +3165,7 @@ function BoardPage({
       }
 
       try {
+        const wasEditing = Boolean(editingId);
         const { saved, token } = await savePost(payload);
         const savedVideo = queueVideoFromPost(saved);
         const syncedPlaylist = replaceVideoInQueueIfPresent(
@@ -3038,6 +3195,10 @@ function BoardPage({
         setEditingId(null);
         setIsEditingDetails(false);
         setMetadataStatus("");
+
+        if (!wasEditing) {
+          navigate("/explore", { replace: true });
+        }
       } catch (error) {
         if (isUnauthorizedRequest(error)) {
           setIsBoardReady(false);
@@ -3958,8 +4119,9 @@ function PlaylistCommentSection({
 function CoursePage({ session }: { session: Session }) {
   const navigate = useNavigate();
   const profile = session.user.preferences;
+  const hasProfile = hasLearningPreferences(profile);
   const initialQuery = createPersonalizedCoursePrompt(profile);
-  const [query, setQuery] = useState(initialQuery);
+  const [query, setQuery] = useState("");
   const [ragResult, setRagResult] = useState<RagResponse | null>(null);
   const [courseMatches, setCourseMatches] = useState<Playlist[]>([]);
   const [agentResult, setAgentResult] = useState<AgentResponse | null>(null);
@@ -3967,7 +4129,7 @@ function CoursePage({ session }: { session: Session }) {
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [posts, setPosts] = useState<StudyPost[]>([]);
   const [status, setStatus] = useState(
-    profile
+    hasProfile
       ? `${profile.interests[0]} 취향을 반영해 먼저 기존 보드에서 찾아볼게요.`
       : "원하는 코스를 입력하면 먼저 기존 플레이리스트 보드에서 찾고, 없으면 새로 만들어드립니다.",
   );
@@ -4029,6 +4191,9 @@ function CoursePage({ session }: { session: Session }) {
     const goal = query.trim() || ragResult?.query || initialQuery;
 
     if (!goal || isGenerating) {
+      if (!goal) {
+        setStatus("새 코스를 만들 주제나 목표를 먼저 입력하세요.");
+      }
       return;
     }
 
@@ -4105,7 +4270,7 @@ function CoursePage({ session }: { session: Session }) {
       const saved = await createPlaylist(session.token, {
         title:
           agentResult?.playlistTitle ??
-          `${query.trim() || initialQuery} 학습 코스`,
+          `${query.trim() || initialQuery || "AI 추천"} 학습 코스`,
         description:
           agentResult?.rationale ??
           "내 취향과 검색 결과를 바탕으로 만든 학습 코스입니다.",
@@ -4185,7 +4350,7 @@ function CoursePage({ session }: { session: Session }) {
           <br />
           없으면 AI가 YouTube까지 탐색해서 새 학습 코스를 만듭니다.
         </p>
-        {profile && (
+        {hasProfile && (
           <div className="preference-summary">
             <strong>{profile.goal}</strong>
             <span>
@@ -5287,17 +5452,17 @@ function WatchPage({ session }: { session: Session }) {
         <section className="watch-empty-shell">
           <div className="watch-empty-copy">
             <p className="eyebrow">학습</p>
-            <h1>학습할 플레이리스트를 선택하세요</h1>
+            <h1>아직 학습할 플레이리스트가 없습니다</h1>
             <p>
-              공개 플레이리스트와 작성 중인 플레이리스트를 바로 이어서 볼 수 있습니다.
-              선택하면 첫 영상부터 재생목록이 시작됩니다.
+              공개 플레이리스트를 가져오거나 AI 탐색에서 새 코스를 만들면 이
+              화면에서 바로 이어서 학습할 수 있습니다.
             </p>
             <div className="watch-empty-actions">
               <Link className="primary-link" to="/playlists">
-                새 코스 찾기
+                공개 플레이리스트 보기
               </Link>
-              <Link className="quiet-link" to="/board">
-                등록 화면으로
+              <Link className="quiet-link" to="/search">
+                AI 탐색으로
               </Link>
             </div>
           </div>

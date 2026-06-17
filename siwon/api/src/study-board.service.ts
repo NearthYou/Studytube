@@ -114,6 +114,11 @@ export class StudyBoardService {
     const preferences = input.preferences
       ? normalizePreferences(input.preferences)
       : undefined;
+    const isInitialPreferenceSetup =
+      Boolean(preferences) &&
+      !nextName &&
+      !nextPassword &&
+      !hasLearningPreferences(session.user.preferences);
 
     if (!nextName && !nextPassword && !preferences) {
       throw new BadRequestException(
@@ -121,7 +126,9 @@ export class StudyBoardService {
       );
     }
 
-    await this.requireCurrentPassword(session, currentPassword);
+    if (!isInitialPreferenceSetup) {
+      await this.requireCurrentPassword(session, currentPassword);
+    }
 
     if (nextName !== undefined) {
       assertText(nextName, 'name');
@@ -220,6 +227,7 @@ export class StudyBoardService {
   ): Promise<StudyPost> {
     const session = await this.requireSession(token);
     assertPostInput(input);
+    await this.assertUniqueVideoPost(session.user.id, input.videoUrl);
 
     const post = await this.repository.createPost({
       ...input,
@@ -502,5 +510,72 @@ export class StudyBoardService {
     }
 
     return post;
+  }
+
+  private async assertUniqueVideoPost(authorId: number, videoUrl: string) {
+    const targetIdentity = normalizePostVideoIdentity(videoUrl);
+    const pageSize = 100;
+    let page = 1;
+    let total = 0;
+
+    do {
+      const result = await this.repository.listPosts({
+        authorId,
+        page,
+        pageSize,
+      });
+      const duplicate = result.items.find(
+        (post) => normalizePostVideoIdentity(post.videoUrl) === targetIdentity,
+      );
+
+      if (duplicate) {
+        throw new BadRequestException('Same video post already exists');
+      }
+
+      total = result.total;
+      page += 1;
+    } while ((page - 1) * pageSize < total);
+  }
+}
+
+function hasLearningPreferences(preferences: LearningPreferences) {
+  return (
+    preferences.interests.some((item) => item.trim()) &&
+    Boolean(preferences.pace.trim()) &&
+    Boolean(preferences.goal.trim())
+  );
+}
+
+function normalizePostVideoIdentity(videoUrl: string) {
+  const trimmed = videoUrl.trim();
+
+  try {
+    const parsed = new URL(trimmed);
+    const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
+    const pathParts = parsed.pathname.split('/').filter(Boolean);
+
+    if (host === 'youtu.be' && pathParts[0]) {
+      return `youtube:${pathParts[0]}`;
+    }
+
+    if (host.endsWith('youtube.com')) {
+      const watchVideoId = parsed.searchParams.get('v');
+      const pathVideoId =
+        ['embed', 'shorts', 'live'].includes(pathParts[0]) && pathParts[1]
+          ? pathParts[1]
+          : '';
+      const videoId = watchVideoId || pathVideoId;
+
+      if (videoId) {
+        return `youtube:${videoId}`;
+      }
+    }
+
+    parsed.hash = '';
+    parsed.searchParams.sort();
+
+    return `url:${parsed.toString().replace(/\/$/, '')}`;
+  } catch {
+    return `url:${trimmed.toLowerCase().replace(/\/$/, '')}`;
   }
 }

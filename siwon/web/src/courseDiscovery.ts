@@ -1,30 +1,36 @@
 import type { LearningPreferences, Playlist, StudyPost } from './types.ts';
 
+export function hasLearningPreferences(
+  profile: LearningPreferences | null | undefined,
+): profile is LearningPreferences {
+  return Boolean(
+    profile &&
+      profile.interests.some((item) => item.trim()) &&
+      profile.pace.trim() &&
+      profile.goal.trim(),
+  );
+}
+
 export function createPersonalizedCoursePrompt(
   profile: LearningPreferences | null,
 ) {
-  if (!profile) {
-    return '퇴근 후 20분씩 영어 회화를 배우고 싶어';
+  if (!hasLearningPreferences(profile)) {
+    return '';
   }
 
-  const interests = profile.interests.slice(0, 2).join('와 ');
+  const interests = profile.interests.slice(0, 2).join(', ');
   return `${interests}를 ${profile.pace} 배울 수 있는 코스 추천해줘`;
 }
 
 export function createPromptSuggestions(profile: LearningPreferences | null) {
-  if (profile) {
-    return [
-      `${profile.interests[0]} 입문 코스`,
-      `${profile.goal}`,
-      `${profile.pace} 따라갈 수 있는 취미 코스`,
-    ];
+  if (!hasLearningPreferences(profile)) {
+    return [];
   }
 
   return [
-    '퇴근 후 영어 회화',
-    '집에서 하는 20분 운동',
-    '요리 기초부터 배우기',
-    '재테크 처음 시작하기',
+    `${profile.interests[0]} 입문 코스`,
+    `${profile.goal}`,
+    `${profile.pace} 따라갈 수 있는 취향 코스`,
   ];
 }
 

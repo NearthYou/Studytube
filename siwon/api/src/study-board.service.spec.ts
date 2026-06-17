@@ -52,6 +52,36 @@ describe('StudyBoardService', () => {
     expect(login.token).toHaveLength(48);
   });
 
+  it('starts new accounts without preselected learning preferences', async () => {
+    const session = await service.signUp({
+      name: 'New Learner',
+      email: 'new-learner@example.com',
+      password: 'learn-fast',
+    });
+
+    expect(session.user.preferences).toEqual({
+      interests: [],
+      pace: '',
+      goal: '',
+    });
+
+    await expect(
+      service.updateMe(session.token, {
+        preferences: {
+          interests: ['React', '영어 회화'],
+          pace: '하루 20분',
+          goal: '퇴근 후 복습',
+        },
+      }),
+    ).resolves.toMatchObject({
+      preferences: {
+        interests: ['React', '영어 회화'],
+        pace: '하루 20분',
+        goal: '퇴근 후 복습',
+      },
+    });
+  });
+
   it('returns a clear validation error when signing up with an existing email', async () => {
     await service.signUp({
       name: 'Ada',
@@ -229,6 +259,30 @@ describe('StudyBoardService', () => {
         title: 'Cross account edit',
       }),
     ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('rejects duplicate video posts from the same account', async () => {
+    const session = await createTestSession(service, 'duplicate-post');
+
+    await service.createPost(session.token, {
+      title: 'React duplicate lesson',
+      videoUrl: 'https://www.youtube.com/watch?v=duplicateVideo',
+      channelName: 'StudyTube',
+      summary: 'A React lesson.',
+      translatedNotes: 'React duplicate lesson notes.',
+      tags: ['react'],
+    });
+
+    await expect(
+      service.createPost(session.token, {
+        title: 'Same React duplicate lesson',
+        videoUrl: 'https://youtu.be/duplicateVideo',
+        channelName: 'StudyTube',
+        summary: 'The same video through a short URL.',
+        translatedNotes: 'The same video through a short URL.',
+        tags: ['react'],
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('rejects post updates with more than three tags', async () => {

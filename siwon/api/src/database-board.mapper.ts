@@ -69,6 +69,12 @@ export const DEFAULT_LEARNING_PREFERENCES: LearningPreferences = {
   goal: '짧은 영상으로 꾸준히 복습하기',
 };
 
+export const EMPTY_LEARNING_PREFERENCES: LearningPreferences = {
+  interests: [],
+  pace: '',
+  goal: '',
+};
+
 export function vectorLiteral(content: string): string {
   const digest = createHash('sha256').update(content).digest();
   const values = Array.from({ length: 64 }, (_, index) => {
@@ -90,7 +96,7 @@ export function publicUser(row: UserRow): User {
 }
 
 export function normalizePreferences(value: unknown): LearningPreferences {
-  const fallback = DEFAULT_LEARNING_PREFERENCES;
+  const fallback = EMPTY_LEARNING_PREFERENCES;
 
   if (!value || typeof value !== 'object') {
     return fallback;

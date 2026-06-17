@@ -52,15 +52,15 @@ function session(input: Partial<Session['user']> = {}): Session {
   };
 }
 
-test('normalizes missing learning preferences on sessions', () => {
+test('preserves an unset learning profile on sessions', () => {
   const normalized = normalizeSession(
     session({ preferences: { interests: [], pace: '', goal: '' } }),
   );
 
   assert.deepEqual(normalized.user.preferences, {
-    interests: ['YouTube 학습', '프론트엔드'],
-    pace: '하루 20분',
-    goal: '짧은 영상으로 꾸준히 복습하기',
+    interests: [],
+    pace: '',
+    goal: '',
   });
 });
 
@@ -70,9 +70,9 @@ test('reads and writes normalized sessions through an injectable storage adapter
   saveSession(session({ preferences: undefined as never }), storage);
 
   assert.deepEqual(readSession(storage)?.user.preferences, {
-    interests: ['YouTube 학습', '프론트엔드'],
-    pace: '하루 20분',
-    goal: '짧은 영상으로 꾸준히 복습하기',
+    interests: [],
+    pace: '',
+    goal: '',
   });
 });
 

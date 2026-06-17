@@ -9,7 +9,7 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { basename, dirname, resolve } from 'node:path';
 import { Pool, PoolClient } from 'pg';
 import {
-  DEFAULT_LEARNING_PREFERENCES,
+  EMPTY_LEARNING_PREFERENCES,
   iso,
   normalizeComment,
   normalizeFeedback,
@@ -975,7 +975,7 @@ export class DatabaseService
 
   private async ensureSchema() {
     const defaultPreferences = JSON.stringify(
-      DEFAULT_LEARNING_PREFERENCES,
+      EMPTY_LEARNING_PREFERENCES,
     ).replace(/'/g, "''");
 
     await this.pool.query('CREATE EXTENSION IF NOT EXISTS vector');

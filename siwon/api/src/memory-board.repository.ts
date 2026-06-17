@@ -47,6 +47,12 @@ const defaultPreferences = (): LearningPreferences => ({
   goal: '짧은 영상으로 꾸준히 복습하기',
 });
 
+const emptyPreferences = (): LearningPreferences => ({
+  interests: [],
+  pace: '',
+  goal: '',
+});
+
 export class MemoryBoardRepository implements BoardRepository {
   protected users: StoredUser[] = [
     {
@@ -768,7 +774,7 @@ export class MemoryBoardRepository implements BoardRepository {
       name: input.name,
       email: input.email,
       passwordHash: input.passwordHash,
-      preferences: defaultPreferences(),
+      preferences: emptyPreferences(),
       createdAt: nowIso(),
     };
     this.users.push(user);

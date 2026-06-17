@@ -156,7 +156,7 @@ export function verifyMe(
 export function updateMe(
   token: string,
   input: {
-    currentPassword: string;
+    currentPassword?: string;
     name?: string;
     password?: string;
     preferences?: {

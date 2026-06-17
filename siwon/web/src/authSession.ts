@@ -39,8 +39,8 @@ export function normalizePreferences(
     : [];
 
   return {
-    interests: interests.length > 0 ? interests : ['YouTube 학습', '프론트엔드'],
-    pace: preferences?.pace?.trim() || '하루 20분',
-    goal: preferences?.goal?.trim() || '짧은 영상으로 꾸준히 복습하기',
+    interests,
+    pace: preferences?.pace?.trim() || '',
+    goal: preferences?.goal?.trim() || '',
   };
 }

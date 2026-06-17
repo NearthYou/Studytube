@@ -1452,6 +1452,20 @@ footer {
   background: #191f28;
 }
 
+.tutorial-preference-form {
+  margin-top: 24px;
+}
+
+.tutorial-preferences {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: end;
+}
+
+.tutorial-preferences > div,
+.tutorial-preferences .section-title {
+  grid-column: 1 / -1;
+}
+
 .quiet-button {
   background: #f2f4f6;
   color: #4e5968;
@@ -3947,6 +3961,7 @@ footer {
   .tutorial-hero,
   .tutorial-flow,
   .tutorial-note,
+  .tutorial-preferences,
   .product-home-hero,
   .home-support-grid,
   .home-feature-card.empty,

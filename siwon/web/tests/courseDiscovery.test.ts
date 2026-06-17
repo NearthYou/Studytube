@@ -6,6 +6,7 @@ import {
   createPromptSuggestions,
   filterPlaylists,
   findMatchingCourses,
+  hasLearningPreferences,
   postsForPlaylistIds,
   tagsFromPosts,
 } from '../src/courseDiscovery.ts';
@@ -50,19 +51,29 @@ const profile: LearningPreferences = {
 };
 
 test('builds course prompts from the active learning profile', () => {
+  assert.equal(hasLearningPreferences(profile), true);
   assert.equal(
     createPersonalizedCoursePrompt(profile),
-    'React와 영어 회화를 하루 20분 배울 수 있는 코스 추천해줘',
+    'React, 영어 회화를 하루 20분 배울 수 있는 코스 추천해줘',
   );
   assert.deepEqual(createPromptSuggestions(profile), [
     'React 입문 코스',
     '퇴근 후 복습',
-    '하루 20분 따라갈 수 있는 취미 코스',
+    '하루 20분 따라갈 수 있는 취향 코스',
   ]);
-  assert.equal(
-    createPersonalizedCoursePrompt(null),
-    '퇴근 후 20분씩 영어 회화를 배우고 싶어',
-  );
+});
+
+test('does not show temporary prompts before a learner sets preferences', () => {
+  const emptyProfile: LearningPreferences = {
+    interests: [],
+    pace: '',
+    goal: '',
+  };
+
+  assert.equal(hasLearningPreferences(emptyProfile), false);
+  assert.equal(createPersonalizedCoursePrompt(emptyProfile), '');
+  assert.deepEqual(createPromptSuggestions(emptyProfile), []);
+  assert.equal(createPersonalizedCoursePrompt(null), '');
 });
 
 test('finds matching courses by playlist and post content', () => {

@@ -59,6 +59,17 @@ test('watch page loads prepared video assets through the saved post id', () => {
   assert.doesNotMatch(appSource, /prepareVideoAsset\(\s*currentVideo\?\.videoId/);
 });
 
+test('watch page can play a direct youtube video id before it is in the queue', () => {
+  assert.match(appSource, /const directUrlVideo = useMemo/);
+  assert.match(appSource, /id: `url-\$\{activeVideoId\}`/);
+  assert.match(appSource, /videoUrl: `https:\/\/www\.youtube\.com\/watch\?v=\$\{activeVideoId\}`/);
+  assert.match(appSource, /thumbnailUrl: youtubeThumbnailUrl\(activeVideoId\)/);
+  assert.match(
+    appSource,
+    /const currentVideo =\s*queuedActiveVideo \?\? directUrlVideo \?\? queue\[0\] \?\? null/,
+  );
+});
+
 test('watch page prepares missing saved video assets before falling back to live captions', () => {
   assert.match(appSource, /isNotFoundRequest\(error\)/);
   assert.match(appSource, /const preparedAsset = await prepareVideoAsset\(\s*postId,\s*session\.token,\s*\)/);

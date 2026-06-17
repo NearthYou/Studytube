@@ -4518,8 +4518,29 @@ function WatchPage({ session }: { session: Session }) {
     language: DEFAULT_LEARNING_STATE.captionLanguage,
   });
   const activeVideoId = searchParams.get("videoId");
+  const queuedActiveVideo = activeVideoId
+    ? (queue.find((video) => video.videoId === activeVideoId) ?? null)
+    : null;
+  const directUrlVideo = useMemo<QueueVideo | null>(() => {
+    if (!activeVideoId || queuedActiveVideo) {
+      return null;
+    }
+
+    return {
+      id: `url-${activeVideoId}`,
+      title: `YouTube 영상 ${activeVideoId}`,
+      videoId: activeVideoId,
+      videoUrl: `https://www.youtube.com/watch?v=${activeVideoId}`,
+      thumbnailUrl: youtubeThumbnailUrl(activeVideoId),
+      channelName: "YouTube",
+      summary: "URL로 직접 연 학습 영상입니다.",
+      translatedNotes:
+        "저장되지 않은 영상입니다. 자막과 요약은 가능한 범위에서 즉시 생성합니다.",
+      source: "direct-url",
+    };
+  }, [activeVideoId, queuedActiveVideo]);
   const currentVideo =
-    queue.find((video) => video.videoId === activeVideoId) ?? queue[0] ?? null;
+    queuedActiveVideo ?? directUrlVideo ?? queue[0] ?? null;
   const currentVideoId = currentVideo?.videoId ?? "";
   const currentVideoUrl = currentVideo?.videoUrl ?? "";
   const currentPostId = currentVideo

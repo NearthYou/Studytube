@@ -46,6 +46,7 @@ import {
 } from "./exploreBoard";
 import {
   CAPTION_TRANSLATION_WINDOW_SECONDS,
+  captionResponseFromVideoAsset,
   captionTranslationPrefetchWindows,
   captionTranslationRequestKey,
   captionTranslationWindow,
@@ -58,6 +59,8 @@ import {
   shouldUseNativeYouTubeCaptions,
   sourceCaptionTranslationPollDelay,
   syncNativeYouTubeCaptions,
+  videoAssetCoversRange,
+  videoAssetCoversTime,
   youtubeCaptionPlayerVars,
 } from "./captions";
 import { playlistThumbnailStackFromPosts } from "./playlistThumbnailStack";
@@ -152,6 +155,7 @@ import {
   youtubeThumbnailUrl,
 } from "./videoMetadata";
 import {
+  buildVideoSummaryDetailsFromAsset,
   buildVideoSummaryDetails,
   clipText,
   formatTime,
@@ -173,10 +177,12 @@ import {
   fetchPublicPlaylists,
   fetchPublicPosts,
   fetchTranslatedCaptions,
+  fetchVideoAsset,
   fetchVideoSummary,
   fetchMe,
   isUnauthorizedRequest,
   login,
+  prepareVideoAsset,
   signUp,
   updatePlaylist,
   updateMe,
@@ -193,6 +199,7 @@ import type {
   Session,
   StudyPost,
   User,
+  VideoAsset,
   VideoSummaryResponse,
 } from "./types";
 
@@ -276,9 +283,36 @@ const LIVE_CAPTION_PROVIDERS = new Set([
   "youtube-timedtext",
   "yt-dlp-captions",
   "openai-caption-translation",
+  "prepared-video-asset",
   "youtube-transcript-api",
   "youtube-source-captions",
 ]);
+
+function assetStatusMessageFromVideoAsset(asset: VideoAsset) {
+  if (asset.status === "pending") {
+    return "저장된 영상 자산 준비를 기다리는 중입니다.";
+  }
+
+  if (asset.status === "processing") {
+    return "저장된 영상 자산을 준비하는 중입니다.";
+  }
+
+  if (asset.status === "partial") {
+    return "저장된 영상 자산 일부를 불러왔습니다. 부족한 구간은 필요할 때 생성합니다.";
+  }
+
+  if (asset.status === "failed") {
+    return asset.errorMessage
+      ? `저장된 영상 자산 준비에 실패했습니다. ${asset.errorMessage}`
+      : "저장된 영상 자산 준비에 실패했습니다.";
+  }
+
+  return "";
+}
+
+function isVideoAssetPreparing(asset: VideoAsset | null) {
+  return asset?.status === "pending" || asset?.status === "processing";
+}
 function App() {
   const [session, setSession] = useState<Session | null>(() => readSession());
 
@@ -4426,6 +4460,14 @@ function WatchPage({ session }: { session: Session }) {
   const [captionError, setCaptionError] = useState("");
   const [isCaptionLoading, setIsCaptionLoading] = useState(false);
   const [captionRefreshAttempts, setCaptionRefreshAttempts] = useState(0);
+  const [videoAsset, setVideoAsset] = useState<VideoAsset | null>(null);
+  const [assetStatusMessage, setAssetStatusMessage] = useState("");
+  const [isAssetLoading, setIsAssetLoading] = useState(false);
+  const [isAssetRetrying, setIsAssetRetrying] = useState(false);
+  const [assetLookup, setAssetLookup] = useState<{
+    postId: number | null;
+    status: "idle" | "loading" | "ready" | "error";
+  }>({ postId: null, status: "idle" });
   const [isPlayerControlsHovered, setIsPlayerControlsHovered] = useState(false);
   const [summaryResponse, setSummaryResponse] =
     useState<VideoSummaryResponse | null>(null);
@@ -4445,6 +4487,10 @@ function WatchPage({ session }: { session: Session }) {
   const [noteDraft, setNoteDraft] = useState("");
   const playerRef = useRef<YouTubePlayer | null>(null);
   const captionWindowRequestKeysRef = useRef<Set<string>>(new Set());
+  const currentAssetTargetRef = useRef<{
+    postId: number | null;
+    videoId: string;
+  }>({ postId: null, videoId: "" });
   const captionSyncStateRef = useRef<{
     captionsEnabled: boolean;
     customCaptionsAvailable: boolean;
@@ -4457,6 +4503,15 @@ function WatchPage({ session }: { session: Session }) {
   const activeVideoId = searchParams.get("videoId");
   const currentVideo =
     queue.find((video) => video.videoId === activeVideoId) ?? queue[0] ?? null;
+  const currentVideoId = currentVideo?.videoId ?? "";
+  const currentVideoUrl = currentVideo?.videoUrl ?? "";
+  const currentPostId = currentVideo
+    ? findPostIdForQueueVideo(currentVideo, libraryPosts)
+    : null;
+  currentAssetTargetRef.current = {
+    postId: currentPostId,
+    videoId: currentVideoId,
+  };
   const playableVideoId = currentVideo
     ? playableYouTubeVideoId(currentVideo.videoUrl, currentVideo.videoId)
     : null;
@@ -4481,6 +4536,21 @@ function WatchPage({ session }: { session: Session }) {
     : DEFAULT_LEARNING_STATE;
   const captionsEnabled = learning.captionsEnabled;
   const captionLanguage = learning.captionLanguage;
+  const videoAssetMatchesCurrentVideo =
+    Boolean(currentVideo) &&
+    Boolean(currentPostId) &&
+    videoAsset?.postId === currentPostId &&
+    videoAsset.videoId === currentVideo?.videoId;
+  const assetCaptionResponse = captionResponseFromVideoAsset(videoAsset);
+  const assetCaptionLanguageMatchesSelection =
+    assetCaptionResponse?.language === captionLanguage;
+  const assetCaptionResponseMatchesVideo =
+    videoAssetMatchesCurrentVideo &&
+    assetCaptionLanguageMatchesSelection &&
+    assetCaptionResponse?.videoId === currentVideo?.videoId;
+  const shouldWaitForPreparedAsset =
+    Boolean(currentPostId) &&
+    (assetLookup.postId !== currentPostId || assetLookup.status === "loading");
   const captionResponseMatchesVideo =
     Boolean(currentVideo) &&
     Boolean(captionResponse) &&
@@ -4526,6 +4596,11 @@ function WatchPage({ session }: { session: Session }) {
     translatedCaptionResponse.sourceLanguage !== captionLanguage;
   const shouldRequestCaptionTranslationWindows =
     sourceCaptionTranslationPending || translatedCaptionWindowsReady;
+  const shouldRequestPreparedAssetFallbackWindow =
+    Boolean(currentVideo) &&
+    captionsEnabled &&
+    Boolean(assetCaptionResponseMatchesVideo) &&
+    !videoAssetCoversTime(videoAsset, currentTime);
   const shouldUseNativeCaptionFallback =
     Boolean(currentVideo) &&
     captionResponseMatchesVideo &&
@@ -4551,7 +4626,16 @@ function WatchPage({ session }: { session: Session }) {
     summaryResponse?.videoId === currentVideo?.videoId &&
     summaryResponse?.language === captionLanguage &&
     summaryResponse.sections.length > 0;
+  const assetSummaryDetails = useMemo(
+    () =>
+      videoAssetMatchesCurrentVideo && videoAsset
+        ? buildVideoSummaryDetailsFromAsset(videoAsset)
+        : [],
+    [videoAsset, videoAssetMatchesCurrentVideo],
+  );
+  const hasAssetSummaryDetails = assetSummaryDetails.length > 0;
   const isWaitingForSummaryCaptions =
+    !hasAssetSummaryDetails &&
     Boolean(currentVideo) &&
     (isCaptionLoading || (!captionResponseMatchesVideo && !captionError));
   const isSummaryBusy = isSummaryLoading || isWaitingForSummaryCaptions;
@@ -4600,6 +4684,47 @@ function WatchPage({ session }: { session: Session }) {
     () =>
       findMatchingWatchPlaylistChoice(playlistChoices, queue, queueVideoKey),
     [playlistChoices, queue],
+  );
+
+  function isCurrentAssetTarget(target: { postId: number; videoId: string }) {
+    return (
+      currentAssetTargetRef.current.postId === target.postId &&
+      currentAssetTargetRef.current.videoId === target.videoId
+    );
+  }
+
+  const applyVideoAsset = useCallback(
+    (
+      asset: VideoAsset,
+      expected?: { postId: number; videoId: string },
+    ) => {
+      if (
+        expected &&
+        (asset.postId !== expected.postId ||
+          asset.videoId !== expected.videoId ||
+          !isCurrentAssetTarget(expected))
+      ) {
+        return false;
+      }
+
+    setVideoAsset(asset);
+    setAssetLookup({ postId: asset.postId, status: "ready" });
+    setAssetStatusMessage(assetStatusMessageFromVideoAsset(asset));
+
+    const preparedCaptionResponse = captionResponseFromVideoAsset(asset);
+
+    if (preparedCaptionResponse) {
+      setCaptionResponse(preparedCaptionResponse);
+      setTranslatedCaptionResponse(preparedCaptionResponse);
+      setCaptionError("");
+      setCaptionRefreshAttempts(0);
+      setIsCaptionLoading(false);
+      captionWindowRequestKeysRef.current.clear();
+    }
+
+      return true;
+    },
+    [],
   );
 
   const syncPlayerNativeCaptions = useCallback((player: YouTubePlayer) => {
@@ -4658,7 +4783,138 @@ function WatchPage({ session }: { session: Session }) {
   }, [session.token]);
 
   useEffect(() => {
-    if (!currentVideo) {
+    if (!currentVideoId) {
+      setVideoAsset(null);
+      setAssetStatusMessage("");
+      setIsAssetLoading(false);
+      setAssetLookup({ postId: null, status: "idle" });
+      setIsAssetRetrying(false);
+      return;
+    }
+
+    if (!currentPostId) {
+      setVideoAsset(null);
+      setAssetStatusMessage("");
+      setIsAssetLoading(false);
+      setIsAssetRetrying(false);
+      setAssetLookup({ postId: null, status: "idle" });
+      return;
+    }
+
+    let cancelled = false;
+    const postId = currentPostId;
+    const expectedVideoId = currentVideoId;
+    const expectedTarget = { postId, videoId: expectedVideoId };
+
+    async function loadVideoAsset() {
+      setVideoAsset(null);
+      setAssetStatusMessage("저장된 영상 자산을 확인하는 중입니다.");
+      setIsAssetLoading(true);
+      setIsAssetRetrying(false);
+      setAssetLookup({ postId, status: "loading" });
+      setCaptionResponse(null);
+      setTranslatedCaptionResponse(null);
+      setCaptionError("");
+      setCaptionRefreshAttempts(0);
+      captionWindowRequestKeysRef.current.clear();
+
+      try {
+        const currentPostId = postId;
+        const asset = await fetchVideoAsset(currentPostId, session.token);
+
+        if (cancelled) {
+          return;
+        }
+
+        if (!applyVideoAsset(asset, expectedTarget)) {
+          setAssetLookup({ postId, status: "ready" });
+          setAssetStatusMessage(
+            "저장된 영상 자산이 현재 영상과 일치하지 않아 필요한 구간은 즉시 생성합니다.",
+          );
+          return;
+        }
+      } catch {
+        if (!cancelled) {
+          setVideoAsset(null);
+          setAssetLookup({ postId, status: "error" });
+          setAssetStatusMessage(
+            "저장된 영상 자산을 불러오지 못했습니다. 필요한 구간은 즉시 생성합니다.",
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setIsAssetLoading(false);
+        }
+      }
+    }
+
+    void loadVideoAsset();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    applyVideoAsset,
+    currentPostId,
+    currentVideoId,
+    session.token,
+  ]);
+
+  useEffect(() => {
+    if (
+      !currentPostId ||
+      !videoAssetMatchesCurrentVideo ||
+      !isVideoAssetPreparing(videoAsset)
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    const postId = currentPostId;
+    const expectedTarget = { postId, videoId: currentVideoId };
+    const timeout = window.setTimeout(() => {
+      async function refreshVideoAsset() {
+        try {
+          const currentPostId = postId;
+          const asset = await fetchVideoAsset(currentPostId, session.token);
+
+          if (!cancelled) {
+            applyVideoAsset(asset, expectedTarget);
+          }
+        } catch {
+          if (!cancelled) {
+            setAssetStatusMessage(
+              "저장된 영상 자산 상태를 다시 확인하지 못했습니다.",
+            );
+          }
+        }
+      }
+
+      void refreshVideoAsset();
+    }, 5000);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+    };
+  }, [
+    applyVideoAsset,
+    currentPostId,
+    currentVideoId,
+    session.token,
+    videoAsset,
+    videoAssetMatchesCurrentVideo,
+  ]);
+
+  useEffect(() => {
+    if (!currentVideoId || !currentVideoUrl) {
+      return;
+    }
+
+    if (hasAssetSummaryDetails) {
+      setSummaryResponse(null);
+      setSummaryError("");
+      setIsSummaryLoading(false);
       return;
     }
 
@@ -4711,6 +4967,7 @@ function WatchPage({ session }: { session: Session }) {
     currentVideo,
     displayCaptionResponse,
     displayCaptionResponseMatchesVideo,
+    hasAssetSummaryDetails,
     isWaitingForSummaryCaptions,
   ]);
 
@@ -4864,32 +5121,62 @@ function WatchPage({ session }: { session: Session }) {
       return;
     }
 
+    if (shouldWaitForPreparedAsset) {
+      setIsCaptionLoading(false);
+      return;
+    }
+
+    const initialCaptionWindow = captionTranslationWindow(
+      0,
+      CAPTION_TRANSLATION_WINDOW_SECONDS,
+    );
+    const preparedCaptionResponse = assetCaptionResponseMatchesVideo
+      ? captionResponseFromVideoAsset(videoAsset)
+      : null;
+
+    if (
+      assetCaptionLanguageMatchesSelection &&
+      assetCaptionResponseMatchesVideo &&
+      videoAssetCoversRange(
+        videoAsset,
+        initialCaptionWindow.startSeconds,
+        initialCaptionWindow.endSeconds,
+      )
+    ) {
+      if (preparedCaptionResponse) {
+        setCaptionResponse(preparedCaptionResponse);
+        setTranslatedCaptionResponse(preparedCaptionResponse);
+        setCaptionError("");
+      }
+
+      setIsCaptionLoading(false);
+      return;
+    }
+
     let cancelled = false;
+    const videoId = currentVideoId;
+    const videoUrl = currentVideoUrl;
 
     async function loadCaptions() {
-      setCaptionResponse(null);
-      setTranslatedCaptionResponse(null);
+      setCaptionResponse(preparedCaptionResponse);
+      setTranslatedCaptionResponse(preparedCaptionResponse);
       setCaptionError("");
       setIsCaptionLoading(true);
       setCaptionRefreshAttempts(0);
       captionWindowRequestKeysRef.current.clear();
 
       try {
-        const initialCaptionWindow = captionTranslationWindow(
-          0,
-          CAPTION_TRANSLATION_WINDOW_SECONDS,
-        );
         captionWindowRequestKeysRef.current.add(
           captionTranslationRequestKey({
             captionLanguage,
-            videoId: currentVideo!.videoId,
+            videoId,
             window: initialCaptionWindow,
           }),
         );
 
         const response = await fetchTranslatedCaptions({
-          videoId: currentVideo!.videoId,
-          videoUrl: currentVideo!.videoUrl,
+          videoId,
+          videoUrl,
           targetLanguage: captionLanguage,
           allowFallback: false,
           translateFallback: false,
@@ -4907,7 +5194,10 @@ function WatchPage({ session }: { session: Session }) {
             })
           ) {
             setTranslatedCaptionResponse((current) =>
-              mergeTranslatedCaptionResponse(current, response),
+              mergeTranslatedCaptionResponse(
+                preparedCaptionResponse ?? current,
+                response,
+              ),
             );
           }
           setCaptionError("");
@@ -4928,13 +5218,23 @@ function WatchPage({ session }: { session: Session }) {
     return () => {
       cancelled = true;
     };
-  }, [captionLanguage, currentVideo]);
+  }, [
+    captionLanguage,
+    currentVideoId,
+    currentVideoUrl,
+    assetCaptionLanguageMatchesSelection,
+    assetCaptionResponseMatchesVideo,
+    shouldWaitForPreparedAsset,
+    videoAsset,
+  ]);
 
   useEffect(() => {
     if (
-      !currentVideo ||
+      !currentVideoId ||
+      !currentVideoUrl ||
       !captionsEnabled ||
-      !shouldRequestCaptionTranslationWindows
+      (!shouldRequestCaptionTranslationWindows &&
+        !shouldRequestPreparedAssetFallbackWindow)
     ) {
       return;
     }
@@ -4942,14 +5242,24 @@ function WatchPage({ session }: { session: Session }) {
     const captionWindows = captionTranslationPrefetchWindows(
       activeCaptionWindowStart,
       CAPTION_TRANSLATION_WINDOW_SECONDS,
-    ).filter((window) => {
+    ).filter((captionWindow) => {
       const requestKey = captionTranslationRequestKey({
         captionLanguage,
-        videoId: currentVideo.videoId,
-        window,
+        videoId: currentVideoId,
+        window: captionWindow,
       });
 
-      return !captionWindowRequestKeysRef.current.has(requestKey);
+      return (
+        !captionWindowRequestKeysRef.current.has(requestKey) &&
+        !(
+          assetCaptionLanguageMatchesSelection &&
+          videoAssetCoversRange(
+            videoAsset,
+            captionWindow.startSeconds,
+            captionWindow.endSeconds,
+          )
+        )
+      );
     });
 
     if (captionWindows.length === 0) {
@@ -4960,7 +5270,7 @@ function WatchPage({ session }: { session: Session }) {
       captionWindowRequestKeysRef.current.add(
         captionTranslationRequestKey({
           captionLanguage,
-          videoId: currentVideo.videoId,
+          videoId: currentVideoId,
           window: captionWindow,
         }),
       );
@@ -4968,20 +5278,22 @@ function WatchPage({ session }: { session: Session }) {
 
     setCaptionRefreshAttempts(0);
     let cancelled = false;
+    const videoId = currentVideoId;
+    const videoUrl = currentVideoUrl;
 
     async function loadCaptionWindow(
       captionWindow: ReturnType<typeof captionTranslationWindow>,
     ) {
       const requestKey = captionTranslationRequestKey({
         captionLanguage,
-        videoId: currentVideo!.videoId,
+        videoId,
         window: captionWindow,
       });
 
       try {
         const response = await fetchTranslatedCaptions({
-          videoId: currentVideo!.videoId,
-          videoUrl: currentVideo!.videoUrl,
+          videoId,
+          videoUrl,
           targetLanguage: captionLanguage,
           allowFallback: false,
           translateFallback: false,
@@ -5029,15 +5341,20 @@ function WatchPage({ session }: { session: Session }) {
     };
   }, [
     activeCaptionWindowStart,
+    assetCaptionLanguageMatchesSelection,
     captionLanguage,
     captionsEnabled,
-    currentVideo,
+    currentVideoId,
+    currentVideoUrl,
+    shouldRequestPreparedAssetFallbackWindow,
     shouldRequestCaptionTranslationWindows,
+    videoAsset,
   ]);
 
   useEffect(() => {
     if (
-      !currentVideo ||
+      !currentVideoId ||
+      !currentVideoUrl ||
       !captionResponseMatchesVideo ||
       captionResponse?.provider !== "youtube-source-captions" ||
       captionResponse.language !== captionLanguage ||
@@ -5047,6 +5364,8 @@ function WatchPage({ session }: { session: Session }) {
     }
 
     let cancelled = false;
+    const videoId = currentVideoId;
+    const videoUrl = currentVideoUrl;
     const translationPollDelay = sourceCaptionTranslationPollDelay(
       captionRefreshAttempts,
     );
@@ -5054,12 +5373,24 @@ function WatchPage({ session }: { session: Session }) {
       activeCaptionWindowStart,
       CAPTION_TRANSLATION_WINDOW_SECONDS,
     );
+
+    if (
+      assetCaptionLanguageMatchesSelection &&
+      videoAssetCoversRange(
+        videoAsset,
+        captionWindow.startSeconds,
+        captionWindow.endSeconds,
+      )
+    ) {
+      return;
+    }
+
     const timeout = window.setTimeout(() => {
       async function refreshTranslatedCaptions() {
         try {
           const response = await fetchTranslatedCaptions({
-            videoId: currentVideo.videoId,
-            videoUrl: currentVideo.videoUrl,
+            videoId,
+            videoUrl,
             targetLanguage: captionLanguage,
             allowFallback: false,
             translateFallback: false,
@@ -5077,7 +5408,9 @@ function WatchPage({ session }: { session: Session }) {
                 response,
               })
             ) {
-              setTranslatedCaptionResponse(response);
+              setTranslatedCaptionResponse((current) =>
+                mergeTranslatedCaptionResponse(current, response),
+              );
             }
             setCaptionError("");
           }
@@ -5097,11 +5430,14 @@ function WatchPage({ session }: { session: Session }) {
     };
   }, [
     activeCaptionWindowStart,
+    assetCaptionLanguageMatchesSelection,
     captionLanguage,
     captionRefreshAttempts,
     captionResponse,
     captionResponseMatchesVideo,
-    currentVideo,
+    currentVideoId,
+    currentVideoUrl,
+    videoAsset,
   ]);
 
   useEffect(() => {
@@ -5142,6 +5478,48 @@ function WatchPage({ session }: { session: Session }) {
     learning.loop.end,
     learning.loop.start,
   ]);
+
+  async function retryVideoAssetPreparation() {
+    if (!currentPostId || !currentVideoId) {
+      return;
+    }
+
+    const retryTarget = {
+      postId: currentPostId,
+      videoId: currentVideoId,
+    };
+
+    setIsAssetRetrying(true);
+    setIsAssetLoading(true);
+    setAssetLookup({ postId: retryTarget.postId, status: "loading" });
+    setAssetStatusMessage("저장된 영상 자산을 다시 준비하는 중입니다.");
+
+    try {
+      const asset = await prepareVideoAsset(retryTarget.postId, session.token);
+
+      if (!isCurrentAssetTarget(retryTarget)) {
+        return;
+      }
+
+      if (!applyVideoAsset(asset, retryTarget)) {
+        setAssetLookup({ postId: retryTarget.postId, status: "ready" });
+        setAssetStatusMessage(
+          "저장된 영상 자산이 현재 영상과 일치하지 않아 필요한 구간은 즉시 생성합니다.",
+        );
+        return;
+      }
+    } catch {
+      if (isCurrentAssetTarget(retryTarget)) {
+        setAssetLookup({ postId: retryTarget.postId, status: "error" });
+        setAssetStatusMessage("저장된 영상 자산을 다시 준비하지 못했습니다.");
+      }
+    } finally {
+      if (isCurrentAssetTarget(retryTarget)) {
+        setIsAssetRetrying(false);
+        setIsAssetLoading(false);
+      }
+    }
+  }
 
   function selectVideo(video: QueueVideo) {
     setCurrentTime(0);
@@ -5384,12 +5762,16 @@ function WatchPage({ session }: { session: Session }) {
     );
   }
 
-  const summaryDetails = summaryResponseMatchesVideo
-    ? summaryResponse!.sections
-    : buildVideoSummaryDetails(currentVideo);
+  const summaryDetails = hasAssetSummaryDetails
+    ? assetSummaryDetails
+    : summaryResponseMatchesVideo
+      ? summaryResponse!.sections
+      : buildVideoSummaryDetails(currentVideo);
   const summaryBadge = isSummaryBusy
     ? "생성 중"
-    : summaryResponseMatchesVideo
+    : hasAssetSummaryDetails
+      ? `${summaryDetails.length}개 저장 요약`
+      : summaryResponseMatchesVideo
       ? `${summaryDetails.length}개 AI 포인트`
       : summaryError || "저장 요약";
 
@@ -5441,6 +5823,18 @@ function WatchPage({ session }: { session: Session }) {
               <div className="watch-caption-meta">
                 <small>{currentVideo.channelName}</small>
                 <span>{captionStatus}</span>
+                {assetStatusMessage && <span>{assetStatusMessage}</span>}
+                {videoAssetMatchesCurrentVideo &&
+                  videoAsset?.status === "failed" &&
+                  currentPostId && (
+                    <button
+                      type="button"
+                      onClick={() => void retryVideoAssetPreparation()}
+                      disabled={isAssetRetrying || isAssetLoading}
+                    >
+                      {isAssetRetrying ? "다시 준비 중" : "영상 자산 다시 준비"}
+                    </button>
+                  )}
               </div>
             </div>
             <h1>{currentVideo.title}</h1>

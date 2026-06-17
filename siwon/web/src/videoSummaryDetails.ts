@@ -1,7 +1,8 @@
-import type { VideoSummaryResponse } from "./types.ts";
+import type { VideoAsset, VideoSummaryResponse } from "./types.ts";
 import type { QueueVideo } from "./watchQueue.ts";
 
 const MIN_SUMMARY_TIMESTAMP_INTERVAL_SECONDS = 60;
+const FULL_TRANSCRIPT_LABEL = "전체 스크립트 전사문";
 
 export function formatVideoSummarySections(
   sections: VideoSummaryResponse["sections"],
@@ -58,6 +59,30 @@ export function buildVideoSummaryDetails(video: QueueVideo) {
   }
 
   return details.slice(0, 12);
+}
+
+export function buildVideoSummaryDetailsFromAsset(asset: VideoAsset) {
+  const details = asset.summarySections
+    .map((section) => ({
+      label: section.label.trim(),
+      body: section.body.trim(),
+    }))
+    .filter((section) => section.label && section.body);
+  const transcriptBody = asset.transcriptBody.trim();
+  const hasTranscriptSection = details.some(
+    (section) =>
+      section.label === FULL_TRANSCRIPT_LABEL ||
+      section.body === transcriptBody,
+  );
+
+  if (transcriptBody && !hasTranscriptSection) {
+    details.push({
+      label: FULL_TRANSCRIPT_LABEL,
+      body: transcriptBody,
+    });
+  }
+
+  return details;
 }
 
 export function formatTime(totalSeconds: number) {

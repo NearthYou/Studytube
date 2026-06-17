@@ -146,6 +146,43 @@ export function videoAssetCoversTime(
   );
 }
 
+export function videoAssetCoversRange(
+  asset: Pick<VideoAsset, 'translatedSegments'> | null | undefined,
+  startSeconds: number,
+  endSeconds: number,
+  options: { maxGapSeconds?: number } = {},
+) {
+  if (!asset || endSeconds <= startSeconds) {
+    return false;
+  }
+
+  const maxGapSeconds = options.maxGapSeconds ?? 1;
+  const overlappingSegments = asset.translatedSegments
+    .filter(
+      (segment) => segment.end > startSeconds && segment.start < endSeconds,
+    )
+    .sort((left, right) => left.start - right.start || left.end - right.end);
+  let coveredUntil = startSeconds;
+
+  for (const segment of overlappingSegments) {
+    if (segment.end <= coveredUntil) {
+      continue;
+    }
+
+    if (segment.start > coveredUntil + maxGapSeconds) {
+      return false;
+    }
+
+    coveredUntil = Math.max(coveredUntil, segment.end);
+
+    if (coveredUntil >= endSeconds) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 export type NativeYouTubeCaptionPlayer = {
   loadModule?: (module: string) => void;
   unloadModule?: (module: string) => void;
@@ -405,9 +442,12 @@ export function mergeTranslatedCaptionResponse(
 
   if (
     !current ||
-    current.provider !== 'openai-caption-translation' ||
     current.videoId !== next.videoId ||
-    current.language !== next.language
+    current.language !== next.language ||
+    !current.translated ||
+    !['openai-caption-translation', 'prepared-video-asset'].includes(
+      current.provider,
+    )
   ) {
     return next;
   }

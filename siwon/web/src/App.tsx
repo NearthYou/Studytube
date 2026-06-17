@@ -4530,6 +4530,7 @@ function WatchPage({ session }: { session: Session }) {
     Boolean(currentVideo) &&
     captionResponseMatchesVideo &&
     (captionResponse?.provider === "youtube-native-captions" ||
+      captionResponse?.provider === "youtube-caption-rate-limited" ||
       sourceCaptionTranslationPending) &&
     shouldUseNativeYouTubeCaptions({
       captionsEnabled,

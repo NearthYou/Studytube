@@ -37,3 +37,10 @@ test('translated captions are loaded through playback windows instead of the who
     /fetchTranslatedCaptions\(\{\s*videoId:[\s\S]*?durationSeconds: DEFAULT_CAPTION_DURATION_SECONDS,\s*\}\)/,
   );
 });
+
+test('watch page treats rate-limited caption responses as native YouTube fallback', () => {
+  assert.match(
+    appSource,
+    /captionResponse\?\.provider === "youtube-caption-rate-limited"/,
+  );
+});

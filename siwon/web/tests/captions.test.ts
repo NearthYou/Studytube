@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   CAPTION_TRANSLATION_WINDOW_SECONDS,
-  captionResponseFromVideoAsset,
   captionTranslationRequestKey,
   captionTranslationPrefetchWindows,
   captionTranslationWindow,
@@ -16,127 +15,8 @@ import {
   shouldUseNativeYouTubeCaptions,
   sourceCaptionTranslationPollDelay,
   syncNativeYouTubeCaptions,
-  videoAssetCoversRange,
-  videoAssetCoversTime,
-  videoAssetNeedsNativeCaptionFallback,
   youtubeCaptionPlayerVars,
 } from '../src/captions.ts';
-import type { VideoAsset } from '../src/types.ts';
-
-const readyVideoAsset = (overrides: Partial<VideoAsset> = {}): VideoAsset => ({
-  id: 7,
-  postId: 11,
-  videoId: 'prepared123',
-  videoUrl: 'https://www.youtube.com/watch?v=prepared123',
-  language: 'ko',
-  sourceLanguage: 'en',
-  status: 'ready',
-  sourceCaptionStatus: 'ready',
-  translationStatus: 'ready',
-  summaryStatus: 'ready',
-  sourceSegments: [{ start: 0, end: 4, text: 'Hello learners' }],
-  translatedSegments: [{ start: 0, end: 4, text: '안녕하세요' }],
-  summarySections: [{ label: 'Intro', body: 'A short lesson intro.' }],
-  transcriptBody: 'Hello learners',
-  errorMessage: '',
-  updatedAt: '2026-06-17T00:00:00.000Z',
-  ...overrides,
-});
-
-test('builds a caption response from a ready prepared video asset', () => {
-  const response = captionResponseFromVideoAsset(readyVideoAsset());
-
-  assert.deepEqual(response, {
-    mode: 'youtube-captions',
-    provider: 'prepared-video-asset',
-    videoId: 'prepared123',
-    language: 'ko',
-    sourceLanguage: 'en',
-    translated: true,
-    segments: [{ start: 0, end: 4, text: '안녕하세요' }],
-    message: 'Prepared video asset captions loaded.',
-  });
-});
-
-test('accepts partial prepared video assets with translated segments', () => {
-  const response = captionResponseFromVideoAsset(
-    readyVideoAsset({
-      status: 'partial',
-      translationStatus: 'partial',
-      translatedSegments: [{ start: 3, end: 8, text: '부분 번역' }],
-    }),
-  );
-
-  assert.equal(response?.provider, 'prepared-video-asset');
-  assert.equal(response?.segments[0]?.text, '부분 번역');
-});
-
-test('does not build prepared caption responses without translated segments', () => {
-  const response = captionResponseFromVideoAsset(
-    readyVideoAsset({ translatedSegments: [] }),
-  );
-
-  assert.equal(response, null);
-});
-
-test('uses native YouTube captions for partial assets without translated segments', () => {
-  assert.equal(
-    videoAssetNeedsNativeCaptionFallback(
-      readyVideoAsset({
-        status: 'partial',
-        sourceLanguage: 'youtube',
-        sourceCaptionStatus: 'partial',
-        translationStatus: 'partial',
-        summaryStatus: 'partial',
-        sourceSegments: [],
-        translatedSegments: [],
-      }),
-    ),
-    true,
-  );
-});
-
-test('checks whether prepared translated captions cover playback time', () => {
-  const asset = readyVideoAsset({
-    translatedSegments: [
-      { start: 1, end: 3, text: 'first' },
-      { start: 5, end: 7, text: 'second' },
-    ],
-  });
-
-  assert.equal(videoAssetCoversTime(asset, 1), true);
-  assert.equal(videoAssetCoversTime(asset, 2.5), true);
-  assert.equal(videoAssetCoversTime(asset, 3), false);
-  assert.equal(videoAssetCoversTime(asset, 4.99), false);
-  assert.equal(videoAssetCoversTime(asset, 5), true);
-  assert.equal(videoAssetCoversTime(asset, 7), false);
-});
-
-test('checks whether prepared translated captions cover a caption range', () => {
-  const asset = readyVideoAsset({
-    translatedSegments: [
-      { start: 0, end: 20, text: 'first' },
-      { start: 20.5, end: 40, text: 'second' },
-      { start: 40.75, end: 60, text: 'third' },
-    ],
-  });
-
-  assert.equal(videoAssetCoversRange(asset, 0, 60), true);
-  assert.equal(videoAssetCoversRange(asset, 10, 50), true);
-  assert.equal(videoAssetCoversRange(asset, 0, 60, { maxGapSeconds: 0.25 }), false);
-  assert.equal(videoAssetCoversRange(asset, 0, 61), false);
-});
-
-test('does not treat sparse prepared translated captions as covering a full range', () => {
-  const asset = readyVideoAsset({
-    translatedSegments: [
-      { start: 0, end: 3, text: 'intro' },
-      { start: 58, end: 60, text: 'outro' },
-    ],
-  });
-
-  assert.equal(videoAssetCoversRange(asset, 0, 60), false);
-});
 
 test('keeps the final caption visible through the end of the video', () => {
   const caption = selectActiveCaption({
@@ -342,35 +222,6 @@ test('merges translated caption windows without adding source captions', () => {
   assert.deepEqual(
     sourceIgnored.segments.map((segment) => segment.text),
     ['첫 구간', '두 번째 구간', '세 번째 구간'],
-  );
-});
-
-test('merges fallback translated windows with prepared asset captions', () => {
-  const preparedResponse = captionResponseFromVideoAsset(
-    readyVideoAsset({
-      translatedSegments: [{ start: 0, end: 4, text: 'prepared intro' }],
-    }),
-  );
-  const fallbackWindow = {
-    mode: 'youtube-captions',
-    provider: 'openai-caption-translation',
-    videoId: 'prepared123',
-    language: 'ko',
-    sourceLanguage: 'en',
-    translated: true,
-    segments: [{ start: 60, end: 64, text: 'fallback window' }],
-    message: 'translated',
-  } as const;
-
-  const merged = mergeTranslatedCaptionResponse(
-    preparedResponse,
-    fallbackWindow,
-  );
-
-  assert.equal(merged.provider, 'openai-caption-translation');
-  assert.deepEqual(
-    merged.segments.map((segment) => segment.text),
-    ['prepared intro', 'fallback window'],
   );
 });
 

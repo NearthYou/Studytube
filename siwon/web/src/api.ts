@@ -10,7 +10,6 @@ import type {
   Session,
   StudyPost,
   User,
-  VideoAsset,
   VideoSummaryResponse,
 } from "./types";
 
@@ -74,10 +73,6 @@ export class ApiRequestError extends Error {
 
 export function isUnauthorizedRequest(error: unknown) {
   return error instanceof ApiRequestError && error.status === 401;
-}
-
-export function isNotFoundRequest(error: unknown) {
-  return error instanceof ApiRequestError && error.status === 404;
 }
 
 export async function requestJson<T>(
@@ -252,24 +247,6 @@ export function deletePost(token: string, id: number) {
   return requestJson<{ deleted: boolean }>(
     `/posts/${id}`,
     { method: "DELETE" },
-    token,
-  );
-}
-
-export function fetchVideoAsset(
-  postId: number,
-  token?: string,
-): Promise<VideoAsset> {
-  return requestJson<VideoAsset>(`/posts/${postId}/video-asset`, {}, token);
-}
-
-export function prepareVideoAsset(
-  postId: number,
-  token?: string,
-): Promise<VideoAsset> {
-  return requestJson<VideoAsset>(
-    `/posts/${postId}/video-asset/prepare`,
-    { method: "POST" },
     token,
   );
 }

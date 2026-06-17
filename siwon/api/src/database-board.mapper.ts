@@ -5,13 +5,6 @@ import type {
   PlaylistFeedback,
   User,
 } from './study-board.types';
-import type {
-  VideoAsset,
-  VideoAssetSegment,
-  VideoAssetStatus,
-  VideoAssetStepStatus,
-  VideoAssetSummarySection,
-} from './video-asset.types';
 
 export type UserRow = {
   id: number;
@@ -32,26 +25,6 @@ export type PostRow = {
   channelName: string;
   summary: string;
   translatedNotes: string;
-  createdAt: Date | string;
-  updatedAt: Date | string;
-};
-
-export type VideoAssetRow = {
-  id: number;
-  postId: number;
-  videoId: string;
-  videoUrl: string;
-  language: string;
-  sourceLanguage: string;
-  status: VideoAssetStatus;
-  sourceCaptionStatus: VideoAssetStepStatus;
-  translationStatus: VideoAssetStepStatus;
-  summaryStatus: VideoAssetStepStatus;
-  sourceSegments: unknown;
-  translatedSegments: unknown;
-  summarySections: unknown;
-  transcriptBody: string | null;
-  errorMessage: string | null;
   createdAt: Date | string;
   updatedAt: Date | string;
 };
@@ -125,28 +98,6 @@ export function normalizeFeedback(
   };
 }
 
-export function normalizeVideoAsset(row: VideoAssetRow): VideoAsset {
-  return {
-    id: row.id,
-    postId: row.postId,
-    videoId: row.videoId,
-    videoUrl: row.videoUrl,
-    language: row.language,
-    sourceLanguage: row.sourceLanguage,
-    status: row.status,
-    sourceCaptionStatus: row.sourceCaptionStatus,
-    translationStatus: row.translationStatus,
-    summaryStatus: row.summaryStatus,
-    sourceSegments: normalizeVideoAssetSegments(row.sourceSegments),
-    translatedSegments: normalizeVideoAssetSegments(row.translatedSegments),
-    summarySections: normalizeVideoAssetSummarySections(row.summarySections),
-    transcriptBody: row.transcriptBody ?? '',
-    errorMessage: row.errorMessage ?? '',
-    createdAt: iso(row.createdAt),
-    updatedAt: iso(row.updatedAt),
-  };
-}
-
 export function normalizeTagNames(tags: string[]): string[] {
   return [
     ...new Set(tags.map((tag) => tag.trim().toLowerCase()).filter(Boolean)),
@@ -155,43 +106,4 @@ export function normalizeTagNames(tags: string[]): string[] {
 
 export function iso(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : value;
-}
-
-function normalizeVideoAssetSegments(value: unknown): VideoAssetSegment[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value.filter(isVideoAssetSegment);
-}
-
-function normalizeVideoAssetSummarySections(
-  value: unknown,
-): VideoAssetSummarySection[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value.filter(isVideoAssetSummarySection);
-}
-
-function isVideoAssetSegment(value: unknown): value is VideoAssetSegment {
-  return (
-    !!value &&
-    typeof value === 'object' &&
-    typeof (value as Partial<VideoAssetSegment>).start === 'number' &&
-    typeof (value as Partial<VideoAssetSegment>).end === 'number' &&
-    typeof (value as Partial<VideoAssetSegment>).text === 'string'
-  );
-}
-
-function isVideoAssetSummarySection(
-  value: unknown,
-): value is VideoAssetSummarySection {
-  return (
-    !!value &&
-    typeof value === 'object' &&
-    typeof (value as Partial<VideoAssetSummarySection>).label === 'string' &&
-    typeof (value as Partial<VideoAssetSummarySection>).body === 'string'
-  );
 }

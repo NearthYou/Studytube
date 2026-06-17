@@ -8,8 +8,6 @@ import { AppService } from './app.service';
 import { DatabaseService } from './database.service';
 import { StudyBoardController } from './study-board.controller';
 import { StudyBoardService } from './study-board.service';
-import { VideoAssetController } from './video-asset.controller';
-import { VideoAssetService } from './video-asset.service';
 
 @Module({
   imports: [
@@ -19,31 +17,16 @@ import { VideoAssetService } from './video-asset.service';
     }),
     HttpModule,
   ],
-  controllers: [
-    AppController,
-    StudyBoardController,
-    AiController,
-    VideoAssetController,
-  ],
+  controllers: [AppController, StudyBoardController, AiController],
   providers: [
     AppService,
     DatabaseService,
     AiProxyService,
     {
-      provide: VideoAssetService,
-      useFactory: (
-        databaseService: DatabaseService,
-        aiProxyService: AiProxyService,
-      ) => new VideoAssetService(databaseService, aiProxyService),
-      inject: [DatabaseService, AiProxyService],
-    },
-    {
       provide: StudyBoardService,
-      useFactory: (
-        databaseService: DatabaseService,
-        videoAssetService: VideoAssetService,
-      ) => new StudyBoardService(databaseService, videoAssetService),
-      inject: [DatabaseService, VideoAssetService],
+      useFactory: (databaseService: DatabaseService) =>
+        new StudyBoardService(databaseService),
+      inject: [DatabaseService],
     },
   ],
 })

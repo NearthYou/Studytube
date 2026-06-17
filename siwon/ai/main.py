@@ -91,8 +91,6 @@ CAPTION_TRANSLATION_TARGET_SEGMENTS = 720
 CAPTION_TRANSLATION_INLINE_MAX_SEGMENTS = 96
 CAPTION_TRANSLATION_MAX_WINDOW_SECONDS = 240
 CAPTION_TRANSLATION_REQUEST_TIMEOUT_SECONDS = 45
-AUDIO_TRANSCRIPTION_DEFAULT_WINDOW_SECONDS = 90
-AUDIO_TRANSCRIPTION_DOWNLOAD_TIMEOUT_SECONDS = 90
 CAPTION_CACHE_POLICY_VERSION = "translation-window-v3"
 CAPTION_RESPONSE_CACHE_TTL_SECONDS = 10 * 60
 CAPTION_RESPONSE_CACHE_MAX_SIZE = 64
@@ -662,49 +660,27 @@ def load_translated_captions_uncached(
                     caption_window=caption_window,
                 )
 
-            audio_segments, audio_source_language, audio_translated, audio_error = (
-                fetch_audio_transcript_caption_segments(
-                    video_id,
-                    target_language,
-                    caption_window,
-                )
-                if audio_transcription_fallback_enabled()
-                else ([], "", False, None)
-            )
-
-            if audio_segments:
-                return audio_transcript_caption_response(
-                    video_id,
-                    target_language,
-                    audio_source_language,
-                    audio_translated,
-                    audio_segments,
-                )
-
             rate_limit_error = preferred_caption_error(
                 track_fetch_error,
                 _yt_dlp_error,
-                audio_error,
             )
             if is_youtube_caption_rate_limited(rate_limit_error):
                 rate_limit_source = (
                     "youtube-track-fetch-rate-limited"
                     if rate_limit_error is track_fetch_error
-                    else "audio-transcript-rate-limited"
-                    if rate_limit_error is audio_error
                     else "yt-dlp-caption-rate-limited"
                 )
                 return caption_rate_limited_response(
                     video_id,
                     target_language,
-                    audio_source_language or yt_dlp_source_language or "youtube",
+                    yt_dlp_source_language or "youtube",
                     f"{rate_limit_source}: {rate_limit_error}",
                 )
 
             return native_caption_response(
                 video_id,
                 target_language,
-                audio_source_language or yt_dlp_source_language or "youtube",
+                yt_dlp_source_language or "youtube",
                 "youtube-caption-track-unavailable",
             )
 
@@ -809,26 +785,7 @@ def load_translated_captions_uncached(
                     caption_window=caption_window,
                 )
 
-            audio_segments, audio_source_language, audio_translated, audio_error = (
-                fetch_audio_transcript_caption_segments(
-                    video_id,
-                    target_language,
-                    caption_window,
-                )
-                if audio_transcription_fallback_enabled()
-                else ([], "", False, None)
-            )
-
-            if audio_segments:
-                return audio_transcript_caption_response(
-                    video_id,
-                    target_language,
-                    audio_source_language,
-                    audio_translated,
-                    audio_segments,
-                )
-
-            last_error = preferred_caption_error(last_error, yt_dlp_error, audio_error)
+            last_error = preferred_caption_error(last_error, yt_dlp_error)
 
         if not segments and is_youtube_caption_rate_limited(last_error):
             return caption_rate_limited_response(
@@ -2041,22 +1998,7 @@ def fetch_yt_dlp_caption_segments(
     metadata, metadata_error = fetch_yt_dlp_metadata(video_id)
 
     if not metadata:
-        fallback_language = yt_dlp_caption_file_fallback_language(
-            target_language,
-            prefer_source_captions=can_translate_captions_with_openai(),
-        )
-        file_segments, file_language, file_translated, file_error = (
-            fetch_yt_dlp_caption_file_segments(
-                video_id,
-                fallback_language,
-                target_language,
-            )
-        )
-
-        if file_segments:
-            return file_segments, file_language, file_translated, None
-
-        return [], "", False, file_error or metadata_error
+        return [], "", False, metadata_error
 
     prefer_source_captions = can_translate_captions_with_openai()
     candidate = choose_yt_dlp_caption_candidate(
@@ -2066,24 +2008,7 @@ def fetch_yt_dlp_caption_segments(
     )
 
     if not candidate:
-        fallback_language = yt_dlp_caption_file_fallback_language(
-            target_language,
-            prefer_source_captions=prefer_source_captions,
-        )
-        file_segments, file_language, file_translated, file_error = (
-            fetch_yt_dlp_caption_file_segments(
-                video_id,
-                fallback_language,
-                target_language,
-            )
-        )
-
-        if file_segments:
-            return file_segments, file_language, file_translated, None
-
-        return [], "", False, file_error or RuntimeError(
-            "yt-dlp-caption-track-unavailable"
-        )
+        return [], "", False, RuntimeError("yt-dlp-caption-track-unavailable")
 
     segments, segment_error = fetch_caption_segments_from_urls(
         [candidate["url"]],
@@ -2113,18 +2038,6 @@ def fetch_yt_dlp_caption_segments(
         bool(candidate["translated"]),
         segment_error,
     )
-
-
-def yt_dlp_caption_file_fallback_language(
-    target_language: str,
-    prefer_source_captions: bool,
-) -> str:
-    normalized_target = normalize_language(target_language) or "en"
-
-    if prefer_source_captions and normalized_target != "en":
-        return "en"
-
-    return normalized_target
 
 
 def fetch_yt_dlp_metadata(video_id: str) -> tuple[dict[str, Any] | None, Exception | None]:
@@ -2232,260 +2145,6 @@ def fetch_yt_dlp_caption_file_segments(
                     last_error = exc
 
     return [], "", False, last_error or RuntimeError("yt-dlp subtitle download failed")
-
-
-def fetch_audio_transcript_caption_segments(
-    video_id: str,
-    target_language: str,
-    caption_window: tuple[float, float] | None = None,
-) -> tuple[list[dict[str, Any]], str, bool, Exception | None]:
-    if OpenAI is None or not os.getenv("OPENAI_API_KEY"):
-        return [], "", False, RuntimeError("openai-transcription-unavailable")
-
-    window = audio_transcription_window(caption_window)
-    last_error: Exception | None = None
-    url = f"https://www.youtube.com/watch?v={video_id}"
-
-    with tempfile.TemporaryDirectory(prefix="studytube-audio-") as temp_dir:
-        temp_path = Path(temp_dir)
-        output_template = str(temp_path / "%(id)s.%(ext)s")
-
-        for command in yt_dlp_commands():
-            try:
-                result = subprocess.run(
-                    [
-                        *command,
-                        *yt_dlp_recovery_args(),
-                        *ffmpeg_location_args(),
-                        "-f",
-                        "bestaudio/best",
-                        "--download-sections",
-                        ytdlp_download_section(window),
-                        "--force-keyframes-at-cuts",
-                        "--extract-audio",
-                        "--audio-format",
-                        "mp3",
-                        "--audio-quality",
-                        "5",
-                        "--no-warnings",
-                        "--no-playlist",
-                        "-o",
-                        output_template,
-                        url,
-                    ],
-                    capture_output=True,
-                    check=False,
-                    text=True,
-                    timeout=AUDIO_TRANSCRIPTION_DOWNLOAD_TIMEOUT_SECONDS,
-                )
-
-                if result.returncode != 0:
-                    last_error = RuntimeError(
-                        result.stderr.strip() or "yt-dlp audio download failed"
-                    )
-                    continue
-
-                audio_file = best_downloaded_audio_file(temp_path)
-                if audio_file is None:
-                    last_error = RuntimeError("yt-dlp audio file unavailable")
-                    continue
-
-                segments, source_language, transcript_error = transcribe_audio_file(
-                    audio_file,
-                    window[0],
-                )
-                if transcript_error is not None:
-                    last_error = transcript_error
-                    continue
-
-                normalized_segments = normalize_caption_segments(segments)
-                if not normalized_segments:
-                    last_error = RuntimeError("audio transcript segments empty")
-                    continue
-
-                source_language = normalized_audio_language(source_language)
-                if not source_language and caption_segments_match_language(
-                    normalized_segments,
-                    target_language,
-                ):
-                    source_language = target_language
-
-                if not caption_segments_match_language(
-                    normalized_segments,
-                    target_language,
-                ):
-                    translated_segments = translate_caption_segments(
-                        normalized_segments,
-                        target_language,
-                    )
-                    if translated_segments:
-                        return (
-                            translated_segments,
-                            source_language or "audio",
-                            True,
-                            None,
-                        )
-
-                    last_error = RuntimeError("audio transcript translation unavailable")
-                    continue
-
-                return normalized_segments, source_language or target_language, False, None
-            except Exception as exc:
-                last_error = exc
-
-    return [], "", False, last_error or RuntimeError("audio transcription failed")
-
-
-def audio_transcription_fallback_enabled() -> bool:
-    return truthy_env("YOUTUBE_AUDIO_TRANSCRIPTION_FALLBACK")
-
-
-def audio_transcription_window(
-    caption_window: tuple[float, float] | None,
-) -> tuple[float, float]:
-    if caption_window is None:
-        return 0.0, float(AUDIO_TRANSCRIPTION_DEFAULT_WINDOW_SECONDS)
-
-    start_seconds, end_seconds = caption_window
-    start_seconds = max(0.0, float(start_seconds))
-    end_seconds = max(start_seconds + 1.0, float(end_seconds))
-
-    if end_seconds - start_seconds > CAPTION_TRANSLATION_MAX_WINDOW_SECONDS:
-        end_seconds = start_seconds + CAPTION_TRANSLATION_MAX_WINDOW_SECONDS
-
-    return round(start_seconds, 3), round(end_seconds, 3)
-
-
-def ytdlp_download_section(window: tuple[float, float]) -> str:
-    return f"*{ytdlp_section_timestamp(window[0])}-{ytdlp_section_timestamp(window[1])}"
-
-
-def ytdlp_section_timestamp(seconds: float) -> str:
-    total_milliseconds = max(0, int(round(seconds * 1000)))
-    milliseconds = total_milliseconds % 1000
-    total_seconds = total_milliseconds // 1000
-    hours = total_seconds // 3600
-    minutes = (total_seconds % 3600) // 60
-    secs = total_seconds % 60
-
-    if milliseconds:
-        return f"{hours:02d}:{minutes:02d}:{secs:02d}.{milliseconds:03d}"
-
-    return f"{hours:02d}:{minutes:02d}:{secs:02d}"
-
-
-def best_downloaded_audio_file(temp_path: Path) -> Path | None:
-    candidates = [
-        path
-        for path in temp_path.iterdir()
-        if path.is_file()
-        and path.suffix.lower() in {".mp3", ".m4a", ".webm", ".opus", ".wav"}
-        and not path.name.endswith(".part")
-    ]
-
-    if not candidates:
-        return None
-
-    return max(candidates, key=lambda path: path.stat().st_size)
-
-
-def transcribe_audio_file(
-    audio_file: Path,
-    offset_seconds: float,
-) -> tuple[list[dict[str, Any]], str, Exception | None]:
-    try:  # pragma: no cover - live credentials are optional in local tests
-        client = OpenAI()
-        model = os.getenv(
-            "OPENAI_TRANSCRIPTION_MODEL",
-            os.getenv("TRANSCRIPTION_MODEL", "whisper-1"),
-        )
-
-        with audio_file.open("rb") as file_handle:
-            try:
-                response = client.audio.transcriptions.create(
-                    model=model,
-                    file=file_handle,
-                    response_format="verbose_json",
-                    timestamp_granularities=["segment"],
-                    temperature=0,
-                )
-            except TypeError:
-                file_handle.seek(0)
-                response = client.audio.transcriptions.create(
-                    model=model,
-                    file=file_handle,
-                    response_format="verbose_json",
-                    temperature=0,
-                )
-
-        segments = parse_audio_transcription_response(response, offset_seconds)
-        language = normalized_audio_language(read_transcription_field(response, "language"))
-
-        return segments, language, None
-    except Exception as exc:
-        return [], "", sanitized_caption_exception(exc)
-
-
-def parse_audio_transcription_response(
-    response: Any,
-    offset_seconds: float,
-) -> list[dict[str, Any]]:
-    raw_segments = read_transcription_field(response, "segments") or []
-    segments: list[dict[str, Any]] = []
-
-    for raw_segment in raw_segments:
-        text = clean_caption_text(read_transcription_field(raw_segment, "text"))
-        if not text:
-            continue
-
-        try:
-            start = float(read_transcription_field(raw_segment, "start") or 0)
-            end = float(read_transcription_field(raw_segment, "end") or start + 3)
-        except (TypeError, ValueError):
-            continue
-
-        segments.append(
-            {
-                "start": round(offset_seconds + start, 3),
-                "end": round(offset_seconds + max(end, start + 0.5), 3),
-                "text": text,
-            }
-        )
-
-    if not segments:
-        text = clean_caption_text(read_transcription_field(response, "text"))
-        if text:
-            segments.append(
-                {
-                    "start": round(offset_seconds, 3),
-                    "end": round(
-                        offset_seconds + AUDIO_TRANSCRIPTION_DEFAULT_WINDOW_SECONDS,
-                        3,
-                    ),
-                    "text": text,
-                }
-            )
-
-    return normalize_caption_segments(segments)
-
-
-def read_transcription_field(value: Any, name: str) -> Any:
-    if isinstance(value, dict):
-        return value.get(name)
-
-    return getattr(value, name, None)
-
-
-def normalized_audio_language(value: Any) -> str:
-    language = normalize_language(value)
-    aliases = {
-        "korean": "ko",
-        "english": "en",
-        "japanese": "ja",
-        "chinese": "zh",
-    }
-
-    return aliases.get(language, language)
 
 
 def yt_dlp_subtitle_language_attempts(target_language: str) -> list[str]:
@@ -2641,44 +2300,7 @@ def youtube_httpx_request_kwargs(**kwargs: Any) -> dict[str, Any]:
     if proxy_url:
         kwargs["proxy"] = proxy_url
 
-    cookies = youtube_cookie_file_cookies()
-    if cookies:
-        kwargs["cookies"] = {**cookies, **kwargs.get("cookies", {})}
-
     return kwargs
-
-
-def youtube_cookie_file_cookies() -> dict[str, str]:
-    cookies_file = os.getenv("YOUTUBE_COOKIES_FILE", "").strip()
-    if not cookies_file:
-        return {}
-
-    try:
-        lines = Path(cookies_file).read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return {}
-
-    cookies: dict[str, str] = {}
-    for line in lines:
-        if not line or line.startswith("# Netscape"):
-            continue
-
-        if line.startswith("#HttpOnly_"):
-            line = line.removeprefix("#HttpOnly_")
-        elif line.startswith("#"):
-            continue
-
-        parts = line.split("\t")
-        if len(parts) < 7:
-            parts = line.split(maxsplit=6)
-
-        if len(parts) >= 7:
-            name = parts[5].strip()
-            value = parts[6].strip()
-            if name and value:
-                cookies[name] = value
-
-    return cookies
 
 
 def caption_url_with_recovery_params(caption_url: str, video_id: str = "") -> str:
@@ -3481,25 +3103,6 @@ def transcript_api_caption_response(
     }
 
 
-def audio_transcript_caption_response(
-    video_id: str,
-    target_language: str,
-    source_language: str,
-    translated: bool,
-    segments: list[dict[str, Any]],
-) -> dict[str, Any]:
-    return {
-        "mode": "youtube-captions",
-        "provider": "openai-caption-translation",
-        "videoId": video_id,
-        "language": target_language,
-        "sourceLanguage": normalize_language(source_language) or target_language,
-        "translated": translated,
-        "segments": normalize_caption_segments(segments),
-        "message": "Audio transcript captions generated for live playback.",
-    }
-
-
 def yt_dlp_caption_response(
     video_id: str,
     target_language: str,
@@ -3599,10 +3202,7 @@ def native_caption_response(
         "sourceLanguage": normalize_language(source_language) or "youtube",
         "translated": False,
         "segments": [],
-        "message": (
-            "Use the YouTube player automatic captions because server-side "
-            f"caption retrieval is unavailable: {reason}"
-        ),
+        "message": f"YouTube native captions are available in the player; server timed-text fetch failed: {reason}",
     }
 
 

@@ -31,15 +31,10 @@ import type {
   UpdatePostInput,
   User,
 } from './study-board.types';
-import type { VideoAssetService } from './video-asset.service';
-import type { VideoAsset } from './video-asset.types';
 
 @Injectable()
 export class StudyBoardService {
-  constructor(
-    private readonly repository: BoardRepository,
-    private readonly videoAssetService?: VideoAssetService,
-  ) {}
+  constructor(private readonly repository: BoardRepository) {}
 
   async signUp(input: {
     name: string;
@@ -235,30 +230,11 @@ export class StudyBoardService {
     const session = await this.requireSession(token);
     assertPostInput(input);
 
-    const post = await this.repository.createPost({
+    return this.repository.createPost({
       ...input,
       authorId: session.user.id,
       tags: input.tags ?? [],
     });
-
-    await this.videoAssetService?.enqueuePost(post);
-
-    return post;
-  }
-
-  async getVideoAsset(
-    token: string | undefined,
-    postId: number,
-  ): Promise<VideoAsset> {
-    const session = await this.requireSession(token);
-    await this.requireOwnedPost(postId, session.user.id);
-    const asset = await this.repository.findVideoAsset(postId);
-
-    if (!asset) {
-      throw new NotFoundException('Video asset not found');
-    }
-
-    return asset;
   }
 
   async updatePost(

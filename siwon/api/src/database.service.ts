@@ -14,12 +14,10 @@ import {
   normalizeComment,
   normalizeFeedback,
   normalizeTagNames,
-  normalizeVideoAsset,
   publicUser,
   vectorLiteral,
   type PostRow,
   type UserRow,
-  type VideoAssetRow,
 } from './database-board.mapper';
 import {
   MemoryBoardRepository,
@@ -38,11 +36,6 @@ import {
   UpdatePostInput,
   User,
 } from './study-board.types';
-import type {
-  CreateVideoAssetInput,
-  UpdateVideoAssetInput,
-  VideoAsset,
-} from './video-asset.types';
 
 @Injectable()
 export class DatabaseService
@@ -547,147 +540,6 @@ export class DatabaseService
     }
   }
 
-  override async findVideoAsset(postId: number): Promise<VideoAsset | null> {
-    if (!this.databaseAvailable) {
-      return super.findVideoAsset(postId);
-    }
-
-    try {
-      const result = await this.pool.query<VideoAssetRow>(
-        `
-          SELECT id, post_id AS "postId", video_id AS "videoId",
-                 video_url AS "videoUrl", language,
-                 source_language AS "sourceLanguage", status,
-                 source_caption_status AS "sourceCaptionStatus",
-                 translation_status AS "translationStatus",
-                 summary_status AS "summaryStatus",
-                 source_segments AS "sourceSegments",
-                 translated_segments AS "translatedSegments",
-                 summary_sections AS "summarySections",
-                 transcript_body AS "transcriptBody",
-                 error_message AS "errorMessage",
-                 created_at AS "createdAt", updated_at AS "updatedAt"
-          FROM video_assets
-          WHERE post_id = $1
-        `,
-        [postId],
-      );
-
-      return result.rows[0] ? normalizeVideoAsset(result.rows[0]) : null;
-    } catch (error) {
-      this.fallback(error);
-      return super.findVideoAsset(postId);
-    }
-  }
-
-  override async upsertVideoAsset(
-    input: CreateVideoAssetInput,
-  ): Promise<VideoAsset> {
-    if (!this.databaseAvailable) {
-      return super.upsertVideoAsset(input);
-    }
-
-    try {
-      const result = await this.pool.query<VideoAssetRow>(
-        `
-          INSERT INTO video_assets (post_id, video_id, video_url, language)
-          VALUES ($1, $2, $3, COALESCE($4::text, 'ko'))
-          ON CONFLICT (post_id) DO UPDATE
-          SET video_id = EXCLUDED.video_id,
-              video_url = EXCLUDED.video_url,
-              language = COALESCE($4::text, video_assets.language),
-              error_message = '',
-              updated_at = now()
-          RETURNING id, post_id AS "postId", video_id AS "videoId",
-                    video_url AS "videoUrl", language,
-                    source_language AS "sourceLanguage", status,
-                    source_caption_status AS "sourceCaptionStatus",
-                    translation_status AS "translationStatus",
-                    summary_status AS "summaryStatus",
-                    source_segments AS "sourceSegments",
-                    translated_segments AS "translatedSegments",
-                    summary_sections AS "summarySections",
-                    transcript_body AS "transcriptBody",
-                    error_message AS "errorMessage",
-                    created_at AS "createdAt", updated_at AS "updatedAt"
-        `,
-        [input.postId, input.videoId, input.videoUrl, input.language ?? null],
-      );
-
-      return normalizeVideoAsset(result.rows[0]);
-    } catch (error) {
-      this.fallback(error);
-      return super.upsertVideoAsset(input);
-    }
-  }
-
-  override async updateVideoAsset(
-    postId: number,
-    input: UpdateVideoAssetInput,
-  ): Promise<VideoAsset | null> {
-    if (!this.databaseAvailable) {
-      return super.updateVideoAsset(postId, input);
-    }
-
-    try {
-      const result = await this.pool.query<VideoAssetRow>(
-        `
-          UPDATE video_assets
-          SET language = COALESCE($2, language),
-              source_language = COALESCE($3, source_language),
-              status = COALESCE($4, status),
-              source_caption_status = COALESCE($5, source_caption_status),
-              translation_status = COALESCE($6, translation_status),
-              summary_status = COALESCE($7, summary_status),
-              source_segments = COALESCE($8::jsonb, source_segments),
-              translated_segments = COALESCE($9::jsonb, translated_segments),
-              summary_sections = COALESCE($10::jsonb, summary_sections),
-              transcript_body = COALESCE($11, transcript_body),
-              error_message = COALESCE($12, error_message),
-              updated_at = now()
-          WHERE post_id = $1
-          RETURNING id, post_id AS "postId", video_id AS "videoId",
-                    video_url AS "videoUrl", language,
-                    source_language AS "sourceLanguage", status,
-                    source_caption_status AS "sourceCaptionStatus",
-                    translation_status AS "translationStatus",
-                    summary_status AS "summaryStatus",
-                    source_segments AS "sourceSegments",
-                    translated_segments AS "translatedSegments",
-                    summary_sections AS "summarySections",
-                    transcript_body AS "transcriptBody",
-                    error_message AS "errorMessage",
-                    created_at AS "createdAt", updated_at AS "updatedAt"
-        `,
-        [
-          postId,
-          input.language ?? null,
-          input.sourceLanguage ?? null,
-          input.status ?? null,
-          input.sourceCaptionStatus ?? null,
-          input.translationStatus ?? null,
-          input.summaryStatus ?? null,
-          input.sourceSegments === undefined
-            ? null
-            : JSON.stringify(input.sourceSegments),
-          input.translatedSegments === undefined
-            ? null
-            : JSON.stringify(input.translatedSegments),
-          input.summarySections === undefined
-            ? null
-            : JSON.stringify(input.summarySections),
-          input.transcriptBody ?? null,
-          input.errorMessage ?? null,
-        ],
-      );
-
-      return result.rows[0] ? normalizeVideoAsset(result.rows[0]) : null;
-    } catch (error) {
-      this.fallback(error);
-      return super.updateVideoAsset(postId, input);
-    }
-  }
-
   override async addComment(input: {
     postId: number;
     authorId: number;
@@ -1004,26 +856,6 @@ export class DatabaseService
         channel_name TEXT NOT NULL,
         summary TEXT NOT NULL,
         translated_notes TEXT NOT NULL,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-      );
-
-      CREATE TABLE IF NOT EXISTS video_assets (
-        id SERIAL PRIMARY KEY,
-        post_id INTEGER NOT NULL UNIQUE REFERENCES posts(id) ON DELETE CASCADE,
-        video_id TEXT NOT NULL,
-        video_url TEXT NOT NULL,
-        language TEXT NOT NULL DEFAULT 'ko',
-        source_language TEXT NOT NULL DEFAULT '',
-        status TEXT NOT NULL DEFAULT 'pending',
-        source_caption_status TEXT NOT NULL DEFAULT 'pending',
-        translation_status TEXT NOT NULL DEFAULT 'pending',
-        summary_status TEXT NOT NULL DEFAULT 'pending',
-        source_segments JSONB NOT NULL DEFAULT '[]'::jsonb,
-        translated_segments JSONB NOT NULL DEFAULT '[]'::jsonb,
-        summary_sections JSONB NOT NULL DEFAULT '[]'::jsonb,
-        transcript_body TEXT NOT NULL DEFAULT '',
-        error_message TEXT NOT NULL DEFAULT '',
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
       );

@@ -13,11 +13,6 @@ import {
   UpdatePostInput,
   User,
 } from './study-board.types';
-import type {
-  CreateVideoAssetInput,
-  UpdateVideoAssetInput,
-  VideoAsset,
-} from './video-asset.types';
 
 type StoredUser = User & { passwordHash: string };
 export type MemoryBoardState = {
@@ -25,14 +20,12 @@ export type MemoryBoardState = {
   sessions: { token: string; userId: number }[];
   posts: StudyPost[];
   playlists: Playlist[];
-  videoAssets: VideoAsset[];
   nextIds: {
     user: number;
     post: number;
     comment: number;
     playlist: number;
     feedback: number;
-    videoAsset: number;
   };
 };
 
@@ -142,8 +135,6 @@ export class MemoryBoardRepository implements BoardRepository {
   ];
 
   protected sessions: { token: string; userId: number }[] = [];
-
-  protected videoAssets: VideoAsset[] = [];
 
   protected posts: StudyPost[] = [
     {
@@ -747,7 +738,6 @@ export class MemoryBoardRepository implements BoardRepository {
     comment: 2,
     playlist: 13,
     feedback: 1,
-    videoAsset: 1,
   };
 
   async createUser(input: {
@@ -987,118 +977,10 @@ export class MemoryBoardRepository implements BoardRepository {
       postIds: playlist.postIds.filter((postId) => postId !== id),
     }));
     if (this.posts.length !== before) {
-      this.videoAssets = this.videoAssets.filter((asset) => {
-        return asset.postId !== id;
-      });
       await this.persistState();
     }
 
     return this.posts.length !== before;
-  }
-
-  async findVideoAsset(postId: number): Promise<VideoAsset | null> {
-    await this.idle();
-
-    const asset = this.videoAssets.find((candidate) => {
-      return candidate.postId === postId;
-    });
-
-    return asset ? this.cloneVideoAsset(asset) : null;
-  }
-
-  async upsertVideoAsset(input: CreateVideoAssetInput): Promise<VideoAsset> {
-    await this.idle();
-
-    const postExists = this.posts.some((post) => {
-      return post.id === input.postId;
-    });
-
-    if (!postExists) {
-      throw new Error('Post not found for video asset');
-    }
-
-    const existingIndex = this.videoAssets.findIndex((candidate) => {
-      return candidate.postId === input.postId;
-    });
-    const timestamp = nowIso();
-
-    if (existingIndex >= 0) {
-      const current = this.videoAssets[existingIndex];
-      const next: VideoAsset = {
-        ...current,
-        videoId: input.videoId,
-        videoUrl: input.videoUrl,
-        language: input.language ?? current.language,
-        errorMessage: '',
-        updatedAt: timestamp,
-      };
-      this.videoAssets[existingIndex] = next;
-      await this.persistState();
-
-      return this.cloneVideoAsset(next);
-    }
-
-    const asset: VideoAsset = {
-      id: this.nextIds.videoAsset++,
-      postId: input.postId,
-      videoId: input.videoId,
-      videoUrl: input.videoUrl,
-      language: input.language ?? 'ko',
-      sourceLanguage: '',
-      status: 'pending',
-      sourceCaptionStatus: 'pending',
-      translationStatus: 'pending',
-      summaryStatus: 'pending',
-      sourceSegments: [],
-      translatedSegments: [],
-      summarySections: [],
-      transcriptBody: '',
-      errorMessage: '',
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    };
-    this.videoAssets.push(asset);
-    await this.persistState();
-
-    return this.cloneVideoAsset(asset);
-  }
-
-  async updateVideoAsset(
-    postId: number,
-    input: UpdateVideoAssetInput,
-  ): Promise<VideoAsset | null> {
-    await this.idle();
-
-    const index = this.videoAssets.findIndex((candidate) => {
-      return candidate.postId === postId;
-    });
-
-    if (index === -1) {
-      return null;
-    }
-
-    const current = this.videoAssets[index];
-    const next: VideoAsset = {
-      ...current,
-      ...input,
-      sourceSegments:
-        input.sourceSegments === undefined
-          ? current.sourceSegments
-          : this.cloneVideoAssetSegments(input.sourceSegments),
-      translatedSegments:
-        input.translatedSegments === undefined
-          ? current.translatedSegments
-          : this.cloneVideoAssetSegments(input.translatedSegments),
-      summarySections:
-        input.summarySections === undefined
-          ? current.summarySections
-          : this.cloneVideoAssetSummarySections(input.summarySections),
-      updatedAt: nowIso(),
-    };
-    this.videoAssets[index] = next;
-    await this.persistState();
-
-    return this.cloneVideoAsset(next);
   }
 
   async addComment(input: {
@@ -1312,7 +1194,6 @@ export class MemoryBoardRepository implements BoardRepository {
       sessions: this.sessions,
       posts: this.posts,
       playlists: this.playlists,
-      videoAssets: this.videoAssets,
       nextIds: this.nextIds,
     });
   }
@@ -1322,12 +1203,7 @@ export class MemoryBoardRepository implements BoardRepository {
     this.sessions = this.cloneState(state.sessions);
     this.posts = this.cloneState(state.posts);
     this.playlists = this.cloneState(state.playlists);
-    this.videoAssets = this.cloneState(state.videoAssets ?? []);
-    this.nextIds = this.cloneState({
-      ...this.nextIds,
-      ...state.nextIds,
-      videoAsset: state.nextIds.videoAsset ?? this.nextIds.videoAsset,
-    });
+    this.nextIds = this.cloneState(state.nextIds);
   }
 
   protected persistState(): Promise<void> {
@@ -1336,31 +1212,6 @@ export class MemoryBoardRepository implements BoardRepository {
 
   private cloneState<T>(value: T): T {
     return JSON.parse(JSON.stringify(value)) as T;
-  }
-
-  private cloneVideoAsset(asset: VideoAsset): VideoAsset {
-    return {
-      ...asset,
-      sourceSegments: this.cloneVideoAssetSegments(asset.sourceSegments),
-      translatedSegments: this.cloneVideoAssetSegments(
-        asset.translatedSegments,
-      ),
-      summarySections: this.cloneVideoAssetSummarySections(
-        asset.summarySections,
-      ),
-    };
-  }
-
-  private cloneVideoAssetSegments(
-    segments: VideoAsset['sourceSegments'],
-  ): VideoAsset['sourceSegments'] {
-    return segments.map((segment) => ({ ...segment }));
-  }
-
-  private cloneVideoAssetSummarySections(
-    sections: VideoAsset['summarySections'],
-  ): VideoAsset['summarySections'] {
-    return sections.map((section) => ({ ...section }));
   }
 
   private idle(): Promise<void> {

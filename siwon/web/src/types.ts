@@ -181,31 +181,3 @@ export type VideoSummaryResponse = {
   sections: VideoSummarySection[];
   message: string;
 };
-
-export type VideoAssetStatus =
-  | 'pending'
-  | 'processing'
-  | 'ready'
-  | 'partial'
-  | 'failed';
-
-export type VideoAssetStepStatus = 'pending' | 'ready' | 'partial' | 'failed';
-
-export type VideoAsset = {
-  id?: number;
-  postId: number;
-  videoId: string;
-  videoUrl?: string;
-  language: string;
-  sourceLanguage: string;
-  status: VideoAssetStatus;
-  sourceCaptionStatus: VideoAssetStepStatus;
-  translationStatus: VideoAssetStepStatus;
-  summaryStatus: VideoAssetStepStatus;
-  sourceSegments: CaptionSegment[];
-  translatedSegments: CaptionSegment[];
-  summarySections: VideoSummarySection[];
-  transcriptBody: string;
-  errorMessage: string;
-  updatedAt?: string;
-};

@@ -27,17 +27,6 @@ test('youtube player has loading and failure fallbacks', () => {
   assert.match(appSource, /className="youtube-unavailable youtube-loading"/);
 });
 
-test('watch page does not read player load error messages without a current video', () => {
-  assert.doesNotMatch(
-    appSource,
-    /playerLoadError\?\.videoId === currentVideo\?\.videoId\s*\?\s*playerLoadError\.message/,
-  );
-  assert.match(
-    appSource,
-    /playerLoadError &&\s*currentVideo &&\s*playerLoadError\.videoId === currentVideo\.videoId/,
-  );
-});
-
 test('translated captions are loaded through playback windows instead of the whole video', () => {
   assert.match(appSource, /const initialCaptionWindow = captionTranslationWindow\(/);
   assert.match(appSource, /\.\.\.initialCaptionWindow/);
@@ -47,100 +36,4 @@ test('translated captions are loaded through playback windows instead of the who
     appSource,
     /fetchTranslatedCaptions\(\{\s*videoId:[\s\S]*?durationSeconds: DEFAULT_CAPTION_DURATION_SECONDS,\s*\}\)/,
   );
-});
-
-test('watch page loads prepared video assets through the saved post id', () => {
-  assert.match(appSource, /fetchVideoAsset\(\s*currentPostId,\s*session\.token\s*\)/);
-  assert.match(appSource, /prepareVideoAsset\(\s*retryTarget\.postId,\s*session\.token\s*\)/);
-  assert.match(appSource, /captionResponseFromVideoAsset\(/);
-  assert.match(appSource, /videoAssetCoversTime\(/);
-  assert.match(appSource, /videoAssetCoversRange\(/);
-  assert.doesNotMatch(appSource, /fetchVideoAsset\(\s*currentVideo\?\.videoId/);
-  assert.doesNotMatch(appSource, /prepareVideoAsset\(\s*currentVideo\?\.videoId/);
-});
-
-test('watch page can play a direct youtube video id before it is in the queue', () => {
-  assert.match(appSource, /const directUrlVideo = useMemo/);
-  assert.match(appSource, /id: `url-\$\{activeVideoId\}`/);
-  assert.match(appSource, /videoUrl: `https:\/\/www\.youtube\.com\/watch\?v=\$\{activeVideoId\}`/);
-  assert.match(appSource, /thumbnailUrl: youtubeThumbnailUrl\(activeVideoId\)/);
-  assert.match(
-    appSource,
-    /const currentVideo =\s*queuedActiveVideo \?\? directUrlVideo \?\? queue\[0\] \?\? null/,
-  );
-});
-
-test('watch page prepares missing saved video assets before falling back to live captions', () => {
-  assert.match(appSource, /isNotFoundRequest\(error\)/);
-  assert.match(appSource, /const preparedAsset = await prepareVideoAsset\(\s*postId,\s*session\.token,\s*\)/);
-  assert.match(appSource, /applyVideoAsset\(preparedAsset, expectedTarget\)/);
-  assert.doesNotMatch(
-    appSource,
-    /catch\s*\{\s*if \(!cancelled\) \{\s*setVideoAsset\(null\);\s*setAssetLookup\(\{ postId, status: "error" \}\);/,
-  );
-});
-
-test('watch page does not keep calling live captions after a saved asset fails', () => {
-  assert.match(appSource, /const videoAssetFailedForCurrentVideo =/);
-  assert.match(appSource, /if \(videoAssetFailedForCurrentVideo\) \{\s*setCaptionResponse\(preparedCaptionResponse\);/);
-  assert.match(appSource, /setCaptionError\(assetStatusMessageFromVideoAsset\(videoAsset\)\)/);
-  assert.match(appSource, /videoAssetFailedForCurrentVideo[\s\S]*shouldUseNativeYouTubeCaptions/);
-});
-
-test('watch page shows a clear empty state when no playlists are available', () => {
-  assert.match(appSource, /const hasPlaylistChoices = playlistChoices\.length > 0/);
-  assert.match(appSource, /아직 학습할 플레이리스트가 없어요/);
-  assert.match(appSource, /코스 찾기에서 새 학습 코스를 만들거나/);
-  assert.match(appSource, /\{hasPlaylistChoices \? "새 코스 찾기" : "코스 찾기"\}/);
-  assert.match(appSource, /\{hasPlaylistChoices \? "등록 화면으로" : "영상 등록하기"\}/);
-});
-
-test('watch page skips on-demand caption calls for prepared asset coverage', () => {
-  assert.match(appSource, /const currentPostId = currentVideo\s*\?\s*findPostIdForQueueVideo\(currentVideo, libraryPosts\)\s*:\s*null/);
-  assert.match(appSource, /const assetCaptionResponse = captionResponseFromVideoAsset\(videoAsset\)/);
-  assert.match(appSource, /const assetCaptionLanguageMatchesSelection =\s*assetCaptionResponse\?\.language === captionLanguage/);
-  assert.match(appSource, /assetCaptionLanguageMatchesSelection[\s\S]*videoAssetCoversRange\(\s*videoAsset,\s*initialCaptionWindow\.startSeconds,\s*initialCaptionWindow\.endSeconds,\s*\)/);
-  assert.match(appSource, /assetCaptionLanguageMatchesSelection[\s\S]*videoAssetCoversRange\(\s*videoAsset,\s*captionWindow\.startSeconds,\s*captionWindow\.endSeconds,\s*\)/);
-  assert.match(appSource, /assetCaptionLanguageMatchesSelection[\s\S]*videoAssetCoversTime\(videoAsset, currentTime\)/);
-  assert.doesNotMatch(appSource, /current\?\.provider === "prepared-video-asset"[\s\S]{0,80}\? response/);
-});
-
-test('watch page keeps prepared captions while fallback caption windows load', () => {
-  assert.match(appSource, /const preparedCaptionResponse = assetCaptionResponseMatchesVideo\s*\?\s*captionResponseFromVideoAsset\(videoAsset\)\s*:\s*null/);
-  assert.match(appSource, /setCaptionResponse\(preparedCaptionResponse\)/);
-  assert.match(appSource, /setTranslatedCaptionResponse\(preparedCaptionResponse\)/);
-  assert.match(appSource, /mergeTranslatedCaptionResponse\(\s*preparedCaptionResponse \?\? current,\s*response,\s*\)/);
-  assert.doesNotMatch(
-    appSource,
-    /async function loadCaptions\(\)[\s\S]*?setCaptionResponse\(null\);\s*setTranslatedCaptionResponse\(null\);[\s\S]*?fetchTranslatedCaptions/,
-  );
-  assert.doesNotMatch(
-    appSource,
-    /setTranslatedCaptionResponse\(response\);/,
-  );
-});
-
-test('watch page asset and caption fetch effects use stable video primitives', () => {
-  assert.match(appSource, /const currentVideoId = currentVideo\?\.videoId \?\? ""/);
-  assert.match(appSource, /const currentVideoUrl = currentVideo\?\.videoUrl \?\? ""/);
-  assert.doesNotMatch(
-    appSource,
-    /\}, \[applyVideoAsset, currentPostId, currentVideo, session\.token\]\)/,
-  );
-  assert.doesNotMatch(
-    appSource,
-    /captionLanguage,\s*currentVideo,\s*assetCaptionLanguageMatchesSelection/,
-  );
-  assert.match(
-    appSource,
-    /\}, \[\s*applyVideoAsset,\s*currentPostId,\s*currentVideoId,\s*session\.token,\s*\]\)/,
-  );
-});
-
-test('watch page ignores stale prepared asset retry responses', () => {
-  assert.match(appSource, /const currentAssetTargetRef = useRef/);
-  assert.match(appSource, /function isCurrentAssetTarget\(/);
-  assert.match(appSource, /const retryTarget = \{\s*postId: currentPostId,\s*videoId: currentVideoId,\s*\}/);
-  assert.match(appSource, /if \(!isCurrentAssetTarget\(retryTarget\)\) \{\s*return;\s*\}/);
-  assert.match(appSource, /applyVideoAsset\(asset, retryTarget\)/);
 });

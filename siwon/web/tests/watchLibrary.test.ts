@@ -96,23 +96,6 @@ test('skips saved playlists when their posts are unavailable', () => {
   assert.deepEqual(choices, []);
 });
 
-test('handles a completely empty watch library without selecting a phantom playlist', () => {
-  const choices = buildWatchPlaylistChoices<TestVideo>({
-    savedPlaylists: [],
-    posts: [],
-    drafts: [],
-    videoFromPost: (item) => ({ id: `post-${item.id}`, title: item.title }),
-  });
-  const match = findMatchingWatchPlaylistChoice(
-    choices,
-    [],
-    (video) => video.id,
-  );
-
-  assert.deepEqual(choices, []);
-  assert.equal(match, null);
-});
-
 test('finds the watch playlist that matches the current queue order', () => {
   const choices = [
     {

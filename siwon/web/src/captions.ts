@@ -1,4 +1,4 @@
-import type { CaptionResponse, CaptionSegment, VideoAsset } from './types';
+import type { CaptionResponse, CaptionSegment } from './types';
 
 const FINAL_CAPTION_END_HOLD_SECONDS = 4;
 const VIDEO_END_TOLERANCE_SECONDS = 0.75;
@@ -110,88 +110,6 @@ export function isSourceCaptionTranslationPending({
       ) &&
       response.segments.length > 0,
   );
-}
-
-export function captionResponseFromVideoAsset(
-  asset: VideoAsset | null | undefined,
-): CaptionResponse | null {
-  if (
-    !asset ||
-    !['ready', 'partial'].includes(asset.status) ||
-    asset.translatedSegments.length === 0
-  ) {
-    return null;
-  }
-
-  return {
-    mode: 'youtube-captions',
-    provider: 'prepared-video-asset',
-    videoId: asset.videoId,
-    language: asset.language,
-    sourceLanguage: asset.sourceLanguage,
-    translated: true,
-    segments: asset.translatedSegments,
-    message: 'Prepared video asset captions loaded.',
-  };
-}
-
-export function videoAssetNeedsNativeCaptionFallback(
-  asset: VideoAsset | null | undefined,
-) {
-  return Boolean(
-    asset &&
-      asset.status === 'partial' &&
-      asset.translationStatus === 'partial' &&
-      asset.translatedSegments.length === 0,
-  );
-}
-
-export function videoAssetCoversTime(
-  asset: Pick<VideoAsset, 'translatedSegments'> | null | undefined,
-  currentTime: number,
-) {
-  return Boolean(
-    asset?.translatedSegments.some(
-      (segment) => currentTime >= segment.start && currentTime < segment.end,
-    ),
-  );
-}
-
-export function videoAssetCoversRange(
-  asset: Pick<VideoAsset, 'translatedSegments'> | null | undefined,
-  startSeconds: number,
-  endSeconds: number,
-  options: { maxGapSeconds?: number } = {},
-) {
-  if (!asset || endSeconds <= startSeconds) {
-    return false;
-  }
-
-  const maxGapSeconds = options.maxGapSeconds ?? 1;
-  const overlappingSegments = asset.translatedSegments
-    .filter(
-      (segment) => segment.end > startSeconds && segment.start < endSeconds,
-    )
-    .sort((left, right) => left.start - right.start || left.end - right.end);
-  let coveredUntil = startSeconds;
-
-  for (const segment of overlappingSegments) {
-    if (segment.end <= coveredUntil) {
-      continue;
-    }
-
-    if (segment.start > coveredUntil + maxGapSeconds) {
-      return false;
-    }
-
-    coveredUntil = Math.max(coveredUntil, segment.end);
-
-    if (coveredUntil >= endSeconds) {
-      return true;
-    }
-  }
-
-  return false;
 }
 
 export type NativeYouTubeCaptionPlayer = {
@@ -453,12 +371,9 @@ export function mergeTranslatedCaptionResponse(
 
   if (
     !current ||
+    current.provider !== 'openai-caption-translation' ||
     current.videoId !== next.videoId ||
-    current.language !== next.language ||
-    !current.translated ||
-    !['openai-caption-translation', 'prepared-video-asset'].includes(
-      current.provider,
-    )
+    current.language !== next.language
   ) {
     return next;
   }

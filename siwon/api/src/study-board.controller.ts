@@ -38,11 +38,6 @@ export class StudyBoardController {
     return this.studyBoardService.login(body);
   }
 
-  @Post('auth/demo')
-  demoSession() {
-    return this.studyBoardService.demoSession();
-  }
-
   @Get('me')
   getMe(@Headers('authorization') authorization: string | undefined) {
     return this.studyBoardService.getMe(authorization);

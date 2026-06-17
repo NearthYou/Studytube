@@ -10,10 +10,25 @@ import {
 
 describe('StudyBoardService', () => {
   let service: StudyBoardService;
+  let testUserCounter: number;
 
   beforeEach(() => {
+    testUserCounter = 0;
     service = new StudyBoardService(new MemoryBoardRepository());
   });
+
+  async function createTestSession(
+    targetService: StudyBoardService = service,
+    label = 'learner',
+  ) {
+    testUserCounter += 1;
+
+    return targetService.signUp({
+      name: `Test ${label} ${testUserCounter}`,
+      email: `${label}-${testUserCounter}@example.com`,
+      password: 'learn-fast',
+    });
+  }
 
   it('signs up and logs in a user with a reusable bearer session', async () => {
     const session = await service.signUp({
@@ -131,8 +146,26 @@ describe('StudyBoardService', () => {
   });
 
   it('paginates and searches posts by title, summary, channel, and tags', async () => {
+    const session = await createTestSession(service, 'pagination');
+    await service.createPost(session.token, {
+      title: 'React query pagination lesson',
+      videoUrl: 'https://www.youtube.com/watch?v=react-pagination-1',
+      channelName: 'StudyTube',
+      summary: 'React search and pagination example.',
+      translatedNotes: 'React 寃?됯낵 ?섏씠吏 ?ㅼ뒿 ?명듃?낅땲??',
+      tags: ['react', 'query'],
+    });
+    await service.createPost(session.token, {
+      title: 'React hooks pagination lesson',
+      videoUrl: 'https://www.youtube.com/watch?v=react-pagination-2',
+      channelName: 'StudyTube',
+      summary: 'React hooks search example.',
+      translatedNotes: 'React hooks 寃?? ?ㅼ뒿 ?명듃?낅땲??',
+      tags: ['react', 'hooks'],
+    });
+
     const result = await service.listPosts({
-      token: (await service.demoSession()).token,
+      token: session.token,
       search: 'react',
       page: 1,
       pageSize: 2,
@@ -199,7 +232,7 @@ describe('StudyBoardService', () => {
   });
 
   it('rejects post updates with more than three tags', async () => {
-    const session = await service.demoSession();
+    const session = await createTestSession(service, 'tag-limit');
     const post = await service.createPost(session.token, {
       title: 'React hooks',
       videoUrl: 'https://www.youtube.com/watch?v=abc123',
@@ -328,7 +361,7 @@ describe('StudyBoardService', () => {
   });
 
   it('creates posts through a repository that supports pending video asset persistence', async () => {
-    const session = await service.demoSession();
+    const session = await createTestSession(service, 'asset');
     const post = await service.createPost(session.token, {
       title: 'Asset ready lesson',
       videoUrl: 'https://www.youtube.com/watch?v=novnyCaa7To',
@@ -351,7 +384,7 @@ describe('StudyBoardService', () => {
       new MemoryBoardRepository(),
       { enqueuePost } as unknown as VideoAssetService,
     );
-    const session = await serviceWithAssets.demoSession();
+    const session = await createTestSession(serviceWithAssets, 'queued-asset');
     const result = await Promise.race([
       serviceWithAssets.createPost(session.token, {
         title: 'Queued asset lesson',
@@ -500,7 +533,7 @@ describe('StudyBoardService', () => {
   });
 
   it('creates a video post and lets users discuss it in comments', async () => {
-    const session = await service.demoSession();
+    const session = await createTestSession(service, 'discussion');
     const post = await service.createPost(session.token, {
       title: 'TypeScript Generics in 20 Minutes',
       videoUrl: 'https://www.youtube.com/watch?v=typedemo',
@@ -609,7 +642,7 @@ describe('StudyBoardService', () => {
   });
 
   it('collects playlist feedback with a bounded rating', async () => {
-    const session = await service.demoSession();
+    const session = await createTestSession(service, 'feedback');
     const playlist = await service.createPlaylist(session.token, {
       title: 'React recap',
       description: 'A compact review list.',
@@ -632,7 +665,7 @@ describe('StudyBoardService', () => {
   });
 
   it('lets playlist owners update and delete board playlist posts', async () => {
-    const session = await service.demoSession();
+    const session = await createTestSession(service, 'playlist-owner');
     const playlist = await service.createPlaylist(session.token, {
       title: 'React recap',
       description: 'A compact review list.',

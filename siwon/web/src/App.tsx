@@ -18,7 +18,6 @@ import {
 } from "react-router";
 import "./App.css";
 import {
-  isDemoUserSession,
   normalizeSession,
   readSession,
   saveSession,
@@ -167,7 +166,6 @@ import {
   createPost,
   deletePlaylist,
   deletePost,
-  demoSession,
   fetchPlaylists,
   fetchPosts,
   fetchPublicPlaylists,
@@ -340,7 +338,6 @@ function App() {
             <ProtectedRoute session={session}>
               <BoardPage
                 session={session!}
-                onSessionRefresh={handleAuthComplete}
               />
             </ProtectedRoute>
           }
@@ -531,8 +528,8 @@ function AuthPage({
   const location = useLocation();
   const [form, setForm] = useState({
     name: "",
-    email: mode === "login" ? "demo@studytube.local" : "",
-    password: mode === "login" ? "demo1234" : "",
+    email: "",
+    password: "",
   });
   const [status, setStatus] = useState(
     mode === "login"
@@ -574,28 +571,6 @@ function AuthPage({
     }
   }
 
-  async function loginWithDemo() {
-    if (isSubmitting) {
-      return;
-    }
-
-    setIsSubmitting(true);
-    setStatus("데모 계정으로 로그인하는 중입니다.");
-
-    try {
-      const nextSession = await demoSession();
-      completeAuth(nextSession);
-    } catch (error) {
-      setStatus(
-        error instanceof Error
-          ? error.message
-          : "데모 로그인에 실패했어요. 서버가 실행 중인지 확인하세요.",
-      );
-    } finally {
-      setIsSubmitting(false);
-    }
-  }
-
   function completeAuth(nextSession: Session) {
     const destination = authCompletionDestination({ mode, from });
 
@@ -615,19 +590,6 @@ function AuthPage({
         <p className="eyebrow">StudyTube Account</p>
         <h1>{mode === "login" ? "로그인" : "회원가입"}</h1>
         <p>{status}</p>
-        <button
-          className="demo-login-button"
-          type="button"
-          disabled={isSubmitting}
-          onClick={() => void loginWithDemo()}
-        >
-          데모 계정으로 바로 시작
-        </button>
-        <div className="form-divider">
-          <span>
-            {mode === "login" ? "또는 직접 로그인" : "또는 새 계정 만들기"}
-          </span>
-        </div>
         <form className="stack-form" onSubmit={submit}>
           {mode === "signup" && (
             <input
@@ -2634,10 +2596,8 @@ function ExplorePage({ session }: { session: Session }) {
 }
 
 function BoardPage({
-  onSessionRefresh,
   session,
 }: {
-  onSessionRefresh: (session: Session) => void;
   session: Session;
 }) {
   const navigate = useNavigate();
@@ -2728,18 +2688,6 @@ function BoardPage({
         setIsBoardReady(true);
         setStatus(`${session.user.email} 계정으로 작업 중`);
       } catch (error) {
-        if (isUnauthorizedRequest(error) && isDemoUserSession(session)) {
-          try {
-            const refreshedSession = await refreshDemoBoardSession();
-            await loadPosts("", 1, refreshedSession.token);
-            setIsBoardReady(true);
-            setStatus(`${refreshedSession.user.email} 계정으로 작업 중`);
-            return;
-          } catch {
-            // Fall through to the generic message below.
-          }
-        }
-
         setIsBoardReady(false);
         setStatus(
           isUnauthorizedRequest(error)
@@ -2768,13 +2716,6 @@ function BoardPage({
 
       return result.items[0]?.id ?? null;
     });
-  }
-
-  async function refreshDemoBoardSession() {
-    const nextSession = await demoSession();
-    onSessionRefresh(nextSession);
-
-    return nextSession;
   }
 
   function commitPlaylistDraftState(
@@ -2971,28 +2912,14 @@ function BoardPage({
     };
   }
 
-  async function savePostWithSessionRecovery(
+  async function savePost(
     payload: ReturnType<typeof postPayloadFromEditor>,
   ) {
-    try {
-      const saved = editingId
-        ? await updatePost(session.token, editingId, payload)
-        : await createPost(session.token, payload);
+    const saved = editingId
+      ? await updatePost(session.token, editingId, payload)
+      : await createPost(session.token, payload);
 
-      return { saved, token: session.token };
-    } catch (error) {
-      if (!isUnauthorizedRequest(error) || !isDemoUserSession(session)) {
-        throw error;
-      }
-
-      setStatus("데모 세션을 다시 연결한 뒤 영상을 저장합니다.");
-      const refreshedSession = await refreshDemoBoardSession();
-      const saved = editingId
-        ? await updatePost(refreshedSession.token, editingId, payload)
-        : await createPost(refreshedSession.token, payload);
-
-      return { saved, token: refreshedSession.token };
-    }
+    return { saved, token: session.token };
   }
 
   async function submitPost(event: FormEvent) {
@@ -3082,7 +3009,7 @@ function BoardPage({
       }
 
       try {
-        const { saved, token } = await savePostWithSessionRecovery(payload);
+        const { saved, token } = await savePost(payload);
         const savedVideo = queueVideoFromPost(saved);
         const syncedPlaylist = replaceVideoInQueueIfPresent(
           playlistQueue,

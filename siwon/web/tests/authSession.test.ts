@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { SESSION_STORAGE_KEY } from '../src/localStudyStorage.ts';
 import {
-  isDemoUserSession,
   normalizePreferences,
   normalizeSession,
   readSession,
@@ -40,8 +39,8 @@ function session(input: Partial<Session['user']> = {}): Session {
     token: 'token',
     user: {
       id: 1,
-      name: 'Demo',
-      email: 'demo@studytube.local',
+      name: 'Learner',
+      email: 'learner@example.com',
       preferences: {
         interests: ['React'],
         pace: '20 minutes',
@@ -81,11 +80,6 @@ test('returns null when stored session JSON is invalid', () => {
   const storage = createMemoryStorage({ [SESSION_STORAGE_KEY]: '{broken' });
 
   assert.equal(readSession(storage), null);
-});
-
-test('identifies the local demo user explicitly', () => {
-  assert.equal(isDemoUserSession(session()), true);
-  assert.equal(isDemoUserSession(session({ email: 'ada@example.com' })), false);
 });
 
 test('normalizes partial preferences without discarding valid values', () => {

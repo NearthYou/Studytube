@@ -44,3 +44,11 @@ test('watch page treats rate-limited caption responses as native YouTube fallbac
     /captionResponse\?\.provider === "youtube-caption-rate-limited"/,
   );
 });
+
+test('login page does not expose demo account shortcuts', () => {
+  assert.doesNotMatch(appSource, /demoSession/);
+  assert.doesNotMatch(appSource, /demo-login-button/);
+  assert.doesNotMatch(appSource, /demo@studytube\.local/);
+  assert.doesNotMatch(appSource, /demo1234/);
+  assert.doesNotMatch(appSource, /데모 계정/);
+});

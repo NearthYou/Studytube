@@ -17,10 +17,6 @@ export function saveSession(
   storage.setItem(SESSION_STORAGE_KEY, JSON.stringify(normalizeSession(session)));
 }
 
-export function isDemoUserSession(session: Session) {
-  return session.user.email === 'demo@studytube.local';
-}
-
 export function normalizeSession(session: Session): Session {
   return {
     ...session,

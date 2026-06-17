@@ -38,7 +38,9 @@ export type MemoryBoardState = {
 
 const nowIso = () => new Date().toISOString();
 
-const demoPasswordHash = createHash('sha256').update('demo1234').digest('hex');
+const seedPasswordHash = createHash('sha256')
+  .update('seed-user-password-disabled')
+  .digest('hex');
 const defaultPreferences = (): LearningPreferences => ({
   interests: ['YouTube 학습', '프론트엔드'],
   pace: '하루 20분',
@@ -49,9 +51,9 @@ export class MemoryBoardRepository implements BoardRepository {
   protected users: StoredUser[] = [
     {
       id: 1,
-      name: 'Demo Learner',
-      email: 'demo@studytube.local',
-      passwordHash: demoPasswordHash,
+      name: 'StudyTube Learner',
+      email: 'learner@studytube.local',
+      passwordHash: seedPasswordHash,
       preferences: defaultPreferences(),
       createdAt: nowIso(),
     },
@@ -59,7 +61,7 @@ export class MemoryBoardRepository implements BoardRepository {
       id: 2,
       name: 'Tech Curator',
       email: 'tech-curator@studytube.local',
-      passwordHash: demoPasswordHash,
+      passwordHash: seedPasswordHash,
       preferences: {
         interests: ['백엔드', '프론트엔드', '데이터베이스'],
         pace: '하루 30분',
@@ -71,7 +73,7 @@ export class MemoryBoardRepository implements BoardRepository {
       id: 3,
       name: 'Wellness Curator',
       email: 'wellness-curator@studytube.local',
-      passwordHash: demoPasswordHash,
+      passwordHash: seedPasswordHash,
       preferences: {
         interests: ['웰니스', '습관', '학습 루틴'],
         pace: '하루 15분',
@@ -83,7 +85,7 @@ export class MemoryBoardRepository implements BoardRepository {
       id: 4,
       name: 'Communication Curator',
       email: 'communication-curator@studytube.local',
-      passwordHash: demoPasswordHash,
+      passwordHash: seedPasswordHash,
       preferences: {
         interests: ['커뮤니케이션', '리더십', '심리'],
         pace: '주 3회',
@@ -95,7 +97,7 @@ export class MemoryBoardRepository implements BoardRepository {
       id: 5,
       name: 'DevOps Curator',
       email: 'devops-curator@studytube.local',
-      passwordHash: demoPasswordHash,
+      passwordHash: seedPasswordHash,
       preferences: {
         interests: ['devops', 'git', 'docker'],
         pace: '주 4회',
@@ -107,7 +109,7 @@ export class MemoryBoardRepository implements BoardRepository {
       id: 6,
       name: 'Data Curator',
       email: 'data-curator@studytube.local',
-      passwordHash: demoPasswordHash,
+      passwordHash: seedPasswordHash,
       preferences: {
         interests: ['데이터', 'SQL', '머신러닝'],
         pace: '하루 25분',
@@ -119,7 +121,7 @@ export class MemoryBoardRepository implements BoardRepository {
       id: 7,
       name: 'Language Curator',
       email: 'language-curator@studytube.local',
-      passwordHash: demoPasswordHash,
+      passwordHash: seedPasswordHash,
       preferences: {
         interests: ['언어 학습', '영어', '학습법'],
         pace: '매일 10분',
@@ -131,7 +133,7 @@ export class MemoryBoardRepository implements BoardRepository {
       id: 8,
       name: 'Focus Curator',
       email: 'focus-curator@studytube.local',
-      passwordHash: demoPasswordHash,
+      passwordHash: seedPasswordHash,
       preferences: {
         interests: ['집중력', '생산성', '습관'],
         pace: '주 3회',
@@ -149,7 +151,7 @@ export class MemoryBoardRepository implements BoardRepository {
     {
       id: 1,
       authorId: 1,
-      authorName: 'Demo Learner',
+      authorName: 'StudyTube Learner',
       title: 'React Hooks Course - All React Hooks Explained',
       videoUrl: 'https://www.youtube.com/watch?v=LlvBzyy-558',
       thumbnailUrl: 'https://i.ytimg.com/vi/LlvBzyy-558/hqdefault.jpg',
@@ -164,7 +166,7 @@ export class MemoryBoardRepository implements BoardRepository {
           id: 1,
           postId: 1,
           authorId: 1,
-          authorName: 'Demo Learner',
+          authorName: 'StudyTube Learner',
           body: 'useEffect dependency 설명이 입문자에게 특히 좋아요.',
           createdAt: nowIso(),
         },
@@ -175,7 +177,7 @@ export class MemoryBoardRepository implements BoardRepository {
     {
       id: 2,
       authorId: 1,
-      authorName: 'Demo Learner',
+      authorName: 'StudyTube Learner',
       title: 'React Query Crash Course',
       videoUrl: 'https://www.youtube.com/watch?v=novnyCaa7To',
       thumbnailUrl: 'https://i.ytimg.com/vi/novnyCaa7To/hqdefault.jpg',

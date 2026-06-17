@@ -81,24 +81,6 @@ export class StudyBoardService {
     return this.repository.createSession(user.id, createSessionToken());
   }
 
-  async demoSession(): Promise<Session> {
-    const demoUser = await this.repository.findUserByEmail(
-      'demo@studytube.local',
-    );
-
-    if (!demoUser) {
-      const created = await this.repository.createUser({
-        name: 'Demo Learner',
-        email: 'demo@studytube.local',
-        passwordHash: hashPassword('demo1234'),
-      });
-
-      return this.repository.createSession(created.id, createSessionToken());
-    }
-
-    return this.repository.createSession(demoUser.id, createSessionToken());
-  }
-
   async getMe(token: string | undefined): Promise<User> {
     const session = await this.requireSession(token);
 

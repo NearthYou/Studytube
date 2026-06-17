@@ -158,29 +158,6 @@ input {
   font-size: var(--font-16);
 }
 
-.demo-login-button {
-  width: 100%;
-  margin: 10px 0 18px;
-}
-
-.form-divider {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 18px;
-  color: var(--muted);
-  font-size: var(--font-13);
-  font-weight: 800;
-}
-
-.form-divider::before,
-.form-divider::after {
-  height: 1px;
-  flex: 1;
-  background: var(--line);
-  content: "";
-}
-
 .auth-switch {
   margin-top: 18px;
 }

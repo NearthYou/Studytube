@@ -115,10 +115,6 @@ export function apiBaseUrl() {
   return API_BASE_URL;
 }
 
-export function demoSession(): Promise<Session> {
-  return requestJson<Session>("/auth/demo", { method: "POST" });
-}
-
 export function signUp(input: {
   name: string;
   email: string;

@@ -113,7 +113,7 @@ YouTube 학습 영상을 코스 단위로 등록하고 공유하는 학습 보�
 - Agent 기반 맞춤형 학습 코스 생성
 - PostgreSQL + pgvector, fallback repository, EC2 실행 스크립트 구성
 
-실행 진입점: [`siwon/package.json`](siwon/package.json)
+상세 실행법: [`siwon/README.md`](siwon/README.md)
 
 ## 저장소 구조
 

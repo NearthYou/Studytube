@@ -1,0 +1,19 @@
+.post-form-panel {
+  padding: 28px;
+}
+
+.post-editor-form {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.82fr) minmax(0, 1.18fr);
+  gap: 16px;
+}
+
+.post-editor-form .field-group {
+  grid-column: 2;
+}
+
+.post-editor-form .field-group:last-of-type,
+.post-tag-field,
+.post-editor-form .form-action-row {
+  grid-column: 1 / -1;
+}

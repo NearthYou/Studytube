@@ -1,0 +1,27 @@
+.detail-comments-section {
+  display: grid;
+  gap: 14px;
+}
+
+.detail-comments-panel {
+  margin-top: 2px;
+  padding: 26px 28px 28px;
+}
+
+.detail-comments-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.detail-comments-heading h2 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 1.15rem;
+}
+
+.detail-comments-heading span {
+  color: var(--text-muted);
+  font-weight: 800;
+}

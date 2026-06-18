@@ -1,0 +1,18 @@
+{
+  "name": "agentic-board",
+  "private": true,
+  "scripts": {
+    "nest:install": "npm --prefix apps/nest-api install",
+    "nest:start": "npm --prefix apps/nest-api run start:dev",
+    "nest:build": "npm --prefix apps/nest-api run build",
+    "nest:test": "npm --prefix apps/nest-api run test",
+    "nest:test:e2e": "npm --prefix apps/nest-api run test:e2e",
+    "web:install": "npm --prefix apps/web-react install",
+    "web:dev": "npm --prefix apps/web-react run dev",
+    "web:build": "npm --prefix apps/web-react run build",
+    "web:lint": "npm --prefix apps/web-react run lint",
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down",
+    "db:logs": "docker compose logs -f postgres"
+  }
+}

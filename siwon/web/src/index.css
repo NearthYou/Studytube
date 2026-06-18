@@ -1,0 +1,38 @@
+:root {
+  font-family:
+    "Segoe UI",
+    "Noto Sans KR",
+    system-ui,
+    sans-serif;
+  color: #1b1f24;
+  background: #f6f2ec;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+button {
+  border: 0;
+  cursor: pointer;
+}
+
+a {
+  color: inherit;
+}

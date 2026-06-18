@@ -1,0 +1,16 @@
+.signup-id-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 124px;
+  gap: 10px;
+  align-items: end;
+}
+
+.signup-check-button {
+  align-self: stretch;
+}
+
+@media (max-width: 520px) {
+  .signup-id-row {
+    grid-template-columns: 1fr;
+  }
+}

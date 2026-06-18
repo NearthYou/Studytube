@@ -1,0 +1,85 @@
+# Dependencies
+node_modules/
+**/node_modules/
+.pnp/
+.pnp.*
+
+# Build and test output
+dist/
+dist-ssr/
+**/dist/
+**/dist-ssr/
+build/
+coverage/
+**/coverage/
+.nyc_output/
+*.tsbuildinfo
+
+# Vite / tooling cache
+.vite/
+**/.vite/
+.vite-temp/
+**/.vite-temp/
+.eslintcache
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Agent/local generated artifacts
+.superpowers/
+.tools/
+**/api/.data/
+**/docs/study/*.html
+
+# Environment / local secrets
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.local
+
+# Python local runtime
+.venv/
+**/.venv/
+venv/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local runtime artifacts
+uploads/
+.playwright-cli/
+tmp/
+output/
+
+# Local keys, certificates, and databases
+*.key
+*.pem
+*.p12
+*.pfx
+*.db
+*.sqlite
+*.sqlite3
+
+# Editor and OS files
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

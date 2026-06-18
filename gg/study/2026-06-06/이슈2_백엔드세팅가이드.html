@@ -1,0 +1,757 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Issue #2 NestJS 백엔드 기본 세팅 가이드</title>
+    <style>
+      :root {
+        --bg: #f6f7f9;
+        --panel: #ffffff;
+        --text: #17202a;
+        --muted: #5f6b7a;
+        --line: #dce3eb;
+        --blue: #2563eb;
+        --blue-soft: #e8f0ff;
+        --green: #0f766e;
+        --green-soft: #e7f5f2;
+        --amber: #a16207;
+        --amber-soft: #fff5df;
+        --red: #b91c1c;
+        --red-soft: #feecec;
+        --code-bg: #111827;
+        --code-text: #e5e7eb;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        line-height: 1.65;
+      }
+
+      main {
+        max-width: 1080px;
+        margin: 0 auto;
+        padding: 36px 22px 72px;
+      }
+
+      header,
+      section {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+      }
+
+      header {
+        padding: 30px;
+      }
+
+      section {
+        margin-top: 18px;
+        padding: 26px;
+      }
+
+      h1,
+      h2,
+      h3 {
+        line-height: 1.28;
+        letter-spacing: 0;
+      }
+
+      h1 {
+        margin: 0 0 10px;
+        font-size: 32px;
+      }
+
+      h2 {
+        margin: 0 0 16px;
+        font-size: 24px;
+      }
+
+      h3 {
+        margin: 22px 0 8px;
+        font-size: 18px;
+      }
+
+      p {
+        margin: 8px 0;
+      }
+
+      code {
+        padding: 2px 6px;
+        border-radius: 4px;
+        background: #eef2f7;
+        color: #111827;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.93em;
+      }
+
+      pre {
+        margin: 12px 0 0;
+        padding: 16px;
+        overflow-x: auto;
+        border-radius: 8px;
+        background: var(--code-bg);
+        color: var(--code-text);
+      }
+
+      pre code {
+        padding: 0;
+        background: transparent;
+        color: inherit;
+      }
+
+      table {
+        width: 100%;
+        margin-top: 12px;
+        border-collapse: collapse;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        overflow: hidden;
+      }
+
+      th,
+      td {
+        padding: 12px 14px;
+        border-bottom: 1px solid var(--line);
+        text-align: left;
+        vertical-align: top;
+      }
+
+      th {
+        background: #f1f4f8;
+        font-size: 14px;
+      }
+
+      tr:last-child td {
+        border-bottom: 0;
+      }
+
+      ul,
+      ol {
+        margin: 10px 0;
+        padding-left: 24px;
+      }
+
+      li {
+        margin: 7px 0;
+      }
+
+      .label {
+        display: inline-flex;
+        align-items: center;
+        min-height: 28px;
+        padding: 3px 10px;
+        border-radius: 999px;
+        background: var(--blue-soft);
+        color: var(--blue);
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      .subtitle {
+        color: var(--muted);
+        font-size: 16px;
+      }
+
+      .callout {
+        margin-top: 14px;
+        padding: 15px 17px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fafbfc;
+      }
+
+      .blue {
+        background: var(--blue-soft);
+        border-color: #bfd3ff;
+      }
+
+      .green {
+        background: var(--green-soft);
+        border-color: #a8d8d0;
+      }
+
+      .amber {
+        background: var(--amber-soft);
+        border-color: #f3ce92;
+      }
+
+      .red {
+        background: var(--red-soft);
+        border-color: #f4b4b4;
+      }
+
+      .step {
+        margin-top: 18px;
+        padding: 18px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fcfdff;
+      }
+
+      .step h3 {
+        margin-top: 0;
+      }
+
+      .done {
+        color: var(--green);
+        font-weight: 700;
+      }
+
+      .pending {
+        color: var(--amber);
+        font-weight: 700;
+      }
+
+      .danger {
+        color: var(--red);
+        font-weight: 700;
+      }
+
+      .muted {
+        color: var(--muted);
+      }
+
+      @media (max-width: 760px) {
+        main {
+          padding: 22px 14px 44px;
+        }
+
+        header,
+        section {
+          padding: 20px;
+        }
+
+        h1 {
+          font-size: 26px;
+        }
+
+        table {
+          display: block;
+          overflow-x: auto;
+          white-space: nowrap;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <span class="label">GitHub Issue #2</span>
+        <h1>NestJS 백엔드 기본 세팅 가이드</h1>
+        <p class="subtitle">
+          이 문서는 NestJS를 공부하라는 문서가 아니라, 백엔드 개발환경을 네가 직접 만들 수 있게 순서대로 알려주는 작업 지시서다.
+        </p>
+        <div class="callout blue">
+          <strong>Issue #2 목표</strong>
+          <p>
+            <code>backend</code> 폴더에 NestJS 서버를 만들고, <code>GET /health</code>가 응답하며,
+            Prisma가 PostgreSQL에 연결할 준비까지 끝내는 것이다.
+          </p>
+        </div>
+      </header>
+
+      <section>
+        <h2>0. 시작하기 전에</h2>
+        <p>
+          현재 네 저장소는 <code>feat/1-init</code> 브랜치에 있고, 오늘 작업 가이드 문서가 아직 커밋되지 않은 상태일 수 있다.
+          Issue #2를 시작하기 전에 Issue #1 문서 작업을 먼저 커밋해두는 것을 추천한다.
+        </p>
+
+        <div class="step">
+          <h3>현재 상태 확인</h3>
+          <pre><code>cd /Users/igyeong-geun/Documents/jungle/week15/ai-workout-board
+git status --short
+git branch --show-current</code></pre>
+
+          <h3>오늘 작업 가이드가 보이면 먼저 커밋</h3>
+          <pre><code>git add docs/2026-06-06/오늘작업가이드.html
+git commit -m "docs: 오늘 작업 가이드 작성"
+git push -u origin feat/1-init</code></pre>
+
+          <h3>정상 결과</h3>
+          <pre><code>GitHub에 feat/1-init 브랜치가 올라간다.
+Issue #1 작업은 커밋으로 남는다.</code></pre>
+        </div>
+
+        <div class="callout amber">
+          <strong>만약 이미 커밋했다면</strong>
+          <p>
+            위 커밋 단계는 건너뛰어도 된다. <code>git status --short</code> 결과가 비어 있으면 깨끗한 상태다.
+          </p>
+        </div>
+      </section>
+
+      <section>
+        <h2>1. Issue #2 브랜치 만들기</h2>
+        <p>
+          이제 백엔드 세팅 작업을 위한 새 브랜치를 만든다.
+          브랜치 이름은 이슈 번호가 보이게 만든다.
+        </p>
+
+        <div class="step">
+          <h3>입력할 명령어</h3>
+          <pre><code>git switch main
+git pull origin main
+git switch -c feat/2-backend-setup</code></pre>
+
+          <h3>이미 브랜치가 있다고 나오면</h3>
+          <pre><code>git switch feat/2-backend-setup</code></pre>
+
+          <h3>확인 명령어</h3>
+          <pre><code>git branch --show-current</code></pre>
+
+          <h3>정상 결과</h3>
+          <pre><code>feat/2-backend-setup</code></pre>
+        </div>
+      </section>
+
+      <section>
+        <h2>2. DB 먼저 켜기</h2>
+        <p>
+          Prisma와 NestJS가 DB에 연결하려면 PostgreSQL이 먼저 실행 중이어야 한다.
+          Docker Desktop을 켠 뒤 아래 명령어를 실행한다.
+        </p>
+
+        <div class="step">
+          <h3>입력할 명령어</h3>
+          <pre><code>docker compose up -d
+docker compose ps</code></pre>
+
+          <h3>정상 결과</h3>
+          <pre><code>workout-board-postgres 컨테이너가 Up 또는 healthy 상태로 보인다.</code></pre>
+
+          <h3>로그 확인</h3>
+          <pre><code>docker compose logs postgres</code></pre>
+
+          <h3>로그에서 찾을 문장</h3>
+          <pre><code>database system is ready to accept connections</code></pre>
+        </div>
+      </section>
+
+      <section>
+        <h2>3. backend 폴더 준비</h2>
+        <p>
+          현재 <code>backend</code> 폴더에는 <code>.gitkeep</code>만 있다.
+          NestJS 프로젝트를 만들기 전에 이 빈 파일을 지운다.
+        </p>
+
+        <div class="step">
+          <h3>현재 backend 상태 확인</h3>
+          <pre><code>find backend -maxdepth 2 -print</code></pre>
+
+          <h3>정상 결과</h3>
+          <pre><code>backend
+backend/.gitkeep</code></pre>
+
+          <h3>.gitkeep 삭제</h3>
+          <pre><code>rm backend/.gitkeep</code></pre>
+
+          <h3>왜 지우는가</h3>
+          <p>
+            <code>.gitkeep</code>은 빈 폴더를 Git에 올리기 위한 임시 파일이다.
+            이제 실제 NestJS 파일을 만들 것이므로 필요 없다.
+          </p>
+        </div>
+      </section>
+
+      <section>
+        <h2>4. NestJS 프로젝트 생성</h2>
+        <p>
+          이제 <code>backend</code> 폴더에 NestJS 프로젝트를 생성한다.
+          아래 명령어를 실행하면 필요한 패키지를 다운로드하므로 시간이 조금 걸릴 수 있다.
+        </p>
+
+        <div class="step">
+          <h3>입력할 명령어</h3>
+          <pre><code>npx @nestjs/cli new backend --package-manager npm --skip-git</code></pre>
+
+          <h3>만약 폴더가 이미 있다고 묻는다면</h3>
+          <p>
+            <code>backend</code> 폴더가 비어 있으면 계속 진행해도 된다.
+            만약 선택지가 뜨면 기존 내용을 덮어쓰는 방향을 선택한다.
+          </p>
+
+          <h3>정상 결과</h3>
+          <pre><code>backend/package.json
+backend/src/main.ts
+backend/src/app.module.ts
+backend/src/app.controller.ts
+backend/src/app.service.ts</code></pre>
+
+          <h3>확인 명령어</h3>
+          <pre><code>find backend/src -maxdepth 2 -type f | sort</code></pre>
+        </div>
+
+        <div class="callout red">
+          <strong>주의</strong>
+          <p>
+            <code>backend</code> 폴더 안에 네가 직접 만든 중요한 파일이 있다면 덮어쓰면 안 된다.
+            지금 기준으로는 <code>.gitkeep</code>만 있으므로 진행해도 된다.
+          </p>
+        </div>
+      </section>
+
+      <section>
+        <h2>5. NestJS 서버 실행 확인</h2>
+        <p>프로젝트가 생성되면 백엔드 서버가 켜지는지 먼저 확인한다.</p>
+
+        <div class="step">
+          <h3>입력할 명령어</h3>
+          <pre><code>cd backend
+npm run start:dev</code></pre>
+
+          <h3>정상 결과</h3>
+          <pre><code>Nest application successfully started</code></pre>
+
+          <h3>브라우저 또는 새 터미널에서 확인</h3>
+          <pre><code>curl http://localhost:3000</code></pre>
+
+          <h3>정상 응답</h3>
+          <pre><code>Hello World!</code></pre>
+
+          <h3>서버 끄기</h3>
+          <p>
+            서버가 실행 중인 터미널에서 <code>Control + C</code>를 누르면 종료된다.
+          </p>
+        </div>
+      </section>
+
+      <section>
+        <h2>6. Health check API 추가</h2>
+        <p>
+          백엔드 서버가 살아 있는지 확인하는 API를 만든다.
+          배포나 서버 연결 테스트에서 가장 먼저 쓰는 기본 API다.
+        </p>
+
+        <div class="step">
+          <h3>수정할 파일</h3>
+          <pre><code>backend/src/app.controller.ts</code></pre>
+
+          <h3>파일 내용을 아래 코드로 교체</h3>
+          <pre><code>import { Controller, Get } from '@nestjs/common';
+
+@Controller()
+export class AppController {
+  @Get()
+  getRoot() {
+    return {
+      message: 'Workout board backend is running',
+    };
+  }
+
+  @Get('health')
+  getHealth() {
+    return {
+      status: 'ok',
+      service: 'backend',
+      timestamp: new Date().toISOString(),
+    };
+  }
+}</code></pre>
+
+          <h3>다시 서버 실행</h3>
+          <pre><code>cd backend
+npm run start:dev</code></pre>
+
+          <h3>새 터미널에서 확인</h3>
+          <pre><code>curl http://localhost:3000/health</code></pre>
+
+          <h3>정상 응답 예시</h3>
+          <pre><code>{"status":"ok","service":"backend","timestamp":"2026-06-06T..."}</code></pre>
+        </div>
+      </section>
+
+      <section>
+        <h2>7. 환경 변수와 ConfigModule 설치</h2>
+        <p>
+          서버 코드 안에 비밀번호나 DB 주소를 직접 적지 않기 위해 환경 변수를 사용한다.
+          NestJS에서는 <code>@nestjs/config</code>를 사용한다.
+        </p>
+
+        <div class="step">
+          <h3>입력할 명령어</h3>
+          <pre><code>cd backend
+npm install @nestjs/config</code></pre>
+
+          <h3>수정할 파일</h3>
+          <pre><code>backend/src/app.module.ts</code></pre>
+
+          <h3>파일 내용을 아래 코드로 교체</h3>
+          <pre><code>import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+    }),
+  ],
+  controllers: [AppController],
+  providers: [AppService],
+})
+export class AppModule {}</code></pre>
+
+          <h3>정상 기준</h3>
+          <p>
+            서버를 다시 실행했을 때 에러 없이 켜져야 한다.
+          </p>
+        </div>
+      </section>
+
+      <section>
+        <h2>8. Prisma 설치</h2>
+        <p>
+          Prisma는 NestJS가 PostgreSQL과 대화하기 쉽게 도와주는 도구다.
+          DB 테이블을 코드로 관리하고, 나중에 게시글 CRUD를 만들 때 사용한다.
+        </p>
+
+        <div class="step">
+          <h3>입력할 명령어</h3>
+          <pre><code>cd backend
+npm install @prisma/client
+npm install -D prisma
+npx prisma init</code></pre>
+
+          <h3>정상 결과</h3>
+          <pre><code>backend/prisma/schema.prisma
+backend/.env</code></pre>
+
+          <h3>backend/.env 수정</h3>
+          <p><code>backend/.env</code> 파일의 <code>DATABASE_URL</code> 값을 아래처럼 맞춘다.</p>
+          <pre><code>DATABASE_URL="postgresql://workout:workout@localhost:5432/workout_board"</code></pre>
+
+          <h3>Prisma schema 확인</h3>
+          <p><code>backend/prisma/schema.prisma</code>에 아래와 비슷한 내용이 있어야 한다.</p>
+          <pre><code>generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}</code></pre>
+        </div>
+      </section>
+
+      <section>
+        <h2>9. PrismaService 추가</h2>
+        <p>
+          NestJS 안에서 Prisma를 주입해서 쓰려면 서비스와 모듈을 만든다.
+          아직 DB 모델은 만들지 않는다. Issue #2에서는 연결 준비까지만 한다.
+        </p>
+
+        <div class="step">
+          <h3>폴더 만들기</h3>
+          <pre><code>mkdir -p backend/src/prisma</code></pre>
+
+          <h3>새 파일 만들기</h3>
+          <pre><code>backend/src/prisma/prisma.service.ts</code></pre>
+
+          <h3>넣을 코드</h3>
+          <pre><code>import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { PrismaClient } from '@prisma/client';
+
+@Injectable()
+export class PrismaService
+  extends PrismaClient
+  implements OnModuleInit, OnModuleDestroy
+{
+  async onModuleInit() {
+    await this.$connect();
+  }
+
+  async onModuleDestroy() {
+    await this.$disconnect();
+  }
+}</code></pre>
+
+          <h3>새 파일 만들기</h3>
+          <pre><code>backend/src/prisma/prisma.module.ts</code></pre>
+
+          <h3>넣을 코드</h3>
+          <pre><code>import { Global, Module } from '@nestjs/common';
+import { PrismaService } from './prisma.service';
+
+@Global()
+@Module({
+  providers: [PrismaService],
+  exports: [PrismaService],
+})
+export class PrismaModule {}</code></pre>
+
+          <h3>app.module.ts 수정</h3>
+          <p><code>backend/src/app.module.ts</code>를 아래처럼 바꾼다.</p>
+          <pre><code>import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+import { PrismaModule } from './prisma/prisma.module';
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+    }),
+    PrismaModule,
+  ],
+  controllers: [AppController],
+  providers: [AppService],
+})
+export class AppModule {}</code></pre>
+        </div>
+      </section>
+
+      <section>
+        <h2>10. 서버 실행과 DB 연결 확인</h2>
+        <p>
+          PrismaService는 서버가 켜질 때 DB에 연결을 시도한다.
+          따라서 DB가 켜져 있고 서버가 정상 실행되면 연결 준비가 된 것이다.
+        </p>
+
+        <div class="step">
+          <h3>DB 실행 확인</h3>
+          <pre><code>docker compose ps</code></pre>
+
+          <h3>서버 실행</h3>
+          <pre><code>cd backend
+npm run start:dev</code></pre>
+
+          <h3>health 확인</h3>
+          <pre><code>curl http://localhost:3000/health</code></pre>
+
+          <h3>정상 기준</h3>
+          <pre><code>서버 실행 중 에러가 없다.
+GET /health가 status: ok를 반환한다.</code></pre>
+
+          <h3>DB 연결 실패 시 자주 나오는 원인</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>오류 느낌</th>
+                <th>원인</th>
+                <th>대처</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>DB에 연결할 수 없다고 나옴</td>
+                <td>Docker DB가 꺼져 있음</td>
+                <td><code>docker compose up -d</code> 실행</td>
+              </tr>
+              <tr>
+                <td>비밀번호 또는 유저 오류</td>
+                <td><code>DATABASE_URL</code>이 다름</td>
+                <td><code>backend/.env</code> 값 확인</td>
+              </tr>
+              <tr>
+                <td>포트 오류</td>
+                <td>5432 또는 3000 포트 충돌</td>
+                <td>오류 메시지를 그대로 나에게 보여주기</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <h2>11. Issue #2 완료 기준</h2>
+        <p>아래 항목이 모두 만족되면 Issue #2는 끝났다고 보면 된다.</p>
+
+        <table>
+          <thead>
+            <tr>
+              <th>체크</th>
+              <th>완료 기준</th>
+              <th>확인 방법</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>1</td>
+              <td>백엔드 NestJS 프로젝트 생성</td>
+              <td><code>backend/package.json</code>, <code>backend/src/main.ts</code> 존재</td>
+            </tr>
+            <tr>
+              <td>2</td>
+              <td>서버 실행 가능</td>
+              <td><code>npm run start:dev</code> 성공</td>
+            </tr>
+            <tr>
+              <td>3</td>
+              <td>Health check API 동작</td>
+              <td><code>curl http://localhost:3000/health</code> 성공</td>
+            </tr>
+            <tr>
+              <td>4</td>
+              <td>환경 변수 설정</td>
+              <td><code>@nestjs/config</code> 설치, <code>ConfigModule</code> 등록</td>
+            </tr>
+            <tr>
+              <td>5</td>
+              <td>Prisma 설치</td>
+              <td><code>backend/prisma/schema.prisma</code> 존재</td>
+            </tr>
+            <tr>
+              <td>6</td>
+              <td>PrismaService 준비</td>
+              <td><code>backend/src/prisma/prisma.service.ts</code> 존재</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>12. Git에 남기기</h2>
+        <p>Issue #2가 끝나면 변경 내용을 커밋하고 GitHub에 올린다.</p>
+
+        <div class="step">
+          <h3>변경 확인</h3>
+          <pre><code>git status --short</code></pre>
+
+          <h3>추가</h3>
+          <pre><code>git add backend</code></pre>
+
+          <h3>커밋</h3>
+          <pre><code>git commit -m "feat: NestJS 백엔드 기본 세팅"</code></pre>
+
+          <h3>푸시</h3>
+          <pre><code>git push -u origin feat/2-backend-setup</code></pre>
+        </div>
+
+        <div class="callout blue">
+          <strong>GitHub에서 할 일</strong>
+          <p>
+            브랜치를 푸시하면 GitHub에 Pull Request를 만들 수 있다는 안내가 뜰 수 있다.
+            그때는 PR 제목을 <code>feat: NestJS 백엔드 기본 세팅</code>으로 만들면 된다.
+          </p>
+        </div>
+      </section>
+
+      <section>
+        <h2>13. 다음 이슈 예고</h2>
+        <p>Issue #2가 끝나면 다음은 Issue #3이다.</p>
+
+        <pre><code>Issue #3: 운동 기록 게시글 DB 모델 구현
+
+목표:
+User, WorkoutPost, WorkoutExercise, WorkoutSet 모델을 Prisma schema에 작성하고 migration을 실행한다.</code></pre>
+
+        <p class="muted">
+          Issue #3부터는 진짜 데이터 구조를 만들기 시작한다.
+          오늘은 서버와 DB 연결 준비까지만 끝내면 된다.
+        </p>
+      </section>
+    </main>
+  </body>
+</html>
+

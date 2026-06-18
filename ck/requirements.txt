@@ -1,0 +1,4 @@
+# Root Python dependencies for this multi-app repository.
+# Install from the repository root with:
+#   pip install -r requirements.txt
+-r apps/fastapi-api/requirements.txt

@@ -1,0 +1,115 @@
+.pet-place-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+  max-height: 720px;
+  overflow: auto;
+  padding: 2px;
+  scroll-padding: 12px;
+}
+
+.pet-place-result-summary,
+.pet-place-result-state {
+  margin: 0;
+  border: 1px solid rgb(60 123 89 / 18%);
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-size: 0.86rem;
+  font-weight: 800;
+  line-height: 1.5;
+}
+
+.pet-place-result-summary {
+  padding: 10px 12px;
+}
+
+.pet-place-result-state {
+  display: grid;
+  gap: 6px;
+  padding: 18px;
+}
+
+.pet-place-result-state strong {
+  color: var(--text-strong);
+}
+
+.pet-place-result-state p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.pet-place-result-state--error {
+  border-color: var(--danger-line);
+  background: var(--danger-bg);
+  color: var(--primary-strong);
+}
+
+.pet-place-card {
+  display: grid;
+  overflow: hidden;
+  border: 1px solid rgb(229 221 211 / 86%);
+  border-radius: var(--radius);
+  background: #ffffff;
+  color: inherit;
+  text-decoration: none;
+  box-shadow: var(--shadow-soft);
+}
+
+.pet-place-card.is-selected {
+  border-color: var(--accent);
+  box-shadow:
+    0 0 0 4px var(--focus-ring-soft),
+    var(--shadow);
+}
+
+.pet-place-card:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 3px;
+}
+
+.pet-place-image {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 4 / 3;
+  background: var(--surface-muted);
+  color: var(--text-soft);
+  font-weight: 800;
+}
+
+.pet-place-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.pet-place-card > div:last-child {
+  display: grid;
+  gap: 7px;
+  padding: 13px;
+}
+
+.pet-place-card strong {
+  color: var(--text-strong);
+  line-height: 1.35;
+}
+
+.pet-place-card p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.pet-place-card span,
+.pet-place-card em {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--primary-strong);
+  font-size: 0.78rem;
+  font-style: normal;
+  font-weight: 800;
+}

@@ -1,0 +1,73 @@
+{
+  "name": "back",
+  "version": "0.0.1",
+  "private": true,
+  "license": "UNLICENSED",
+  "scripts": {
+    "build": "nest build",
+    "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
+    "start": "nest start",
+    "start:dev": "nest start --watch",
+    "start:debug": "nest start --debug --watch",
+    "start:prod": "node dist/main",
+    "lint": "eslint \"{src,test}/**/*.ts\"",
+    "test": "jest --passWithNoTests",
+    "test:watch": "jest --watch",
+    "test:cov": "jest --coverage",
+    "test:e2e": "jest --config ./test/jest-e2e.json --runInBand"
+  },
+  "dependencies": {
+    "@nestjs/common": "*",
+    "@nestjs/config": "^4.0.4",
+    "@nestjs/core": "*",
+    "@nestjs/jwt": "^11.0.2",
+    "@nestjs/platform-express": "*",
+    "argon2": "^0.44.0",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.15.1",
+    "helmet": "^8.2.0",
+    "pg": "^8.21.0",
+    "reflect-metadata": "*",
+    "rxjs": "*"
+  },
+  "devDependencies": {
+    "@eslint/js": "*",
+    "@nestjs/cli": "*",
+    "@nestjs/schematics": "*",
+    "@nestjs/testing": "*",
+    "@types/jest": "*",
+    "@types/node": "*",
+    "@types/supertest": "*",
+    "eslint": "*",
+    "eslint-config-prettier": "*",
+    "eslint-plugin-prettier": "*",
+    "globals": "*",
+    "jest": "*",
+    "prettier": "*",
+    "source-map-support": "*",
+    "supertest": "*",
+    "ts-jest": "*",
+    "ts-loader": "*",
+    "ts-node": "*",
+    "tsconfig-paths": "*",
+    "typescript": "*",
+    "typescript-eslint": "*"
+  },
+  "jest": {
+    "moduleFileExtensions": [
+      "js",
+      "json",
+      "ts"
+    ],
+    "rootDir": "src",
+    "testRegex": ".*\\.spec\\.ts$",
+    "transform": {
+      "^.+\\.(t|j)s$": "ts-jest"
+    },
+    "collectCoverageFrom": [
+      "**/*.(t|j)s"
+    ],
+    "coverageDirectory": "../coverage",
+    "testEnvironment": "node"
+  }
+}

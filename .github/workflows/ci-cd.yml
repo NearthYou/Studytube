@@ -140,7 +140,7 @@ jobs:
       - name: Deploy application
         if: steps.deploy-config.outputs.deploy == 'true'
         run: |
-          REPO_DIR="${EC2_REPO_DIR:-/home/ubuntu/agentic-board}"
+          REPO_DIR="${EC2_REPO_DIR:-/home/ubuntu/studytube}"
           APP_DIR="${EC2_APP_DIR:-$REPO_DIR}"
           ssh "$EC2_USER@$EC2_HOST" "REPO_DIR='$REPO_DIR' APP_DIR='$APP_DIR' DEPLOY_BRANCH='$DEPLOY_BRANCH' bash -s" <<'REMOTE'
           set -euo pipefail

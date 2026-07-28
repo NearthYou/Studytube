@@ -1,9 +1,9 @@
-name: agentic-board
+name: studytube
 
 services:
   postgres:
     image: pgvector/pgvector:pg16
-    container_name: agentic-board-postgres
+    container_name: studytube-postgres
     environment:
       POSTGRES_USER: app
       POSTGRES_PASSWORD: app

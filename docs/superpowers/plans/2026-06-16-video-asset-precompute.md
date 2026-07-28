@@ -1342,7 +1342,7 @@ python test_main.py -q -k "caption" -k "summary"
 Expected: PASS in an environment with AI dependencies installed. If the bundled local Python lacks `httpx` or `openai`, run the same command on EC2 venv:
 
 ```bash
-cd /home/ubuntu/agentic-board/ai
+cd /home/ubuntu/studytube/ai
 ./.venv/bin/python test_main.py -q -k "caption" -k "summary"
 ```
 
@@ -1363,7 +1363,7 @@ Expected:
 - [ ] **Step 5: Deploy to EC2**
 
 ```bash
-ssh -i C:\jungler.pem ubuntu@15.164.98.162 "cd /home/ubuntu/agentic-board && bash scripts/deploy-ec2.sh sw"
+ssh -i C:\jungler.pem ubuntu@15.164.98.162 "cd /home/ubuntu/studytube && bash scripts/deploy-ec2.sh sw"
 ```
 
 Expected: deploy script ends with API health and AI health OK.

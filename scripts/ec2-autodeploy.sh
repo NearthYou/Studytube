@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-app_dir="${APP_DIR:-/home/ubuntu/agentic-board}"
+app_dir="${APP_DIR:-/home/ubuntu/studytube}"
 deploy_branch="${DEPLOY_BRANCH:-sw}"
-repo_full_name="${GITHUB_REPOSITORY:-NearthYou/agentic-board}"
+repo_full_name="${GITHUB_REPOSITORY:-NearthYou/studytube}"
 workflow_name="${GITHUB_WORKFLOW_NAME:-CI/CD}"
-lock_file="${AUTODEPLOY_LOCK_FILE:-/tmp/agentic-board-autodeploy.lock}"
+lock_file="${AUTODEPLOY_LOCK_FILE:-/tmp/studytube-autodeploy.lock}"
 
 exec 9>"$lock_file"
 if ! flock -n 9; then
@@ -36,7 +36,7 @@ request = urllib.request.Request(
     url,
     headers={
         "Accept": "application/vnd.github+json",
-        "User-Agent": "agentic-board-autodeploy",
+        "User-Agent": "studytube-autodeploy",
     },
 )
 

@@ -36,8 +36,8 @@ If `EC2_SSH_KEY` is not configured in GitHub, EC2 can still deploy automatically
 Install the EC2 timer once:
 
 ```bash
-cd /home/ubuntu/agentic-board
-APP_DIR=/home/ubuntu/agentic-board DEPLOY_BRANCH=sw bash scripts/install-ec2-autodeploy.sh
+cd /home/ubuntu/studytube
+APP_DIR=/home/ubuntu/studytube DEPLOY_BRANCH=sw bash scripts/install-ec2-autodeploy.sh
 ```
 
 This creates a user systemd timer that checks every two minutes. If user systemd is unavailable, the installer falls back to cron.
@@ -52,8 +52,8 @@ Optional:
 
 - `EC2_HOST`: EC2 public IP or DNS. Defaults to `15.164.98.162`.
 - `EC2_USER`: SSH user. Defaults to `ubuntu`.
-- `EC2_APP_DIR`: app path on EC2. Defaults to `/home/ubuntu/agentic-board` if empty.
-- `EC2_REPO_DIR`: repository checkout path on EC2. Defaults to `/home/ubuntu/agentic-board` if empty.
+- `EC2_APP_DIR`: app path on EC2. Defaults to `/home/ubuntu/studytube` if empty.
+- `EC2_REPO_DIR`: repository checkout path on EC2. Defaults to `/home/ubuntu/studytube` if empty.
 
 If `EC2_SSH_KEY` is missing, the deploy job succeeds with a notice and skips deployment. This keeps CI green while deployment credentials are not configured.
 
@@ -66,6 +66,6 @@ Open GitHub Actions, choose `CI/CD`, then run the workflow manually. Use the `sw
 After SSHing into EC2:
 
 ```bash
-cd /home/ubuntu/agentic-board
-APP_DIR=/home/ubuntu/agentic-board DEPLOY_BRANCH=sw bash scripts/deploy-ec2.sh sw
+cd /home/ubuntu/studytube
+APP_DIR=/home/ubuntu/studytube DEPLOY_BRANCH=sw bash scripts/deploy-ec2.sh sw
 ```

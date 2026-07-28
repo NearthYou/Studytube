@@ -1,5 +1,5 @@
 {
-  "name": "agentic-board",
+  "name": "studytube",
   "private": true,
   "scripts": {
     "dev:web": "npm --prefix web run dev -- --host 0.0.0.0",

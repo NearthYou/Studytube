@@ -57,9 +57,9 @@ wait_for_url() {
   label="$2"
 
   for _attempt in $(seq 1 60); do
-    if curl -fsS "$url" >/tmp/agentic-board-healthcheck.out 2>/dev/null; then
-      cat /tmp/agentic-board-healthcheck.out
-      rm -f /tmp/agentic-board-healthcheck.out
+    if curl -fsS "$url" >/tmp/studytube-healthcheck.out 2>/dev/null; then
+      cat /tmp/studytube-healthcheck.out
+      rm -f /tmp/studytube-healthcheck.out
       return 0
     fi
 

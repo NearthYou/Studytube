@@ -26,7 +26,7 @@ YouTube 학습 영상을 코스 단위로 저장하고 공유하는 학습 보�
 ## 폴더 구조
 
 ```text
-agentic-board/
+studytube/
   web/                 React + Vite frontend
   api/                 NestJS API server
   ai/                  FastAPI AI server

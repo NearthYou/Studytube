@@ -1,7 +1,6 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { DEFAULT_LEARNING_PREFERENCES } from './database-board.mapper';
 import { DatabaseService } from './database.service';
 
 class TestDatabaseService extends DatabaseService {
@@ -35,7 +34,7 @@ function configServiceForFallbackPath(
 
 describe('DatabaseService fallback persistence', () => {
   it('restores users and sessions from the file-backed fallback store', async () => {
-    const directory = await mkdtemp(join(tmpdir(), 'agentic-board-fallback-'));
+    const directory = await mkdtemp(join(tmpdir(), 'studytube-fallback-'));
     const fallbackPath = join(directory, 'board.json');
     const firstService = new TestDatabaseService(
       configServiceForFallbackPath(fallbackPath),
@@ -78,7 +77,7 @@ describe('DatabaseService fallback persistence', () => {
   });
 
   it('retries database initialization before switching to fallback data', async () => {
-    const directory = await mkdtemp(join(tmpdir(), 'agentic-board-fallback-'));
+    const directory = await mkdtemp(join(tmpdir(), 'studytube-fallback-'));
     const fallbackPath = join(directory, 'board.json');
     const service = new TestDatabaseService(
       configServiceForFallbackPath(fallbackPath, {
@@ -113,8 +112,8 @@ describe('DatabaseService fallback persistence', () => {
     }
   });
 
-  it('uses valid default learning preferences JSON in the users schema', async () => {
-    const directory = await mkdtemp(join(tmpdir(), 'agentic-board-fallback-'));
+  it('uses an unset learning profile as the users schema default', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'studytube-fallback-'));
     const fallbackPath = join(directory, 'board.json');
     const service = new TestDatabaseService(
       configServiceForFallbackPath(fallbackPath),
@@ -144,12 +143,14 @@ describe('DatabaseService fallback persistence', () => {
       const usersSchema = queries.find((query) =>
         query.includes('CREATE TABLE IF NOT EXISTS users'),
       );
-      const expectedDefault = JSON.stringify(
-        DEFAULT_LEARNING_PREFERENCES,
-      ).replace(/'/g, "''");
+      const expectedDefault = '{"interests":[],"pace":"","goal":""}';
 
       expect(usersSchema).toContain(`DEFAULT '${expectedDefault}'::jsonb`);
-      expect(JSON.parse(expectedDefault)).toEqual(DEFAULT_LEARNING_PREFERENCES);
+      expect(JSON.parse(expectedDefault)).toEqual({
+        interests: [],
+        pace: '',
+        goal: '',
+      });
     } finally {
       await service.onModuleDestroy();
       await rm(directory, { recursive: true, force: true });

@@ -5,7 +5,7 @@
 ## 폴더 구조
 
 ```txt
-agentic-board/
+studytube/
   web/                 React + Vite + TypeScript
   api/                 NestJS
   ai/                  FastAPI

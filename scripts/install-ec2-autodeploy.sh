@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-app_dir="${APP_DIR:-/home/ubuntu/agentic-board}"
+app_dir="${APP_DIR:-/home/ubuntu/studytube}"
 deploy_branch="${DEPLOY_BRANCH:-sw}"
 interval="${AUTODEPLOY_INTERVAL:-2min}"
 unit_dir="${HOME}/.config/systemd/user"
-service_name="agentic-board-autodeploy.service"
-timer_name="agentic-board-autodeploy.timer"
+service_name="studytube-autodeploy.service"
+timer_name="studytube-autodeploy.timer"
 
 mkdir -p "$unit_dir"
 

@@ -538,13 +538,14 @@ describe('StudyBoardService', () => {
       translatedNotes: 'Public asset notes.',
       tags: ['asset', 'public'],
     });
-    await (service as unknown as { repository: MemoryBoardRepository })
-      .repository.upsertVideoAsset({
-        postId: post.id,
-        videoId: 'publicAsset',
-        videoUrl: post.videoUrl,
-        language: 'ko',
-      });
+    await (
+      service as unknown as { repository: MemoryBoardRepository }
+    ).repository.upsertVideoAsset({
+      postId: post.id,
+      videoId: 'publicAsset',
+      videoUrl: post.videoUrl,
+      language: 'ko',
+    });
 
     await expect(
       service.getVideoAsset(linus.token, post.id),
@@ -556,8 +557,9 @@ describe('StudyBoardService', () => {
 
   it('queues a fresh video asset when the post video url changes', async () => {
     const repository = new MemoryBoardRepository();
+    const enqueuePost = jest.fn();
     const videoAssetService = {
-      enqueuePost: jest.fn(),
+      enqueuePost,
     } as unknown as VideoAssetService;
     const targetService = new StudyBoardService(repository, videoAssetService);
     const session = await createTestSession(targetService, 'asset-update');
@@ -578,7 +580,7 @@ describe('StudyBoardService', () => {
       id: post.id,
       videoUrl: 'https://www.youtube.com/watch?v=newAssetVideo',
     });
-    expect(videoAssetService.enqueuePost).toHaveBeenLastCalledWith(
+    expect(enqueuePost).toHaveBeenLastCalledWith(
       expect.objectContaining({
         id: post.id,
         videoUrl: 'https://www.youtube.com/watch?v=newAssetVideo',

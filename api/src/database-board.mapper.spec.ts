@@ -1,5 +1,4 @@
 import {
-  DEFAULT_LEARNING_PREFERENCES,
   iso,
   normalizeComment,
   normalizeFeedback,
@@ -39,11 +38,16 @@ describe('database board mapper', () => {
     });
   });
 
-  it('falls back to default preferences when stored data is invalid', () => {
-    expect(normalizePreferences(null)).toEqual(DEFAULT_LEARNING_PREFERENCES);
+  it('preserves an unset profile when stored preferences are invalid', () => {
+    expect(normalizePreferences(null)).toEqual({
+      interests: [],
+      pace: '',
+      goal: '',
+    });
     expect(normalizePreferences({ interests: 'React' })).toEqual({
-      ...DEFAULT_LEARNING_PREFERENCES,
-      interests: DEFAULT_LEARNING_PREFERENCES.interests,
+      interests: [],
+      pace: '',
+      goal: '',
     });
   });
 

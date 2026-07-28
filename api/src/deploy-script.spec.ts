@@ -83,4 +83,26 @@ describe('EC2 deployment script', () => {
       'if run.get("head_sha") == sha and run.get("name") == workflow_name:',
     );
   });
+
+  it('refuses a pending irreversible auth cutover without a verified backup marker', () => {
+    const guard = script.indexOf('require_auth_cutover_backup');
+    const migration = script.indexOf('npm --prefix api run db:migrate:up');
+
+    expect(script).toContain('auth_migration="1753660802000_auth-hardening"');
+    expect(script).toContain('AUTH_CUTOVER_VERIFIED_BACKUP_MARKER');
+    expect(script).toContain('backup_verified=true');
+    expect(script).toContain('pgmigrations');
+    expect(script).toContain('Refusing irreversible auth migration');
+    expect(guard).toBeGreaterThanOrEqual(0);
+    expect(guard).toBeLessThan(migration);
+  });
+
+  it('rehearses rollback only for the earlier concurrent-index migration in a disposable database', () => {
+    expect(workflow).toContain('migration_rollback_test');
+    expect(workflow).toContain('db:migrate:up -- 2');
+    expect(workflow).toContain('db:migrate:down -- 1');
+    expect(workflow).not.toContain(
+      'Rehearse latest concurrent index rollback and reapply',
+    );
+  });
 });

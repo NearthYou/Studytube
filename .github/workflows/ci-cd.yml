@@ -110,10 +110,21 @@ jobs:
           ALLOW_MIGRATION_ADOPTION_TEST: "true"
         run: npm run db:migrate:test-adoption
 
-      - name: Rehearse latest concurrent index rollback and reapply
+      - name: Rehearse reversible concurrent-index migration
+        env:
+          PGPASSWORD: app
         run: |
-          npm run db:migrate:down -- 1
-          npm run db:migrate:up -- 1
+          rollback_database=migration_rollback_test
+          rollback_database_url="postgresql://app:${PGPASSWORD}@localhost:5432/${rollback_database}"
+          cleanup_rollback_database() {
+            dropdb --if-exists --host localhost --username app "$rollback_database"
+          }
+          trap cleanup_rollback_database EXIT
+          cleanup_rollback_database
+          createdb --host localhost --username app "$rollback_database"
+          DATABASE_URL="$rollback_database_url" npm run db:migrate:up -- 2
+          DATABASE_URL="$rollback_database_url" npm run db:migrate:down -- 1
+          DATABASE_URL="$rollback_database_url" npm run db:migrate:up -- 1
 
       - name: Lint
         run: npm run lint

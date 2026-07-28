@@ -304,9 +304,6 @@ export class DatabaseService
       } catch {
         throw this.authPersistenceError();
       }
-      if (this.postgresErrorCode(error) === '23505') {
-        return { status: 'accepted' };
-      }
       throw this.authPersistenceError();
     } finally {
       client.release();
@@ -480,34 +477,44 @@ export class DatabaseService
         return { status: 'invalid' };
       }
 
-      const insertedUser = await client.query<{
+      type InsertedUser = {
         id: number;
         name: string;
         email: string;
         createdAt: Date | string;
-      }>(
-        `
-          INSERT INTO users (
-            name, email, email_canonical, password_hash,
-            password_algorithm, password_parameters, password_version,
-            identity_assurance, email_verified_at
-          )
-          VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9)
-          RETURNING id, name, email, created_at AS "createdAt"
-        `,
-        [
-          command.name,
-          pending.email,
-          pending.emailCanonical,
-          command.passwordHash,
-          command.passwordAlgorithm,
-          JSON.stringify(command.passwordParameters),
-          command.passwordVersion,
-          command.identityAssurance,
-          command.completedAt,
-        ],
-      );
-      const user = insertedUser.rows[0];
+      };
+      let user: InsertedUser | undefined;
+      try {
+        const insertedUser = await client.query<InsertedUser>(
+          `
+            INSERT INTO users (
+              name, email, email_canonical, password_hash,
+              password_algorithm, password_parameters, password_version,
+              identity_assurance, email_verified_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9)
+            RETURNING id, name, email, created_at AS "createdAt"
+          `,
+          [
+            command.name,
+            pending.email,
+            pending.emailCanonical,
+            command.passwordHash,
+            command.passwordAlgorithm,
+            JSON.stringify(command.passwordParameters),
+            command.passwordVersion,
+            command.identityAssurance,
+            command.completedAt,
+          ],
+        );
+        user = insertedUser.rows[0];
+      } catch (error) {
+        if (this.isUserEmailUniqueViolation(error)) {
+          await rollback();
+          return { status: 'conflict' };
+        }
+        throw error;
+      }
       if (!user) {
         throw this.authPersistenceError();
       }
@@ -555,9 +562,6 @@ export class DatabaseService
         await rollback();
       } catch {
         throw this.authPersistenceError();
-      }
-      if (this.postgresErrorCode(error) === '23505') {
-        return { status: 'conflict' };
       }
       throw this.authPersistenceError();
     } finally {
@@ -1524,6 +1528,25 @@ export class DatabaseService
 
   private authPersistenceError(): Error {
     return new Error('Authentication persistence failed');
+  }
+
+  private isUserEmailUniqueViolation(error: unknown): boolean {
+    if (this.postgresErrorCode(error) !== '23505') {
+      return false;
+    }
+    const constraint = this.postgresErrorConstraint(error);
+    return (
+      constraint === 'users_email_canonical_key' ||
+      constraint === 'users_email_key'
+    );
+  }
+
+  private postgresErrorConstraint(error: unknown): string | undefined {
+    if (typeof error !== 'object' || error === null || !('constraint' in error)) {
+      return undefined;
+    }
+    const constraint = (error as { constraint?: unknown }).constraint;
+    return typeof constraint === 'string' ? constraint : undefined;
   }
 
   private async connectAuthClient(): Promise<PoolClient> {

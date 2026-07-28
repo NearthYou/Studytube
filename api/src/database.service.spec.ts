@@ -503,7 +503,7 @@ describe('DatabaseService verified enrollment persistence', () => {
     expect(release).toHaveBeenCalledTimes(1);
   });
 
-  it('normalizes an existing account and a 23505 insert race to accepted', async () => {
+  it('normalizes an existing account to accepted from the eligibility query', async () => {
     const existingService = new DatabaseService(configService());
     const existingQuery = jest
       .fn()
@@ -524,8 +524,11 @@ describe('DatabaseService verified enrollment persistence', () => {
       'COMMIT',
     ]);
 
-    const racedService = new DatabaseService(configService());
-    const racedQuery = jest
+  });
+
+  it('rolls back and sanitizes a pending-registration unique violation', async () => {
+    const service = new DatabaseService(configService());
+    const query = jest
       .fn()
       .mockResolvedValueOnce({ rows: [], rowCount: null })
       .mockResolvedValueOnce({
@@ -533,15 +536,44 @@ describe('DatabaseService verified enrollment persistence', () => {
         rowCount: 1,
       })
       .mockRejectedValueOnce(
-        Object.assign(new Error('secret detail'), { code: '23505' }),
+        Object.assign(new Error('pending digest detail'), {
+          code: '23505',
+          constraint: 'pending_registrations_verification_digest_key',
+        }),
       )
       .mockResolvedValueOnce({ rows: [], rowCount: null });
-    const { release } = replacePoolConnection(racedService, racedQuery);
+    const { release } = replacePoolConnection(service, query);
 
     await expect(
-      racedService.createPendingRegistration(pendingRegistrationCommand()),
-    ).resolves.toEqual({ status: 'accepted' });
-    expect(racedQuery.mock.calls.at(-1)?.[0]).toBe('ROLLBACK');
+      service.createPendingRegistration(pendingRegistrationCommand()),
+    ).rejects.toThrow('Authentication persistence failed');
+    expect(query.mock.calls.at(-1)?.[0]).toBe('ROLLBACK');
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  it('rolls back and sanitizes an outbox idempotency unique violation', async () => {
+    const service = new DatabaseService(configService());
+    const query = jest
+      .fn()
+      .mockResolvedValueOnce({ rows: [], rowCount: null })
+      .mockResolvedValueOnce({
+        rows: [{ userExists: false, pendingExists: false }],
+        rowCount: 1,
+      })
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+      .mockRejectedValueOnce(
+        Object.assign(new Error('outbox detail'), {
+          code: '23505',
+          constraint: 'verification_email_outbox_idempotency_key',
+        }),
+      )
+      .mockResolvedValueOnce({ rows: [], rowCount: null });
+    const { release } = replacePoolConnection(service, query);
+
+    await expect(
+      service.createPendingRegistration(pendingRegistrationCommand()),
+    ).rejects.toThrow('Authentication persistence failed');
+    expect(query.mock.calls.at(-1)?.[0]).toBe('ROLLBACK');
     expect(release).toHaveBeenCalledTimes(1);
   });
 
@@ -706,10 +738,44 @@ describe('DatabaseService verified enrollment persistence', () => {
     expect(release).toHaveBeenCalledTimes(1);
   });
 
-  it('rolls back a canonical user race and sanitizes other database failures', async () => {
+  it.each(['users_email_canonical_key', 'users_email_key'])(
+    'normalizes a user insert %s conflict after rollback',
+    async (constraint) => {
+      const command = completionCommand();
+      const service = new DatabaseService(configService());
+      const query = jest
+        .fn()
+        .mockResolvedValueOnce({ rows: [], rowCount: null })
+        .mockResolvedValueOnce({
+          rows: [completionPendingRow(command.enrollmentDigest)],
+          rowCount: 1,
+        })
+        .mockRejectedValueOnce(
+          Object.assign(new Error('email=secret@example.com'), {
+            code: '23505',
+            constraint,
+          }),
+        )
+        .mockResolvedValueOnce({ rows: [], rowCount: null });
+      const { release } = replacePoolConnection(service, query);
+
+      await expect(service.completeRegistration(command)).resolves.toEqual({
+        status: 'conflict',
+      });
+      expect(query.mock.calls.map(([sql]) => sql)).toEqual([
+        'BEGIN',
+        expect.stringContaining('FOR UPDATE'),
+        expect.stringContaining('INSERT INTO users'),
+        'ROLLBACK',
+      ]);
+      expect(release).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it('sanitizes an unexpected user insert unique violation', async () => {
     const command = completionCommand();
-    const racedService = new DatabaseService(configService());
-    const racedQuery = jest
+    const service = new DatabaseService(configService());
+    const query = jest
       .fn()
       .mockResolvedValueOnce({ rows: [], rowCount: null })
       .mockResolvedValueOnce({
@@ -717,20 +783,73 @@ describe('DatabaseService verified enrollment persistence', () => {
         rowCount: 1,
       })
       .mockRejectedValueOnce(
-        Object.assign(new Error('email=secret@example.com'), { code: '23505' }),
+        Object.assign(new Error('unexpected user id detail'), {
+          code: '23505',
+          constraint: 'users_pkey',
+        }),
       )
       .mockResolvedValueOnce({ rows: [], rowCount: null });
-    replacePoolConnection(racedService, racedQuery);
+    const { release } = replacePoolConnection(service, query);
 
-    await expect(racedService.completeRegistration(command)).resolves.toEqual({
-      status: 'conflict',
-    });
-    expect(racedQuery.mock.calls.map(([sql]) => sql)).toEqual([
+    await expect(service.completeRegistration(command)).rejects.toThrow(
+      'Authentication persistence failed',
+    );
+    expect(query.mock.calls.map(([sql]) => sql)).toEqual([
       'BEGIN',
       expect.stringContaining('FOR UPDATE'),
       expect.stringContaining('INSERT INTO users'),
       'ROLLBACK',
     ]);
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['sessions_pkey', 'sessions_token_digest_key'])(
+    'sanitizes a post-user-insert %s collision and rolls back the user',
+    async (constraint) => {
+      const command = completionCommand();
+      const service = new DatabaseService(configService());
+      const query = jest
+        .fn()
+        .mockResolvedValueOnce({ rows: [], rowCount: null })
+        .mockResolvedValueOnce({
+          rows: [completionPendingRow(command.enrollmentDigest)],
+          rowCount: 1,
+        })
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: 7,
+              name: 'Ada',
+              email: 'ada@example.com',
+              createdAt: AUTH_NOW,
+            },
+          ],
+          rowCount: 1,
+        })
+        .mockRejectedValueOnce(
+          Object.assign(new Error('session secret detail'), {
+            code: '23505',
+            constraint,
+          }),
+        )
+        .mockResolvedValueOnce({ rows: [], rowCount: null });
+      const { release } = replacePoolConnection(service, query);
+
+      await expect(service.completeRegistration(command)).rejects.toThrow(
+        'Authentication persistence failed',
+      );
+      expect(query.mock.calls.map(([sql]) => sql)).toEqual([
+        'BEGIN',
+        expect.stringContaining('FOR UPDATE'),
+        expect.stringContaining('INSERT INTO users'),
+        expect.stringContaining('INSERT INTO sessions'),
+        'ROLLBACK',
+      ]);
+      expect(release).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it('sanitizes non-unique database failures', async () => {
 
     const failedService = new DatabaseService(configService());
     const failedQuery = jest

@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans to implement this plan task by task. Every behavior change starts with a failing test and records the expected failure before production code is added.
 
-**Goal:** Replace StudyTube's raw Bearer-token and SHA-256 authentication with pre-hijacking-safe email enrollment and race-safe PostgreSQL sessions carried only by HttpOnly cookies, including bounded Argon2 work, durable rate limits, and crash-recoverable verification email delivery.
+**Goal:** Finish a portfolio-ready backend authentication slice that replaces raw Bearer tokens and SHA-256 passwords with verified enrollment, race-safe PostgreSQL sessions, HttpOnly cookies, bounded Argon2 work, and durable rate limits.
 
-**Architecture:** A new Nest `auth` module owns bounded password hashing, pending registration and enrollment, token derivation, authentication use cases, cookie and Origin policy, client-address resolution, and session guards. `AuthService` depends on an `AuthRepository` port implemented by the existing `DatabaseService`; secure operations fail closed without PostgreSQL. Signup stores no user or password before email proof. A feature-local PostgreSQL email outbox is drained by a lease-token worker through capture and Resend adapters. Controllers receive an authenticated principal rather than forwarding raw credentials into application services. The React app boots from `/me`, never stores a token, and keeps account-scoped drafts isolated.
+**Architecture:** A Nest `auth` module owns bounded password hashing, pending registration and enrollment, token derivation, authentication use cases, cookie and Origin policy, client-address resolution, and session guards. `AuthService` depends on a narrow `AuthRepository` port implemented by `DatabaseService`; secure operations fail closed without PostgreSQL. Signup stores no user or password before email proof. The current portfolio cut uses a durable capture outbox boundary for local and automated proof, while production email-provider integration and the React authentication rebuild are deferred.
 
-**Tech stack:** Node 24.8+, NestJS 11, TypeScript, built-in `node:crypto.argon2`, PostgreSQL 16, Jest and Supertest, React 19, Vite, Node test runner, Resend HTTP API.
+**Tech stack:** Node 24.8+, NestJS 11, TypeScript, built-in `node:crypto.argon2`, PostgreSQL 16, Jest, and Supertest. Existing Docker, CI, and deployment scripts remain supporting evidence; Terraform is not used.
 
 ---
 
@@ -19,13 +19,38 @@
 - Signup accepts only email. Verification establishes a short-lived HttpOnly enrollment cookie; name and password are selected only during verified registration completion.
 - Admit Argon2 only after PostgreSQL rate limiting and through a memory-budgeted concurrency and queue limiter.
 - Use application-generated UUIDs so the migration does not require `pgcrypto`.
-- Use `AuthRepository` and `VerificationEmailOutboxRepository` ports with `DatabaseService` as `useExisting` implementations.
+- Keep repository ports narrow and define only behavior exercised by the portfolio-core authentication flow.
 - Never use `MemoryBoardRepository` as an auth fallback.
-- Use Resend because its official API accepts `Idempotency-Key`; use a capture adapter in local and test environments.
-- Freeze email rendering inputs and payload hash in the outbox; identify each claim with a fresh lease token.
+- Keep immutable email rendering inputs and a payload hash in the durable outbox, but implement only the local/test capture boundary in this cut. Resend delivery is follow-up work.
 - Register global Origin and session guards only after every route has an explicit public or protected classification.
 - Keep `#11` limited to real HTTPS, reverse proxy, and browser Secure-cookie verification. Do not add Terraform.
 - Do not deploy `#7` to the current HTTP service. `#11` owns the maintenance cutover, verified `pg_dump`, restore rehearsal, and cache invalidation.
+
+## Portfolio-core finish line
+
+This section overrides later task detail when the two conflict. The earlier detail remains as a follow-up backlog, not as the completion gate for this cut.
+
+Active scope:
+
+- Complete email-only signup, verification consumption, verified name/password selection, login, `/me`, logout, and password/session rotation through PostgreSQL-backed domain services.
+- Expose the flow through strict DTOs, HttpOnly cookies, exact Origin checks, stable errors, and a session guard for the protected backend routes needed to demonstrate authorization.
+- Keep a durable capture outbox boundary sufficient for local development and automated verification. Do not integrate the Resend production API in this cut.
+- Add a compact PostgreSQL and Supertest proof set for the highest-value invariants: no password before proof, duplicate completion linearization, atomic rate increments, login/session expiry, logout revocation, and secret-free responses/logs.
+- Keep existing CI, Docker, migration, backup guard, and deployment documentation as supporting infrastructure evidence. Do not add Terraform or a new platform layer.
+- Finish with an API-focused README, architecture and transaction diagrams, exact verification evidence, one PR, and the development journal.
+
+Deferred to follow-up work:
+
+- Resend production delivery, retry tuning, and exhaustive outbox crash permutations beyond the durable capture proof.
+- The React token-to-cookie rewrite, onboarding state-machine rebuild, and frontend polish. The portfolio deliverable is explicitly API-first.
+- Broad route taxonomy redesign, optional public explore splits, and exhaustive race combinations that do not change the core authentication claim.
+- Real HTTPS activation, reverse-proxy rollout, production backup and restore rehearsal, and browser Secure-cookie verification owned by `#11`.
+
+Execution policy:
+
+- Group work into enrollment transactions, session and HTTP integration, and verification plus documentation.
+- Use one implementation review per group. Immediately fix only security, data-integrity, correctness, build, or test blockers; record minor style and optional hardening findings for follow-up.
+- Prefer a small set of integration tests that prove the portfolio claims over exhaustive mock permutations.
 
 ## File structure
 

@@ -1,5 +1,10 @@
 import { DatabaseService } from './database.service';
 
+const AUTH_NOW = new Date('2026-07-28T12:00:00.000Z');
+const PENDING_ID = '11111111-1111-4111-8111-111111111111';
+const OUTBOX_ID = '22222222-2222-4222-8222-222222222222';
+const SESSION_ID = '33333333-3333-4333-8333-333333333333';
+
 function configService(overrides: Record<string, string> = {}) {
   return {
     get: jest.fn((key: string) => overrides[key]),
@@ -413,3 +418,432 @@ describe('DatabaseService fail-fast persistence', () => {
     await service.onModuleDestroy();
   });
 });
+
+describe('DatabaseService verified enrollment persistence', () => {
+  it('atomically consumes a fixed-window rate limit in one PostgreSQL statement', async () => {
+    const service = new DatabaseService(configService());
+    const query = jest.fn().mockResolvedValue({
+      rows: [{ allowed: false, remaining: 0, retryAfterSeconds: 42 }],
+      rowCount: 1,
+    });
+    replacePool(service, query);
+    const subjectDigest = Buffer.alloc(32, 1);
+
+    await expect(
+      service.consumeRateLimit({
+        action: 'signup_email',
+        subjectDigest,
+        windowSeconds: 60,
+        maxAttempts: 5,
+      }),
+    ).resolves.toEqual({ allowed: false, retryAfterSeconds: 42 });
+
+    expect(query).toHaveBeenCalledTimes(1);
+    const [sql, values] = query.mock.calls[0] as [string, unknown[]];
+    expect(sql).toContain('INSERT INTO auth_rate_limits');
+    expect(sql).toContain('ON CONFLICT (action, subject_digest, window_start)');
+    expect(sql).toContain('attempts = auth_rate_limits.attempts + 1');
+    expect(sql).toContain('RETURNING');
+    expect(sql).toContain('statement_timestamp()');
+    expect(values).toEqual(['signup_email', subjectDigest, 60, 5]);
+  });
+
+  it('creates pending registration and immutable outbox metadata in one transaction', async () => {
+    const service = new DatabaseService(configService());
+    const query = jest
+      .fn()
+      .mockResolvedValueOnce({ rows: [], rowCount: null })
+      .mockResolvedValueOnce({
+        rows: [{ userExists: false, pendingExists: false }],
+        rowCount: 1,
+      })
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: null });
+    const { release } = replacePoolConnection(service, query);
+    const command = pendingRegistrationCommand();
+
+    await expect(service.createPendingRegistration(command)).resolves.toEqual({
+      status: 'accepted',
+    });
+
+    const calls = query.mock.calls as Array<[string, unknown[]?]>;
+    expect(calls.map(([sql]) => sql)).toEqual([
+      'BEGIN',
+      expect.stringContaining('FROM users'),
+      expect.stringContaining('INSERT INTO pending_registrations'),
+      expect.stringContaining('INSERT INTO verification_email_outbox'),
+      'COMMIT',
+    ]);
+    expect(calls[1][0]).toContain('pending_registrations');
+    expect(calls[2][1]).toEqual([
+      PENDING_ID,
+      'ada@example.com',
+      'ada@example.com',
+      1,
+      command.verificationDigest,
+      command.createdAt,
+      command.verificationExpiresAt,
+    ]);
+    expect(calls[2][0]).toContain('created_at');
+    expect(calls[3][1]).toEqual([
+      OUTBOX_ID,
+      PENDING_ID,
+      'ada@example.com',
+      command.outbox.idempotencyKey,
+      command.outbox.sender,
+      command.outbox.publicOrigin,
+      command.outbox.templateVersion,
+      command.outbox.locale,
+      command.outbox.subject,
+      command.outbox.payloadHash,
+    ]);
+    expect(calls.join(' ')).not.toContain('password');
+    expect(calls.join(' ')).not.toContain('INSERT INTO users');
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  it('normalizes an existing account and a 23505 insert race to accepted', async () => {
+    const existingService = new DatabaseService(configService());
+    const existingQuery = jest
+      .fn()
+      .mockResolvedValueOnce({ rows: [], rowCount: null })
+      .mockResolvedValueOnce({
+        rows: [{ userExists: true, pendingExists: false }],
+        rowCount: 1,
+      })
+      .mockResolvedValueOnce({ rows: [], rowCount: null });
+    replacePoolConnection(existingService, existingQuery);
+
+    await expect(
+      existingService.createPendingRegistration(pendingRegistrationCommand()),
+    ).resolves.toEqual({ status: 'accepted' });
+    expect(existingQuery.mock.calls.map(([sql]) => sql)).toEqual([
+      'BEGIN',
+      expect.stringContaining('FROM users'),
+      'COMMIT',
+    ]);
+
+    const racedService = new DatabaseService(configService());
+    const racedQuery = jest
+      .fn()
+      .mockResolvedValueOnce({ rows: [], rowCount: null })
+      .mockResolvedValueOnce({
+        rows: [{ userExists: false, pendingExists: false }],
+        rowCount: 1,
+      })
+      .mockRejectedValueOnce(
+        Object.assign(new Error('secret detail'), { code: '23505' }),
+      )
+      .mockResolvedValueOnce({ rows: [], rowCount: null });
+    const { release } = replacePoolConnection(racedService, racedQuery);
+
+    await expect(
+      racedService.createPendingRegistration(pendingRegistrationCommand()),
+    ).resolves.toEqual({ status: 'accepted' });
+    expect(racedQuery.mock.calls.at(-1)?.[0]).toBe('ROLLBACK');
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  it('locks verification, installs one enrollment digest, then commits', async () => {
+    const service = new DatabaseService(configService());
+    const command = verificationCommand();
+    const query = jest
+      .fn()
+      .mockResolvedValueOnce({ rows: [], rowCount: null })
+      .mockResolvedValueOnce({
+        rows: [pendingVerificationRow(command.presentedVerificationDigest)],
+        rowCount: 1,
+      })
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: null });
+    const { release } = replacePoolConnection(service, query);
+
+    await expect(service.consumeVerification(command)).resolves.toEqual({
+      status: 'verified',
+    });
+
+    const calls = query.mock.calls as Array<[string, unknown[]?]>;
+    expect(calls.map(([sql]) => sql)).toEqual([
+      'BEGIN',
+      expect.stringContaining('FOR UPDATE'),
+      expect.stringContaining('SET verified_at'),
+      'COMMIT',
+    ]);
+    expect(calls[2][1]).toEqual([
+      PENDING_ID,
+      command.verifiedAt,
+      command.enrollmentDigest,
+      command.enrollmentExpiresAt,
+    ]);
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  it('commits exactly one failed-attempt increment for a well-formed wrong secret', async () => {
+    const service = new DatabaseService(configService());
+    const command = verificationCommand();
+    const query = jest
+      .fn()
+      .mockResolvedValueOnce({ rows: [], rowCount: null })
+      .mockResolvedValueOnce({
+        rows: [pendingVerificationRow(Buffer.alloc(32, 99), 4, 5)],
+        rowCount: 1,
+      })
+      .mockResolvedValueOnce({
+        rows: [{ attemptCount: 5, maxAttempts: 5 }],
+        rowCount: 1,
+      })
+      .mockResolvedValueOnce({ rows: [], rowCount: null });
+    replacePoolConnection(service, query);
+
+    await expect(service.consumeVerification(command)).resolves.toEqual({
+      status: 'invalid',
+    });
+
+    const calls = query.mock.calls as Array<[string, unknown[]?]>;
+    expect(calls.map(([sql]) => sql)).toEqual([
+      'BEGIN',
+      expect.stringContaining('FOR UPDATE'),
+      expect.stringContaining('attempt_count = attempt_count + 1'),
+      'COMMIT',
+    ]);
+    expect(calls[2][0]).toContain('attempt_count < max_attempts');
+  });
+
+  it.each([
+    ['expired', { verificationExpiresAt: new Date('2026-07-28T11:59:59Z') }],
+    ['exhausted', { attemptCount: 5, maxAttempts: 5 }],
+    ['consumed', { verifiedAt: AUTH_NOW }],
+    ['completed', { completedAt: AUTH_NOW }],
+  ])(
+    'rolls back without mutation when verification is %s',
+    async (_case, changes) => {
+      const service = new DatabaseService(configService());
+      const command = verificationCommand();
+      const query = jest
+        .fn()
+        .mockResolvedValueOnce({ rows: [], rowCount: null })
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              ...pendingVerificationRow(command.presentedVerificationDigest),
+              ...changes,
+            },
+          ],
+          rowCount: 1,
+        })
+        .mockResolvedValueOnce({ rows: [], rowCount: null });
+      replacePoolConnection(service, query);
+
+      await expect(service.consumeVerification(command)).resolves.toEqual({
+        status: 'invalid',
+      });
+      expect(query.mock.calls.map(([sql]) => sql)).toEqual([
+        'BEGIN',
+        expect.stringContaining('FOR UPDATE'),
+        'ROLLBACK',
+      ]);
+    },
+  );
+
+  it('locks the pending proof before user, digest session, and completion writes', async () => {
+    const service = new DatabaseService(configService());
+    const command = completionCommand();
+    const user = {
+      id: 7,
+      name: 'Ada',
+      email: 'ada@example.com',
+      createdAt: AUTH_NOW,
+    };
+    const query = jest
+      .fn()
+      .mockResolvedValueOnce({ rows: [], rowCount: null })
+      .mockResolvedValueOnce({
+        rows: [completionPendingRow(command.enrollmentDigest)],
+        rowCount: 1,
+      })
+      .mockResolvedValueOnce({ rows: [user], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: null });
+    const { release } = replacePoolConnection(service, query);
+
+    await expect(service.completeRegistration(command)).resolves.toEqual({
+      status: 'completed',
+      user: { ...user, createdAt: AUTH_NOW.toISOString() },
+    });
+
+    const calls = query.mock.calls as Array<[string, unknown[]?]>;
+    expect(calls.map(([sql]) => sql)).toEqual([
+      'BEGIN',
+      expect.stringContaining('FOR UPDATE'),
+      expect.stringContaining('INSERT INTO users'),
+      expect.stringContaining('INSERT INTO sessions'),
+      expect.stringContaining('SET completed_at'),
+      'COMMIT',
+    ]);
+    expect(calls[2][0]).toContain('email_canonical');
+    expect(calls[2][1]).toEqual([
+      'Ada',
+      'ada@example.com',
+      'ada@example.com',
+      command.passwordHash,
+      'argon2id',
+      JSON.stringify({ memoryKiB: 65536, timeCost: 3, parallelism: 1 }),
+      1,
+      'email_verified',
+      command.completedAt,
+    ]);
+    expect(calls[3][1]).toEqual([
+      SESSION_ID,
+      command.sessionDigest,
+      7,
+      command.sessionCreatedAt,
+      command.sessionAbsoluteExpiresAt,
+      command.sessionIdleExpiresAt,
+      command.sessionCreatedAt,
+    ]);
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  it('rolls back a canonical user race and sanitizes other database failures', async () => {
+    const command = completionCommand();
+    const racedService = new DatabaseService(configService());
+    const racedQuery = jest
+      .fn()
+      .mockResolvedValueOnce({ rows: [], rowCount: null })
+      .mockResolvedValueOnce({
+        rows: [completionPendingRow(command.enrollmentDigest)],
+        rowCount: 1,
+      })
+      .mockRejectedValueOnce(
+        Object.assign(new Error('email=secret@example.com'), { code: '23505' }),
+      )
+      .mockResolvedValueOnce({ rows: [], rowCount: null });
+    replacePoolConnection(racedService, racedQuery);
+
+    await expect(racedService.completeRegistration(command)).resolves.toEqual({
+      status: 'conflict',
+    });
+    expect(racedQuery.mock.calls.map(([sql]) => sql)).toEqual([
+      'BEGIN',
+      expect.stringContaining('FOR UPDATE'),
+      expect.stringContaining('INSERT INTO users'),
+      'ROLLBACK',
+    ]);
+
+    const failedService = new DatabaseService(configService());
+    const failedQuery = jest
+      .fn()
+      .mockResolvedValueOnce({ rows: [], rowCount: null })
+      .mockRejectedValueOnce(new Error('password=secret token=raw'))
+      .mockResolvedValueOnce({ rows: [], rowCount: null });
+    const { release } = replacePoolConnection(failedService, failedQuery);
+
+    await expect(
+      failedService.createPendingRegistration(pendingRegistrationCommand()),
+    ).rejects.toThrow('Authentication persistence failed');
+    expect(release).toHaveBeenCalled();
+  });
+
+  it('sanitizes a transaction connection failure before a client exists', async () => {
+    const service = new DatabaseService(configService());
+    const connect = jest
+      .fn()
+      .mockRejectedValue(new Error('postgres://admin:secret@db/internal'));
+    (
+      service as unknown as {
+        pool: { connect: jest.Mock; end: jest.Mock };
+      }
+    ).pool = { connect, end: jest.fn() };
+
+    await expect(
+      service.createPendingRegistration(pendingRegistrationCommand()),
+    ).rejects.toThrow('Authentication persistence failed');
+    expect(connect).toHaveBeenCalledTimes(1);
+  });
+});
+
+function pendingRegistrationCommand() {
+  return {
+    pendingRegistrationId: PENDING_ID,
+    emailCanonical: 'ada@example.com',
+    recipient: 'ada@example.com',
+    keyVersion: 1 as const,
+    verificationDigest: Buffer.alloc(32, 1),
+    createdAt: AUTH_NOW,
+    verificationExpiresAt: new Date('2026-07-28T12:15:00.000Z'),
+    outbox: {
+      id: OUTBOX_ID,
+      idempotencyKey: `verification:${PENDING_ID}:verify-v1`,
+      sender: 'StudyTube <no-reply@example.com>',
+      publicOrigin: 'https://studytube.example',
+      templateVersion: 'verify-v1',
+      locale: 'en',
+      subject: 'Verify your StudyTube email',
+      payloadHash: Buffer.alloc(32, 2),
+    },
+  };
+}
+
+function verificationCommand() {
+  return {
+    pendingRegistrationId: PENDING_ID,
+    keyVersion: 1 as const,
+    presentedVerificationDigest: Buffer.alloc(32, 3),
+    enrollmentDigest: Buffer.alloc(32, 4),
+    verifiedAt: AUTH_NOW,
+    enrollmentExpiresAt: new Date('2026-07-28T12:10:00.000Z'),
+  };
+}
+
+function pendingVerificationRow(
+  verificationDigest: Buffer,
+  attemptCount = 0,
+  maxAttempts = 5,
+) {
+  return {
+    keyVersion: 1,
+    verificationDigest,
+    attemptCount,
+    maxAttempts,
+    verificationExpiresAt: new Date('2026-07-28T12:05:00.000Z'),
+    verifiedAt: null,
+    enrollmentDigest: null,
+    enrollmentExpiresAt: null,
+    completedAt: null,
+  };
+}
+
+function completionCommand() {
+  return {
+    enrollmentDigest: Buffer.alloc(32, 4),
+    name: 'Ada',
+    passwordHash: '$argon2id$reviewed-password-hash',
+    passwordAlgorithm: 'argon2id' as const,
+    passwordParameters: {
+      memoryKiB: 65536 as const,
+      timeCost: 3 as const,
+      parallelism: 1 as const,
+    },
+    passwordVersion: 1 as const,
+    identityAssurance: 'email_verified' as const,
+    sessionId: SESSION_ID,
+    sessionDigest: Buffer.alloc(32, 5),
+    sessionCreatedAt: AUTH_NOW,
+    sessionAbsoluteExpiresAt: new Date('2026-08-04T12:00:00.000Z'),
+    sessionIdleExpiresAt: new Date('2026-08-04T12:00:00.000Z'),
+    completedAt: AUTH_NOW,
+  };
+}
+
+function completionPendingRow(enrollmentDigest: Buffer) {
+  return {
+    email: 'ada@example.com',
+    emailCanonical: 'ada@example.com',
+    verifiedAt: new Date('2026-07-28T11:59:00.000Z'),
+    enrollmentDigest,
+    enrollmentExpiresAt: new Date('2026-07-28T12:10:00.000Z'),
+    completedAt: null,
+  };
+}

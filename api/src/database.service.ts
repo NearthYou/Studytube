@@ -5,7 +5,20 @@
   OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { timingSafeEqual } from 'node:crypto';
 import { Pool, PoolClient, type QueryConfig } from 'pg';
+import type {
+  CompleteRegistrationCommand,
+  CompleteRegistrationResult,
+  ConsumeVerificationCommand,
+  ConsumeVerificationResult,
+  FindEnrollmentCandidateCommand,
+  FindEnrollmentCandidateResult,
+  PendingRegistrationCommand,
+  PendingRegistrationResult,
+  RateLimitCommand,
+  RateLimitResult,
+} from './auth/auth.types';
 import {
   iso,
   normalizeComment,
@@ -136,6 +149,419 @@ export class DatabaseService
         error: 'database_unavailable',
         timestamp: new Date().toISOString(),
       };
+    }
+  }
+
+  async consumeRateLimit(command: RateLimitCommand): Promise<RateLimitResult> {
+    try {
+      const result = await this.pool.query<{
+        allowed: boolean;
+        remaining: number;
+        retryAfterSeconds: number;
+      }>(
+        `
+          WITH rate_window AS (
+            SELECT to_timestamp(
+              floor(
+                extract(epoch FROM statement_timestamp()) /
+                $3::double precision
+              ) * $3::double precision
+            ) AS window_start
+          ), consumed AS (
+            INSERT INTO auth_rate_limits (
+              action, subject_digest, window_start, attempts, expires_at
+            )
+            SELECT $1, $2, window_start, 1,
+                   window_start + make_interval(secs => $3::double precision)
+            FROM rate_window
+            ON CONFLICT (action, subject_digest, window_start)
+            DO UPDATE SET
+              attempts = auth_rate_limits.attempts + 1,
+              expires_at = EXCLUDED.expires_at
+            RETURNING attempts, expires_at
+          )
+          SELECT attempts <= $4 AS allowed,
+                 greatest($4 - attempts, 0)::integer AS remaining,
+                 greatest(
+                   1,
+                   ceil(
+                     extract(epoch FROM (expires_at - statement_timestamp()))
+                   )::integer
+                 ) AS "retryAfterSeconds"
+          FROM consumed
+        `,
+        [
+          command.action,
+          command.subjectDigest,
+          command.windowSeconds,
+          command.maxAttempts,
+        ],
+      );
+      const row = result.rows[0];
+      if (!row) {
+        throw this.authPersistenceError();
+      }
+      return row.allowed
+        ? { allowed: true, remaining: Number(row.remaining) }
+        : {
+            allowed: false,
+            retryAfterSeconds: Number(row.retryAfterSeconds),
+          };
+    } catch {
+      throw this.authPersistenceError();
+    }
+  }
+
+  async createPendingRegistration(
+    command: PendingRegistrationCommand,
+  ): Promise<PendingRegistrationResult> {
+    const client = await this.connectAuthClient();
+    let transactionOpen = false;
+    const rollback = async () => {
+      if (!transactionOpen) {
+        return;
+      }
+      await client.query('ROLLBACK');
+      transactionOpen = false;
+    };
+
+    try {
+      await client.query('BEGIN');
+      transactionOpen = true;
+      const eligibility = await client.query<{
+        userExists: boolean;
+        pendingExists: boolean;
+      }>(
+        `
+          SELECT EXISTS (
+                   SELECT 1
+                   FROM users
+                   WHERE email_canonical = $1
+                 ) AS "userExists",
+                 EXISTS (
+                   SELECT 1
+                   FROM pending_registrations
+                   WHERE email_canonical = $1
+                     AND completed_at IS NULL
+                     AND verification_expires_at > statement_timestamp()
+                 ) AS "pendingExists"
+        `,
+        [command.emailCanonical],
+      );
+      const state = eligibility.rows[0];
+      if (!state || state.userExists || state.pendingExists) {
+        await client.query('COMMIT');
+        transactionOpen = false;
+        return { status: 'accepted' };
+      }
+
+      await client.query(
+        `
+          INSERT INTO pending_registrations (
+            id, email, email_canonical, key_version,
+            verification_digest, created_at, verification_expires_at
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7)
+        `,
+        [
+          command.pendingRegistrationId,
+          command.recipient,
+          command.emailCanonical,
+          command.keyVersion,
+          command.verificationDigest,
+          command.createdAt,
+          command.verificationExpiresAt,
+        ],
+      );
+      await client.query(
+        `
+          INSERT INTO verification_email_outbox (
+            id, pending_registration_id, recipient, idempotency_key,
+            sender, public_origin, template_version, locale, subject,
+            payload_hash
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        `,
+        [
+          command.outbox.id,
+          command.pendingRegistrationId,
+          command.recipient,
+          command.outbox.idempotencyKey,
+          command.outbox.sender,
+          command.outbox.publicOrigin,
+          command.outbox.templateVersion,
+          command.outbox.locale,
+          command.outbox.subject,
+          command.outbox.payloadHash,
+        ],
+      );
+      await client.query('COMMIT');
+      transactionOpen = false;
+      return { status: 'accepted' };
+    } catch (error) {
+      try {
+        await rollback();
+      } catch {
+        throw this.authPersistenceError();
+      }
+      if (this.postgresErrorCode(error) === '23505') {
+        return { status: 'accepted' };
+      }
+      throw this.authPersistenceError();
+    } finally {
+      client.release();
+    }
+  }
+
+  async consumeVerification(
+    command: ConsumeVerificationCommand,
+  ): Promise<ConsumeVerificationResult> {
+    const client = await this.connectAuthClient();
+    let transactionOpen = false;
+    const rollback = async () => {
+      if (!transactionOpen) {
+        return;
+      }
+      await client.query('ROLLBACK');
+      transactionOpen = false;
+    };
+
+    try {
+      await client.query('BEGIN');
+      transactionOpen = true;
+      const locked = await client.query<PendingVerificationRow>(
+        `
+          SELECT key_version AS "keyVersion",
+                 verification_digest AS "verificationDigest",
+                 attempt_count AS "attemptCount",
+                 max_attempts AS "maxAttempts",
+                 verification_expires_at AS "verificationExpiresAt",
+                 verified_at AS "verifiedAt",
+                 enrollment_digest AS "enrollmentDigest",
+                 enrollment_expires_at AS "enrollmentExpiresAt",
+                 completed_at AS "completedAt"
+          FROM pending_registrations
+          WHERE id = $1
+          FOR UPDATE
+        `,
+        [command.pendingRegistrationId],
+      );
+      const row = locked.rows[0];
+      if (
+        !row ||
+        row.keyVersion !== command.keyVersion ||
+        row.attemptCount >= row.maxAttempts ||
+        toTime(row.verificationExpiresAt) <= command.verifiedAt.getTime() ||
+        row.verifiedAt !== null ||
+        row.enrollmentDigest !== null ||
+        row.enrollmentExpiresAt !== null ||
+        row.completedAt !== null
+      ) {
+        await rollback();
+        return { status: 'invalid' };
+      }
+
+      if (
+        !authDigestMatches(
+          row.verificationDigest,
+          command.presentedVerificationDigest,
+        )
+      ) {
+        await client.query(
+          `
+            UPDATE pending_registrations
+            SET attempt_count = attempt_count + 1
+            WHERE id = $1
+              AND attempt_count < max_attempts
+            RETURNING attempt_count AS "attemptCount",
+                      max_attempts AS "maxAttempts"
+          `,
+          [command.pendingRegistrationId],
+        );
+        await client.query('COMMIT');
+        transactionOpen = false;
+        return { status: 'invalid' };
+      }
+
+      await client.query(
+        `
+          UPDATE pending_registrations
+          SET verified_at = $2,
+              enrollment_digest = $3,
+              enrollment_expires_at = $4
+          WHERE id = $1
+        `,
+        [
+          command.pendingRegistrationId,
+          command.verifiedAt,
+          command.enrollmentDigest,
+          command.enrollmentExpiresAt,
+        ],
+      );
+      await client.query('COMMIT');
+      transactionOpen = false;
+      return { status: 'verified' };
+    } catch {
+      try {
+        await rollback();
+      } catch {
+        throw this.authPersistenceError();
+      }
+      throw this.authPersistenceError();
+    } finally {
+      client.release();
+    }
+  }
+
+  async findEnrollmentCandidate(
+    command: FindEnrollmentCandidateCommand,
+  ): Promise<FindEnrollmentCandidateResult> {
+    try {
+      const result = await this.pool.query<{ eligible: boolean }>(
+        `
+          SELECT EXISTS (
+            SELECT 1
+            FROM pending_registrations
+            WHERE enrollment_digest = $1
+              AND verified_at IS NOT NULL
+              AND enrollment_expires_at > $2
+              AND completed_at IS NULL
+          ) AS eligible
+        `,
+        [command.enrollmentDigest, command.at],
+      );
+      return { eligible: result.rows[0]?.eligible === true };
+    } catch {
+      throw this.authPersistenceError();
+    }
+  }
+
+  async completeRegistration(
+    command: CompleteRegistrationCommand,
+  ): Promise<CompleteRegistrationResult> {
+    const client = await this.connectAuthClient();
+    let transactionOpen = false;
+    const rollback = async () => {
+      if (!transactionOpen) {
+        return;
+      }
+      await client.query('ROLLBACK');
+      transactionOpen = false;
+    };
+
+    try {
+      await client.query('BEGIN');
+      transactionOpen = true;
+      const locked = await client.query<CompletionPendingRow>(
+        `
+          SELECT id,
+                 email,
+                 email_canonical AS "emailCanonical",
+                 verified_at AS "verifiedAt",
+                 enrollment_digest AS "enrollmentDigest",
+                 enrollment_expires_at AS "enrollmentExpiresAt",
+                 completed_at AS "completedAt"
+          FROM pending_registrations
+          WHERE enrollment_digest = $1
+          FOR UPDATE
+        `,
+        [command.enrollmentDigest],
+      );
+      const pending = locked.rows[0];
+      if (
+        !pending ||
+        pending.verifiedAt === null ||
+        pending.completedAt !== null ||
+        pending.enrollmentExpiresAt === null ||
+        toTime(pending.enrollmentExpiresAt) <= command.completedAt.getTime() ||
+        !authDigestMatches(pending.enrollmentDigest, command.enrollmentDigest)
+      ) {
+        await rollback();
+        return { status: 'invalid' };
+      }
+
+      const insertedUser = await client.query<{
+        id: number;
+        name: string;
+        email: string;
+        createdAt: Date | string;
+      }>(
+        `
+          INSERT INTO users (
+            name, email, email_canonical, password_hash,
+            password_algorithm, password_parameters, password_version,
+            identity_assurance, email_verified_at
+          )
+          VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9)
+          RETURNING id, name, email, created_at AS "createdAt"
+        `,
+        [
+          command.name,
+          pending.email,
+          pending.emailCanonical,
+          command.passwordHash,
+          command.passwordAlgorithm,
+          JSON.stringify(command.passwordParameters),
+          command.passwordVersion,
+          command.identityAssurance,
+          command.completedAt,
+        ],
+      );
+      const user = insertedUser.rows[0];
+      if (!user) {
+        throw this.authPersistenceError();
+      }
+
+      await client.query(
+        `
+          INSERT INTO sessions (
+            id, token_digest, user_id, created_at,
+            absolute_expires_at, idle_expires_at, last_seen_at
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7)
+        `,
+        [
+          command.sessionId,
+          command.sessionDigest,
+          user.id,
+          command.sessionCreatedAt,
+          command.sessionAbsoluteExpiresAt,
+          command.sessionIdleExpiresAt,
+          command.sessionCreatedAt,
+        ],
+      );
+      await client.query(
+        `
+          UPDATE pending_registrations
+          SET completed_at = $2
+          WHERE id = $1
+            AND completed_at IS NULL
+        `,
+        [pending.id, command.completedAt],
+      );
+      await client.query('COMMIT');
+      transactionOpen = false;
+      return {
+        status: 'completed',
+        user: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          createdAt: new Date(user.createdAt).toISOString(),
+        },
+      };
+    } catch (error) {
+      try {
+        await rollback();
+      } catch {
+        throw this.authPersistenceError();
+      }
+      if (this.postgresErrorCode(error) === '23505') {
+        return { status: 'conflict' };
+      }
+      throw this.authPersistenceError();
+    } finally {
+      client.release();
     }
   }
 
@@ -1095,4 +1521,52 @@ export class DatabaseService
       ? code
       : undefined;
   }
+
+  private authPersistenceError(): Error {
+    return new Error('Authentication persistence failed');
+  }
+
+  private async connectAuthClient(): Promise<PoolClient> {
+    try {
+      return await this.pool.connect();
+    } catch {
+      throw this.authPersistenceError();
+    }
+  }
+}
+
+type PendingVerificationRow = {
+  keyVersion: number;
+  verificationDigest: Buffer;
+  attemptCount: number;
+  maxAttempts: number;
+  verificationExpiresAt: Date | string;
+  verifiedAt: Date | string | null;
+  enrollmentDigest: Buffer | null;
+  enrollmentExpiresAt: Date | string | null;
+  completedAt: Date | string | null;
+};
+
+type CompletionPendingRow = {
+  id: string;
+  email: string;
+  emailCanonical: string;
+  verifiedAt: Date | string | null;
+  enrollmentDigest: Buffer;
+  enrollmentExpiresAt: Date | string | null;
+  completedAt: Date | string | null;
+};
+
+function authDigestMatches(stored: Buffer, presented: Buffer): boolean {
+  return (
+    Buffer.isBuffer(stored) &&
+    Buffer.isBuffer(presented) &&
+    stored.length === 32 &&
+    presented.length === 32 &&
+    timingSafeEqual(stored, presented)
+  );
+}
+
+function toTime(value: Date | string): number {
+  return new Date(value).getTime();
 }

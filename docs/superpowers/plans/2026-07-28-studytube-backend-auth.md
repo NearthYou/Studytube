@@ -336,8 +336,8 @@ Mock `PoolClient` calls and assert:
 - rate limit is one `INSERT ... ON CONFLICT ... attempts + 1 RETURNING`
 - signup begins, checks account existence, inserts pending registration and immutable outbox payload metadata, then commits without touching users or Argon2
 - resend follows the same generic pending-registration contract
-- verification consume locks the pending row, validates digest and attempts, installs an enrollment digest and expiry, then commits
-- invalid, expired, exhausted, and consumed proofs roll back without creating a user
+- verification consume rejects malformed or unresolved token identities before mutation; for a well-formed target it locks the pending row, validates digest and attempts, installs an enrollment digest and expiry, then commits
+- a wrong secret atomically increments `attempt_count` and commits only that failed-attempt state so `max_attempts` is enforceable; expired, exhausted, and consumed proofs make no mutation and roll back, and no failure path creates a user
 - completion locks the pending row, validates the enrollment digest, inserts the canonical verified user and first digest session, marks completion, then commits; this is the pending-registration → user insert → first-session lock family
 - SQLSTATE `23505` on the user insert rolls back and returns a consumed/conflict result without leaking database detail or creating a session
 

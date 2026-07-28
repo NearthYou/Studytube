@@ -58,6 +58,13 @@ describe('createCorsOptions', () => {
     'https://app.studytube.example/path',
     'https://app.studytube.example?query=yes',
     'https://app.studytube.example#fragment',
+    'https://@app.studytube.example',
+    'https://:@app.studytube.example',
+    ' https://app.studytube.example',
+    'https://app.studytube.example ',
+    '\thttps://app.studytube.example',
+    'https://app.studytube.example\t',
+    'https://app.studytube.example\u0000',
   ])(
     'rejects every origin other than the exact configured one: %p',
     async (origin) => {
@@ -78,4 +85,19 @@ describe('createCorsOptions', () => {
       /origin/i,
     );
   });
+
+  it.each([
+    'https://@example.test',
+    'https://:@example.test',
+    ' https://example.test',
+    'https://example.test ',
+    '\thttps://example.test',
+    'https://example.test\t',
+    'https://example.test\u0000',
+  ])(
+    'rejects raw userinfo, OWS, or controls in configured Origin: %p',
+    (origin) => {
+      expect(() => createCorsOptions(origin)).toThrow(/origin/i);
+    },
+  );
 });

@@ -21,6 +21,8 @@ export function normalizeHttpOrigin(
   if (
     !candidate ||
     candidate.includes(',') ||
+    candidate.includes('@') ||
+    /[\u0000-\u0020\u007f-\u009f]/u.test(candidate) ||
     !/^https?:\/\/[^/?#]+$/iu.test(candidate)
   ) {
     return undefined;

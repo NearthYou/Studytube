@@ -77,6 +77,13 @@ describe('OriginGuard', () => {
     'https://app.studytube.example/path',
     'https://app.studytube.example?query=yes',
     'https://app.studytube.example#fragment',
+    'https://@app.studytube.example',
+    'https://:@app.studytube.example',
+    ' https://app.studytube.example',
+    'https://app.studytube.example ',
+    '\thttps://app.studytube.example',
+    'https://app.studytube.example\t',
+    'https://app.studytube.example\u0000',
     ['https://app.studytube.example', 'https://evil.example'],
   ])('rejects an unsafe request with an invalid Origin: %p', (origin) => {
     expect(() =>

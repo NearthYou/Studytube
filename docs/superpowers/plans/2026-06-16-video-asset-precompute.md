@@ -20,36 +20,36 @@ below should be interpreted through this post-scoped rule.
 
 ## File Structure
 
-- Create `siwon/api/src/video-asset.types.ts`: shared API-side asset status, segment, summary, and repository input types.
-- Create `siwon/api/src/video-asset.service.ts`: in-process job queue, AI orchestration, and asset status transitions.
-- Create `siwon/api/src/video-asset.controller.ts`: `GET /posts/:postId/video-asset` and `POST /posts/:postId/video-asset/prepare`.
-- Create `siwon/api/src/video-asset.service.spec.ts`: service/job behavior tests with fake repository and fake AI proxy.
-- Create `siwon/api/src/video-asset.controller.spec.ts`: endpoint wiring tests.
-- Modify `siwon/api/src/study-board.types.ts`: extend `BoardRepository` with video asset persistence methods.
-- Modify `siwon/api/src/memory-board.repository.ts`: store assets in memory and fallback JSON.
-- Modify `siwon/api/src/database.service.ts`: add `video_assets` schema, DB persistence, and fallback behavior.
-- Modify `siwon/api/src/app.module.ts`: register controller and service.
-- Modify `siwon/api/src/study-board.service.ts`: enqueue asset preparation after post creation.
-- Modify `siwon/api/src/study-board.service.spec.ts`: verify post creation does not block and enqueues preparation.
-- Modify `siwon/web/src/types.ts`: add `VideoAsset` response types.
-- Modify `siwon/web/src/api.ts`: add `fetchVideoAsset` and `prepareVideoAsset`.
-- Modify `siwon/web/src/captions.ts`: add helpers for converting prepared assets into caption responses and checking range coverage.
-- Modify `siwon/web/src/App.tsx`: read asset first on watch page, seed captions/summary, show preparation status, keep window fallback.
-- Modify `siwon/web/tests/captions.test.ts` and `siwon/web/tests/videoSummaryDetails.test.ts`: asset helper coverage.
-- Modify or add `siwon/web/tests/watchAccessibility.test.ts`: verify watch flow has asset-first calls and preparation status copy.
+- Create `api/src/video-asset.types.ts`: shared API-side asset status, segment, summary, and repository input types.
+- Create `api/src/video-asset.service.ts`: in-process job queue, AI orchestration, and asset status transitions.
+- Create `api/src/video-asset.controller.ts`: `GET /posts/:postId/video-asset` and `POST /posts/:postId/video-asset/prepare`.
+- Create `api/src/video-asset.service.spec.ts`: service/job behavior tests with fake repository and fake AI proxy.
+- Create `api/src/video-asset.controller.spec.ts`: endpoint wiring tests.
+- Modify `api/src/study-board.types.ts`: extend `BoardRepository` with video asset persistence methods.
+- Modify `api/src/memory-board.repository.ts`: store assets in memory and fallback JSON.
+- Modify `api/src/database.service.ts`: add `video_assets` schema, DB persistence, and fallback behavior.
+- Modify `api/src/app.module.ts`: register controller and service.
+- Modify `api/src/study-board.service.ts`: enqueue asset preparation after post creation.
+- Modify `api/src/study-board.service.spec.ts`: verify post creation does not block and enqueues preparation.
+- Modify `web/src/types.ts`: add `VideoAsset` response types.
+- Modify `web/src/api.ts`: add `fetchVideoAsset` and `prepareVideoAsset`.
+- Modify `web/src/captions.ts`: add helpers for converting prepared assets into caption responses and checking range coverage.
+- Modify `web/src/App.tsx`: read asset first on watch page, seed captions/summary, show preparation status, keep window fallback.
+- Modify `web/tests/captions.test.ts` and `web/tests/videoSummaryDetails.test.ts`: asset helper coverage.
+- Modify or add `web/tests/watchAccessibility.test.ts`: verify watch flow has asset-first calls and preparation status copy.
 
 ---
 
 ### Task 1: Add Video Asset Types And Repository Contract
 
 **Files:**
-- Create: `siwon/api/src/video-asset.types.ts`
-- Modify: `siwon/api/src/study-board.types.ts`
-- Test: `siwon/api/src/study-board.service.spec.ts`
+- Create: `api/src/video-asset.types.ts`
+- Modify: `api/src/study-board.types.ts`
+- Test: `api/src/study-board.service.spec.ts`
 
 - [ ] **Step 1: Write the failing type-level repository usage test**
 
-Add this test near existing create-post tests in `siwon/api/src/study-board.service.spec.ts`:
+Add this test near existing create-post tests in `api/src/study-board.service.spec.ts`:
 
 ```ts
 it('creates posts through a repository that supports video assets', async () => {
@@ -76,7 +76,7 @@ it('creates posts through a repository that supports video assets', async () => 
 Run:
 
 ```bash
-npm --prefix siwon/api test -- study-board.service.spec.ts --runInBand
+npm --prefix api test -- study-board.service.spec.ts --runInBand
 ```
 
 Expected: FAIL because `getVideoAsset` and repository asset methods do not exist.
@@ -147,7 +147,7 @@ export type UpdateVideoAssetInput = Partial<
 
 - [ ] **Step 4: Extend `BoardRepository` contract**
 
-In `siwon/api/src/study-board.types.ts`, import the new types and add these methods to `BoardRepository`:
+In `api/src/study-board.types.ts`, import the new types and add these methods to `BoardRepository`:
 
 ```ts
 import type {
@@ -168,7 +168,7 @@ import type {
 
 - [ ] **Step 5: Add temporary service method signature**
 
-In `siwon/api/src/study-board.service.ts`, add:
+In `api/src/study-board.service.ts`, add:
 
 ```ts
   async getVideoAsset(
@@ -194,7 +194,7 @@ Add `VideoAsset` import from `./video-asset.types`.
 Run:
 
 ```bash
-npm --prefix siwon/api test -- study-board.service.spec.ts --runInBand
+npm --prefix api test -- study-board.service.spec.ts --runInBand
 ```
 
 Expected: FAIL because `MemoryBoardRepository` has not implemented the new repository methods yet.
@@ -204,14 +204,14 @@ Expected: FAIL because `MemoryBoardRepository` has not implemented the new repos
 ### Task 2: Implement Memory And PostgreSQL Video Asset Persistence
 
 **Files:**
-- Modify: `siwon/api/src/memory-board.repository.ts`
-- Modify: `siwon/api/src/database.service.ts`
-- Modify: `siwon/api/src/database-board.mapper.ts`
-- Test: `siwon/api/src/database.service.spec.ts`
+- Modify: `api/src/memory-board.repository.ts`
+- Modify: `api/src/database.service.ts`
+- Modify: `api/src/database-board.mapper.ts`
+- Test: `api/src/database.service.spec.ts`
 
 - [ ] **Step 1: Add failing memory repository assertions**
 
-Add to `siwon/api/src/study-board.service.spec.ts`:
+Add to `api/src/study-board.service.spec.ts`:
 
 ```ts
 it('stores and updates video assets in the repository', async () => {
@@ -247,7 +247,7 @@ it('stores and updates video assets in the repository', async () => {
 Run:
 
 ```bash
-npm --prefix siwon/api test -- study-board.service.spec.ts --runInBand
+npm --prefix api test -- study-board.service.spec.ts --runInBand
 ```
 
 Expected: FAIL because memory asset storage is missing.
@@ -415,7 +415,7 @@ The mapper should keep only segment objects with numeric `start`, numeric `end`,
 Run:
 
 ```bash
-npm --prefix siwon/api test -- study-board.service.spec.ts database.service.spec.ts --runInBand
+npm --prefix api test -- study-board.service.spec.ts database.service.spec.ts --runInBand
 ```
 
 Expected: PASS.
@@ -423,7 +423,7 @@ Expected: PASS.
 - [ ] **Step 9: Commit persistence work**
 
 ```bash
-git add siwon/api/src/video-asset.types.ts siwon/api/src/study-board.types.ts siwon/api/src/memory-board.repository.ts siwon/api/src/database.service.ts siwon/api/src/database-board.mapper.ts siwon/api/src/study-board.service.spec.ts siwon/api/src/database.service.spec.ts
+git add api/src/video-asset.types.ts api/src/study-board.types.ts api/src/memory-board.repository.ts api/src/database.service.ts api/src/database-board.mapper.ts api/src/study-board.service.spec.ts api/src/database.service.spec.ts
 git commit -m "feat: persist video learning assets"
 ```
 
@@ -432,14 +432,14 @@ git commit -m "feat: persist video learning assets"
 ### Task 3: Add Video Asset Preparation Service
 
 **Files:**
-- Create: `siwon/api/src/video-asset.service.ts`
-- Create: `siwon/api/src/video-asset.service.spec.ts`
-- Modify: `siwon/api/src/study-board.service.ts`
-- Modify: `siwon/api/src/app.module.ts`
+- Create: `api/src/video-asset.service.ts`
+- Create: `api/src/video-asset.service.spec.ts`
+- Modify: `api/src/study-board.service.ts`
+- Modify: `api/src/app.module.ts`
 
 - [ ] **Step 1: Write failing service tests**
 
-Create `siwon/api/src/video-asset.service.spec.ts` with fake repository and fake AI proxy:
+Create `api/src/video-asset.service.spec.ts` with fake repository and fake AI proxy:
 
 ```ts
 import { VideoAssetService } from './video-asset.service';
@@ -562,7 +562,7 @@ it('marks asset failed when caption retrieval has no segments', async () => {
 Run:
 
 ```bash
-npm --prefix siwon/api test -- video-asset.service.spec.ts --runInBand
+npm --prefix api test -- video-asset.service.spec.ts --runInBand
 ```
 
 Expected: FAIL because `VideoAssetService` does not exist.
@@ -735,7 +735,7 @@ return post;
 Run:
 
 ```bash
-npm --prefix siwon/api test -- video-asset.service.spec.ts study-board.service.spec.ts --runInBand
+npm --prefix api test -- video-asset.service.spec.ts study-board.service.spec.ts --runInBand
 ```
 
 Expected: PASS.
@@ -743,7 +743,7 @@ Expected: PASS.
 - [ ] **Step 7: Commit job service**
 
 ```bash
-git add siwon/api/src/video-asset.service.ts siwon/api/src/video-asset.service.spec.ts siwon/api/src/app.module.ts siwon/api/src/study-board.service.ts siwon/api/src/study-board.service.spec.ts
+git add api/src/video-asset.service.ts api/src/video-asset.service.spec.ts api/src/app.module.ts api/src/study-board.service.ts api/src/study-board.service.spec.ts
 git commit -m "feat: prepare video assets after saving"
 ```
 
@@ -752,9 +752,9 @@ git commit -m "feat: prepare video assets after saving"
 ### Task 4: Add Video Asset API Endpoints
 
 **Files:**
-- Create: `siwon/api/src/video-asset.controller.ts`
-- Create: `siwon/api/src/video-asset.controller.spec.ts`
-- Modify: `siwon/api/src/app.module.ts`
+- Create: `api/src/video-asset.controller.ts`
+- Create: `api/src/video-asset.controller.spec.ts`
+- Modify: `api/src/app.module.ts`
 
 - [ ] **Step 1: Write controller tests**
 
@@ -796,7 +796,7 @@ it('starts asset preparation retry by video id', async () => {
 Run:
 
 ```bash
-npm --prefix siwon/api test -- video-asset.controller.spec.ts --runInBand
+npm --prefix api test -- video-asset.controller.spec.ts --runInBand
 ```
 
 Expected: FAIL because controller does not exist.
@@ -868,7 +868,7 @@ Add `VideoAssetController` to `AppModule.controllers`.
 Run:
 
 ```bash
-npm --prefix siwon/api test -- video-asset.controller.spec.ts video-asset.service.spec.ts --runInBand
+npm --prefix api test -- video-asset.controller.spec.ts video-asset.service.spec.ts --runInBand
 ```
 
 Expected: PASS.
@@ -876,7 +876,7 @@ Expected: PASS.
 - [ ] **Step 7: Commit endpoints**
 
 ```bash
-git add siwon/api/src/video-asset.controller.ts siwon/api/src/video-asset.controller.spec.ts siwon/api/src/video-asset.service.ts siwon/api/src/app.module.ts
+git add api/src/video-asset.controller.ts api/src/video-asset.controller.spec.ts api/src/video-asset.service.ts api/src/app.module.ts
 git commit -m "feat: expose video asset endpoints"
 ```
 
@@ -885,14 +885,14 @@ git commit -m "feat: expose video asset endpoints"
 ### Task 5: Add Frontend Asset Fetching And Caption Helpers
 
 **Files:**
-- Modify: `siwon/web/src/types.ts`
-- Modify: `siwon/web/src/api.ts`
-- Modify: `siwon/web/src/captions.ts`
-- Test: `siwon/web/tests/captions.test.ts`
+- Modify: `web/src/types.ts`
+- Modify: `web/src/api.ts`
+- Modify: `web/src/captions.ts`
+- Test: `web/tests/captions.test.ts`
 
 - [ ] **Step 1: Write failing caption helper tests**
 
-Add to `siwon/web/tests/captions.test.ts`:
+Add to `web/tests/captions.test.ts`:
 
 ```ts
 import {
@@ -937,14 +937,14 @@ test('detects whether prepared asset covers the current playback time', () => {
 Run:
 
 ```bash
-node --test siwon/web/tests/captions.test.ts
+node --test web/tests/captions.test.ts
 ```
 
 Expected: FAIL because helpers and type are missing.
 
 - [ ] **Step 3: Add web types**
 
-In `siwon/web/src/types.ts`:
+In `web/src/types.ts`:
 
 ```ts
 export type VideoAsset = {
@@ -969,7 +969,7 @@ export type VideoAsset = {
 
 - [ ] **Step 4: Add API functions**
 
-In `siwon/web/src/api.ts`:
+In `web/src/api.ts`:
 
 ```ts
 export function fetchVideoAsset(videoId: string, token?: string) {
@@ -993,7 +993,7 @@ Import `VideoAsset`.
 
 - [ ] **Step 5: Add caption helpers**
 
-In `siwon/web/src/captions.ts`:
+In `web/src/captions.ts`:
 
 ```ts
 import type { CaptionResponse, VideoAsset } from './types';
@@ -1040,7 +1040,7 @@ export function videoAssetCoversTime(
 Run:
 
 ```bash
-node --test siwon/web/tests/captions.test.ts
+node --test web/tests/captions.test.ts
 ```
 
 Expected: PASS.
@@ -1048,7 +1048,7 @@ Expected: PASS.
 - [ ] **Step 7: Commit web helper work**
 
 ```bash
-git add siwon/web/src/types.ts siwon/web/src/api.ts siwon/web/src/captions.ts siwon/web/tests/captions.test.ts
+git add web/src/types.ts web/src/api.ts web/src/captions.ts web/tests/captions.test.ts
 git commit -m "feat: read prepared video assets in web"
 ```
 
@@ -1057,14 +1057,14 @@ git commit -m "feat: read prepared video assets in web"
 ### Task 6: Integrate Asset-First Watch Flow
 
 **Files:**
-- Modify: `siwon/web/src/App.tsx`
-- Modify: `siwon/web/src/videoSummaryDetails.ts`
-- Test: `siwon/web/tests/watchAccessibility.test.ts`
-- Test: `siwon/web/tests/videoSummaryDetails.test.ts`
+- Modify: `web/src/App.tsx`
+- Modify: `web/src/videoSummaryDetails.ts`
+- Test: `web/tests/watchAccessibility.test.ts`
+- Test: `web/tests/videoSummaryDetails.test.ts`
 
 - [ ] **Step 1: Write static flow tests**
 
-Add to `siwon/web/tests/watchAccessibility.test.ts`:
+Add to `web/tests/watchAccessibility.test.ts`:
 
 ```ts
 test('watch page loads prepared video assets before on-demand caption windows', () => {
@@ -1101,14 +1101,14 @@ test('formats prepared asset transcript as summary detail', () => {
 Run:
 
 ```bash
-node --test siwon/web/tests/watchAccessibility.test.ts siwon/web/tests/videoSummaryDetails.test.ts
+node --test web/tests/watchAccessibility.test.ts web/tests/videoSummaryDetails.test.ts
 ```
 
 Expected: FAIL because imports, state, and helper do not exist.
 
 - [ ] **Step 3: Add summary asset helper**
 
-In `siwon/web/src/videoSummaryDetails.ts`:
+In `web/src/videoSummaryDetails.ts`:
 
 ```ts
 export function buildVideoSummaryDetailsFromAsset(asset: {
@@ -1295,8 +1295,8 @@ Inside the watch summary/caption control area, add:
 Run:
 
 ```bash
-node --test siwon/web/tests/watchAccessibility.test.ts siwon/web/tests/videoSummaryDetails.test.ts siwon/web/tests/captions.test.ts
-npm --prefix siwon/web run build
+node --test web/tests/watchAccessibility.test.ts web/tests/videoSummaryDetails.test.ts web/tests/captions.test.ts
+npm --prefix web run build
 ```
 
 Expected: PASS.
@@ -1304,7 +1304,7 @@ Expected: PASS.
 - [ ] **Step 12: Commit watch integration**
 
 ```bash
-git add siwon/web/src/App.tsx siwon/web/src/videoSummaryDetails.ts siwon/web/tests/watchAccessibility.test.ts siwon/web/tests/videoSummaryDetails.test.ts
+git add web/src/App.tsx web/src/videoSummaryDetails.ts web/tests/watchAccessibility.test.ts web/tests/videoSummaryDetails.test.ts
 git commit -m "feat: prefer prepared assets on watch page"
 ```
 
@@ -1318,7 +1318,7 @@ git commit -m "feat: prefer prepared assets on watch page"
 - [ ] **Step 1: Run backend tests**
 
 ```bash
-npm --prefix siwon/api test -- --runInBand
+npm --prefix api test -- --runInBand
 ```
 
 Expected: PASS.
@@ -1326,8 +1326,8 @@ Expected: PASS.
 - [ ] **Step 2: Run frontend tests and build**
 
 ```bash
-node --test siwon/web/tests/captions.test.ts siwon/web/tests/videoSummaryDetails.test.ts siwon/web/tests/watchAccessibility.test.ts
-npm --prefix siwon/web run build
+node --test web/tests/captions.test.ts web/tests/videoSummaryDetails.test.ts web/tests/watchAccessibility.test.ts
+npm --prefix web run build
 ```
 
 Expected: PASS.
@@ -1335,14 +1335,14 @@ Expected: PASS.
 - [ ] **Step 3: Run AI regression tests related to captions and summaries**
 
 ```bash
-cd siwon/ai
+cd ai
 python test_main.py -q -k "caption" -k "summary"
 ```
 
 Expected: PASS in an environment with AI dependencies installed. If the bundled local Python lacks `httpx` or `openai`, run the same command on EC2 venv:
 
 ```bash
-cd /home/ubuntu/agentic-board/siwon/ai
+cd /home/ubuntu/agentic-board/ai
 ./.venv/bin/python test_main.py -q -k "caption" -k "summary"
 ```
 
@@ -1363,7 +1363,7 @@ Expected:
 - [ ] **Step 5: Deploy to EC2**
 
 ```bash
-ssh -i C:\jungler.pem ubuntu@15.164.98.162 "cd /home/ubuntu/agentic-board/siwon && bash scripts/deploy-ec2.sh sw"
+ssh -i C:\jungler.pem ubuntu@15.164.98.162 "cd /home/ubuntu/agentic-board && bash scripts/deploy-ec2.sh sw"
 ```
 
 Expected: deploy script ends with API health and AI health OK.
@@ -1387,7 +1387,7 @@ Expected after preparation:
 
 ```bash
 git status --short
-git add siwon/api/src siwon/web/src siwon/web/tests
+git add api/src web/src web/tests
 git commit -m "fix: stabilize video asset precompute"
 ```
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-app_dir="${APP_DIR:-/home/ubuntu/agentic-board/siwon}"
+app_dir="${APP_DIR:-/home/ubuntu/agentic-board}"
 deploy_branch="${DEPLOY_BRANCH:-sw}"
 interval="${AUTODEPLOY_INTERVAL:-2min}"
 unit_dir="${HOME}/.config/systemd/user"

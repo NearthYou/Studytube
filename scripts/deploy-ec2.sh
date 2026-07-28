@@ -3,19 +3,12 @@ set -euo pipefail
 
 deploy_branch="${1:-${DEPLOY_BRANCH:-sw}}"
 app_dir="${APP_DIR:-$(pwd)}"
-parent_dir="$(dirname "$app_dir")"
 
 cd "$app_dir"
 
 git fetch origin "$deploy_branch"
 git checkout "$deploy_branch"
 git pull --ff-only origin "$deploy_branch"
-
-for runtime_item in .env secrets .tools; do
-  if [ ! -e "$app_dir/$runtime_item" ] && [ -e "$parent_dir/$runtime_item" ]; then
-    ln -s "../$runtime_item" "$app_dir/$runtime_item"
-  fi
-done
 
 if ! sudo swapon --show --noheadings | grep -q '/swapfile'; then
   if [ ! -f /swapfile ]; then

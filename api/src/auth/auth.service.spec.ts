@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { AuthRepository } from './auth.repository';
 import { AuthService, canonicalizeAuthEmail } from './auth.service';
+import { PasswordValidationError } from './password-hasher';
 import type {
   OpaqueTokenFactory,
   VerificationTokenFactory,
@@ -639,6 +640,89 @@ describe('AuthService core session', () => {
     expect(wrong.passwordHasher.verify).toHaveBeenCalledTimes(1);
     expect(unknown.repository.commitLogin).not.toHaveBeenCalled();
     expect(wrong.repository.commitLogin).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['unknown', null, 'short'],
+    [
+      'disabled',
+      authUser({
+        passwordHash: 'disabled:demo-seed-login',
+        passwordAlgorithm: 'disabled',
+      }),
+      'x'.repeat(129),
+    ],
+    ['legacy', authUser(), 'valid\u0000password'],
+    [
+      'argon2id',
+      authUser({
+        passwordHash: '$argon2id$stored-password',
+        passwordAlgorithm: 'argon2id',
+      }),
+      'valid\ud800password',
+    ],
+  ])(
+    'returns generic invalid for PasswordValidationError from a %s login after rate admission',
+    async (_kind, user, password) => {
+      const { service, repository, passwordHasher } = createService();
+      repository.findAuthUser.mockResolvedValue({ user });
+      passwordHasher.verify.mockRejectedValueOnce(
+        new PasswordValidationError('attacker-controlled invalid password'),
+      );
+
+      await expect(
+        service.login({ email: 'ada@example.com', password }, '203.0.113.10'),
+      ).resolves.toEqual({ status: 'invalid' });
+
+      expect(repository.consumeRateLimit).toHaveBeenCalledTimes(2);
+      expect(
+        repository.consumeRateLimit.mock.invocationCallOrder[1],
+      ).toBeLessThan(passwordHasher.verify.mock.invocationCallOrder[0]);
+      expect(repository.commitLogin).not.toHaveBeenCalled();
+    },
+  );
+
+  it('propagates non-validation password verification failures', async () => {
+    const { service, passwordHasher } = createService();
+    const capacityFailure = new Error('argon2 queue saturated');
+    passwordHasher.verify.mockRejectedValueOnce(capacityFailure);
+
+    await expect(
+      service.login(
+        { email: 'unknown@example.com', password: 'valid shape password' },
+        '203.0.113.10',
+      ),
+    ).rejects.toBe(capacityFailure);
+  });
+
+  it('runs reviewed dummy Argon2 work after a valid-shape wrong legacy password', async () => {
+    const { service, repository, passwordHasher } = createService();
+    const legacy = authUser();
+    repository.findAuthUser.mockResolvedValue({ user: legacy });
+    passwordHasher.verify
+      .mockResolvedValueOnce({
+        valid: false,
+        needsRehash: true,
+        algorithm: 'legacy_sha256',
+      })
+      .mockResolvedValueOnce({
+        valid: false,
+        needsRehash: false,
+        algorithm: 'argon2id',
+      });
+
+    await expect(
+      service.login(
+        { email: 'ada@example.com', password: 'valid shape wrong password' },
+        '203.0.113.10',
+      ),
+    ).resolves.toEqual({ status: 'invalid' });
+
+    expect(passwordHasher.verify.mock.calls).toEqual([
+      [legacy.passwordHash, 'valid shape wrong password'],
+      [DUMMY_PASSWORD_HASH, 'valid shape wrong password'],
+    ]);
+    expect(repository.commitLogin).not.toHaveBeenCalled();
   });
 
   it('runs the dummy path for a disabled credential', async () => {

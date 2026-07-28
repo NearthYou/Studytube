@@ -14,7 +14,11 @@ import {
   type OpaqueTokenIssue,
   type VerificationTokenIssue,
 } from './auth-token';
-import type { PasswordHasher, PasswordVerification } from './password-hasher';
+import {
+  PasswordValidationError,
+  type PasswordHasher,
+  type PasswordVerification,
+} from './password-hasher';
 import type {
   AuthPrincipal,
   AuthPublicUser,
@@ -280,7 +284,25 @@ export class AuthService {
 
     let user = (await this.repository.findAuthUser({ emailCanonical })).user;
     for (let attempt = 0; attempt < 2; attempt += 1) {
-      const verification = await this.verifyLoginPassword(user, input.password);
+      let verification: PasswordVerification;
+      try {
+        verification = await this.verifyLoginPassword(user, input.password);
+        if (
+          user?.passwordAlgorithm === 'legacy_sha256' &&
+          isLoginCredential(user) &&
+          !verification.valid
+        ) {
+          await this.passwordHasher.verify(
+            this.options.dummyPasswordHash,
+            input.password,
+          );
+        }
+      } catch (error) {
+        if (error instanceof PasswordValidationError) {
+          return { status: 'invalid' };
+        }
+        throw error;
+      }
       if (!user || !verification.valid || !isLoginCredential(user)) {
         return { status: 'invalid' };
       }

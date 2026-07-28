@@ -2,7 +2,7 @@ import { createCorsOptions } from './cors-options';
 
 describe('createCorsOptions', () => {
   function evaluateOrigin(origin: string | undefined) {
-    const options = createCorsOptions('http://localhost:5173');
+    const options = createCorsOptions('https://app.studytube.example');
     const originHandler = options.origin;
 
     if (typeof originHandler !== 'function') {
@@ -21,17 +21,32 @@ describe('createCorsOptions', () => {
     });
   }
 
-  it('allows Vite loopback origins used by browser login and signup', async () => {
-    await expect(evaluateOrigin('http://localhost:5173')).resolves.toBe(true);
-    await expect(evaluateOrigin('http://127.0.0.1:5173')).resolves.toBe(true);
-    await expect(evaluateOrigin('http://[::1]:5173')).resolves.toBe(true);
+  it('enables credentials for the one exact configured origin', async () => {
+    const options = createCorsOptions('https://app.studytube.example');
+
+    expect(options.credentials).toBe(true);
+    await expect(evaluateOrigin('https://app.studytube.example')).resolves.toBe(
+      true,
+    );
   });
 
-  it('allows same-machine requests without an Origin header', async () => {
-    await expect(evaluateOrigin(undefined)).resolves.toBe(true);
-  });
+  it.each([
+    undefined,
+    'null',
+    'https://app.studytube.example.evil.test',
+    'https://app.studytube.example, https://evil.example',
+  ])(
+    'rejects every origin other than the exact configured one: %p',
+    async (origin) => {
+      await expect(evaluateOrigin(origin)).resolves.toBe(false);
+    },
+  );
 
-  it('rejects unrelated browser origins', async () => {
-    await expect(evaluateOrigin('https://example.com')).resolves.toBe(false);
+  it('rejects absent, multiple, and malformed configured origins at startup', () => {
+    expect(() => createCorsOptions()).toThrow(/origin/i);
+    expect(() =>
+      createCorsOptions('https://one.test,https://two.test'),
+    ).toThrow(/one.*origin/i);
+    expect(() => createCorsOptions('not a url')).toThrow(/origin/i);
   });
 });

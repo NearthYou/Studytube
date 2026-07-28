@@ -65,6 +65,8 @@ describe('createCorsOptions', () => {
     '\thttps://app.studytube.example',
     'https://app.studytube.example\t',
     'https://app.studytube.example\u0000',
+    'https://app.studytube.example\\',
+    'https://app.studytube.example\\path',
   ])(
     'rejects every origin other than the exact configured one: %p',
     async (origin) => {
@@ -94,6 +96,8 @@ describe('createCorsOptions', () => {
     '\thttps://example.test',
     'https://example.test\t',
     'https://example.test\u0000',
+    'https://example.test\\',
+    'https://example.test\\path',
   ])(
     'rejects raw userinfo, OWS, or controls in configured Origin: %p',
     (origin) => {

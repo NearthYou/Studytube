@@ -6,7 +6,7 @@
   "private": true,
   "license": "UNLICENSED",
   "engines": {
-    "node": ">=20.11.0"
+    "node": ">=24.8.0"
   },
   "scripts": {
     "build": "nest build",
@@ -24,6 +24,7 @@
     "db:migrate:test-adoption": "ts-node scripts/verify-migration-adoption.ts",
     "db:seed": "ts-node scripts/seed-demo.ts",
     "db:seed:verify": "ts-node scripts/verify-demo-seed.ts",
+    "auth:benchmark-password": "ts-node scripts/benchmark-password-hash.ts",
     "lint": "eslint \"{src,scripts,apps,libs,test}/**/*.ts\"",
     "test": "jest",
     "test:watch": "jest --watch",

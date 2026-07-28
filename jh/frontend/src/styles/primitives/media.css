@@ -1,5 +1,0 @@
-.safe-image--fallback {
-  padding: clamp(10px, 10%, 28px);
-  background: var(--surface-muted);
-  object-fit: contain !important;
-}

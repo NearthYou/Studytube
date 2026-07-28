@@ -1,8 +1,0 @@
-fastapi
-httpx
-mcp
-pydantic
-pydantic-settings
-psycopg[binary]
-python-dotenv
-uvicorn

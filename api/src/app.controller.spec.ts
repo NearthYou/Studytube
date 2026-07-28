@@ -31,10 +31,19 @@ describe('AppController', () => {
   });
 
   describe('root', () => {
-    it('should return api health', () => {
+    it('keeps the legacy health endpoint as a liveness alias', () => {
       expect(appController.getHealth()).toMatchObject({
         service: 'api',
         status: 'ok',
+        live: true,
+      });
+    });
+
+    it('exposes an explicit liveness endpoint contract', () => {
+      expect(appController.getLiveness()).toMatchObject({
+        service: 'api',
+        status: 'ok',
+        live: true,
       });
     });
   });

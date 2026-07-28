@@ -13,7 +13,7 @@ on:
 
 concurrency:
   group: ci-cd-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   web:
@@ -48,6 +48,26 @@ jobs:
   api:
     name: API
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: app
+          POSTGRES_PASSWORD: app
+          POSTGRES_DB: app_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U app -d app_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://app:app@localhost:5432/app_test
+      MIGRATION_ADOPTION_DATABASE: app_test
+      NODE_ENV: test
+      DB_INIT_ATTEMPTS: 3
+      DB_INIT_RETRY_DELAY_MS: 100
     defaults:
       run:
         working-directory: api
@@ -65,11 +85,44 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Fresh migration install
+        run: npm run db:migrate:up
+
+      - name: Verify migration status
+        run: npm run db:migrate:status
+
+      - name: Verify idempotent demo seed
+        env:
+          ALLOW_DEMO_SEED: "true"
+          DEMO_SEED_DATABASES: app_test
+        run: |
+          npm run db:seed
+          npm run db:seed
+          npm run db:seed:verify
+
+      - name: Reset guarded legacy fixture
+        env:
+          ALLOW_LEGACY_FIXTURE_RESET: "true"
+        run: npm run db:migrate:setup-legacy-fixture
+
+      - name: Verify legacy adoption preserves data and writes
+        env:
+          ALLOW_MIGRATION_ADOPTION_TEST: "true"
+        run: npm run db:migrate:test-adoption
+
+      - name: Rehearse latest concurrent index rollback and reapply
+        run: |
+          npm run db:migrate:down -- 1
+          npm run db:migrate:up -- 1
+
       - name: Lint
         run: npm run lint
 
       - name: Test
         run: npm test -- --runInBand
+
+      - name: Test API with PostgreSQL
+        run: npm run test:e2e
 
       - name: Build
         run: npm run build
@@ -102,6 +155,7 @@ jobs:
   deploy:
     name: Deploy EC2
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs:
       - web
       - api
@@ -114,6 +168,7 @@ jobs:
       EC2_APP_DIR: ${{ secrets.EC2_APP_DIR }}
       EC2_REPO_DIR: ${{ secrets.EC2_REPO_DIR }}
       DEPLOY_BRANCH: ${{ github.ref_name }}
+      DEPLOY_SHA: ${{ github.sha }}
     steps:
       - name: Prepare deployment config
         id: deploy-config
@@ -142,13 +197,18 @@ jobs:
         run: |
           REPO_DIR="${EC2_REPO_DIR:-/home/ubuntu/studytube}"
           APP_DIR="${EC2_APP_DIR:-$REPO_DIR}"
-          ssh "$EC2_USER@$EC2_HOST" "REPO_DIR='$REPO_DIR' APP_DIR='$APP_DIR' DEPLOY_BRANCH='$DEPLOY_BRANCH' bash -s" <<'REMOTE'
+          ssh "$EC2_USER@$EC2_HOST" "REPO_DIR='$REPO_DIR' APP_DIR='$APP_DIR' DEPLOY_BRANCH='$DEPLOY_BRANCH' DEPLOY_SHA='$DEPLOY_SHA' bash -s" <<'REMOTE'
           set -euo pipefail
 
           cd "$REPO_DIR"
           git fetch origin "$DEPLOY_BRANCH"
-          git checkout "$DEPLOY_BRANCH"
-          git pull --ff-only origin "$DEPLOY_BRANCH"
-          cd "$APP_DIR"
-          APP_DIR="$APP_DIR" DEPLOY_BRANCH="$DEPLOY_BRANCH" bash scripts/deploy-ec2.sh "$DEPLOY_BRANCH"
+          fetched_sha="$(git rev-parse "origin/$DEPLOY_BRANCH")"
+          if [ "$fetched_sha" != "$DEPLOY_SHA" ]; then
+            echo "Refusing stale deployment: CI verified $DEPLOY_SHA but origin/$DEPLOY_BRANCH is $fetched_sha" >&2
+            exit 1
+          fi
+          deploy_script="$(mktemp "${TMPDIR:-/tmp}/studytube-deploy.XXXXXX")"
+          trap 'rm -f "$deploy_script"' EXIT
+          git show "$DEPLOY_SHA:scripts/deploy-ec2.sh" >"$deploy_script"
+          APP_DIR="$APP_DIR" DEPLOY_BRANCH="$DEPLOY_BRANCH" DEPLOY_SHA="$DEPLOY_SHA" bash "$deploy_script" "$DEPLOY_BRANCH"
           REMOTE

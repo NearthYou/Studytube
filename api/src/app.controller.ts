@@ -10,6 +10,16 @@ export class AppController {
     return this.appService.getHealth();
   }
 
+  @Get('live')
+  getLiveness() {
+    return this.appService.getLiveness();
+  }
+
+  @Get('ready')
+  getReadiness() {
+    return this.appService.getReadiness();
+  }
+
   @Get('ai')
   getAiHealth() {
     return this.appService.getAiHealth();

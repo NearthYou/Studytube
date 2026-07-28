@@ -78,7 +78,17 @@ export class StudyBoardService {
       throw new UnauthorizedException('Invalid email or password');
     }
 
-    return this.repository.createSession(user.id, createSessionToken());
+    const session = await this.repository.createSessionIfPasswordHashMatches({
+      userId: user.id,
+      token: createSessionToken(),
+      expectedPasswordHash: user.passwordHash,
+    });
+
+    if (!session) {
+      throw new UnauthorizedException('Invalid email or password');
+    }
+
+    return session;
   }
 
   async getMe(token: string | undefined): Promise<User> {
@@ -123,10 +133,6 @@ export class StudyBoardService {
       );
     }
 
-    if (!isPreferenceOnlyUpdate) {
-      await this.requireCurrentPassword(session, currentPassword);
-    }
-
     if (nextName !== undefined) {
       assertText(nextName, 'name');
     }
@@ -135,9 +141,34 @@ export class StudyBoardService {
       assertPassword(nextPassword);
     }
 
+    if (nextPassword) {
+      const expectedPasswordHash =
+        this.requireCurrentPasswordHash(currentPassword);
+      const updatedSession =
+        await this.repository.updateUserIfPasswordHashMatchesAndReplaceSessions(
+          {
+            userId: session.user.id,
+            expectedPasswordHash,
+            passwordHash: hashPassword(nextPassword),
+            replacementSessionToken: session.token,
+            name: nextName || undefined,
+            preferences,
+          },
+        );
+
+      if (!updatedSession) {
+        throw new UnauthorizedException('Current password is invalid');
+      }
+
+      return updatedSession.user;
+    }
+
+    if (!isPreferenceOnlyUpdate) {
+      await this.requireCurrentPassword(session, currentPassword);
+    }
+
     const user = await this.repository.updateUser(session.user.id, {
       name: nextName || undefined,
-      passwordHash: nextPassword ? hashPassword(nextPassword) : undefined,
       preferences,
     });
 
@@ -168,6 +199,18 @@ export class StudyBoardService {
     ) {
       throw new UnauthorizedException('Current password is invalid');
     }
+  }
+
+  private requireCurrentPasswordHash(
+    currentPassword: string | undefined,
+  ): string {
+    const trimmedCurrentPassword = currentPassword?.trim();
+
+    if (!trimmedCurrentPassword) {
+      throw new UnauthorizedException('Current password is required');
+    }
+
+    return hashPassword(trimmedCurrentPassword);
   }
 
   async listPosts(input: {

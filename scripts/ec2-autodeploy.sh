@@ -55,7 +55,10 @@ PY
 case "$ci_state" in
   completed:success)
     echo "deploying $remote_sha after successful CI"
-    APP_DIR="$app_dir" DEPLOY_BRANCH="$deploy_branch" bash "$app_dir/scripts/deploy-ec2.sh" "$deploy_branch"
+    deploy_script="$(mktemp "${TMPDIR:-/tmp}/studytube-autodeploy.XXXXXX")"
+    trap 'rm -f "$deploy_script"' EXIT
+    git show "$remote_sha:scripts/deploy-ec2.sh" >"$deploy_script"
+    APP_DIR="$app_dir" DEPLOY_BRANCH="$deploy_branch" DEPLOY_SHA="$remote_sha" bash "$deploy_script" "$deploy_branch"
     ;;
   completed:*)
     echo "skip deploy: CI completed without success for $remote_sha ($ci_state)"

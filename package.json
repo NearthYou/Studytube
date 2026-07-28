@@ -11,6 +11,10 @@
     "lint:web": "npm --prefix web run lint",
     "lint:api": "npm --prefix api run lint",
     "db:up": "docker compose up -d",
-    "db:down": "docker compose down"
+    "db:down": "docker compose down",
+    "db:migrate:up": "npm --prefix api run db:migrate:up",
+    "db:migrate:down": "npm --prefix api run db:migrate:down",
+    "db:migrate:status": "npm --prefix api run db:migrate:status",
+    "db:seed:demo": "npm --prefix api run db:seed"
   }
 }

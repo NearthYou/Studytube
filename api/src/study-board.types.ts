@@ -112,6 +112,19 @@ export type BoardRepository = {
     },
   ): Promise<User | null>;
   createSession(userId: number, token: string): Promise<Session>;
+  createSessionIfPasswordHashMatches(input: {
+    userId: number;
+    token: string;
+    expectedPasswordHash: string;
+  }): Promise<Session | null>;
+  updateUserIfPasswordHashMatchesAndReplaceSessions(input: {
+    userId: number;
+    expectedPasswordHash: string;
+    passwordHash: string;
+    replacementSessionToken: string;
+    name?: string;
+    preferences?: LearningPreferences;
+  }): Promise<Session | null>;
   findSession(token: string): Promise<Session | null>;
   listPosts(input: {
     authorId?: number;

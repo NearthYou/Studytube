@@ -1,6 +1,7 @@
 import {
   ENROLLMENT_COOKIE_MAX_AGE_MS,
   OPAQUE_TOKEN_BASE64URL_CHARACTERS,
+  OPAQUE_TOKEN_BYTES,
   SESSION_COOKIE_MAX_AGE_MS,
 } from './auth.constants';
 
@@ -12,6 +13,7 @@ export interface CookieResponse {
     value: string,
     options: Record<string, unknown>,
   ): unknown;
+  clearCookie(name: string, options: Record<string, unknown>): unknown;
 }
 
 const TOKEN_PATTERN = new RegExp(
@@ -49,6 +51,14 @@ export class AuthCookiePolicy {
     );
   }
 
+  clearSessionCookie(response: CookieResponse): void {
+    response.clearCookie(this.sessionCookieName, this.cookieOptions());
+  }
+
+  clearEnrollmentCookie(response: CookieResponse): void {
+    response.clearCookie(this.enrollmentCookieName, this.cookieOptions());
+  }
+
   readSessionCookie(cookieHeader: string | undefined): string | undefined {
     return readOpaqueTokenCookie(cookieHeader, this.sessionCookieName);
   }
@@ -57,14 +67,17 @@ export class AuthCookiePolicy {
     return readOpaqueTokenCookie(cookieHeader, this.enrollmentCookieName);
   }
 
-  private cookieOptions(maxAge: number): Record<string, unknown> {
-    return {
+  private cookieOptions(maxAge?: number): Record<string, unknown> {
+    const options: Record<string, unknown> = {
       httpOnly: true,
       secure: this.secure,
       sameSite: 'lax',
       path: '/',
-      maxAge,
     };
+    if (maxAge !== undefined) {
+      options.maxAge = maxAge;
+    }
+    return options;
   }
 }
 
@@ -77,9 +90,9 @@ export function readExactCookie(
   }
   const matches: string[] = [];
   for (const rawPair of cookieHeader.split(';')) {
-    const pair = rawPair.trimStart();
+    const pair = rawPair.replace(/^[ \t]*/u, '');
     const separator = pair.indexOf('=');
-    if (separator < 0 || pair.slice(0, separator).trim() !== exactName) {
+    if (separator < 0 || pair.slice(0, separator) !== exactName) {
       continue;
     }
     matches.push(pair.slice(separator + 1));
@@ -92,15 +105,22 @@ function readOpaqueTokenCookie(
   exactName: string,
 ): string | undefined {
   const value = readExactCookie(cookieHeader, exactName);
-  if (!value || !TOKEN_PATTERN.test(value)) {
-    return undefined;
-  }
-  const decoded = Buffer.from(value, 'base64url');
-  return decoded.toString('base64url') === value ? value : undefined;
+  return value && isOpaqueToken(value) ? value : undefined;
 }
 
 function assertOpaqueToken(cookieValue: string): void {
-  if (!TOKEN_PATTERN.test(cookieValue)) {
+  if (!isOpaqueToken(cookieValue)) {
     throw new RangeError('Invalid opaque cookie token');
   }
+}
+
+function isOpaqueToken(value: string): boolean {
+  if (!TOKEN_PATTERN.test(value)) {
+    return false;
+  }
+  const decoded = Buffer.from(value, 'base64url');
+  return (
+    decoded.length === OPAQUE_TOKEN_BYTES &&
+    decoded.toString('base64url') === value
+  );
 }

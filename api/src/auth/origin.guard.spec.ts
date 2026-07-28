@@ -41,12 +41,42 @@ describe('OriginGuard', () => {
     ).toBe(true);
   });
 
+  it('compares normalized URL origins including case and explicit default port', () => {
+    const normalizedGuard = new OriginGuard(
+      'HTTPS://APP.STUDYTUBE.EXAMPLE:443',
+    );
+
+    expect(
+      normalizedGuard.canActivate(
+        contextFor({
+          method: 'POST',
+          origin: 'https://app.studytube.example',
+          contentType: 'application/json',
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      guard.canActivate(
+        contextFor({
+          method: 'POST',
+          origin: 'HTTPS://APP.STUDYTUBE.EXAMPLE:443',
+          contentType: 'application/json',
+        }),
+      ),
+    ).toBe(true);
+  });
+
   it.each([
     undefined,
     'null',
     'not a url',
     'https://app.studytube.example.evil.test',
     'https://app.studytube.example, https://evil.example',
+    'ftp://app.studytube.example',
+    'https://user@app.studytube.example',
+    'https://app.studytube.example/path',
+    'https://app.studytube.example?query=yes',
+    'https://app.studytube.example#fragment',
     ['https://app.studytube.example', 'https://evil.example'],
   ])('rejects an unsafe request with an invalid Origin: %p', (origin) => {
     expect(() =>
@@ -113,6 +143,7 @@ describe('RequestIdMiddleware', () => {
   });
 
   it.each([
+    undefined,
     '',
     'contains space',
     'line\r\ninjection',
@@ -158,7 +189,7 @@ function contextFor(input: OriginInput): ExecutionContext {
   } as ExecutionContext;
 }
 
-function requestWithId(incoming: string | string[]): RequestWithId {
+function requestWithId(incoming: string | string[] | undefined): RequestWithId {
   return {
     headers: {
       'x-request-id': incoming,

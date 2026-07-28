@@ -1,8 +1,11 @@
 import { createCorsOptions } from './cors-options';
 
 describe('createCorsOptions', () => {
-  function evaluateOrigin(origin: string | undefined) {
-    const options = createCorsOptions('https://app.studytube.example');
+  function evaluateOrigin(
+    origin: string | undefined,
+    configuredOrigin = 'https://app.studytube.example',
+  ) {
+    const options = createCorsOptions(configuredOrigin);
     const originHandler = options.origin;
 
     if (typeof originHandler !== 'function') {
@@ -30,11 +33,31 @@ describe('createCorsOptions', () => {
     );
   });
 
+  it('normalizes case and an explicit default port before comparison', async () => {
+    await expect(
+      evaluateOrigin(
+        'HTTPS://APP.STUDYTUBE.EXAMPLE:443',
+        'https://app.studytube.example',
+      ),
+    ).resolves.toBe(true);
+    await expect(
+      evaluateOrigin(
+        'https://app.studytube.example',
+        'HTTPS://APP.STUDYTUBE.EXAMPLE:443',
+      ),
+    ).resolves.toBe(true);
+  });
+
   it.each([
     undefined,
     'null',
     'https://app.studytube.example.evil.test',
     'https://app.studytube.example, https://evil.example',
+    'ftp://app.studytube.example',
+    'https://user@app.studytube.example',
+    'https://app.studytube.example/path',
+    'https://app.studytube.example?query=yes',
+    'https://app.studytube.example#fragment',
   ])(
     'rejects every origin other than the exact configured one: %p',
     async (origin) => {
@@ -48,5 +71,11 @@ describe('createCorsOptions', () => {
       createCorsOptions('https://one.test,https://two.test'),
     ).toThrow(/one.*origin/i);
     expect(() => createCorsOptions('not a url')).toThrow(/origin/i);
+    expect(() => createCorsOptions('https://user@example.test')).toThrow(
+      /origin/i,
+    );
+    expect(() => createCorsOptions('https://example.test/path')).toThrow(
+      /origin/i,
+    );
   });
 });

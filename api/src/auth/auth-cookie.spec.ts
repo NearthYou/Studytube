@@ -50,6 +50,38 @@ describe('AuthCookiePolicy', () => {
     ]);
   });
 
+  it('clears production cookies with the same fixed security attributes', () => {
+    const response = new CapturingCookieResponse();
+    const policy = new AuthCookiePolicy('production');
+
+    policy.clearSessionCookie(response);
+    policy.clearEnrollmentCookie(response);
+
+    expect(response.clearedCookies).toEqual([
+      {
+        name: '__Host-studytube_session',
+        options: {
+          httpOnly: true,
+          secure: true,
+          sameSite: 'lax',
+          path: '/',
+        },
+      },
+      {
+        name: '__Host-studytube_enrollment',
+        options: {
+          httpOnly: true,
+          secure: true,
+          sameSite: 'lax',
+          path: '/',
+        },
+      },
+    ]);
+    expect(
+      response.clearedCookies.every(({ options }) => !('domain' in options)),
+    ).toBe(true);
+  });
+
   it('uses distinct non-Host cookie names without Secure in development', () => {
     const response = new CapturingCookieResponse();
     const policy = new AuthCookiePolicy('development');
@@ -64,6 +96,33 @@ describe('AuthCookiePolicy', () => {
     expect(
       response.cookies.every(({ options }) => options.secure === false),
     ).toBe(true);
+  });
+
+  it('clears development cookies using their non-Host names without Secure', () => {
+    const response = new CapturingCookieResponse();
+    const policy = new AuthCookiePolicy('development');
+
+    policy.clearSessionCookie(response);
+    policy.clearEnrollmentCookie(response);
+
+    expect(response.clearedCookies.map(({ name }) => name)).toEqual([
+      'studytube_session',
+      'studytube_enrollment',
+    ]);
+    expect(
+      response.clearedCookies.every(({ options }) => options.secure === false),
+    ).toBe(true);
+  });
+
+  it('rejects a noncanonical trailing-bit token when setting a cookie', () => {
+    const response = new CapturingCookieResponse();
+    const policy = new AuthCookiePolicy('production');
+    const nonCanonical = `${token.slice(0, -1)}B`;
+
+    expect(() => policy.setSessionCookie(response, nonCanonical)).toThrow(
+      /token/i,
+    );
+    expect(response.cookies).toHaveLength(0);
   });
 
   it('reads only one exact-name cookie with canonical token grammar', () => {
@@ -99,6 +158,11 @@ describe('AuthCookiePolicy', () => {
     );
   });
 
+  it('allows leading OWS but rejects whitespace appended to the exact name', () => {
+    expect(readExactCookie(`\t opaque=${token}`, 'opaque')).toBe(token);
+    expect(readExactCookie(`opaque \t=${token}`, 'opaque')).toBeUndefined();
+  });
+
   it('does not accept a Bearer credential as a cookie', () => {
     const policy = new AuthCookiePolicy('production');
 
@@ -112,9 +176,18 @@ class CapturingCookieResponse implements CookieResponse {
     value: string;
     options: Record<string, unknown>;
   }> = [];
+  readonly clearedCookies: Array<{
+    name: string;
+    options: Record<string, unknown>;
+  }> = [];
 
   cookie(name: string, value: string, options: Record<string, unknown>): this {
     this.cookies.push({ name, value, options });
+    return this;
+  }
+
+  clearCookie(name: string, options: Record<string, unknown>): this {
+    this.clearedCookies.push({ name, options });
     return this;
   }
 }

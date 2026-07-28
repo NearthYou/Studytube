@@ -1,35 +1,49 @@
 import type { CorsOptions } from '@nestjs/common/interfaces/external/cors-options.interface';
 
 export function createCorsOptions(configuredOrigin?: string): CorsOptions {
-  const allowedOrigin = parseConfiguredOrigin(configuredOrigin);
+  const allowedOrigin = requireConfiguredOrigin(configuredOrigin);
 
   return {
     credentials: true,
     origin(origin, callback) {
-      callback(null, origin === allowedOrigin);
+      const normalizedOrigin = normalizeHttpOrigin(origin);
+      callback(
+        null,
+        normalizedOrigin !== undefined && normalizedOrigin === allowedOrigin,
+      );
     },
   };
 }
 
-function parseConfiguredOrigin(configuredOrigin?: string): string {
-  if (!configuredOrigin) {
-    throw new RangeError('Exactly one web Origin is required');
-  }
-  if (configuredOrigin.includes(',')) {
-    throw new RangeError('Exactly one web Origin is required');
+export function normalizeHttpOrigin(
+  candidate: string | undefined,
+): string | undefined {
+  if (
+    !candidate ||
+    candidate.includes(',') ||
+    !/^https?:\/\/[^/?#]+$/iu.test(candidate)
+  ) {
+    return undefined;
   }
   try {
-    const parsed = new URL(configuredOrigin);
+    const parsed = new URL(candidate);
     if (
       (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') ||
       parsed.username ||
-      parsed.password ||
-      parsed.origin !== configuredOrigin
+      parsed.password
     ) {
-      throw new RangeError('Configured web Origin must be canonical');
+      return undefined;
     }
     return parsed.origin;
   } catch {
-    throw new RangeError('Configured web Origin is invalid');
+    return undefined;
   }
+}
+
+function requireConfiguredOrigin(configuredOrigin?: string): string {
+  const normalizedOrigin = normalizeHttpOrigin(configuredOrigin);
+  if (!normalizedOrigin) {
+    throw new RangeError('Exactly one valid web Origin is required');
+  }
+  return normalizedOrigin;
 }

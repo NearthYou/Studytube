@@ -25,14 +25,17 @@ export class ClientAddressResolver {
 
   constructor(options: ClientAddressResolverOptions = {}) {
     this.trustProxyOneHop = options.trustProxyOneHop ?? false;
-    if (
-      options.environment === 'production' &&
-      this.trustProxyOneHop &&
-      (!options.bindAddress ||
-        !isLoopback(canonicalizeAddress(options.bindAddress)))
-    ) {
+    if (!this.trustProxyOneHop) {
+      return;
+    }
+    if (!options.environment) {
       throw new ClientAddressResolutionError(
-        'Production one-hop proxy trust requires a loopback-only bind address',
+        'One-hop proxy trust requires an explicit environment',
+      );
+    }
+    if (!isLoopbackBind(options.bindAddress)) {
+      throw new ClientAddressResolutionError(
+        'One-hop proxy trust requires a loopback-only bind address',
       );
     }
   }
@@ -92,4 +95,15 @@ function isLoopback(address: string): boolean {
   }
   const firstOctet = Number(address.split('.', 1)[0]);
   return Number.isInteger(firstOctet) && firstOctet === 127;
+}
+
+function isLoopbackBind(bindAddress: string | undefined): boolean {
+  if (!bindAddress) {
+    return false;
+  }
+  try {
+    return isLoopback(canonicalizeAddress(bindAddress));
+  } catch {
+    return false;
+  }
 }

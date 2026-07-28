@@ -5,6 +5,7 @@ import {
   issueOpaqueToken,
   parseVerificationToken,
   rateLimitSubjectDigest,
+  reconstructVerificationToken,
   verifyVerificationToken,
 } from './auth-token';
 
@@ -109,6 +110,18 @@ describe('auth token primitives', () => {
         Buffer.alloc(32, 0xff),
       ),
     ).toBeUndefined();
+  });
+
+  it('reconstructs the same verification token in a fresh worker instance', () => {
+    const created = createVerificationToken(verificationPepper);
+
+    expect(
+      reconstructVerificationToken(
+        created.persistence.pendingRegistrationId,
+        created.persistence.keyVersion,
+        Buffer.from(verificationPepper),
+      ),
+    ).toBe(created.token);
   });
 
   it('domain-separates rate-limit subjects by action', () => {

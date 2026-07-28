@@ -5,6 +5,7 @@ import {
   Injectable,
   UnsupportedMediaTypeException,
 } from '@nestjs/common';
+import { normalizeHttpOrigin } from '../cors-options';
 
 type GuardRequest = {
   method?: string;
@@ -21,7 +22,11 @@ export class OriginGuard implements CanActivate {
   private readonly allowedOrigin: string;
 
   constructor(configuredOrigin: string) {
-    this.allowedOrigin = parseConfiguredOrigin(configuredOrigin);
+    const allowedOrigin = normalizeHttpOrigin(configuredOrigin);
+    if (!allowedOrigin) {
+      throw new RangeError('Exactly one valid web Origin is required');
+    }
+    this.allowedOrigin = allowedOrigin;
   }
 
   canActivate(context: ExecutionContext): boolean {
@@ -34,7 +39,7 @@ export class OriginGuard implements CanActivate {
     const origin = request.headers?.origin;
     if (
       typeof origin !== 'string' ||
-      parseRequestOrigin(origin) !== this.allowedOrigin
+      normalizeHttpOrigin(origin) !== this.allowedOrigin
     ) {
       throw new ForbiddenException('Request Origin is not allowed');
     }
@@ -48,41 +53,6 @@ export class OriginGuard implements CanActivate {
       );
     }
     return true;
-  }
-}
-
-function parseConfiguredOrigin(configuredOrigin: string): string {
-  const parsed = parseOrigin(configuredOrigin);
-  if (!parsed || parsed !== configuredOrigin) {
-    throw new RangeError('Exactly one canonical web Origin is required');
-  }
-  return parsed;
-}
-
-function parseRequestOrigin(origin: string): string | undefined {
-  if (origin === 'null') {
-    return undefined;
-  }
-  const parsed = parseOrigin(origin);
-  return parsed === origin ? parsed : undefined;
-}
-
-function parseOrigin(origin: string): string | undefined {
-  if (origin.length === 0 || origin.includes(',')) {
-    return undefined;
-  }
-  try {
-    const parsed = new URL(origin);
-    if (
-      (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') ||
-      parsed.username ||
-      parsed.password
-    ) {
-      return undefined;
-    }
-    return parsed.origin;
-  } catch {
-    return undefined;
   }
 }
 

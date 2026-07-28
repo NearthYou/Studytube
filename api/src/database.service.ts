@@ -36,25 +36,20 @@ import {
   normalizeFeedback,
   normalizeTagNames,
   normalizeVideoAsset,
-  publicUser,
   vectorLiteral,
   type PostRow,
-  type UserRow,
   type VideoAssetRow,
 } from './database-board.mapper';
 import {
   BoardRepository,
   Comment,
   CreatePostInput,
-  LearningPreferences,
   PaginatedPosts,
   Playlist,
   PlaylistFeedback,
-  Session,
   StudyPost,
   UpdatePlaylistInput,
   UpdatePostInput,
-  User,
 } from './study-board.types';
 import type {
   CreateVideoAssetInput,
@@ -839,230 +834,6 @@ export class DatabaseService
     }
   }
 
-  async createUser(input: {
-    name: string;
-    email: string;
-    passwordHash: string;
-  }): Promise<User> {
-    const result = await this.pool.query<UserRow>(
-      `
-          INSERT INTO users (name, email, password_hash)
-          VALUES ($1, $2, $3)
-          RETURNING id, name, email, password_hash AS "passwordHash", preferences, created_at AS "createdAt"
-        `,
-      [input.name, input.email, input.passwordHash],
-    );
-
-    return publicUser(result.rows[0]);
-  }
-
-  async findUserByEmail(
-    email: string,
-  ): Promise<(User & { passwordHash: string }) | null> {
-    const result = await this.pool.query<UserRow>(
-      `
-          SELECT id, name, email, password_hash AS "passwordHash",
-                 preferences, created_at AS "createdAt"
-          FROM users
-          WHERE lower(email) = lower($1)
-        `,
-      [email],
-    );
-
-    return result.rows[0]
-      ? {
-          ...publicUser(result.rows[0]),
-          passwordHash: result.rows[0].passwordHash,
-        }
-      : null;
-  }
-
-  async updateUser(
-    id: number,
-    input: {
-      name?: string;
-      passwordHash?: string;
-      preferences?: LearningPreferences;
-    },
-  ): Promise<User | null> {
-    const result = await this.pool.query<UserRow>(
-      `
-          UPDATE users
-          SET name = COALESCE($2, name),
-              password_hash = COALESCE($3, password_hash),
-              preferences = COALESCE($4::jsonb, preferences)
-          WHERE id = $1
-          RETURNING id, name, email, password_hash AS "passwordHash", preferences, created_at AS "createdAt"
-        `,
-      [
-        id,
-        input.name ?? null,
-        input.passwordHash ?? null,
-        input.preferences ? JSON.stringify(input.preferences) : null,
-      ],
-    );
-
-    return result.rows[0] ? publicUser(result.rows[0]) : null;
-  }
-
-  async createSession(userId: number, token: string): Promise<Session> {
-    await this.pool.query(
-      `
-          INSERT INTO sessions (token, user_id)
-          VALUES ($1, $2)
-        `,
-      [token, userId],
-    );
-
-    const user = await this.findUserById(userId);
-
-    if (!user) {
-      throw new Error('User not found');
-    }
-
-    return { token, user };
-  }
-
-  async createSessionIfPasswordHashMatches(input: {
-    userId: number;
-    token: string;
-    expectedPasswordHash: string;
-  }): Promise<Session | null> {
-    const result = await this.pool.query<UserRow & { token: string }>(
-      `
-        WITH matching_user AS MATERIALIZED (
-          SELECT id, name, email, password_hash, preferences, created_at
-          FROM users
-          WHERE id = $1
-            AND password_hash = $2
-          FOR UPDATE
-        ), inserted_session AS (
-          INSERT INTO sessions (token, user_id)
-          SELECT $3, id
-          FROM matching_user
-          RETURNING token, user_id
-        )
-        SELECT inserted_session.token,
-               matching_user.id,
-               matching_user.name,
-               matching_user.email,
-               matching_user.password_hash AS "passwordHash",
-               matching_user.preferences,
-               matching_user.created_at AS "createdAt"
-        FROM inserted_session
-        JOIN matching_user
-          ON matching_user.id = inserted_session.user_id
-      `,
-      [input.userId, input.expectedPasswordHash, input.token],
-    );
-    const row = result.rows[0];
-
-    return row ? { token: row.token, user: publicUser(row) } : null;
-  }
-
-  async updateUserIfPasswordHashMatchesAndReplaceSessions(input: {
-    userId: number;
-    expectedPasswordHash: string;
-    passwordHash: string;
-    replacementSessionToken: string;
-    name?: string;
-    preferences?: LearningPreferences;
-  }): Promise<Session | null> {
-    const client = await this.pool.connect();
-    let transactionOpen = false;
-
-    try {
-      await client.query('BEGIN');
-      transactionOpen = true;
-
-      const updatedUser = await client.query<UserRow>(
-        `
-          /* password_change_user_lock */
-          UPDATE users
-          SET name = COALESCE($2, name),
-              preferences = COALESCE($3::jsonb, preferences),
-              password_hash = $4
-          WHERE id = $1
-            AND password_hash = $5
-          RETURNING id, name, email, password_hash AS "passwordHash", preferences, created_at AS "createdAt"
-        `,
-        [
-          input.userId,
-          input.name ?? null,
-          input.preferences ? JSON.stringify(input.preferences) : null,
-          input.passwordHash,
-          input.expectedPasswordHash,
-        ],
-      );
-      const row = updatedUser.rows[0];
-
-      if (!row) {
-        await client.query('ROLLBACK');
-        transactionOpen = false;
-        return null;
-      }
-
-      const currentSession = await client.query<{ token: string }>(
-        `
-          SELECT token
-          FROM sessions
-          WHERE user_id = $1
-            AND token = $2
-          FOR UPDATE
-        `,
-        [input.userId, input.replacementSessionToken],
-      );
-
-      if (!currentSession.rows[0]) {
-        await client.query('ROLLBACK');
-        transactionOpen = false;
-        return null;
-      }
-
-      await client.query('DELETE FROM sessions WHERE user_id = $1', [
-        input.userId,
-      ]);
-      await client.query(
-        `
-          INSERT INTO sessions (token, user_id)
-          VALUES ($1, $2)
-        `,
-        [input.replacementSessionToken, input.userId],
-      );
-      await client.query('COMMIT');
-      transactionOpen = false;
-
-      return {
-        token: input.replacementSessionToken,
-        user: publicUser(row),
-      };
-    } catch (error) {
-      if (transactionOpen) {
-        await client.query('ROLLBACK');
-      }
-
-      throw error;
-    } finally {
-      client.release();
-    }
-  }
-
-  async findSession(token: string): Promise<Session | null> {
-    const result = await this.pool.query<UserRow & { token: string }>(
-      `
-          SELECT s.token, u.id, u.name, u.email, u.password_hash AS "passwordHash",
-                 u.preferences, u.created_at AS "createdAt"
-          FROM sessions s
-          JOIN users u ON u.id = s.user_id
-          WHERE s.token = $1
-        `,
-      [token],
-    );
-    const row = result.rows[0];
-
-    return row ? { token: row.token, user: publicUser(row) } : null;
-  }
-
   async listPosts(input: {
     authorId?: number;
     search?: string;
@@ -1598,19 +1369,6 @@ export class DatabaseService
     );
 
     return normalizeFeedback(result.rows[0]);
-  }
-
-  private async findUserById(id: number): Promise<User | null> {
-    const result = await this.pool.query<UserRow>(
-      `
-        SELECT id, name, email, password_hash AS "passwordHash", preferences, created_at AS "createdAt"
-        FROM users
-        WHERE id = $1
-      `,
-      [id],
-    );
-
-    return result.rows[0] ? publicUser(result.rows[0]) : null;
   }
 
   private async hydratePost(row: PostRow): Promise<StudyPost> {

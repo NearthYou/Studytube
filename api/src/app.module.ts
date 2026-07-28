@@ -10,6 +10,7 @@ import { StudyBoardController } from './study-board.controller';
 import { StudyBoardService } from './study-board.service';
 import { VideoAssetController } from './video-asset.controller';
 import { VideoAssetService } from './video-asset.service';
+import { AuthModule } from './auth/auth.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { VideoAssetService } from './video-asset.service';
       isGlobal: true,
       envFilePath: ['api/.env', '.env'],
     }),
+    AuthModule,
     HttpModule,
   ],
   controllers: [
@@ -27,7 +29,6 @@ import { VideoAssetService } from './video-asset.service';
   ],
   providers: [
     AppService,
-    DatabaseService,
     AiProxyService,
     {
       provide: VideoAssetService,

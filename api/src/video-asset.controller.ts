@@ -2,10 +2,11 @@ import {
   BadRequestException,
   Controller,
   Get,
-  Headers,
   Param,
   Post,
+  Req,
 } from '@nestjs/common';
+import type { AuthenticatedRequest } from './auth/session.guard';
 import { StudyBoardService } from './study-board.service';
 import { VideoAssetService } from './video-asset.service';
 
@@ -18,23 +19,23 @@ export class VideoAssetController {
 
   @Get()
   getAsset(
-    @Headers('authorization') authorization: string | undefined,
+    @Req() request: AuthenticatedRequest,
     @Param('postId') postId: string,
   ) {
     return this.studyBoardService.getVideoAsset(
-      authorization,
+      actorFrom(request),
       this.parsePostId(postId),
     );
   }
 
   @Post('prepare')
   async prepare(
-    @Headers('authorization') authorization: string | undefined,
+    @Req() request: AuthenticatedRequest,
     @Param('postId') postId: string,
   ) {
     const parsedPostId = this.parsePostId(postId);
     const post = await this.studyBoardService.getOwnedPost(
-      authorization,
+      actorFrom(request),
       parsedPostId,
     );
 
@@ -50,4 +51,8 @@ export class VideoAssetController {
 
     return parsed;
   }
+}
+
+function actorFrom(request: AuthenticatedRequest): { userId: number } {
+  return Object.freeze({ userId: request.principal.userId });
 }

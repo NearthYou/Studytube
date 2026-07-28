@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import {
   BoardRepository,
   Comment,
@@ -7,7 +6,6 @@ import {
   PaginatedPosts,
   Playlist,
   PlaylistFeedback,
-  Session,
   StudyPost,
   UpdatePlaylistInput,
   UpdatePostInput,
@@ -19,15 +17,12 @@ import type {
   VideoAsset,
 } from './video-asset.types';
 
-type StoredUser = User & { passwordHash: string };
 export type MemoryBoardState = {
-  users: StoredUser[];
-  sessions: { token: string; userId: number }[];
+  users: User[];
   posts: StudyPost[];
   playlists: Playlist[];
   videoAssets: VideoAsset[];
   nextIds: {
-    user: number;
     post: number;
     comment: number;
     playlist: number;
@@ -38,28 +33,18 @@ export type MemoryBoardState = {
 
 const nowIso = () => new Date().toISOString();
 
-const seedPasswordHash = createHash('sha256')
-  .update('seed-user-password-disabled')
-  .digest('hex');
 const defaultPreferences = (): LearningPreferences => ({
   interests: ['YouTube 학습', '프론트엔드'],
   pace: '하루 20분',
   goal: '짧은 영상으로 꾸준히 복습하기',
 });
 
-const emptyPreferences = (): LearningPreferences => ({
-  interests: [],
-  pace: '',
-  goal: '',
-});
-
 export class MemoryBoardRepository implements BoardRepository {
-  protected users: StoredUser[] = [
+  protected users: User[] = [
     {
       id: 1,
       name: 'StudyTube Learner',
       email: 'learner@studytube.local',
-      passwordHash: seedPasswordHash,
       preferences: defaultPreferences(),
       createdAt: nowIso(),
     },
@@ -67,7 +52,6 @@ export class MemoryBoardRepository implements BoardRepository {
       id: 2,
       name: 'Tech Curator',
       email: 'tech-curator@studytube.local',
-      passwordHash: seedPasswordHash,
       preferences: {
         interests: ['백엔드', '프론트엔드', '데이터베이스'],
         pace: '하루 30분',
@@ -79,7 +63,6 @@ export class MemoryBoardRepository implements BoardRepository {
       id: 3,
       name: 'Wellness Curator',
       email: 'wellness-curator@studytube.local',
-      passwordHash: seedPasswordHash,
       preferences: {
         interests: ['웰니스', '습관', '학습 루틴'],
         pace: '하루 15분',
@@ -91,7 +74,6 @@ export class MemoryBoardRepository implements BoardRepository {
       id: 4,
       name: 'Communication Curator',
       email: 'communication-curator@studytube.local',
-      passwordHash: seedPasswordHash,
       preferences: {
         interests: ['커뮤니케이션', '리더십', '심리'],
         pace: '주 3회',
@@ -103,7 +85,6 @@ export class MemoryBoardRepository implements BoardRepository {
       id: 5,
       name: 'DevOps Curator',
       email: 'devops-curator@studytube.local',
-      passwordHash: seedPasswordHash,
       preferences: {
         interests: ['devops', 'git', 'docker'],
         pace: '주 4회',
@@ -115,7 +96,6 @@ export class MemoryBoardRepository implements BoardRepository {
       id: 6,
       name: 'Data Curator',
       email: 'data-curator@studytube.local',
-      passwordHash: seedPasswordHash,
       preferences: {
         interests: ['데이터', 'SQL', '머신러닝'],
         pace: '하루 25분',
@@ -127,7 +107,6 @@ export class MemoryBoardRepository implements BoardRepository {
       id: 7,
       name: 'Language Curator',
       email: 'language-curator@studytube.local',
-      passwordHash: seedPasswordHash,
       preferences: {
         interests: ['언어 학습', '영어', '학습법'],
         pace: '매일 10분',
@@ -139,7 +118,6 @@ export class MemoryBoardRepository implements BoardRepository {
       id: 8,
       name: 'Focus Curator',
       email: 'focus-curator@studytube.local',
-      passwordHash: seedPasswordHash,
       preferences: {
         interests: ['집중력', '생산성', '습관'],
         pace: '주 3회',
@@ -148,8 +126,6 @@ export class MemoryBoardRepository implements BoardRepository {
       createdAt: nowIso(),
     },
   ];
-
-  protected sessions: { token: string; userId: number }[] = [];
 
   protected videoAssets: VideoAsset[] = [];
 
@@ -750,215 +726,12 @@ export class MemoryBoardRepository implements BoardRepository {
   ];
 
   protected nextIds = {
-    user: 9,
     post: 217,
     comment: 2,
     playlist: 13,
     feedback: 1,
     videoAsset: 1,
   };
-
-  async createUser(input: {
-    name: string;
-    email: string;
-    passwordHash: string;
-  }): Promise<User> {
-    const exists = await this.findUserByEmail(input.email);
-
-    if (exists) {
-      throw new Error('Email already exists');
-    }
-
-    const user: StoredUser = {
-      id: this.nextIds.user++,
-      name: input.name,
-      email: input.email,
-      passwordHash: input.passwordHash,
-      preferences: emptyPreferences(),
-      createdAt: nowIso(),
-    };
-    this.users.push(user);
-    await this.persistState();
-
-    return this.toPublicUser(user);
-  }
-
-  async findUserByEmail(
-    email: string,
-  ): Promise<(User & { passwordHash: string }) | null> {
-    await this.idle();
-
-    return (
-      this.users.find(
-        (user) => user.email.toLowerCase() === email.toLowerCase(),
-      ) ?? null
-    );
-  }
-
-  async updateUser(
-    id: number,
-    input: {
-      name?: string;
-      passwordHash?: string;
-      preferences?: LearningPreferences;
-    },
-  ): Promise<User | null> {
-    await this.idle();
-
-    const index = this.users.findIndex((candidate) => candidate.id === id);
-
-    if (index === -1) {
-      return null;
-    }
-
-    const current = this.users[index];
-    const next: StoredUser = {
-      ...current,
-      name: input.name ?? current.name,
-      passwordHash: input.passwordHash ?? current.passwordHash,
-      preferences: input.preferences ?? current.preferences,
-    };
-    this.users[index] = next;
-
-    if (input.name) {
-      this.posts = this.posts.map((post) => ({
-        ...post,
-        authorName: post.authorId === id ? input.name! : post.authorName,
-        comments: post.comments.map((comment) => ({
-          ...comment,
-          authorName:
-            comment.authorId === id ? input.name! : comment.authorName,
-        })),
-      }));
-    }
-    await this.persistState();
-
-    return this.toPublicUser(next);
-  }
-
-  async createSession(userId: number, token: string): Promise<Session> {
-    await this.idle();
-
-    const user = this.users.find((candidate) => candidate.id === userId);
-
-    if (!user) {
-      throw new Error('User not found');
-    }
-
-    this.sessions.push({ token, userId });
-    await this.persistState();
-
-    return {
-      token,
-      user: this.toPublicUser(user),
-    };
-  }
-
-  async createSessionIfPasswordHashMatches(input: {
-    userId: number;
-    token: string;
-    expectedPasswordHash: string;
-  }): Promise<Session | null> {
-    await this.idle();
-
-    const user = this.users.find((candidate) => candidate.id === input.userId);
-
-    if (!user || user.passwordHash !== input.expectedPasswordHash) {
-      return null;
-    }
-
-    this.sessions.push({ token: input.token, userId: input.userId });
-    await this.persistState();
-
-    return {
-      token: input.token,
-      user: this.toPublicUser(user),
-    };
-  }
-
-  async updateUserIfPasswordHashMatchesAndReplaceSessions(input: {
-    userId: number;
-    expectedPasswordHash: string;
-    passwordHash: string;
-    replacementSessionToken: string;
-    name?: string;
-    preferences?: LearningPreferences;
-  }): Promise<Session | null> {
-    await this.idle();
-
-    const index = this.users.findIndex(
-      (candidate) => candidate.id === input.userId,
-    );
-    const current = index === -1 ? undefined : this.users[index];
-    const hasCurrentSession = this.sessions.some(
-      (candidate) =>
-        candidate.userId === input.userId &&
-        candidate.token === input.replacementSessionToken,
-    );
-
-    if (
-      !current ||
-      current.passwordHash !== input.expectedPasswordHash ||
-      !hasCurrentSession
-    ) {
-      return null;
-    }
-
-    const next: StoredUser = {
-      ...current,
-      name: input.name ?? current.name,
-      passwordHash: input.passwordHash,
-      preferences: input.preferences ?? current.preferences,
-    };
-    this.users[index] = next;
-
-    if (input.name) {
-      this.posts = this.posts.map((post) => ({
-        ...post,
-        authorName:
-          post.authorId === input.userId ? input.name! : post.authorName,
-        comments: post.comments.map((comment) => ({
-          ...comment,
-          authorName:
-            comment.authorId === input.userId
-              ? input.name!
-              : comment.authorName,
-        })),
-      }));
-    }
-
-    this.sessions = this.sessions.filter(
-      (candidate) => candidate.userId !== input.userId,
-    );
-    this.sessions.push({
-      token: input.replacementSessionToken,
-      userId: input.userId,
-    });
-    await this.persistState();
-
-    return {
-      token: input.replacementSessionToken,
-      user: this.toPublicUser(next),
-    };
-  }
-
-  async findSession(token: string): Promise<Session | null> {
-    await this.idle();
-
-    const session = this.sessions.find(
-      (candidate) => candidate.token === token,
-    );
-    const user = session
-      ? this.users.find((candidate) => candidate.id === session.userId)
-      : null;
-
-    return session && user
-      ? {
-          token: session.token,
-          user: this.toPublicUser(user),
-        }
-      : null;
-  }
 
   async listPosts(input: {
     authorId?: number;
@@ -1370,20 +1143,6 @@ export class MemoryBoardRepository implements BoardRepository {
     return feedback;
   }
 
-  private toPublicUser(user: StoredUser): User {
-    return {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      preferences: {
-        interests: [...user.preferences.interests],
-        pace: user.preferences.pace,
-        goal: user.preferences.goal,
-      },
-      createdAt: user.createdAt,
-    };
-  }
-
   private clonePlaylist(playlist: Playlist): Playlist {
     return {
       ...playlist,
@@ -1405,7 +1164,6 @@ export class MemoryBoardRepository implements BoardRepository {
   protected snapshotState(): MemoryBoardState {
     return this.cloneState({
       users: this.users,
-      sessions: this.sessions,
       posts: this.posts,
       playlists: this.playlists,
       videoAssets: this.videoAssets,
@@ -1415,7 +1173,6 @@ export class MemoryBoardRepository implements BoardRepository {
 
   protected restoreState(state: MemoryBoardState) {
     this.users = this.cloneState(state.users);
-    this.sessions = this.cloneState(state.sessions);
     this.posts = this.cloneState(state.posts);
     this.playlists = this.cloneState(state.playlists);
     this.videoAssets = this.cloneState(state.videoAssets ?? []);

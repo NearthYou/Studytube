@@ -25,6 +25,7 @@
     "db:seed": "ts-node scripts/seed-demo.ts",
     "db:seed:verify": "ts-node scripts/verify-demo-seed.ts",
     "auth:benchmark-password": "ts-node scripts/benchmark-password-hash.ts",
+    "auth:verify-boundary": "ts-node scripts/verify-auth-boundary.ts",
     "lint": "eslint \"{src,scripts,apps,libs,test}/**/*.ts\"",
     "test": "jest",
     "test:watch": "jest --watch",

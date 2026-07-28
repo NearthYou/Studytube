@@ -4,6 +4,7 @@ import type { StudyBoardService } from './study-board.service';
 import type { StudyPost } from './study-board.types';
 import type { VideoAssetService } from './video-asset.service';
 import type { VideoAsset } from './video-asset.types';
+import type { AuthenticatedRequest } from './auth/session.guard';
 
 const asset: VideoAsset = {
   id: 11,
@@ -49,6 +50,9 @@ describe('VideoAssetController', () => {
   let videoAssetService: jest.Mocked<
     Pick<VideoAssetService, 'preparePostAssetRequest'>
   >;
+  const request = {
+    principal: { userId: 7 },
+  } as AuthenticatedRequest;
 
   beforeEach(() => {
     studyBoardService = {
@@ -64,15 +68,13 @@ describe('VideoAssetController', () => {
     );
   });
 
-  it('gets a post-owned video asset using the authorization header and post id', async () => {
+  it('gets a post-owned video asset using the authenticated actor and post id', async () => {
     studyBoardService.getVideoAsset.mockResolvedValue(asset);
 
-    await expect(
-      controller.getAsset('Bearer session-token', '42'),
-    ).resolves.toBe(asset);
+    await expect(controller.getAsset(request, '42')).resolves.toBe(asset);
 
     expect(studyBoardService.getVideoAsset).toHaveBeenCalledWith(
-      'Bearer session-token',
+      { userId: 7 },
       42,
     );
   });
@@ -81,12 +83,10 @@ describe('VideoAssetController', () => {
     studyBoardService.getOwnedPost.mockResolvedValue(post);
     videoAssetService.preparePostAssetRequest.mockResolvedValue(asset);
 
-    await expect(
-      controller.prepare('Bearer session-token', '42'),
-    ).resolves.toBe(asset);
+    await expect(controller.prepare(request, '42')).resolves.toBe(asset);
 
     expect(studyBoardService.getOwnedPost).toHaveBeenCalledWith(
-      'Bearer session-token',
+      { userId: 7 },
       42,
     );
     expect(videoAssetService.preparePostAssetRequest).toHaveBeenCalledWith(
@@ -96,10 +96,10 @@ describe('VideoAssetController', () => {
 
   it('rejects invalid post ids before calling services', async () => {
     expect(() => {
-      void controller.getAsset('Bearer session-token', '0');
+      void controller.getAsset(request, '0');
     }).toThrow(BadRequestException);
     await expect(
-      controller.prepare('Bearer session-token', 'not-a-number'),
+      controller.prepare(request, 'not-a-number'),
     ).rejects.toBeInstanceOf(BadRequestException);
 
     expect(studyBoardService.getVideoAsset).not.toHaveBeenCalled();

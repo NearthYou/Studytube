@@ -151,6 +151,6 @@ wait_for_url() {
 }
 
 wait_for_url http://localhost:3000/health/ready api
-wait_for_url http://localhost:3000/health/ai ai
+wait_for_url http://localhost:8000/health ai
 wait_for_url http://localhost:5173/ web >/dev/null
 git rev-parse --short HEAD

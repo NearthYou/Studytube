@@ -68,6 +68,13 @@ describe('EC2 deployment script', () => {
     );
   });
 
+  it('checks the AI process directly instead of using the session-protected API proxy', () => {
+    expect(script).toContain('wait_for_url http://localhost:8000/health ai');
+    expect(script).not.toContain(
+      'wait_for_url http://localhost:3000/health/ai ai',
+    );
+  });
+
   it('bounds health-check requests and always cleans their temporary output', () => {
     expect(script).toContain(
       'curl -fsS --connect-timeout 2 --max-time 5 "$url"',

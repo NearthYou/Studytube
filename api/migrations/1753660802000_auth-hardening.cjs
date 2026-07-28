@@ -150,6 +150,7 @@ exports.up = (pgm) => {
           AND idle_expires_at > created_at
           AND idle_expires_at <= absolute_expires_at
           AND last_seen_at >= created_at
+          AND last_seen_at <= idle_expires_at
           AND last_seen_at <= absolute_expires_at
         ),
       CONSTRAINT sessions_revocation_state
@@ -213,7 +214,9 @@ exports.up = (pgm) => {
           completed_at IS NULL
           OR (verified_at IS NOT NULL
             AND enrollment_digest IS NOT NULL
-            AND completed_at >= verified_at)
+            AND enrollment_expires_at IS NOT NULL
+            AND completed_at >= verified_at
+            AND completed_at <= enrollment_expires_at)
         )
     );
 

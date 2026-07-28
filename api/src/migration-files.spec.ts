@@ -146,9 +146,7 @@ describe('database migration files', () => {
     );
     const asciiSpaceTrim = preflight.indexOf("btrim(email, ' ')");
     const grammarCheck = preflight.indexOf('invalid_email_grammar');
-    const lowercase = preflight.indexOf(
-      `lower(btrim(email, ' ') COLLATE "C")`,
-    );
+    const lowercase = preflight.indexOf(`lower(btrim(email, ' ') COLLATE "C")`);
     const collisionCheck = preflight.indexOf('canonical_collision');
 
     expect(preflight).toContain('invalid legacy email user IDs');
@@ -221,6 +219,8 @@ describe('database migration files', () => {
     expect(sql).toContain('CHECK (octet_length(verification_digest) = 32)');
     expect(sql).toContain('CHECK (octet_length(subject_digest) = 32)');
     expect(sql).toContain('CHECK (octet_length(payload_hash) = 32)');
+    expect(sql).toContain('last_seen_at <= idle_expires_at');
+    expect(sql).toContain('completed_at <= enrollment_expires_at');
     expect(sql).toContain('UNIQUE (token_digest)');
     expect(sql).toContain('UNIQUE (verification_digest)');
     expect(sql).toContain('UNIQUE (enrollment_digest)');
@@ -412,6 +412,12 @@ describe('database migration files', () => {
     expect(verification).toContain('legacy_grandfathered');
     expect(verification).toContain('octet_length(token_digest)');
     expect(verification).toContain('legacy sessions were invalidated');
+    expect(verification).toContain('expectedLengthConstraints');
+    expect(verification).toContain('Digest length constraint is missing for');
+    expect(verification).toContain('session last-seen time beyond idle expiry');
+    expect(verification).toContain(
+      'pending completion beyond enrollment expiry',
+    );
   });
 });
 

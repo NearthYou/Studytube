@@ -587,6 +587,43 @@ async function assertDigestColumnsAndConstraints(
     ['auth_rate_limits.subject_digest', 'bytea'],
     ['verification_email_outbox.payload_hash', 'bytea'],
   ]);
+  const expectedLengthConstraints = new Map([
+    [
+      'sessions.token_digest',
+      {
+        tableName: 'sessions',
+        definition: 'octet_length(token_digest) = 32',
+      },
+    ],
+    [
+      'pending_registrations.verification_digest',
+      {
+        tableName: 'pending_registrations',
+        definition: 'octet_length(verification_digest) = 32',
+      },
+    ],
+    [
+      'pending_registrations.enrollment_digest',
+      {
+        tableName: 'pending_registrations',
+        definition: 'octet_length(enrollment_digest) = 32',
+      },
+    ],
+    [
+      'auth_rate_limits.subject_digest',
+      {
+        tableName: 'auth_rate_limits',
+        definition: 'octet_length(subject_digest) = 32',
+      },
+    ],
+    [
+      'verification_email_outbox.payload_hash',
+      {
+        tableName: 'verification_email_outbox',
+        definition: 'octet_length(payload_hash) = 32',
+      },
+    ],
+  ]);
   const columns = await client.query<{
     tableName: string;
     columnName: string;
@@ -629,8 +666,12 @@ async function assertDigestColumnsAndConstraints(
     }
   }
 
-  const lengthConstraints = await client.query<{ definition: string }>(`
-    SELECT pg_get_constraintdef(constraint_row.oid) AS definition
+  const lengthConstraints = await client.query<{
+    tableName: string;
+    definition: string;
+  }>(`
+    SELECT table_row.relname AS "tableName",
+           pg_get_constraintdef(constraint_row.oid) AS definition
     FROM pg_constraint AS constraint_row
     JOIN pg_class AS table_row ON table_row.oid = constraint_row.conrelid
     JOIN pg_namespace AS namespace_row
@@ -644,9 +685,52 @@ async function assertDigestColumnsAndConstraints(
       )
       AND pg_get_constraintdef(constraint_row.oid) LIKE '%octet_length(%'
   `);
+  const definitionsByTable = new Map<string, string[]>();
 
-  if (lengthConstraints.rows.length < expectedColumns.size) {
-    throw new Error('Digest length constraints are incomplete');
+  for (const { tableName, definition } of lengthConstraints.rows) {
+    definitionsByTable.set(tableName, [
+      ...(definitionsByTable.get(tableName) ?? []),
+      definition,
+    ]);
+  }
+
+  for (const [column, expected] of expectedLengthConstraints) {
+    const definitions = definitionsByTable.get(expected.tableName) ?? [];
+
+    if (
+      !definitions.some((definition) =>
+        definition.includes(expected.definition),
+      )
+    ) {
+      throw new Error(`Digest length constraint is missing for ${column}`);
+    }
+  }
+}
+
+async function expectCheckViolation(
+  client: PoolClient,
+  savepoint: string,
+  description: string,
+  operation: () => Promise<unknown>,
+): Promise<void> {
+  await client.query(`SAVEPOINT ${savepoint}`);
+  let failure: unknown;
+
+  try {
+    await operation();
+  } catch (error) {
+    failure = error;
+  }
+
+  await client.query(`ROLLBACK TO SAVEPOINT ${savepoint}`);
+
+  if (
+    typeof failure !== 'object' ||
+    failure === null ||
+    !('code' in failure) ||
+    failure.code !== '23514'
+  ) {
+    throw new Error(`Expected check violation for ${description}`);
   }
 }
 
@@ -748,6 +832,53 @@ async function assertAuthAdoption(client: PoolClient): Promise<void> {
     if (inserted.rows[0]?.digestLength !== 32) {
       throw new Error('New digest session did not store a 32-byte digest');
     }
+
+    await expectCheckViolation(
+      client,
+      'invalid_session_idle_expiry',
+      'session last-seen time beyond idle expiry',
+      () =>
+        client.query(`
+          INSERT INTO sessions (
+            id, token_digest, user_id, absolute_expires_at,
+            idle_expires_at, last_seen_at
+          )
+          VALUES (
+            '00000000-0000-4000-8000-000000000202',
+            decode(repeat('ac', 32), 'hex'),
+            41,
+            now() + interval '7 days',
+            now() + interval '1 day',
+            now() + interval '2 days'
+          )
+        `),
+    );
+
+    await expectCheckViolation(
+      client,
+      'invalid_pending_completion_expiry',
+      'pending completion beyond enrollment expiry',
+      () =>
+        client.query(`
+          INSERT INTO pending_registrations (
+            id, email, email_canonical, key_version, verification_digest,
+            verification_expires_at, verified_at, enrollment_digest,
+            enrollment_expires_at, completed_at
+          )
+          VALUES (
+            '00000000-0000-4000-8000-000000000301',
+            'boundary@example.test',
+            'boundary@example.test',
+            1,
+            decode(repeat('bc', 32), 'hex'),
+            now() + interval '30 minutes',
+            now() + interval '5 minutes',
+            decode(repeat('bd', 32), 'hex'),
+            now() + interval '15 minutes',
+            now() + interval '20 minutes'
+          )
+        `),
+    );
   } finally {
     await client.query('ROLLBACK');
   }

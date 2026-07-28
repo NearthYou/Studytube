@@ -41,9 +41,9 @@ require_auth_cutover_backup() {
     return 1
   fi
 
-  if ! grep -Fqx "backup_verified=true" "$marker_path" ||
-     ! grep -Fqx "migration=$auth_migration" "$marker_path" ||
-     ! grep -Fqx "deploy_sha=$expected_sha" "$marker_path"; then
+  if ! grep -Fqx -- "backup_verified=true" "$marker_path" ||
+     ! grep -Fqx -- "migration=$auth_migration" "$marker_path" ||
+     ! grep -Fqx -- "deploy_sha=$expected_sha" "$marker_path"; then
     echo "Refusing irreversible auth migration: the verified backup marker does not match this migration and deploy SHA." >&2
     return 1
   fi

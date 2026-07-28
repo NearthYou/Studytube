@@ -124,6 +124,22 @@ describe('PasswordHasher', () => {
     );
   });
 
+  it('rejects distinct lone UTF-16 surrogates before invoking Argon2', async () => {
+    const argon2Function = jest.fn<
+      ReturnType<Argon2Function>,
+      Parameters<Argon2Function>
+    >();
+    const hasher = new PasswordHasher({ argon2: argon2Function });
+
+    await expect(hasher.hash('password\uD800')).rejects.toBeInstanceOf(
+      PasswordValidationError,
+    );
+    await expect(hasher.hash('password\uDC00')).rejects.toBeInstanceOf(
+      PasswordValidationError,
+    );
+    expect(argon2Function).not.toHaveBeenCalled();
+  });
+
   it('accepts 8 bytes and rejects values outside 8 to 128 UTF-8 bytes', () => {
     const hasher = new PasswordHasher();
 
@@ -143,11 +159,15 @@ describe('PasswordHasher', () => {
       Parameters<Argon2Function>
     >();
     const hasher = new PasswordHasher({ argon2: argon2Function });
+    const canonicalSalt = 'AAAAAAAAAAAAAAAAAAAAAA';
+    const canonicalTag = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
     const malformed = [
       '$argon2id$v=19$m=65536,t=3,p=1,extra=1$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
       '$argon2id$v=19$m=999999999,t=3,p=1$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
       '$argon2id$v=19$m=65536,t=3,p=1$not_base64!$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
       `$argon2id$v=19$m=65536,t=3,p=1$${'A'.repeat(300)}`,
+      `$argon2id$v=19$m=65536,t=3,p=1$${canonicalSalt}==$${canonicalTag}=`,
+      `$argon2id$v=19$m=65536,t=3,p=1$${canonicalSalt.slice(0, -1)}B$${canonicalTag}`,
     ];
 
     for (const storedHash of malformed) {

@@ -56,6 +56,7 @@ async function main(): Promise<void> {
     options.samples,
     options.concurrency,
   );
+  const argon2PeakConcurrency = limiter.metrics.peakActiveJobs;
   const overflow = options.saturateQueue
     ? await measureQueueSaturation(limiter)
     : {
@@ -75,6 +76,7 @@ async function main(): Promise<void> {
       sequential.hash.medianMs >= 100 && sequential.hash.medianMs <= 500,
     memoryWithinBudget: peakRssIncreaseMiB <= AUTH_ARGON2_MEMORY_BUDGET_MIB,
     overloadRejected: !options.saturateQueue || overflow.rejected,
+    requestedConcurrencyAchieved: argon2PeakConcurrency === options.concurrency,
   };
   const report = {
     timestamp: new Date().toISOString(),
@@ -106,6 +108,10 @@ async function main(): Promise<void> {
       maxMs: round(nanosecondsToMilliseconds(eventLoopDelay.max)),
     },
     overflow,
+    concurrencyEvidence: {
+      requested: options.concurrency,
+      achieved: argon2PeakConcurrency,
+    },
     checks,
     passed: Object.values(checks).every(Boolean),
   };
@@ -253,7 +259,7 @@ function parseOptions(args: string[]): BenchmarkOptions {
     }
     values.set(match[1], match[2]);
   }
-  return {
+  const parsedOptions = {
     samples: parseInteger(values.get('samples') ?? '5', 'samples', 1),
     warmup: parseInteger(values.get('warmup') ?? '1', 'warmup', 0),
     concurrency: parseInteger(
@@ -263,6 +269,12 @@ function parseOptions(args: string[]): BenchmarkOptions {
     ),
     saturateQueue,
   };
+  if (parsedOptions.samples < parsedOptions.concurrency) {
+    throw new RangeError(
+      'samples must be greater than or equal to concurrency',
+    );
+  }
+  return parsedOptions;
 }
 
 function parseInteger(value: string, name: string, minimum: number): number {

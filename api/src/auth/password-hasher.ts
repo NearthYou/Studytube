@@ -51,6 +51,7 @@ const LEGACY_SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const ARGON2ID_PHC_PATTERN =
   /^\$argon2id\$v=19\$m=([1-9]\d{0,5}),t=([1-9]\d?),p=([1-9]\d?)\$([A-Za-z0-9+/]+)\$([A-Za-z0-9+/]+)$/;
 const CONTROL_CHARACTER_PATTERN = /\p{Cc}/u;
+const LONE_SURROGATE_PATTERN = /[\uD800-\uDFFF]/u;
 const defaultLimiter = new Argon2WorkLimiter();
 
 export class PasswordHasher {
@@ -76,6 +77,9 @@ export class PasswordHasher {
       throw new PasswordValidationError(
         'Password must not contain control characters',
       );
+    }
+    if (LONE_SURROGATE_PATTERN.test(password)) {
+      throw new PasswordValidationError('Password must be well-formed UTF-16');
     }
   }
 

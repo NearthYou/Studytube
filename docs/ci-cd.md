@@ -7,10 +7,12 @@ This project lives at the repository root and uses GitHub Actions for CI and EC2
 The workflow at `.github/workflows/ci-cd.yml` runs three jobs in parallel:
 
 - Web: install, lint, Node tests, Vite build.
-- API: install, lint, Jest tests, Nest build.
+- API: start a pgvector PostgreSQL service, apply migrations, verify the explicit demo seed is idempotent, run unit and database-backed end-to-end tests, lint, and build.
 - AI: install Python dependencies, unittest discovery.
 
 CI runs on pull requests and pushes to `main` and `sw`. Because the repository contains only this application, every change is validated.
+
+EC2 배포는 CI가 검증한 `github.sha`를 원격 브랜치와 다시 대조한 뒤 해당 SHA의 배포 스크립트와 소스만 사용합니다. 새 push는 진행 중인 배포를 취소하지 않으며, 브랜치가 앞서간 오래된 workflow는 실행 중인 서비스를 중단하기 전에 실패합니다.
 
 ## What CD Does
 

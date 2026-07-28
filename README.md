@@ -12,13 +12,13 @@ YouTube 학습 영상을 코스 단위로 저장하고 공유하는 학습 보�
 - RAG로 기존 영상 분석 결과를 먼저 검색한 뒤 답변 생성
 - MCP-style YouTube 메타데이터 조회
 - Agent 기반 맞춤형 학습 코스 생성
-- PostgreSQL + pgvector 기반 저장소와 fallback repository
+- PostgreSQL + pgvector 기반 단일 영속 저장소와 버전 관리 마이그레이션
 - EC2 배포 스크립트와 GitHub Actions 연동 문서
 
 ## 기술 스택
 
 - Frontend: React, Vite, TypeScript
-- Backend: NestJS, Prisma, PostgreSQL
+- Backend: NestJS, node-postgres, node-pg-migrate, PostgreSQL
 - AI Server: FastAPI, Python, OpenAI API
 - Database: PostgreSQL + pgvector
 - Infra: Docker Compose, EC2 deploy scripts
@@ -92,12 +92,21 @@ DB를 실행합니다.
 npm run db:up
 ```
 
-Prisma 클라이언트와 DB 스키마를 준비합니다.
+버전 관리되는 마이그레이션으로 DB 스키마를 준비합니다.
 
 ```powershell
-npm --prefix api run prisma:generate
-npm --prefix api run prisma:migrate
+npm run db:migrate:status
+npm run db:migrate:up
 ```
+
+데모 데이터는 자동으로 삽입하지 않습니다. 로컬에서 명시적으로 필요할 때만 실행합니다.
+
+```powershell
+$env:ALLOW_DEMO_SEED='true'
+npm run db:seed:demo
+```
+
+운영 절차와 기존 DB 도입 방법은 [`docs/database-migrations.md`](docs/database-migrations.md)에 정리되어 있습니다.
 
 전체 서비스를 실행합니다.
 
@@ -131,6 +140,8 @@ EC2 외부 접속을 위해 `dev:web`과 `dev:ai`는 `0.0.0.0` 바인딩을 사�
 
 ```powershell
 Invoke-WebRequest -UseBasicParsing http://localhost:3000/health
+Invoke-WebRequest -UseBasicParsing http://localhost:3000/health/live
+Invoke-WebRequest -UseBasicParsing http://localhost:3000/health/ready
 Invoke-WebRequest -UseBasicParsing http://localhost:3000/health/db
 Invoke-WebRequest -UseBasicParsing http://localhost:3000/health/ai
 Invoke-WebRequest -UseBasicParsing http://localhost:8000/health

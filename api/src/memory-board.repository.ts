@@ -854,6 +854,94 @@ export class MemoryBoardRepository implements BoardRepository {
     };
   }
 
+  async createSessionIfPasswordHashMatches(input: {
+    userId: number;
+    token: string;
+    expectedPasswordHash: string;
+  }): Promise<Session | null> {
+    await this.idle();
+
+    const user = this.users.find((candidate) => candidate.id === input.userId);
+
+    if (!user || user.passwordHash !== input.expectedPasswordHash) {
+      return null;
+    }
+
+    this.sessions.push({ token: input.token, userId: input.userId });
+    await this.persistState();
+
+    return {
+      token: input.token,
+      user: this.toPublicUser(user),
+    };
+  }
+
+  async updateUserIfPasswordHashMatchesAndReplaceSessions(input: {
+    userId: number;
+    expectedPasswordHash: string;
+    passwordHash: string;
+    replacementSessionToken: string;
+    name?: string;
+    preferences?: LearningPreferences;
+  }): Promise<Session | null> {
+    await this.idle();
+
+    const index = this.users.findIndex(
+      (candidate) => candidate.id === input.userId,
+    );
+    const current = index === -1 ? undefined : this.users[index];
+    const hasCurrentSession = this.sessions.some(
+      (candidate) =>
+        candidate.userId === input.userId &&
+        candidate.token === input.replacementSessionToken,
+    );
+
+    if (
+      !current ||
+      current.passwordHash !== input.expectedPasswordHash ||
+      !hasCurrentSession
+    ) {
+      return null;
+    }
+
+    const next: StoredUser = {
+      ...current,
+      name: input.name ?? current.name,
+      passwordHash: input.passwordHash,
+      preferences: input.preferences ?? current.preferences,
+    };
+    this.users[index] = next;
+
+    if (input.name) {
+      this.posts = this.posts.map((post) => ({
+        ...post,
+        authorName:
+          post.authorId === input.userId ? input.name! : post.authorName,
+        comments: post.comments.map((comment) => ({
+          ...comment,
+          authorName:
+            comment.authorId === input.userId
+              ? input.name!
+              : comment.authorName,
+        })),
+      }));
+    }
+
+    this.sessions = this.sessions.filter(
+      (candidate) => candidate.userId !== input.userId,
+    );
+    this.sessions.push({
+      token: input.replacementSessionToken,
+      userId: input.userId,
+    });
+    await this.persistState();
+
+    return {
+      token: input.replacementSessionToken,
+      user: this.toPublicUser(next),
+    };
+  }
+
   async findSession(token: string): Promise<Session | null> {
     await this.idle();
 

@@ -52,6 +52,44 @@ describe('StudyBoardService', () => {
     expect(login.token).toHaveLength(48);
   });
 
+  it('rejects login when the password changes after validation', async () => {
+    class PasswordChangingRepository extends MemoryBoardRepository {
+      attemptedToken: string | undefined;
+
+      override async createSessionIfPasswordHashMatches(input: {
+        userId: number;
+        token: string;
+        expectedPasswordHash: string;
+      }) {
+        this.attemptedToken = input.token;
+        await this.updateUser(input.userId, {
+          passwordHash: 'changed-after-read',
+        });
+
+        return super.createSessionIfPasswordHashMatches(input);
+      }
+    }
+
+    const repository = new PasswordChangingRepository();
+    const racingService = new StudyBoardService(repository);
+    await racingService.signUp({
+      name: 'Race Learner',
+      email: 'race@example.com',
+      password: 'learn-fast',
+    });
+
+    await expect(
+      racingService.login({
+        email: 'race@example.com',
+        password: 'learn-fast',
+      }),
+    ).rejects.toThrow(UnauthorizedException);
+    expect(repository.attemptedToken).toEqual(expect.any(String));
+    await expect(
+      repository.findSession(repository.attemptedToken ?? ''),
+    ).resolves.toBeNull();
+  });
+
   it('starts new accounts without preselected learning preferences', async () => {
     const session = await service.signUp({
       name: 'New Learner',
@@ -189,6 +227,96 @@ describe('StudyBoardService', () => {
     });
 
     expect(login.user.name).toBe('Grace Hopper');
+  });
+
+  it('allows only one of two concurrent password changes using the same password', async () => {
+    const firstSession = await service.signUp({
+      name: 'Concurrent Grace',
+      email: 'grace-concurrent@example.com',
+      password: 'learn-fast',
+    });
+    const secondSession = await service.login({
+      email: 'grace-concurrent@example.com',
+      password: 'learn-fast',
+    });
+
+    const results = await Promise.allSettled([
+      service.updateMe(firstSession.token, {
+        currentPassword: 'learn-fast',
+        password: 'first-new-pass',
+      }),
+      service.updateMe(secondSession.token, {
+        currentPassword: 'learn-fast',
+        password: 'second-new-pass',
+      }),
+    ]);
+
+    const successfulChanges = results.filter(
+      (result) => result.status === 'fulfilled',
+    );
+    const rejectedChanges = results.filter(
+      (result) => result.status === 'rejected',
+    );
+
+    expect(successfulChanges).toHaveLength(1);
+    expect(rejectedChanges).toHaveLength(1);
+    expect(rejectedChanges[0].reason).toBeInstanceOf(UnauthorizedException);
+
+    const winningPassword =
+      results[0].status === 'fulfilled' ? 'first-new-pass' : 'second-new-pass';
+    const winningToken =
+      results[0].status === 'fulfilled'
+        ? firstSession.token
+        : secondSession.token;
+    const losingToken =
+      results[0].status === 'fulfilled'
+        ? secondSession.token
+        : firstSession.token;
+
+    await expect(service.getMe(winningToken)).resolves.toMatchObject({
+      email: 'grace-concurrent@example.com',
+    });
+    await expect(service.getMe(losingToken)).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
+    await expect(
+      service.login({
+        email: 'grace-concurrent@example.com',
+        password: winningPassword,
+      }),
+    ).resolves.toMatchObject({
+      user: { email: 'grace-concurrent@example.com' },
+    });
+  });
+
+  it('invalidates every other session when changing the password', async () => {
+    const currentSession = await service.signUp({
+      name: 'Session Grace',
+      email: 'grace-sessions@example.com',
+      password: 'learn-fast',
+    });
+    const oldSession = await service.login({
+      email: 'grace-sessions@example.com',
+      password: 'learn-fast',
+    });
+
+    await service.updateMe(currentSession.token, {
+      currentPassword: 'learn-fast',
+      password: 'rotated-password',
+    });
+
+    await expect(service.getMe(currentSession.token)).resolves.toMatchObject({
+      email: 'grace-sessions@example.com',
+    });
+    await expect(service.getMe(oldSession.token)).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
+    await expect(
+      service.login({
+        email: 'grace-sessions@example.com',
+        password: 'learn-fast',
+      }),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
   it('paginates and searches posts by title, summary, channel, and tags', async () => {

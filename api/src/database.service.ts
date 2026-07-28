@@ -7,17 +7,28 @@
 import { ConfigService } from '@nestjs/config';
 import { timingSafeEqual } from 'node:crypto';
 import { Pool, PoolClient, type QueryConfig } from 'pg';
+import { AuthRepositoryUnavailableError } from './auth/auth.repository';
 import type {
   CompleteRegistrationCommand,
   CompleteRegistrationResult,
+  CommitLoginCommand,
+  CommitLoginResult,
   ConsumeVerificationCommand,
   ConsumeVerificationResult,
+  FindActiveSessionCommand,
+  FindActiveSessionResult,
+  FindAuthUserCommand,
+  FindAuthUserResult,
   FindEnrollmentCandidateCommand,
   FindEnrollmentCandidateResult,
+  FindEnrollmentReadinessCommand,
+  FindEnrollmentReadinessResult,
   PendingRegistrationCommand,
   PendingRegistrationResult,
   RateLimitCommand,
   RateLimitResult,
+  RevokeActiveSessionCommand,
+  RevokeActiveSessionResult,
 } from './auth/auth.types';
 import {
   iso,
@@ -207,6 +218,39 @@ export class DatabaseService
             allowed: false,
             retryAfterSeconds: Number(row.retryAfterSeconds),
           };
+    } catch {
+      throw this.authPersistenceError();
+    }
+  }
+
+  async findAuthUser(
+    command: FindAuthUserCommand,
+  ): Promise<FindAuthUserResult> {
+    try {
+      const result = await this.pool.query<AuthUserCredentialRow>(
+        `
+          SELECT id, name, email,
+                 email_canonical AS "emailCanonical",
+                 password_hash AS "passwordHash",
+                 password_algorithm AS "passwordAlgorithm",
+                 password_parameters AS "passwordParameters",
+                 password_version AS "passwordVersion",
+                 identity_assurance AS "identityAssurance",
+                 created_at AS "createdAt"
+          FROM users
+          WHERE email_canonical = $1
+        `,
+        [command.emailCanonical],
+      );
+      const row = result.rows[0];
+      return {
+        user: row
+          ? {
+              ...row,
+              createdAt: new Date(row.createdAt).toISOString(),
+            }
+          : null,
+      };
     } catch {
       throw this.authPersistenceError();
     }
@@ -566,6 +610,232 @@ export class DatabaseService
       throw this.authPersistenceError();
     } finally {
       client.release();
+    }
+  }
+
+  async commitLogin(command: CommitLoginCommand): Promise<CommitLoginResult> {
+    const client = await this.connectAuthClient();
+    let transactionOpen = false;
+    const rollback = async () => {
+      if (!transactionOpen) {
+        return;
+      }
+      await client.query('ROLLBACK');
+      transactionOpen = false;
+    };
+
+    try {
+      await client.query('BEGIN');
+      transactionOpen = true;
+      const locked = await client.query<AuthUserCredentialRow>(
+        `
+          SELECT id, name, email,
+                 email_canonical AS "emailCanonical",
+                 password_hash AS "passwordHash",
+                 password_algorithm AS "passwordAlgorithm",
+                 password_parameters AS "passwordParameters",
+                 password_version AS "passwordVersion",
+                 identity_assurance AS "identityAssurance",
+                 created_at AS "createdAt"
+          FROM users
+          WHERE id = $1
+            AND password_hash = $2
+            AND password_version = $3
+          FOR UPDATE
+        `,
+        [
+          command.userId,
+          command.expectedPasswordHash,
+          command.expectedPasswordVersion,
+        ],
+      );
+      const user = locked.rows[0];
+      if (!user) {
+        await rollback();
+        return { status: 'stale' };
+      }
+      if (
+        user.passwordAlgorithm === 'disabled' ||
+        (user.identityAssurance !== 'email_verified' &&
+          user.identityAssurance !== 'legacy_grandfathered')
+      ) {
+        await rollback();
+        return { status: 'invalid' };
+      }
+
+      if (command.passwordUpgrade) {
+        const upgraded = await client.query(
+          `
+            UPDATE users
+            SET password_hash = $2,
+                password_algorithm = $3,
+                password_parameters = $4::jsonb,
+                password_version = $5
+            WHERE id = $1
+              AND password_hash = $6
+              AND password_version = $7
+          `,
+          [
+            command.userId,
+            command.passwordUpgrade.passwordHash,
+            command.passwordUpgrade.passwordAlgorithm,
+            JSON.stringify(command.passwordUpgrade.passwordParameters),
+            command.passwordUpgrade.passwordVersion,
+            command.expectedPasswordHash,
+            command.expectedPasswordVersion,
+          ],
+        );
+        if (upgraded.rowCount !== 1) {
+          await rollback();
+          return { status: 'stale' };
+        }
+      }
+
+      await client.query(
+        `
+          INSERT INTO sessions (
+            id, token_digest, user_id, created_at,
+            absolute_expires_at, idle_expires_at, last_seen_at
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $4)
+        `,
+        [
+          command.sessionId,
+          command.sessionDigest,
+          command.userId,
+          command.sessionCreatedAt,
+          command.sessionAbsoluteExpiresAt,
+          command.sessionIdleExpiresAt,
+        ],
+      );
+      await client.query('COMMIT');
+      transactionOpen = false;
+      return {
+        status: 'committed',
+        user: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          createdAt: new Date(user.createdAt).toISOString(),
+        },
+      };
+    } catch {
+      try {
+        await rollback();
+      } catch {
+        throw this.authPersistenceError();
+      }
+      throw this.authPersistenceError();
+    } finally {
+      client.release();
+    }
+  }
+
+  async findActiveSession(
+    command: FindActiveSessionCommand,
+  ): Promise<FindActiveSessionResult> {
+    try {
+      const result = await this.pool.query<ActiveSessionRow>(
+        `
+          WITH active_session AS MATERIALIZED (
+            SELECT s.id AS "sessionId",
+                   s.user_id AS "userId",
+                   s.last_seen_at AS "lastSeenAt",
+                   u.name,
+                   u.email,
+                   u.created_at AS "userCreatedAt"
+            FROM sessions s
+            JOIN users u ON u.id = s.user_id
+            WHERE s.token_digest = $1
+              AND s.revoked_at IS NULL
+              AND s.absolute_expires_at > statement_timestamp()
+              AND s.idle_expires_at > statement_timestamp()
+            FOR UPDATE OF s
+          ), touched AS (
+            UPDATE sessions s
+            SET last_seen_at = statement_timestamp(),
+                idle_expires_at = LEAST(
+                  s.absolute_expires_at,
+                  statement_timestamp() + interval '24 hours'
+                )
+            FROM active_session active
+            WHERE s.id = active."sessionId"
+              AND active."lastSeenAt" <=
+                  statement_timestamp() - interval '15 minutes'
+            RETURNING s.id
+          )
+          SELECT "sessionId", "userId", name, email, "userCreatedAt"
+          FROM active_session
+        `,
+        [command.sessionDigest],
+      );
+      const row = result.rows[0];
+      if (!row) {
+        return { status: 'invalid' };
+      }
+      return Object.freeze({
+        status: 'active',
+        principal: Object.freeze({
+          sessionId: row.sessionId,
+          userId: row.userId,
+        }),
+        user: Object.freeze({
+          id: row.userId,
+          name: row.name,
+          email: row.email,
+          createdAt: new Date(row.userCreatedAt).toISOString(),
+        }),
+      });
+    } catch {
+      throw this.authPersistenceError();
+    }
+  }
+
+  async revokeActiveSession(
+    command: RevokeActiveSessionCommand,
+  ): Promise<RevokeActiveSessionResult> {
+    try {
+      const result = await this.pool.query<{ id: string }>(
+        `
+          UPDATE sessions
+          SET revoked_at = statement_timestamp(),
+              revoke_reason = $2
+          WHERE token_digest = $1
+            AND revoked_at IS NULL
+            AND absolute_expires_at > statement_timestamp()
+            AND idle_expires_at > statement_timestamp()
+          RETURNING id
+        `,
+        [command.sessionDigest, command.reason],
+      );
+      return result.rows[0] ? { status: 'revoked' } : { status: 'invalid' };
+    } catch {
+      throw this.authPersistenceError();
+    }
+  }
+
+  async findEnrollmentReadiness(
+    command: FindEnrollmentReadinessCommand,
+  ): Promise<FindEnrollmentReadinessResult> {
+    try {
+      const result = await this.pool.query<{ ready: boolean }>(
+        `
+          SELECT EXISTS (
+            SELECT 1
+            FROM pending_registrations
+            WHERE enrollment_digest = $1
+              AND verified_at IS NOT NULL
+              AND enrollment_expires_at > statement_timestamp()
+              AND completed_at IS NULL
+          ) AS ready
+        `,
+        [command.enrollmentDigest],
+      );
+      return result.rows[0]?.ready === true
+        ? { status: 'ready' }
+        : { status: 'invalid' };
+    } catch {
+      throw this.authPersistenceError();
     }
   }
 
@@ -1526,8 +1796,8 @@ export class DatabaseService
       : undefined;
   }
 
-  private authPersistenceError(): Error {
-    return new Error('Authentication persistence failed');
+  private authPersistenceError(): AuthRepositoryUnavailableError {
+    return new AuthRepositoryUnavailableError();
   }
 
   private isUserEmailUniqueViolation(error: unknown): boolean {
@@ -1542,7 +1812,11 @@ export class DatabaseService
   }
 
   private postgresErrorConstraint(error: unknown): string | undefined {
-    if (typeof error !== 'object' || error === null || !('constraint' in error)) {
+    if (
+      typeof error !== 'object' ||
+      error === null ||
+      !('constraint' in error)
+    ) {
       return undefined;
     }
     const constraint = (error as { constraint?: unknown }).constraint;
@@ -1578,6 +1852,27 @@ type CompletionPendingRow = {
   enrollmentDigest: Buffer;
   enrollmentExpiresAt: Date | string | null;
   completedAt: Date | string | null;
+};
+
+type AuthUserCredentialRow = {
+  id: number;
+  name: string;
+  email: string;
+  emailCanonical: string;
+  passwordHash: string;
+  passwordAlgorithm: 'argon2id' | 'legacy_sha256' | 'disabled';
+  passwordParameters: Record<string, unknown>;
+  passwordVersion: number;
+  identityAssurance: 'email_verified' | 'legacy_grandfathered';
+  createdAt: Date | string;
+};
+
+type ActiveSessionRow = {
+  sessionId: string;
+  userId: number;
+  name: string;
+  email: string;
+  userCreatedAt: Date | string;
 };
 
 function authDigestMatches(stored: Buffer, presented: Buffer): boolean {

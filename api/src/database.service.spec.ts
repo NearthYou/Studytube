@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+import { AuthRepositoryUnavailableError } from './auth/auth.repository';
 import { DatabaseService } from './database.service';
 
 const AUTH_NOW = new Date('2026-07-28T12:00:00.000Z');
@@ -523,7 +525,6 @@ describe('DatabaseService verified enrollment persistence', () => {
       expect.stringContaining('FROM users'),
       'COMMIT',
     ]);
-
   });
 
   it('rolls back and sanitizes a pending-registration unique violation', async () => {
@@ -850,7 +851,6 @@ describe('DatabaseService verified enrollment persistence', () => {
   );
 
   it('sanitizes non-unique database failures', async () => {
-
     const failedService = new DatabaseService(configService());
     const failedQuery = jest
       .fn()
@@ -880,6 +880,215 @@ describe('DatabaseService verified enrollment persistence', () => {
       service.createPendingRegistration(pendingRegistrationCommand()),
     ).rejects.toThrow('Authentication persistence failed');
     expect(connect).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('DatabaseService core session persistence', () => {
+  it('finds one exact canonical credential without lowercasing in PostgreSQL', async () => {
+    const service = new DatabaseService(configService());
+    const row = authCredentialRow();
+    const query = jest.fn().mockResolvedValue({ rows: [row], rowCount: 1 });
+    replacePool(service, query);
+
+    await expect(
+      service.findAuthUser({ emailCanonical: 'ada@example.com' }),
+    ).resolves.toEqual({
+      user: { ...row, createdAt: row.createdAt.toISOString() },
+    });
+
+    const [sql, values] = query.mock.calls[0] as [string, unknown[]];
+    expect(sql).toContain('WHERE email_canonical = $1');
+    expect(sql).not.toContain('lower(');
+    expect(values).toEqual(['ada@example.com']);
+  });
+
+  it('locks the verified hash and version, upgrades, inserts the digest session, then commits', async () => {
+    const service = new DatabaseService(configService());
+    const command = loginCommitCommand();
+    const query = jest
+      .fn()
+      .mockResolvedValueOnce({ rows: [], rowCount: null })
+      .mockResolvedValueOnce({
+        rows: [authCredentialRow()],
+        rowCount: 1,
+      })
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: null });
+    const { release } = replacePoolConnection(service, query);
+
+    await expect(service.commitLogin(command)).resolves.toMatchObject({
+      status: 'committed',
+      user: { id: 7, email: 'ada@example.com' },
+    });
+
+    const calls = query.mock.calls as Array<[string, unknown[]?]>;
+    expect(calls.map(([sql]) => sql)).toEqual([
+      'BEGIN',
+      expect.stringContaining('FOR UPDATE'),
+      expect.stringContaining('UPDATE users'),
+      expect.stringContaining('INSERT INTO sessions'),
+      'COMMIT',
+    ]);
+    expect(calls[1][0]).toContain('password_hash = $2');
+    expect(calls[1][0]).toContain('password_version = $3');
+    expect(calls[1][1]).toEqual([
+      7,
+      command.expectedPasswordHash,
+      command.expectedPasswordVersion,
+    ]);
+    expect(calls[2][0]).toContain('password_hash = $6');
+    expect(calls[2][0]).toContain('password_version = $7');
+    expect(calls[3][1]).toEqual([
+      SESSION_ID,
+      command.sessionDigest,
+      7,
+      command.sessionCreatedAt,
+      command.sessionAbsoluteExpiresAt,
+      command.sessionIdleExpiresAt,
+    ]);
+    expect(calls.join(' ')).not.toContain('raw-session-cookie');
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns stale with guarded rollback and release when the CAS predicate loses', async () => {
+    const service = new DatabaseService(configService());
+    const query = jest
+      .fn()
+      .mockResolvedValueOnce({ rows: [], rowCount: null })
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 })
+      .mockResolvedValueOnce({ rows: [], rowCount: null });
+    const { release } = replacePoolConnection(service, query);
+
+    await expect(service.commitLogin(loginCommitCommand())).resolves.toEqual({
+      status: 'stale',
+    });
+    expect(query.mock.calls.map(([sql]) => sql)).toEqual([
+      'BEGIN',
+      expect.stringContaining('FOR UPDATE'),
+      'ROLLBACK',
+    ]);
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses database time for active lookup and one capped 15-minute touch', async () => {
+    const service = new DatabaseService(configService());
+    const sessionDigest = Buffer.alloc(32, 9);
+    const query = jest.fn().mockResolvedValue({
+      rows: [
+        {
+          sessionId: SESSION_ID,
+          userId: 7,
+          name: 'Ada',
+          email: 'ada@example.com',
+          userCreatedAt: AUTH_NOW,
+        },
+      ],
+      rowCount: 1,
+    });
+    replacePool(service, query);
+
+    const result = await service.findActiveSession({ sessionDigest });
+    expect(result).toMatchObject({
+      status: 'active',
+      principal: { sessionId: SESSION_ID, userId: 7 },
+      user: { id: 7, email: 'ada@example.com' },
+    });
+    expect(Object.isFrozen(result)).toBe(true);
+
+    const [sql, values] = query.mock.calls[0] as [string, unknown[]];
+    expect(sql).toContain('s.revoked_at IS NULL');
+    expect(sql).toContain('s.absolute_expires_at > statement_timestamp()');
+    expect(sql).toContain('s.idle_expires_at > statement_timestamp()');
+    expect(sql).toContain("interval '15 minutes'");
+    expect(sql).toContain('LEAST(');
+    expect(sql).toContain("interval '24 hours'");
+    expect(values).toEqual([sessionDigest]);
+    expect(callsContainBuffer(query.mock.calls, sessionDigest)).toBe(true);
+  });
+
+  it('returns invalid when the active lookup filters revoked or expired rows', async () => {
+    const service = new DatabaseService(configService());
+    const query = jest.fn().mockResolvedValue({ rows: [], rowCount: 0 });
+    replacePool(service, query);
+
+    await expect(
+      service.findActiveSession({ sessionDigest: Buffer.alloc(32, 6) }),
+    ).resolves.toEqual({ status: 'invalid' });
+  });
+
+  it('persists bounded logout revocation and makes reuse invalid', async () => {
+    const service = new DatabaseService(configService());
+    const sessionDigest = Buffer.alloc(32, 7);
+    const query = jest
+      .fn()
+      .mockResolvedValueOnce({
+        rows: [{ id: SESSION_ID }],
+        rowCount: 1,
+      })
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    replacePool(service, query);
+
+    await expect(
+      service.revokeActiveSession({ sessionDigest, reason: 'logout' }),
+    ).resolves.toEqual({ status: 'revoked' });
+    await expect(
+      service.revokeActiveSession({ sessionDigest, reason: 'logout' }),
+    ).resolves.toEqual({ status: 'invalid' });
+
+    const [sql, values] = query.mock.calls[0] as [string, unknown[]];
+    expect(sql).toContain('revoked_at = statement_timestamp()');
+    expect(sql).toContain('revoked_at IS NULL');
+    expect(values).toEqual([sessionDigest, 'logout']);
+  });
+
+  it('returns digest-only enrollment readiness using PostgreSQL time', async () => {
+    const service = new DatabaseService(configService());
+    const enrollmentDigest = Buffer.alloc(32, 8);
+    const query = jest
+      .fn()
+      .mockResolvedValue({ rows: [{ ready: true }], rowCount: 1 });
+    replacePool(service, query);
+
+    await expect(
+      service.findEnrollmentReadiness({ enrollmentDigest }),
+    ).resolves.toEqual({ status: 'ready' });
+
+    const [sql, values] = query.mock.calls[0] as [string, unknown[]];
+    expect(sql).toContain('enrollment_digest = $1');
+    expect(sql).toContain('enrollment_expires_at > statement_timestamp()');
+    expect(sql).toContain('completed_at IS NULL');
+    expect(values).toEqual([enrollmentDigest]);
+  });
+
+  it('sanitizes a login session collision as a typed availability failure', async () => {
+    const service = new DatabaseService(configService());
+    const query = jest
+      .fn()
+      .mockResolvedValueOnce({ rows: [], rowCount: null })
+      .mockResolvedValueOnce({
+        rows: [authCredentialRow()],
+        rowCount: 1,
+      })
+      .mockRejectedValueOnce(
+        Object.assign(new Error('raw-session-cookie password=secret'), {
+          code: '23505',
+          constraint: 'sessions_token_digest_key',
+        }),
+      )
+      .mockResolvedValueOnce({ rows: [], rowCount: null });
+    const { release } = replacePoolConnection(service, query);
+    const { passwordUpgrade: _passwordUpgrade, ...command } =
+      loginCommitCommand();
+
+    const error = await service.commitLogin(command).catch((caught) => caught);
+    expect(error).toBeInstanceOf(AuthRepositoryUnavailableError);
+    expect(error).toMatchObject({
+      code: 'AUTH_REPOSITORY_UNAVAILABLE',
+      message: 'Authentication persistence failed',
+    });
+    expect(query.mock.calls.at(3)?.[0]).toBe('ROLLBACK');
+    expect(release).toHaveBeenCalled();
   });
 });
 
@@ -965,4 +1174,65 @@ function completionPendingRow(enrollmentDigest: Buffer) {
     enrollmentExpiresAt: new Date('2026-07-28T12:10:00.000Z'),
     completedAt: null,
   };
+}
+
+function authCredentialRow(
+  overrides: Partial<ReturnType<typeof authCredentialRowBase>> = {},
+) {
+  return { ...authCredentialRowBase(), ...overrides };
+}
+
+function authCredentialRowBase() {
+  return {
+    id: 7,
+    name: 'Ada',
+    email: 'ada@example.com',
+    emailCanonical: 'ada@example.com',
+    passwordHash: createHashForTest('legacy password'),
+    passwordAlgorithm: 'legacy_sha256' as const,
+    passwordParameters: {
+      digest: 'sha256',
+      encoding: 'lower_hex',
+    },
+    passwordVersion: 1,
+    identityAssurance: 'legacy_grandfathered' as const,
+    createdAt: AUTH_NOW,
+  };
+}
+
+function loginCommitCommand() {
+  return {
+    userId: 7,
+    expectedPasswordHash: createHashForTest('legacy password'),
+    expectedPasswordVersion: 1,
+    passwordUpgrade: {
+      passwordHash: '$argon2id$reviewed-password-hash',
+      passwordAlgorithm: 'argon2id' as const,
+      passwordParameters: {
+        memoryKiB: 65_536 as const,
+        timeCost: 3 as const,
+        parallelism: 1 as const,
+      },
+      passwordVersion: 2,
+    },
+    sessionId: SESSION_ID,
+    sessionDigest: Buffer.alloc(32, 5),
+    sessionCreatedAt: AUTH_NOW,
+    sessionAbsoluteExpiresAt: new Date('2026-08-04T12:00:00.000Z'),
+    sessionIdleExpiresAt: new Date('2026-07-29T12:00:00.000Z'),
+  };
+}
+
+function createHashForTest(value: string) {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+function callsContainBuffer(calls: unknown[][], expected: Buffer) {
+  return calls.some((call) =>
+    call.some(
+      (value) =>
+        Array.isArray(value) &&
+        value.some((entry) => Buffer.isBuffer(entry) && entry.equals(expected)),
+    ),
+  );
 }

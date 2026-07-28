@@ -14,6 +14,7 @@ const VERIFICATION_SECRET = Buffer.alloc(32, 7);
 const VERIFICATION_TOKEN = `v1.${PENDING_ID}.${VERIFICATION_SECRET.toString('base64url')}`;
 const ENROLLMENT_TOKEN = Buffer.alloc(32, 8).toString('base64url');
 const SESSION_TOKEN = Buffer.alloc(32, 9).toString('base64url');
+const DUMMY_PASSWORD_HASH = '$argon2id$dummy-password-hash';
 
 function createRepository(): jest.Mocked<AuthRepository> {
   return {
@@ -21,6 +22,7 @@ function createRepository(): jest.Mocked<AuthRepository> {
       allowed: true,
       remaining: 4,
     }),
+    findAuthUser: jest.fn().mockResolvedValue({ user: null }),
     createPendingRegistration: jest
       .fn()
       .mockResolvedValue({ status: 'accepted' }),
@@ -35,6 +37,18 @@ function createRepository(): jest.Mocked<AuthRepository> {
         createdAt: NOW.toISOString(),
       },
     }),
+    commitLogin: jest.fn().mockResolvedValue({
+      status: 'committed',
+      user: {
+        id: 7,
+        name: 'Ada',
+        email: 'ada@example.com',
+        createdAt: NOW.toISOString(),
+      },
+    }),
+    findActiveSession: jest.fn().mockResolvedValue({ status: 'invalid' }),
+    revokeActiveSession: jest.fn().mockResolvedValue({ status: 'revoked' }),
+    findEnrollmentReadiness: jest.fn().mockResolvedValue({ status: 'ready' }),
   };
 }
 
@@ -72,10 +86,55 @@ function fixedOpaqueFactory(token: string): OpaqueTokenFactory {
   });
 }
 
+function sequenceOpaqueFactory(tokens: string[]): OpaqueTokenFactory {
+  return () => {
+    const cookieValue = tokens.shift();
+    if (!cookieValue) {
+      throw new Error('test token factory exhausted');
+    }
+    return {
+      cookieValue,
+      persistence: {
+        digest: createHash('sha256').update(cookieValue).digest(),
+      },
+    };
+  };
+}
+
+function authUser(
+  overrides: Partial<
+    NonNullable<Awaited<ReturnType<AuthRepository['findAuthUser']>>['user']>
+  > = {},
+) {
+  return {
+    id: 7,
+    name: 'Ada',
+    email: 'ada@example.com',
+    emailCanonical: 'ada@example.com',
+    createdAt: NOW.toISOString(),
+    passwordHash: createHash('sha256')
+      .update('correct horse battery staple')
+      .digest('hex'),
+    passwordAlgorithm: 'legacy_sha256' as const,
+    passwordParameters: {
+      digest: 'sha256',
+      encoding: 'lower_hex',
+    },
+    passwordVersion: 1,
+    identityAssurance: 'legacy_grandfathered' as const,
+    ...overrides,
+  };
+}
+
 function createPasswordHasher() {
   return {
     validate: jest.fn(),
     hash: jest.fn().mockResolvedValue('$argon2id$reviewed-password-hash'),
+    verify: jest.fn().mockResolvedValue({
+      valid: false,
+      needsRehash: false,
+      algorithm: 'argon2id' as const,
+    }),
   };
 }
 
@@ -98,6 +157,7 @@ function createService(
   const service = new AuthService({
     repository,
     passwordHasher,
+    dummyPasswordHash: DUMMY_PASSWORD_HASH,
     clock: () => NOW,
     sleep,
     uuid,
@@ -298,6 +358,12 @@ describe('AuthService enrollment', () => {
     expect(command.sessionDigest).toEqual(
       createHash('sha256').update(SESSION_TOKEN).digest(),
     );
+    expect(command.sessionAbsoluteExpiresAt).toEqual(
+      new Date('2026-08-04T12:00:00.000Z'),
+    );
+    expect(command.sessionIdleExpiresAt).toEqual(
+      new Date('2026-07-29T12:00:00.000Z'),
+    );
     expect(JSON.stringify(command)).not.toContain(ENROLLMENT_TOKEN);
     expect(JSON.stringify(command)).not.toContain(SESSION_TOKEN);
     expect(JSON.stringify(command)).not.toContain(
@@ -345,5 +411,313 @@ describe('AuthService enrollment', () => {
         '203.0.113.7',
       ),
     ).resolves.toEqual({ status: 'conflict' });
+  });
+});
+
+describe('AuthService core session', () => {
+  it('runs dummy password verification and returns generic invalid for an absent user', async () => {
+    const { service, repository, passwordHasher } = createService();
+
+    await expect(
+      service.login(
+        { email: ' Missing@Example.COM ', password: 'missing password' },
+        '203.0.113.10',
+      ),
+    ).resolves.toEqual({ status: 'invalid' });
+
+    expect(repository.consumeRateLimit).toHaveBeenCalledTimes(2);
+    expect(
+      repository.consumeRateLimit.mock.calls.map(([call]) => call.action),
+    ).toEqual(['login_email', 'login_ip']);
+    expect(repository.findAuthUser).toHaveBeenCalledWith({
+      emailCanonical: 'missing@example.com',
+    });
+    expect(passwordHasher.verify).toHaveBeenCalledWith(
+      DUMMY_PASSWORD_HASH,
+      'missing password',
+    );
+    expect(
+      repository.consumeRateLimit.mock.invocationCallOrder[1],
+    ).toBeLessThan(passwordHasher.verify.mock.invocationCallOrder[0]);
+    expect(repository.commitLogin).not.toHaveBeenCalled();
+  });
+
+  it('upgrades a verified legacy password and commits one digest-only session', async () => {
+    const { service, repository, passwordHasher } = createService({
+      opaqueTokenFactory: fixedOpaqueFactory(SESSION_TOKEN),
+      uuid: () => SESSION_ID,
+    });
+    repository.findAuthUser.mockResolvedValue({ user: authUser() });
+    passwordHasher.verify.mockResolvedValueOnce({
+      valid: true,
+      needsRehash: true,
+      algorithm: 'legacy_sha256',
+    });
+
+    await expect(
+      service.login(
+        {
+          email: 'Ada@Example.COM',
+          password: 'correct horse battery staple',
+        },
+        '203.0.113.10',
+      ),
+    ).resolves.toEqual({
+      status: 'authenticated',
+      sessionToken: SESSION_TOKEN,
+      user: {
+        id: 7,
+        name: 'Ada',
+        email: 'ada@example.com',
+        createdAt: NOW.toISOString(),
+      },
+    });
+
+    expect(passwordHasher.hash).toHaveBeenCalledWith(
+      'correct horse battery staple',
+    );
+    const command = repository.commitLogin.mock.calls[0][0];
+    expect(command).toMatchObject({
+      userId: 7,
+      expectedPasswordHash: authUser().passwordHash,
+      expectedPasswordVersion: 1,
+      passwordUpgrade: {
+        passwordHash: '$argon2id$reviewed-password-hash',
+        passwordAlgorithm: 'argon2id',
+        passwordParameters: {
+          memoryKiB: 65_536,
+          timeCost: 3,
+          parallelism: 1,
+        },
+        passwordVersion: 2,
+      },
+      sessionId: SESSION_ID,
+      sessionCreatedAt: NOW,
+      sessionAbsoluteExpiresAt: new Date('2026-08-04T12:00:00.000Z'),
+      sessionIdleExpiresAt: new Date('2026-07-29T12:00:00.000Z'),
+    });
+    expect(command.sessionDigest).toEqual(
+      createHash('sha256').update(SESSION_TOKEN).digest(),
+    );
+    expect(JSON.stringify(command)).not.toContain(SESSION_TOKEN);
+    expect(JSON.stringify(command)).not.toContain(
+      'correct horse battery staple',
+    );
+  });
+
+  it('refetches and verifies once after a stale commit, using fresh session material', async () => {
+    const firstToken = Buffer.alloc(32, 10).toString('base64url');
+    const secondToken = Buffer.alloc(32, 11).toString('base64url');
+    const ids = [
+      '44444444-4444-4444-8444-444444444444',
+      '55555555-5555-4555-8555-555555555555',
+    ];
+    const { service, repository, passwordHasher } = createService({
+      opaqueTokenFactory: sequenceOpaqueFactory([firstToken, secondToken]),
+      uuid: () => ids.shift() as string,
+    });
+    repository.findAuthUser
+      .mockResolvedValueOnce({ user: authUser() })
+      .mockResolvedValueOnce({
+        user: authUser({
+          passwordHash: '$argon2id$concurrent-upgrade',
+          passwordAlgorithm: 'argon2id',
+          passwordVersion: 2,
+        }),
+      });
+    passwordHasher.verify
+      .mockResolvedValueOnce({
+        valid: true,
+        needsRehash: true,
+        algorithm: 'legacy_sha256',
+      })
+      .mockResolvedValueOnce({
+        valid: true,
+        needsRehash: false,
+        algorithm: 'argon2id',
+      });
+    repository.commitLogin
+      .mockResolvedValueOnce({ status: 'stale' })
+      .mockResolvedValueOnce({
+        status: 'committed',
+        user: {
+          id: 7,
+          name: 'Ada',
+          email: 'ada@example.com',
+          createdAt: NOW.toISOString(),
+        },
+      });
+
+    await expect(
+      service.login(
+        {
+          email: 'ada@example.com',
+          password: 'correct horse battery staple',
+        },
+        '203.0.113.10',
+      ),
+    ).resolves.toMatchObject({
+      status: 'authenticated',
+      sessionToken: secondToken,
+    });
+
+    expect(repository.findAuthUser).toHaveBeenCalledTimes(2);
+    expect(passwordHasher.verify).toHaveBeenCalledTimes(2);
+    expect(repository.commitLogin).toHaveBeenCalledTimes(2);
+    expect(repository.commitLogin.mock.calls[0][0].sessionDigest).not.toEqual(
+      repository.commitLogin.mock.calls[1][0].sessionDigest,
+    );
+    expect(repository.commitLogin.mock.calls[1][0]).toMatchObject({
+      expectedPasswordHash: '$argon2id$concurrent-upgrade',
+      expectedPasswordVersion: 2,
+      passwordUpgrade: undefined,
+    });
+  });
+
+  it('rejects a concurrent password change after the one allowed refetch', async () => {
+    const { service, repository, passwordHasher } = createService({
+      opaqueTokenFactory: fixedOpaqueFactory(SESSION_TOKEN),
+      uuid: () => SESSION_ID,
+    });
+    repository.findAuthUser
+      .mockResolvedValueOnce({ user: authUser() })
+      .mockResolvedValueOnce({
+        user: authUser({
+          passwordHash: '$argon2id$new-password',
+          passwordAlgorithm: 'argon2id',
+          passwordVersion: 2,
+        }),
+      });
+    passwordHasher.verify
+      .mockResolvedValueOnce({
+        valid: true,
+        needsRehash: false,
+        algorithm: 'legacy_sha256',
+      })
+      .mockResolvedValueOnce({
+        valid: false,
+        needsRehash: false,
+        algorithm: 'argon2id',
+      });
+    repository.commitLogin.mockResolvedValueOnce({ status: 'stale' });
+
+    await expect(
+      service.login(
+        { email: 'ada@example.com', password: 'old valid password' },
+        '203.0.113.10',
+      ),
+    ).resolves.toEqual({ status: 'invalid' });
+
+    expect(repository.commitLogin).toHaveBeenCalledTimes(1);
+    expect(passwordHasher.verify).toHaveBeenCalledTimes(2);
+  });
+
+  it('uses equivalent password work and one generic result for unknown and wrong-password login', async () => {
+    const unknown = createService();
+    const wrong = createService();
+    wrong.repository.findAuthUser.mockResolvedValue({
+      user: authUser({
+        passwordHash: '$argon2id$stored-password',
+        passwordAlgorithm: 'argon2id',
+      }),
+    });
+
+    await expect(
+      unknown.service.login(
+        { email: 'unknown@example.com', password: 'wrong password' },
+        '203.0.113.10',
+      ),
+    ).resolves.toEqual({ status: 'invalid' });
+    await expect(
+      wrong.service.login(
+        { email: 'ada@example.com', password: 'wrong password' },
+        '203.0.113.10',
+      ),
+    ).resolves.toEqual({ status: 'invalid' });
+
+    expect(unknown.passwordHasher.verify).toHaveBeenCalledTimes(1);
+    expect(wrong.passwordHasher.verify).toHaveBeenCalledTimes(1);
+    expect(unknown.repository.commitLogin).not.toHaveBeenCalled();
+    expect(wrong.repository.commitLogin).not.toHaveBeenCalled();
+  });
+
+  it('runs the dummy path for a disabled credential', async () => {
+    const { service, repository, passwordHasher } = createService();
+    repository.findAuthUser.mockResolvedValue({
+      user: authUser({
+        passwordHash: 'disabled:demo-seed-login',
+        passwordAlgorithm: 'disabled',
+      }),
+    });
+
+    await expect(
+      service.login(
+        { email: 'ada@example.com', password: 'any password' },
+        '203.0.113.10',
+      ),
+    ).resolves.toEqual({ status: 'invalid' });
+
+    expect(passwordHasher.verify).toHaveBeenCalledWith(
+      DUMMY_PASSWORD_HASH,
+      'any password',
+    );
+  });
+
+  it('uses digest-only lifecycle and readiness repository commands', async () => {
+    const { service, repository } = createService();
+    repository.findActiveSession.mockResolvedValueOnce({
+      status: 'active',
+      principal: { sessionId: SESSION_ID, userId: 7 },
+      user: {
+        id: 7,
+        name: 'Ada',
+        email: 'ada@example.com',
+        createdAt: NOW.toISOString(),
+      },
+    });
+    repository.revokeActiveSession
+      .mockResolvedValueOnce({ status: 'revoked' })
+      .mockResolvedValueOnce({ status: 'invalid' });
+
+    const authenticated = await service.authenticateSession(SESSION_TOKEN);
+    expect(authenticated).toMatchObject({
+      status: 'authenticated',
+      principal: { sessionId: SESSION_ID, userId: 7 },
+      user: { id: 7, email: 'ada@example.com' },
+    });
+    expect(Object.isFrozen(authenticated)).toBe(true);
+    if (authenticated.status === 'authenticated') {
+      expect(Object.isFrozen(authenticated.principal)).toBe(true);
+      expect(Object.isFrozen(authenticated.user)).toBe(true);
+    }
+    await expect(service.logout(SESSION_TOKEN)).resolves.toEqual({
+      status: 'revoked',
+    });
+    await expect(service.logout(SESSION_TOKEN)).resolves.toEqual({
+      status: 'invalid',
+    });
+    await expect(
+      service.getRegistrationReadiness(ENROLLMENT_TOKEN),
+    ).resolves.toEqual({ status: 'ready' });
+
+    const expectedSessionDigest = createHash('sha256')
+      .update(SESSION_TOKEN)
+      .digest();
+    expect(repository.findActiveSession).toHaveBeenCalledWith({
+      sessionDigest: expectedSessionDigest,
+    });
+    expect(repository.revokeActiveSession).toHaveBeenCalledWith({
+      sessionDigest: expectedSessionDigest,
+      reason: 'logout',
+    });
+    expect(repository.findEnrollmentReadiness).toHaveBeenCalledWith({
+      enrollmentDigest: createHash('sha256').update(ENROLLMENT_TOKEN).digest(),
+    });
+    expect(
+      JSON.stringify([
+        repository.findActiveSession.mock.calls,
+        repository.revokeActiveSession.mock.calls,
+      ]),
+    ).not.toContain(SESSION_TOKEN);
   });
 });

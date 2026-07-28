@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import {
   ENROLLMENT_COOKIE_MAX_AGE_MS,
   SESSION_COOKIE_MAX_AGE_MS,
+  SESSION_IDLE_MAX_AGE_MS,
 } from './auth.constants';
 import type { AuthRepository } from './auth.repository';
 import {
@@ -13,8 +14,15 @@ import {
   type OpaqueTokenIssue,
   type VerificationTokenIssue,
 } from './auth-token';
-import type { PasswordHasher } from './password-hasher';
-import type { CompleteRegistrationResult, RateLimitResult } from './auth.types';
+import type { PasswordHasher, PasswordVerification } from './password-hasher';
+import type {
+  AuthPrincipal,
+  AuthPublicUser,
+  AuthUserCredential,
+  CompleteRegistrationResult,
+  PasswordUpgrade,
+  RateLimitResult,
+} from './auth.types';
 
 export type VerificationTokenFactory = (
   pepper: Buffer | string,
@@ -28,11 +36,17 @@ type AuthServiceRepository = Pick<
   | 'consumeVerification'
   | 'findEnrollmentCandidate'
   | 'completeRegistration'
+  | 'findAuthUser'
+  | 'commitLogin'
+  | 'findActiveSession'
+  | 'revokeActiveSession'
+  | 'findEnrollmentReadiness'
 >;
 
 type AuthServiceOptions = {
   repository: AuthServiceRepository;
-  passwordHasher: Pick<PasswordHasher, 'validate' | 'hash'>;
+  passwordHasher: Pick<PasswordHasher, 'validate' | 'hash' | 'verify'>;
+  dummyPasswordHash: string;
   clock: () => Date;
   sleep: (milliseconds: number) => Promise<void>;
   uuid?: () => string;
@@ -73,6 +87,23 @@ export type RegistrationCompletion =
   | { status: 'conflict' }
   | { status: 'rate_limited'; retryAfterSeconds: number };
 
+export type LoginResult =
+  | { status: 'authenticated'; sessionToken: string; user: AuthPublicUser }
+  | { status: 'invalid' }
+  | { status: 'rate_limited'; retryAfterSeconds: number };
+
+export type SessionAuthentication =
+  | {
+      status: 'authenticated';
+      principal: Readonly<AuthPrincipal>;
+      user: Readonly<AuthPublicUser>;
+    }
+  | { status: 'invalid' };
+
+export type LogoutResult = { status: 'revoked' } | { status: 'invalid' };
+
+export type RegistrationReadiness = { status: 'ready' } | { status: 'invalid' };
+
 const ASCII_PRINTABLE_PATTERN = /^[\x20-\x7e]+$/u;
 const EMAIL_PATTERN =
   /^[A-Za-z0-9!#$%&'*+\/=?^_{|}~-]+(\.[A-Za-z0-9!#$%&'*+\/=?^_{|}~-]+)*@[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$/u;
@@ -80,7 +111,10 @@ const VERIFICATION_TTL_MS = 15 * 60 * 1000;
 
 export class AuthService {
   private readonly repository: AuthServiceRepository;
-  private readonly passwordHasher: Pick<PasswordHasher, 'validate' | 'hash'>;
+  private readonly passwordHasher: Pick<
+    PasswordHasher,
+    'validate' | 'hash' | 'verify'
+  >;
   private readonly clock: () => Date;
   private readonly sleep: (milliseconds: number) => Promise<void>;
   private readonly uuid: () => string;
@@ -210,7 +244,7 @@ export class AuthService {
         completedAt.getTime() + SESSION_COOKIE_MAX_AGE_MS,
       ),
       sessionIdleExpiresAt: new Date(
-        completedAt.getTime() + SESSION_COOKIE_MAX_AGE_MS,
+        completedAt.getTime() + SESSION_IDLE_MAX_AGE_MS,
       ),
       completedAt,
     });
@@ -223,6 +257,99 @@ export class AuthService {
       sessionToken: session.cookieValue,
       user: result.user,
     };
+  }
+
+  async login(
+    input: { email: string; password: string },
+    resolvedIpAddress: string,
+  ): Promise<LoginResult> {
+    let emailCanonical: string;
+    try {
+      emailCanonical = canonicalizeAuthEmail(input.email);
+    } catch {
+      return { status: 'invalid' };
+    }
+
+    const rateLimited = await this.consumeLoginRates(
+      emailCanonical,
+      resolvedIpAddress,
+    );
+    if (rateLimited) {
+      return rateLimited;
+    }
+
+    let user = (await this.repository.findAuthUser({ emailCanonical })).user;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const verification = await this.verifyLoginPassword(user, input.password);
+      if (!user || !verification.valid || !isLoginCredential(user)) {
+        return { status: 'invalid' };
+      }
+
+      const passwordUpgrade = verification.needsRehash
+        ? await this.createPasswordUpgrade(user, input.password)
+        : undefined;
+      const session = this.opaqueTokenFactory();
+      const sessionCreatedAt = this.clock();
+      const commit = await this.repository.commitLogin({
+        userId: user.id,
+        expectedPasswordHash: user.passwordHash,
+        expectedPasswordVersion: user.passwordVersion,
+        passwordUpgrade,
+        sessionId: this.uuid(),
+        sessionDigest: session.persistence.digest,
+        sessionCreatedAt,
+        sessionAbsoluteExpiresAt: new Date(
+          sessionCreatedAt.getTime() + SESSION_COOKIE_MAX_AGE_MS,
+        ),
+        sessionIdleExpiresAt: new Date(
+          sessionCreatedAt.getTime() + SESSION_IDLE_MAX_AGE_MS,
+        ),
+      });
+      if (commit.status === 'committed') {
+        return {
+          status: 'authenticated',
+          sessionToken: session.cookieValue,
+          user: commit.user,
+        };
+      }
+      if (commit.status === 'invalid' || attempt === 1) {
+        return { status: 'invalid' };
+      }
+      user = (await this.repository.findAuthUser({ emailCanonical })).user;
+    }
+
+    return { status: 'invalid' };
+  }
+
+  async authenticateSession(
+    sessionToken: string,
+  ): Promise<SessionAuthentication> {
+    const result = await this.repository.findActiveSession({
+      sessionDigest: digestOpaqueToken(sessionToken),
+    });
+    if (result.status === 'invalid') {
+      return result;
+    }
+    return Object.freeze({
+      status: 'authenticated',
+      principal: Object.freeze({ ...result.principal }),
+      user: Object.freeze({ ...result.user }),
+    });
+  }
+
+  async logout(sessionToken: string): Promise<LogoutResult> {
+    return this.repository.revokeActiveSession({
+      sessionDigest: digestOpaqueToken(sessionToken),
+      reason: 'logout',
+    });
+  }
+
+  async getRegistrationReadiness(
+    enrollmentToken: string,
+  ): Promise<RegistrationReadiness> {
+    return this.repository.findEnrollmentReadiness({
+      enrollmentDigest: digestOpaqueToken(enrollmentToken),
+    });
   }
 
   private async acceptPendingRegistration(
@@ -305,6 +432,58 @@ export class AuthService {
     };
   }
 
+  private async consumeLoginRates(
+    emailCanonical: string,
+    resolvedIpAddress: string,
+  ): Promise<
+    { status: 'rate_limited'; retryAfterSeconds: number } | undefined
+  > {
+    const results = await Promise.all([
+      this.consumeRate('login_email', emailCanonical),
+      this.consumeRate('login_ip', resolvedIpAddress),
+    ]);
+    const denied = results.filter(
+      (result): result is Extract<RateLimitResult, { allowed: false }> =>
+        !result.allowed,
+    );
+    return denied.length === 0
+      ? undefined
+      : {
+          status: 'rate_limited',
+          retryAfterSeconds: Math.max(
+            ...denied.map((result) => result.retryAfterSeconds),
+          ),
+        };
+  }
+
+  private verifyLoginPassword(
+    user: AuthUserCredential | null,
+    password: string,
+  ): Promise<PasswordVerification> {
+    return this.passwordHasher.verify(
+      user && isLoginCredential(user)
+        ? user.passwordHash
+        : this.options.dummyPasswordHash,
+      password,
+    );
+  }
+
+  private async createPasswordUpgrade(
+    user: AuthUserCredential,
+    password: string,
+  ): Promise<PasswordUpgrade> {
+    return {
+      passwordHash: await this.passwordHasher.hash(password),
+      passwordAlgorithm: 'argon2id',
+      passwordParameters: {
+        memoryKiB: 65_536,
+        timeCost: 3,
+        parallelism: 1,
+      },
+      passwordVersion: user.passwordVersion + 1,
+    };
+  }
+
   private consumeRate(action: string, subject: string) {
     return this.repository.consumeRateLimit({
       action,
@@ -352,6 +531,15 @@ function normalizeName(name: string): string {
     throw new RangeError('Invalid name');
   }
   return normalized;
+}
+
+function isLoginCredential(user: AuthUserCredential): boolean {
+  return (
+    (user.passwordAlgorithm === 'argon2id' ||
+      user.passwordAlgorithm === 'legacy_sha256') &&
+    (user.identityAssurance === 'email_verified' ||
+      user.identityAssurance === 'legacy_grandfathered')
+  );
 }
 
 function renderVerificationPayloadHash(input: {

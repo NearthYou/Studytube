@@ -1,9 +1,81 @@
 export type AuthPublicUser = {
-  id: number;
-  name: string;
-  email: string;
-  createdAt: string;
+  readonly id: number;
+  readonly name: string;
+  readonly email: string;
+  readonly createdAt: string;
 };
+
+export type AuthPasswordAlgorithm = 'argon2id' | 'legacy_sha256' | 'disabled';
+
+export type AuthUserCredential = AuthPublicUser & {
+  readonly emailCanonical: string;
+  readonly passwordHash: string;
+  readonly passwordAlgorithm: AuthPasswordAlgorithm;
+  readonly passwordParameters: Readonly<Record<string, unknown>>;
+  readonly passwordVersion: number;
+  readonly identityAssurance: 'email_verified' | 'legacy_grandfathered';
+};
+
+export type FindAuthUserCommand = { emailCanonical: string };
+export type FindAuthUserResult = { user: AuthUserCredential | null };
+
+export type SessionMaterial = {
+  sessionId: string;
+  sessionDigest: Buffer;
+  sessionCreatedAt: Date;
+  sessionAbsoluteExpiresAt: Date;
+  sessionIdleExpiresAt: Date;
+};
+
+export type PasswordUpgrade = {
+  passwordHash: string;
+  passwordAlgorithm: 'argon2id';
+  passwordParameters: {
+    memoryKiB: 65_536;
+    timeCost: 3;
+    parallelism: 1;
+  };
+  passwordVersion: number;
+};
+
+export type CommitLoginCommand = SessionMaterial & {
+  userId: number;
+  expectedPasswordHash: string;
+  expectedPasswordVersion: number;
+  passwordUpgrade?: PasswordUpgrade;
+};
+
+export type CommitLoginResult =
+  | { status: 'committed'; user: AuthPublicUser }
+  | { status: 'stale' }
+  | { status: 'invalid' };
+
+export type AuthPrincipal = {
+  readonly sessionId: string;
+  readonly userId: number;
+};
+
+export type FindActiveSessionCommand = { sessionDigest: Buffer };
+export type FindActiveSessionResult =
+  | {
+      status: 'active';
+      principal: AuthPrincipal;
+      user: AuthPublicUser;
+    }
+  | { status: 'invalid' };
+
+export type RevokeActiveSessionCommand = {
+  sessionDigest: Buffer;
+  reason: 'logout';
+};
+export type RevokeActiveSessionResult =
+  | { status: 'revoked' }
+  | { status: 'invalid' };
+
+export type FindEnrollmentReadinessCommand = { enrollmentDigest: Buffer };
+export type FindEnrollmentReadinessResult =
+  | { status: 'ready' }
+  | { status: 'invalid' };
 
 export type RateLimitCommand = {
   action: string;
@@ -58,7 +130,7 @@ export type FindEnrollmentCandidateCommand = {
 
 export type FindEnrollmentCandidateResult = { eligible: boolean };
 
-export type CompleteRegistrationCommand = {
+export type CompleteRegistrationCommand = SessionMaterial & {
   enrollmentDigest: Buffer;
   name: string;
   passwordHash: string;
@@ -70,11 +142,6 @@ export type CompleteRegistrationCommand = {
   };
   passwordVersion: 1;
   identityAssurance: 'email_verified';
-  sessionId: string;
-  sessionDigest: Buffer;
-  sessionCreatedAt: Date;
-  sessionAbsoluteExpiresAt: Date;
-  sessionIdleExpiresAt: Date;
   completedAt: Date;
 };
 

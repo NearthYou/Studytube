@@ -23,5 +23,7 @@ export const AUTH_DIGEST_BYTES = 32;
 export const VERIFICATION_TOKEN_KEY_VERSION = 'v1' as const;
 
 export const SESSION_COOKIE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+export const SESSION_IDLE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+export const SESSION_TOUCH_INTERVAL_MS = 15 * 60 * 1000;
 export const ENROLLMENT_COOKIE_MAX_AGE_MS = 10 * 60 * 1000;
 export const REQUEST_ID_MAX_CHARACTERS = 128;

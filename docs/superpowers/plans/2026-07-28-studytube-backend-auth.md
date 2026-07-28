@@ -32,7 +32,7 @@ This section overrides later task detail when the two conflict. The earlier deta
 
 Active scope:
 
-- Complete email-only signup, verification consumption, verified name/password selection, login, `/me`, logout, and password/session rotation through PostgreSQL-backed domain services.
+- Complete email-only signup, verification consumption, verified name/password selection, login, `/me`, logout, and digest-session expiry/revocation through PostgreSQL-backed domain services.
 - Expose the flow through strict DTOs, HttpOnly cookies, exact Origin checks, stable errors, and a session guard for the protected backend routes needed to demonstrate authorization.
 - Keep a durable capture outbox boundary sufficient for local development and automated verification. Do not integrate the Resend production API in this cut.
 - Add a compact PostgreSQL and Supertest proof set for the highest-value invariants: no password before proof, duplicate completion linearization, atomic rate increments, login/session expiry, logout revocation, and secret-free responses/logs.
@@ -44,6 +44,7 @@ Deferred to follow-up work:
 - Resend production delivery, retry tuning, and exhaustive outbox crash permutations beyond the durable capture proof.
 - The React token-to-cookie rewrite, onboarding state-machine rebuild, and frontend polish. The portfolio deliverable is explicitly API-first.
 - Broad route taxonomy redesign, optional public explore splits, and exhaustive race combinations that do not change the core authentication claim.
+- Profile mutation, password rotation, and their multi-session race matrix. Remove the legacy raw-token routes in this cut rather than claiming incomplete secure replacements.
 - Real HTTPS activation, reverse-proxy rollout, production backup and restore rehearsal, and browser Secure-cookie verification owned by `#11`.
 
 Execution policy:

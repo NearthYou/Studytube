@@ -85,7 +85,7 @@ External synchronization starts only when all of these conditions hold for one e
 - production DNS, TLS, health, browser, cookie, service, and infrastructure checks have sanitized evidence records;
 - every fact intended for synchronization is either verified or explicitly marked pending.
 
-If any condition fails, README and external surfaces keep production results pending. A later documentation commit does not become the evidence subject. Record `evidence_subject_sha` for the code and deployment under test and `documentation_sha` for the commit that publishes the resulting facts.
+If any condition fails, README and external surfaces keep production results pending. A later documentation commit does not become the evidence subject. Record `evidenceSubjectSha` for the code and deployment under test and `documentationSha` for the commit that publishes the resulting facts.
 
 ### Operating constraints
 
@@ -113,13 +113,13 @@ Create the machine-readable fact sheet at `docs/evidence/portfolio/facts.json` b
 | `id` | Stable identifier used across every surface |
 | `value` | Exact text or number allowed to be copied |
 | `status` | `ci_verified`, `production_verified`, or `pending` |
-| `observed_at` | UTC timestamp of the supporting observation |
-| `expires_at` | Date after which the fact must be rechecked |
-| `evidence_subject_sha` | Code and deployment commit being described |
-| `documentation_sha` | Documentation commit that publishes the fact; null before that commit exists |
-| `workflow_run` | Public run URL and attempt when CI supplies the evidence |
-| `public_evidence` | Sanitized committed path or public URL |
-| `evidence_hash` | SHA-256 of non-public raw evidence when only integrity may be recorded |
+| `observedAt` | UTC timestamp of the supporting observation |
+| `expiresAt` | Date after which the fact must be rechecked |
+| `evidenceSubjectSha` | Code and deployment commit being described |
+| `documentationSha` | Documentation commit that publishes the fact; null before that commit exists |
+| `workflowRun` | Public run URL and attempt when CI supplies the evidence |
+| `publicEvidence` | Sanitized committed path or public URL |
+| `evidenceHash` | SHA-256 of non-public raw evidence when only integrity may be recorded |
 
 Test counts come from the named workflow job and step, not from a manually copied total. Cost facts additionally name every AWS resource assumption, pricing source, pricing date, tax and free-tier treatment, and monthly or annual unit.
 
@@ -135,7 +135,7 @@ The fact sheet is the source of truth for dynamic values and evidence status. Th
 | Google Docs resume | Recruiter scan | Three to five accomplishment bullets with evidence |
 | Wanted resume | Short profile | Two or three compact impact bullets and repository link |
 
-All surfaces use the same fact IDs for project name, service URL, repository URL, production status, dates, test results, and cost assumptions. If a live fact changes, update the fact sheet and README first and then propagate it. Mark a surface stale when any copied fact passes `expires_at` or its fact-sheet hash no longer matches.
+All surfaces use the same fact IDs for project name, service URL, repository URL, production status, dates, test results, and cost assumptions. If a live fact changes, update the fact sheet and README first and then propagate it. Mark a surface stale when any copied fact passes `expiresAt` or its fact-sheet hash no longer matches.
 
 ## External write allowlist and state
 

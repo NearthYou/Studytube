@@ -11,6 +11,8 @@ import { StudyBoardService } from './study-board.service';
 import { VideoAssetController } from './video-asset.controller';
 import { VideoAssetService } from './video-asset.service';
 import { AuthModule } from './auth/auth.module';
+import { CourseCutoverPolicy } from './course/course-cutover.policy';
+import { CourseModule } from './course/course.module';
 
 @Module({
   imports: [
@@ -19,6 +21,7 @@ import { AuthModule } from './auth/auth.module';
       envFilePath: ['api/.env', '.env'],
     }),
     AuthModule,
+    CourseModule,
     HttpModule,
   ],
   controllers: [
@@ -43,8 +46,14 @@ import { AuthModule } from './auth/auth.module';
       useFactory: (
         databaseService: DatabaseService,
         videoAssetService: VideoAssetService,
-      ) => new StudyBoardService(databaseService, videoAssetService),
-      inject: [DatabaseService, VideoAssetService],
+        courseCutoverPolicy: CourseCutoverPolicy,
+      ) =>
+        new StudyBoardService(
+          databaseService,
+          videoAssetService,
+          courseCutoverPolicy,
+        ),
+      inject: [DatabaseService, VideoAssetService, CourseCutoverPolicy],
     },
   ],
 })

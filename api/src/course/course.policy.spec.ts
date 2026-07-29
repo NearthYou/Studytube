@@ -1,5 +1,6 @@
 import { CourseValidationError } from './course.errors';
 import {
+  COURSE_LIMITS,
   decodeCourseCursor,
   encodeCourseCursor,
   toOwnerCourseProjection,
@@ -22,6 +23,7 @@ describe('Course domain policy', () => {
   });
 
   it('builds an owner projection with learning state and a public projection without private identity fields', () => {
+    const legacySnapshotTitle = 'L'.repeat(COURSE_LIMITS.snapshotTitle + 1);
     const course: CourseAggregate = {
       id: 41,
       ownerId: 7,
@@ -41,7 +43,7 @@ describe('Course domain policy', () => {
           sourcePostId: 13,
           position: 1,
           snapshot: {
-            title: 'Row locks',
+            title: legacySnapshotTitle,
             videoUrl: 'https://www.youtube.com/watch?v=abc123',
             thumbnailUrl: 'https://img.example/abc123.jpg',
             channelName: 'Database School',

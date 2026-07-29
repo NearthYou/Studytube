@@ -121,6 +121,19 @@ export function assertCourseLifecycleTransition(
 }
 
 export function validateCourseStepSnapshot(value: unknown): CourseStepSnapshot {
+  return validateSnapshot(value, true);
+}
+
+function validatePersistedCourseStepSnapshot(
+  value: unknown,
+): CourseStepSnapshot {
+  return validateSnapshot(value, false);
+}
+
+function validateSnapshot(
+  value: unknown,
+  enforceNativeLimits: boolean,
+): CourseStepSnapshot {
   if (!isRecord(value)) {
     throw new CourseValidationError(
       'snapshot',
@@ -129,7 +142,10 @@ export function validateCourseStepSnapshot(value: unknown): CourseStepSnapshot {
   }
 
   const title = typeof value.title === 'string' ? value.title.trim() : '';
-  if (!title || title.length > COURSE_LIMITS.snapshotTitle) {
+  if (
+    !title ||
+    (enforceNativeLimits && title.length > COURSE_LIMITS.snapshotTitle)
+  ) {
     throw new CourseValidationError(
       'snapshot.title',
       `snapshot.title must contain at most ${COURSE_LIMITS.snapshotTitle} characters`,
@@ -138,7 +154,8 @@ export function validateCourseStepSnapshot(value: unknown): CourseStepSnapshot {
 
   if (
     typeof value.videoUrl !== 'string' ||
-    value.videoUrl.length > COURSE_LIMITS.snapshotUrl ||
+    (enforceNativeLimits &&
+      value.videoUrl.length > COURSE_LIMITS.snapshotUrl) ||
     !isHttpUrl(value.videoUrl)
   ) {
     throw new CourseValidationError(
@@ -149,7 +166,8 @@ export function validateCourseStepSnapshot(value: unknown): CourseStepSnapshot {
 
   if (
     typeof value.thumbnailUrl !== 'string' ||
-    value.thumbnailUrl.length > COURSE_LIMITS.snapshotUrl ||
+    (enforceNativeLimits &&
+      value.thumbnailUrl.length > COURSE_LIMITS.snapshotUrl) ||
     (value.thumbnailUrl !== '' && !isHttpUrl(value.thumbnailUrl))
   ) {
     throw new CourseValidationError(
@@ -160,7 +178,8 @@ export function validateCourseStepSnapshot(value: unknown): CourseStepSnapshot {
 
   if (
     typeof value.channelName !== 'string' ||
-    value.channelName.length > COURSE_LIMITS.channelName
+    (enforceNativeLimits &&
+      value.channelName.length > COURSE_LIMITS.channelName)
   ) {
     throw new CourseValidationError(
       'snapshot.channelName',
@@ -529,7 +548,7 @@ export function toOwnerCourseProjection(
       id: step.id,
       sourcePostId: step.sourcePostId,
       position: step.position,
-      snapshot: validateCourseStepSnapshot(step.snapshot),
+      snapshot: validatePersistedCourseStepSnapshot(step.snapshot),
       ownerLearningState: cloneLearningState(step.ownerLearningState),
     })),
     feedback: course.feedback.map((feedback) => ({
@@ -570,7 +589,7 @@ export function toPublicCourseProjection(
     steps: course.steps.map((step) => ({
       id: step.id,
       position: step.position,
-      snapshot: validateCourseStepSnapshot(step.snapshot),
+      snapshot: validatePersistedCourseStepSnapshot(step.snapshot),
     })),
     feedback: course.feedback.map((feedback) => ({
       id: feedback.id,

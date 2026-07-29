@@ -56,6 +56,9 @@ import type {
   UpdateVideoAssetInput,
   VideoAsset,
 } from './video-asset.types';
+import { COURSE_CUTOVER_ADVISORY_LOCK_KEY } from './course/course-cutover.policy';
+import type { CourseRepository } from './course/course.repository';
+import { PostgresCourseRepository } from './course/postgres-course.repository';
 
 @Injectable()
 export class DatabaseService
@@ -66,6 +69,8 @@ export class DatabaseService
   private readonly databaseInitAttempts: number;
   private readonly databaseInitRetryDelayMs: number;
   private readonly databaseQueryTimeoutMs: number;
+  private courseRepository?: CourseRepository;
+  private courseWriterLeaseTail: Promise<void> = Promise.resolve();
 
   constructor(configService: ConfigService) {
     this.databaseInitAttempts = this.positiveInteger(
@@ -129,6 +134,46 @@ export class DatabaseService
 
   async onModuleDestroy() {
     await this.pool.end();
+  }
+
+  getCourseRepository(): CourseRepository {
+    this.courseRepository ??= new PostgresCourseRepository(this.pool);
+    return this.courseRepository;
+  }
+
+  async withCourseWriterSharedLease<T>(
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    const previousLease = this.courseWriterLeaseTail;
+    let releaseLease: () => void = () => undefined;
+    this.courseWriterLeaseTail = new Promise<void>((resolve) => {
+      releaseLease = resolve;
+    });
+    await previousLease;
+
+    let client: PoolClient | undefined;
+    let locked = false;
+    let destroyClient = false;
+    try {
+      client = await this.pool.connect();
+      await client.query('SELECT pg_advisory_lock_shared($1)', [
+        COURSE_CUTOVER_ADVISORY_LOCK_KEY,
+      ]);
+      locked = true;
+      return await operation();
+    } finally {
+      if (locked && client) {
+        try {
+          await client.query('SELECT pg_advisory_unlock_shared($1)', [
+            COURSE_CUTOVER_ADVISORY_LOCK_KEY,
+          ]);
+        } catch {
+          destroyClient = true;
+        }
+      }
+      client?.release(destroyClient);
+      releaseLease();
+    }
   }
 
   async health() {

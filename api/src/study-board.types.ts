@@ -90,6 +90,7 @@ export type UpdatePlaylistInput = {
 };
 
 export type BoardRepository = {
+  withCourseWriterSharedLease?<T>(operation: () => Promise<T>): Promise<T>;
   listPosts(input: {
     authorId?: number;
     search?: string;

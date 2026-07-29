@@ -48,11 +48,19 @@ interface BackfillAuditRow {
 
 describe('legacy playlist to Course migration', () => {
   let pool: Pool;
+  let baselinePlaylistCount: number;
   const ownerIds: number[] = [];
   const playlistIds: number[] = [];
 
   beforeAll(() => {
     pool = new Pool({ connectionString: DATABASE_URL });
+  });
+
+  beforeEach(async () => {
+    const verification = await verifyCourseBackfill(pool);
+
+    expect(verification).toMatchObject({ ok: true, diagnostics: [] });
+    baselinePlaylistCount = verification.playlistCount;
   });
 
   afterEach(async () => {
@@ -155,13 +163,17 @@ describe('legacy playlist to Course migration', () => {
 
     await expect(
       runCourseBackfill(pool, { cutoverMode: 'legacy' }),
-    ).resolves.toMatchObject({ migrated: 1, rebuilt: 0, skipped: 1 });
+    ).resolves.toMatchObject({
+      migrated: 1,
+      rebuilt: 0,
+      skipped: baselinePlaylistCount + 1,
+    });
 
     expect(await auditedFixtureCount(pool, playlistIds)).toBe(2);
     expect(await readMigratedState(pool, firstPlaylistId)).toEqual(firstState);
     await expect(verifyCourseBackfill(pool)).resolves.toMatchObject({
       ok: true,
-      playlistCount: 2,
+      playlistCount: baselinePlaylistCount + 2,
     });
   });
 
@@ -181,7 +193,11 @@ describe('legacy playlist to Course migration', () => {
 
     await expect(
       runCourseBackfill(pool, { cutoverMode: 'legacy' }),
-    ).resolves.toMatchObject({ migrated: 1, rebuilt: 0, skipped: 0 });
+    ).resolves.toMatchObject({
+      migrated: 1,
+      rebuilt: 0,
+      skipped: baselinePlaylistCount,
+    });
     const before = await readMigratedState(pool, playlistId);
     const expectedPostOrder = [higherPostId, lowerPostId].sort(
       (left, right) => left - right,
@@ -207,7 +223,11 @@ describe('legacy playlist to Course migration', () => {
 
     await expect(
       runCourseBackfill(pool, { cutoverMode: 'freeze' }),
-    ).resolves.toMatchObject({ migrated: 0, rebuilt: 1, skipped: 0 });
+    ).resolves.toMatchObject({
+      migrated: 0,
+      rebuilt: 1,
+      skipped: baselinePlaylistCount,
+    });
     const after = await readMigratedState(pool, playlistId);
 
     expect(after.course).toMatchObject({
@@ -223,10 +243,14 @@ describe('legacy playlist to Course migration', () => {
 
     await expect(
       runCourseBackfill(pool, { cutoverMode: 'freeze' }),
-    ).resolves.toMatchObject({ migrated: 0, rebuilt: 0, skipped: 1 });
+    ).resolves.toMatchObject({
+      migrated: 0,
+      rebuilt: 0,
+      skipped: baselinePlaylistCount + 1,
+    });
     await expect(verifyCourseBackfill(pool)).resolves.toMatchObject({
       ok: true,
-      playlistCount: 1,
+      playlistCount: baselinePlaylistCount + 1,
     });
   });
 

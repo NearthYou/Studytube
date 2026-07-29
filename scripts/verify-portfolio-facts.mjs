@@ -79,16 +79,21 @@ function containsForbiddenValue(value, key = null) {
   )
 }
 
-function collectUnsafeValues(value, path, errors) {
+function containsForbiddenValueForKeys(value, keys) {
+  return containsForbiddenValue(value) ||
+    keys.some(key => containsForbiddenValue(value, key))
+}
+
+function collectUnsafeValues(value, path, errors, ancestorKeys = []) {
   if (Array.isArray(value)) {
     value.forEach((entry, index) => {
-      collectUnsafeValues(entry, `${path}[${index}]`, errors)
+      collectUnsafeValues(entry, `${path}[${index}]`, errors, ancestorKeys)
     })
     return
   }
 
   if (!isRecord(value)) {
-    if (value !== null && containsForbiddenValue(value)) {
+    if (value !== null && containsForbiddenValueForKeys(value, ancestorKeys)) {
       errors.push(`${path} contains a forbidden operational identifier or secret-shaped value`)
     }
     return
@@ -96,11 +101,16 @@ function collectUnsafeValues(value, path, errors) {
 
   for (const [key, entry] of Object.entries(value)) {
     const entryPath = path === '' ? key : `${path}.${key}`
-    if (entry !== null && typeof entry !== 'object' && containsForbiddenValue(entry, key)) {
+    const entryAncestorKeys = [...ancestorKeys, key]
+    if (
+      entry !== null &&
+      typeof entry !== 'object' &&
+      containsForbiddenValueForKeys(entry, entryAncestorKeys)
+    ) {
       errors.push(`${entryPath} contains a forbidden operational identifier or secret-shaped value`)
       continue
     }
-    collectUnsafeValues(entry, entryPath, errors)
+    collectUnsafeValues(entry, entryPath, errors, entryAncestorKeys)
   }
 }
 
@@ -121,6 +131,22 @@ function validateFact(fact, index, document, generatedAt, now, seenIds, errors) 
 
   if (!allowedStatuses.has(fact.status)) {
     errors.push(`${prefix}.status must be ci_verified, production_verified, or pending`)
+  }
+
+  if (!Object.hasOwn(fact, 'value')) {
+    errors.push(`${prefix}.value is required`)
+  } else {
+    const isNonEmptyString =
+      typeof fact.value === 'string' && fact.value.trim() !== ''
+    const isFiniteNumber =
+      typeof fact.value === 'number' && Number.isFinite(fact.value)
+    const isPendingNull = fact.status === 'pending' && fact.value === null
+    if (!isNonEmptyString && !isFiniteNumber && !isPendingNull) {
+      const requirement = fact.status === 'pending'
+        ? 'a non-empty string, finite number, or null'
+        : 'a non-empty string or finite number for a verified fact'
+      errors.push(`${prefix}.value must be ${requirement}`)
+    }
   }
 
   if (!lowercaseShaPattern.test(fact.evidenceSubjectSha ?? '')) {
@@ -144,6 +170,9 @@ function validateFact(fact, index, document, generatedAt, now, seenIds, errors) 
   }
   if (observedAt !== null && generatedAt !== null && observedAt > generatedAt) {
     errors.push(`${prefix}.observedAt must not be after document generatedAt`)
+  }
+  if (observedAt !== null && observedAt > now) {
+    errors.push(`${prefix}.observedAt must not be in the future`)
   }
   if (expiresAt !== null && generatedAt !== null && expiresAt <= generatedAt) {
     errors.push(`${prefix}.expiresAt must be after document generatedAt`)
@@ -177,6 +206,7 @@ function validateFact(fact, index, document, generatedAt, now, seenIds, errors) 
 
 export function validatePortfolioFacts(document) {
   const errors = []
+  const now = new Date()
   if (!isRecord(document)) {
     return ['document must be an object']
   }
@@ -199,12 +229,13 @@ export function validatePortfolioFacts(document) {
   const generatedAt = parseUtcTimestamp(document.generatedAt)
   if (generatedAt === null) {
     errors.push('generatedAt must be an ISO UTC timestamp')
+  } else if (generatedAt > now) {
+    errors.push('generatedAt must not be in the future')
   }
 
   if (!Array.isArray(document.facts) || document.facts.length === 0) {
     errors.push('facts must be a non-empty array')
   } else {
-    const now = new Date()
     const seenIds = new Set()
     document.facts.forEach((fact, index) => {
       validateFact(fact, index, document, generatedAt, now, seenIds, errors)

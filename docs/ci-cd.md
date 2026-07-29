@@ -47,7 +47,7 @@ Branch protection에는 다음 다섯 check를 required로 설정한다.
 
 `Deploy immutable release with SSM` job은 Security, Web, API, Backend Integration, AI의 다섯 검증 job이 모두 성공한 `main` push와 `main`의 수동 실행에서만 동작한다. pull request에서는 deploy job을 required check로 사용하지 않는다.
 
-Backend Integration은 auth lookup, Course detail, outbox claim, hybrid retrieval의 index 사용 contract를 검사한다. 실패 시 server와 migration 상태, table 및 index 통계, activity, schema-only dump, PostgreSQL 및 Valkey log를 `backend-integration-evidence-<run-id>-<attempt>` artifact로 보존한다. 행 dump와 runtime secret은 포함하지 않는다. API가 생성한 OpenAPI 문서, deploy job의 SSM command 응답과 deployment diagnostics도 14일 보존한다. CI job 결과 자체가 실패한 경우에는 별도 failure summary artifact를 남긴다.
+Backend Integration은 auth lookup, Course detail, outbox claim, hybrid retrieval의 index 사용 contract를 검사한다. 실패 시 server와 migration 상태, table 및 index 통계, activity, schema-only dump, PostgreSQL 및 Valkey log를 `backend-integration-evidence-<run-id>-<attempt>` artifact로 보존한다. 행 dump와 runtime secret은 포함하지 않는다. API가 생성한 OpenAPI 문서와 deploy job의 허용 목록 기반 공개 요약도 14일 보존한다. 원본 SSM 응답과 출력은 공개 GitHub artifact나 workflow log에 복사하지 않는다. CI job 결과 자체가 실패한 경우에는 별도 failure summary artifact를 남긴다.
 
 ## AWS 구성
 
@@ -235,11 +235,13 @@ cutover 이후 health gate가 실패했고 schema barrier와 Course 활성화 �
 
 실패 원인은 다음 위치에서 확인한다.
 
-- GitHub run의 `deployment-diagnostics-<run-id>-<attempt>` artifact
+- GitHub run의 `deployment-diagnostics-<run-id>-<attempt>` artifact에는 repository, run, SHA, 실행 여부, SSM 상태, 응답 코드, 시작 및 종료 시각만 기록한다.
 - S3의 `ssm-output/<deploy-sha>/<run-id>-<attempt>/`
 - CloudWatch Logs의 `/studytube/deploy`
 - EC2의 `/opt/studytube/deployment-diagnostics/<deploy-sha>/`
 - systemd journal의 `studytube-api`, `studytube-ai`, `studytube-worker`
+
+원격 실행의 원본 표준 출력과 표준 오류는 접근이 제한된 S3와 CloudWatch에서만 확인한다. runner에 임시 저장한 SSM API 응답과 AWS CLI 오류는 GitHub에 업로드하지 않는다. GitHub artifact 생성기는 저장소 밖의 runner 임시 경로에 허용 목록 기반 `summary.json`을 새로 만들고 그 파일 하나만 업로드하므로 account, bucket, instance, command ID, 출력 본문을 전달하지 않는다. 생성 단계가 실패하면 artifact 업로드도 실행하지 않는다.
 
 ## 수동 배포와 확인
 

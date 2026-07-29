@@ -7,12 +7,12 @@ const validDocument = {
   schemaVersion: 1,
   evidenceSubjectSha: 'a'.repeat(40),
   documentationSha: null,
-  generatedAt: '2026-07-30T00:00:00.000Z',
+  generatedAt: '2026-07-29T00:00:00.000Z',
   facts: [{
     id: 'production.status',
     value: 'pending',
     status: 'pending',
-    observedAt: '2026-07-30T00:00:00.000Z',
+    observedAt: '2026-07-29T00:00:00.000Z',
     expiresAt: '2026-08-06T00:00:00.000Z',
     evidenceSubjectSha: 'a'.repeat(40),
     workflowRun: null,
@@ -52,6 +52,53 @@ test('requires verified facts to have traceable evidence', () => {
     assert.match(
       validatePortfolioFacts(untraceable).join('\n'),
       /publicEvidence or evidenceHash/
+    )
+  }
+})
+
+test('requires every fact value to be a safe scalar', () => {
+  for (const value of [undefined, '', Number.NaN, Number.POSITIVE_INFINITY, [], {}]) {
+    const invalid = structuredClone(validDocument)
+    if (value === undefined) {
+      delete invalid.facts[0].value
+    } else {
+      invalid.facts[0].value = value
+    }
+    assert.match(validatePortfolioFacts(invalid).join('\n'), /value/)
+  }
+
+  const pendingNull = structuredClone(validDocument)
+  pendingNull.facts[0].value = null
+  assert.deepEqual(validatePortfolioFacts(pendingNull), [])
+
+  const verifiedNull = structuredClone(validDocument)
+  verifiedNull.facts[0].status = 'ci_verified'
+  verifiedNull.facts[0].value = null
+  verifiedNull.facts[0].publicEvidence = 'docs/evidence/ci/api.md'
+  assert.match(validatePortfolioFacts(verifiedNull).join('\n'), /value.*verified/i)
+})
+
+test('preserves sensitive parent keys while checking array entries', () => {
+  const unsafe = structuredClone(validDocument)
+  unsafe.untrustedMetadata = {
+    token: ['diagnostic-canary']
+  }
+  assert.match(
+    validatePortfolioFacts(unsafe).join('\n'),
+    /operational identifier/
+  )
+})
+
+test('preserves sensitive ancestor keys through nested objects', () => {
+  for (const value of [
+    { token: { value: 'diagnostic-canary' } },
+    { token: [{ metadata: { value: 'diagnostic-canary' } }] }
+  ]) {
+    const unsafe = structuredClone(validDocument)
+    unsafe.untrustedMetadata = value
+    assert.match(
+      validatePortfolioFacts(unsafe).join('\n'),
+      /operational identifier/
     )
   }
 })
@@ -97,10 +144,22 @@ test('requires valid chronological UTC timestamps', () => {
   assert.match(validatePortfolioFacts(reversed).join('\n'), /after observedAt/)
 })
 
+test('rejects future document and observation timestamps', () => {
+  const futureDocument = structuredClone(validDocument)
+  futureDocument.generatedAt = '2099-01-01T00:00:00.000Z'
+  assert.match(validatePortfolioFacts(futureDocument).join('\n'), /future/)
+
+  const futureObservation = structuredClone(validDocument)
+  futureObservation.generatedAt = '2026-07-29T00:00:00.000Z'
+  futureObservation.facts[0].observedAt = '2099-01-01T00:00:00.000Z'
+  futureObservation.facts[0].expiresAt = '2099-01-02T00:00:00.000Z'
+  assert.match(validatePortfolioFacts(futureObservation).join('\n'), /future/)
+})
+
 test('accepts ISO UTC timestamps with optional fractional seconds', () => {
   const alternatePrecision = structuredClone(validDocument)
-  alternatePrecision.generatedAt = '2026-07-30T00:00:01Z'
-  alternatePrecision.facts[0].observedAt = '2026-07-30T00:00:00.1234567Z'
+  alternatePrecision.generatedAt = '2026-07-29T00:00:01Z'
+  alternatePrecision.facts[0].observedAt = '2026-07-29T00:00:00.1234567Z'
   alternatePrecision.facts[0].expiresAt = '2026-08-06T00:00:00Z'
   assert.deepEqual(validatePortfolioFacts(alternatePrecision), [])
 })

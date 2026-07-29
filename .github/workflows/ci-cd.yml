@@ -611,33 +611,28 @@ jobs:
             --retain-releases "$STUDYTUBE_RELEASE_RETENTION"
             --minimum-free-bytes "$STUDYTUBE_MINIMUM_FREE_BYTES"
             --object-lock-days "$AWS_ARTIFACT_OBJECT_LOCK_DAYS"
-            --diagnostics-dir .deployment-diagnostics
+            --diagnostics-dir "$RUNNER_TEMP/studytube-private-deployment-diagnostics"
           )
           if [ -n "$AWS_CLOUDWATCH_LOG_GROUP" ]; then
             sender_arguments+=(--cloudwatch-log-group "$AWS_CLOUDWATCH_LOG_GROUP")
           fi
           bash scripts/send-ssm-deployment.sh "${sender_arguments[@]}"
 
-      - name: Record deployment job context
+      - name: Write allowlisted public deployment diagnostics
+        id: public_deployment_diagnostics
         if: always()
         run: |
-          mkdir -p .deployment-diagnostics
-          jq -n \
-            --arg repository "$GITHUB_REPOSITORY" \
-            --arg run_id "$GITHUB_RUN_ID" \
-            --arg run_attempt "$GITHUB_RUN_ATTEMPT" \
-            --arg deploy_sha "$DEPLOY_SHA" \
-            '{repository: $repository, runId: $run_id, runAttempt: $run_attempt, deploySha: $deploy_sha}' \
-            > .deployment-diagnostics/job-context.json
+          node scripts/write-public-deployment-diagnostics.mjs \
+            --source "$RUNNER_TEMP/studytube-private-deployment-diagnostics" \
+            --output "$RUNNER_TEMP/studytube-public-deployment-diagnostics"
 
       - name: Preserve deployment diagnostics
-        if: always()
+        if: ${{ always() && steps.public_deployment_diagnostics.outcome == 'success' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: deployment-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
-          path: .deployment-diagnostics
-          include-hidden-files: true
-          if-no-files-found: warn
+          path: ${{ runner.temp }}/studytube-public-deployment-diagnostics/summary.json
+          if-no-files-found: error
           retention-days: 14
 
   ci-failure-diagnostics:

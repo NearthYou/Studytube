@@ -103,6 +103,15 @@ describe('EC2 deployment script', () => {
     expect(workflow).toContain('timeout-minutes: 30');
   });
 
+  it('deploys the canonical main branch used by the standalone repository', () => {
+    expect(script).toContain('deploy_branch="${1:-${DEPLOY_BRANCH:-main}}"');
+    expect(autoDeployScript).toContain(
+      'deploy_branch="${DEPLOY_BRANCH:-main}"',
+    );
+    expect(workflow).toContain("github.ref == 'refs/heads/main'");
+    expect(workflow).not.toContain("github.ref == 'refs/heads/sw'");
+  });
+
   it('pins pull-based deployments to the exact successful CI commit', () => {
     expect(autoDeployScript).toContain('DEPLOY_SHA="$remote_sha"');
     expect(autoDeployScript).toContain(

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-deploy_branch="${1:-${DEPLOY_BRANCH:-sw}}"
+deploy_branch="${1:-${DEPLOY_BRANCH:-main}}"
 deploy_sha="${DEPLOY_SHA:-}"
 app_dir="${APP_DIR:-$(pwd)}"
 auth_migration="1753660802000_auth-hardening"

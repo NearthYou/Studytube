@@ -152,13 +152,12 @@ put_immutable_object() {
     remote_size="$(jq -r '.ContentLength // empty' "$head_path")"
     local_size="$(stat -c '%s' "$source_path")"
     [[ "$remote_sha256" == "$content_sha256" && "$remote_size" == "$local_size" ]] ||
-      fail "refusing to overwrite s3://$bucket/$object_key with different content"
+      fail 'refusing to overwrite an immutable release object with different content'
     return 0
   fi
 
   if ! grep -Eq '(404|Not Found|NoSuchKey)' "$head_error"; then
-    cat "$head_error" >&2
-    fail "could not determine whether s3://$bucket/$object_key already exists"
+    fail 'could not inspect the release object; inspect restricted AWS diagnostics'
   fi
 
   local checksum_base64
@@ -187,8 +186,7 @@ put_immutable_object() {
       [[ "$(jq -r '.Metadata.sha256 // empty' "$head_path")" == "$content_sha256" ]]; then
       return 0
     fi
-    cat "$head_error.put" >&2
-    fail "immutable upload failed for s3://$bucket/$object_key"
+    fail 'immutable upload failed; inspect restricted AWS diagnostics'
   fi
 }
 
@@ -257,12 +255,10 @@ if [[ -n "$cloudwatch_log_group" ]]; then
 fi
 
 aws "${send_arguments[@]}" >"$send_command_path" 2>"$send_error_path" || {
-  cat "$send_error_path" >&2
-  fail 'SSM SendCommand request failed'
+  fail 'SSM SendCommand request failed; inspect restricted AWS diagnostics'
 }
 command_id="$(jq -r '.Command.CommandId // empty' "$send_command_path")"
 [[ "$command_id" =~ ^[0-9a-f-]{36}$ ]] || fail 'SSM did not return a valid command ID'
-printf 'ssm_command_id=%s\n' "$command_id"
 
 invocation_path="$diagnostics_dir/command-invocation.json"
 invocation_error_path="$diagnostics_dir/command-invocation.stderr"
@@ -302,18 +298,18 @@ if [[ "$command_status" == 'Pending' || "$command_status" == 'InProgress' || "$c
     "$command_id" "$command_status" >"$diagnostics_dir/wait.stderr"
 fi
 
+sync_error_path="$diagnostics_dir/s3-sync.stderr"
 aws s3 sync \
   "s3://$bucket/$output_prefix" \
   "$diagnostics_dir/ssm-output" \
   --only-show-errors \
-  --region "$region" || true
+  --region "$region" \
+  >/dev/null 2>"$sync_error_path" || true
 
 command_status="$(jq -r '.Status // "Unknown"' "$invocation_path" 2>/dev/null || printf 'Unknown')"
-jq -r '.StandardOutputContent // empty' "$invocation_path" 2>/dev/null || true
 if [[ "$command_status" != 'Success' || "$wait_exit" -ne 0 ]]; then
-  jq -r '.StandardErrorContent // empty' "$invocation_path" >&2 2>/dev/null || true
-  fail "SSM deployment did not succeed; status=$command_status command_id=$command_id"
+  fail "SSM deployment did not succeed; status=$command_status; inspect restricted AWS diagnostics"
 fi
 
-printf 'deployed_sha=%s\nartifact_uri=%s\nartifact_sha256=%s\n' \
-  "$deploy_sha" "$artifact_uri" "$artifact_sha256"
+printf 'deployed_sha=%s\nartifact_sha256=%s\n' \
+  "$deploy_sha" "$artifact_sha256"

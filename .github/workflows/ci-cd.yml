@@ -531,10 +531,10 @@ jobs:
       contents: read
       id-token: write
     env:
-      AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+      AWS_DEPLOY_ROLE_ARN: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
       AWS_REGION: ${{ vars.AWS_REGION }}
-      AWS_RELEASE_BUCKET: ${{ vars.AWS_RELEASE_BUCKET }}
-      AWS_SSM_INSTANCE_ID: ${{ vars.AWS_SSM_INSTANCE_ID }}
+      AWS_RELEASE_BUCKET: ${{ secrets.AWS_RELEASE_BUCKET }}
+      AWS_SSM_INSTANCE_ID: ${{ secrets.AWS_SSM_INSTANCE_ID }}
       AWS_CLOUDWATCH_LOG_GROUP: ${{ vars.AWS_CLOUDWATCH_LOG_GROUP }}
       STUDYTUBE_CONFIG_FILE: ${{ vars.STUDYTUBE_CONFIG_FILE }}
       STUDYTUBE_DEPLOY_ROOT: ${{ vars.STUDYTUBE_DEPLOY_ROOT }}
@@ -551,10 +551,10 @@ jobs:
 
       - name: Validate deployment variables
         run: |
-          : "${AWS_DEPLOY_ROLE_ARN:?Set the AWS_DEPLOY_ROLE_ARN repository variable}"
+          : "${AWS_DEPLOY_ROLE_ARN:?Set the AWS_DEPLOY_ROLE_ARN repository secret}"
           : "${AWS_REGION:?Set the AWS_REGION repository variable}"
-          : "${AWS_RELEASE_BUCKET:?Set the AWS_RELEASE_BUCKET repository variable}"
-          : "${AWS_SSM_INSTANCE_ID:?Set the AWS_SSM_INSTANCE_ID repository variable}"
+          : "${AWS_RELEASE_BUCKET:?Set the AWS_RELEASE_BUCKET repository secret}"
+          : "${AWS_SSM_INSTANCE_ID:?Set the AWS_SSM_INSTANCE_ID repository secret}"
           {
             echo "STUDYTUBE_CONFIG_FILE=${STUDYTUBE_CONFIG_FILE:-/etc/studytube/deployment.env}"
             echo "STUDYTUBE_DEPLOY_ROOT=${STUDYTUBE_DEPLOY_ROOT:-/opt/studytube}"
@@ -592,7 +592,7 @@ jobs:
       - name: Configure short-lived AWS credentials
         uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
         with:
-          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
           role-session-name: studytube-${{ github.run_id }}-${{ github.run_attempt }}
 
@@ -611,32 +611,28 @@ jobs:
             --retain-releases "$STUDYTUBE_RELEASE_RETENTION"
             --minimum-free-bytes "$STUDYTUBE_MINIMUM_FREE_BYTES"
             --object-lock-days "$AWS_ARTIFACT_OBJECT_LOCK_DAYS"
-            --diagnostics-dir .deployment-diagnostics
+            --diagnostics-dir "$RUNNER_TEMP/studytube-private-deployment-diagnostics"
           )
           if [ -n "$AWS_CLOUDWATCH_LOG_GROUP" ]; then
             sender_arguments+=(--cloudwatch-log-group "$AWS_CLOUDWATCH_LOG_GROUP")
           fi
           bash scripts/send-ssm-deployment.sh "${sender_arguments[@]}"
 
-      - name: Record deployment job context
+      - name: Write allowlisted public deployment diagnostics
+        id: public_deployment_diagnostics
         if: always()
         run: |
-          mkdir -p .deployment-diagnostics
-          jq -n \
-            --arg repository "$GITHUB_REPOSITORY" \
-            --arg run_id "$GITHUB_RUN_ID" \
-            --arg run_attempt "$GITHUB_RUN_ATTEMPT" \
-            --arg deploy_sha "$DEPLOY_SHA" \
-            '{repository: $repository, runId: $run_id, runAttempt: $run_attempt, deploySha: $deploy_sha}' \
-            > .deployment-diagnostics/job-context.json
+          node scripts/write-public-deployment-diagnostics.mjs \
+            --source "$RUNNER_TEMP/studytube-private-deployment-diagnostics" \
+            --output "$RUNNER_TEMP/studytube-public-deployment-diagnostics"
 
       - name: Preserve deployment diagnostics
-        if: always()
+        if: ${{ always() && steps.public_deployment_diagnostics.outcome == 'success' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: deployment-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
-          path: .deployment-diagnostics
-          if-no-files-found: warn
+          path: ${{ runner.temp }}/studytube-public-deployment-diagnostics/summary.json
+          if-no-files-found: error
           retention-days: 14
 
   ci-failure-diagnostics:

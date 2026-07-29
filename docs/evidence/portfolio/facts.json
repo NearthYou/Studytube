@@ -1,0 +1,118 @@
+{
+  "schemaVersion": 1,
+  "evidenceSubjectSha": "3f9ee6b2bdbf064df96ae9ce345247aa23e853dd",
+  "documentationSha": null,
+  "generatedAt": "2026-07-29T21:20:00.000Z",
+  "facts": [
+    {
+      "id": "project.name",
+      "value": "StudyTube",
+      "status": "pending",
+      "observedAt": "2026-07-29T21:20:00.000Z",
+      "expiresAt": "2026-08-06T00:00:00.000Z",
+      "evidenceSubjectSha": "3f9ee6b2bdbf064df96ae9ce345247aa23e853dd",
+      "workflowRun": null,
+      "publicEvidence": null,
+      "evidenceHash": null
+    },
+    {
+      "id": "project.repository",
+      "value": "https://github.com/NearthYou/studytube",
+      "status": "pending",
+      "observedAt": "2026-07-29T21:20:00.000Z",
+      "expiresAt": "2026-08-06T00:00:00.000Z",
+      "evidenceSubjectSha": "3f9ee6b2bdbf064df96ae9ce345247aa23e853dd",
+      "workflowRun": null,
+      "publicEvidence": null,
+      "evidenceHash": null
+    },
+    {
+      "id": "service.url",
+      "value": "https://studytube.page",
+      "status": "pending",
+      "observedAt": "2026-07-29T21:20:00.000Z",
+      "expiresAt": "2026-08-06T00:00:00.000Z",
+      "evidenceSubjectSha": "3f9ee6b2bdbf064df96ae9ce345247aa23e853dd",
+      "workflowRun": null,
+      "publicEvidence": null,
+      "evidenceHash": null
+    },
+    {
+      "id": "production.status",
+      "value": "pending",
+      "status": "pending",
+      "observedAt": "2026-07-29T21:20:00.000Z",
+      "expiresAt": "2026-08-06T00:00:00.000Z",
+      "evidenceSubjectSha": "3f9ee6b2bdbf064df96ae9ce345247aa23e853dd",
+      "workflowRun": null,
+      "publicEvidence": null,
+      "evidenceHash": null
+    },
+    {
+      "id": "ci.api.tests",
+      "value": null,
+      "status": "pending",
+      "observedAt": "2026-07-29T21:20:00.000Z",
+      "expiresAt": "2026-08-06T00:00:00.000Z",
+      "evidenceSubjectSha": "3f9ee6b2bdbf064df96ae9ce345247aa23e853dd",
+      "workflowRun": null,
+      "publicEvidence": null,
+      "evidenceHash": null
+    },
+    {
+      "id": "ci.web.tests",
+      "value": null,
+      "status": "pending",
+      "observedAt": "2026-07-29T21:20:00.000Z",
+      "expiresAt": "2026-08-06T00:00:00.000Z",
+      "evidenceSubjectSha": "3f9ee6b2bdbf064df96ae9ce345247aa23e853dd",
+      "workflowRun": null,
+      "publicEvidence": null,
+      "evidenceHash": null
+    },
+    {
+      "id": "ci.ai.tests",
+      "value": null,
+      "status": "pending",
+      "observedAt": "2026-07-29T21:20:00.000Z",
+      "expiresAt": "2026-08-06T00:00:00.000Z",
+      "evidenceSubjectSha": "3f9ee6b2bdbf064df96ae9ce345247aa23e853dd",
+      "workflowRun": null,
+      "publicEvidence": null,
+      "evidenceHash": null
+    },
+    {
+      "id": "security.runtime_dependencies",
+      "value": null,
+      "status": "pending",
+      "observedAt": "2026-07-29T21:20:00.000Z",
+      "expiresAt": "2026-08-06T00:00:00.000Z",
+      "evidenceSubjectSha": "3f9ee6b2bdbf064df96ae9ce345247aa23e853dd",
+      "workflowRun": null,
+      "publicEvidence": null,
+      "evidenceHash": null
+    },
+    {
+      "id": "cost.domain.annual",
+      "value": null,
+      "status": "pending",
+      "observedAt": "2026-07-29T21:20:00.000Z",
+      "expiresAt": "2026-08-06T00:00:00.000Z",
+      "evidenceSubjectSha": "3f9ee6b2bdbf064df96ae9ce345247aa23e853dd",
+      "workflowRun": null,
+      "publicEvidence": null,
+      "evidenceHash": null
+    },
+    {
+      "id": "cost.aws.monthly_estimate",
+      "value": null,
+      "status": "pending",
+      "observedAt": "2026-07-29T21:20:00.000Z",
+      "expiresAt": "2026-08-06T00:00:00.000Z",
+      "evidenceSubjectSha": "3f9ee6b2bdbf064df96ae9ce345247aa23e853dd",
+      "workflowRun": null,
+      "publicEvidence": null,
+      "evidenceHash": null
+    }
+  ]
+}

@@ -5,6 +5,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -43,6 +44,10 @@ describe('EC2 deployment script', () => {
   );
   const immutableRunner = readFileSync(
     resolve(__dirname, '../../scripts/ssm-deploy-release.sh'),
+    'utf8',
+  );
+  const ssmSender = readFileSync(
+    resolve(__dirname, '../../scripts/send-ssm-deployment.sh'),
     'utf8',
   );
   const environmentExample = readFileSync(
@@ -746,10 +751,187 @@ source '${deployScript}'
     expect(workflow).toContain('DEPLOY_SHA: ${{ github.sha }}');
     expect(workflow).toContain('AWS_SSM_INSTANCE_ID');
     expect(workflow).toContain('AWS_RELEASE_BUCKET');
+    expect(workflow).toContain(
+      'AWS_DEPLOY_ROLE_ARN: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}',
+    );
+    expect(workflow).toContain(
+      'AWS_RELEASE_BUCKET: ${{ secrets.AWS_RELEASE_BUCKET }}',
+    );
+    expect(workflow).toContain(
+      'AWS_SSM_INSTANCE_ID: ${{ secrets.AWS_SSM_INSTANCE_ID }}',
+    );
+    expect(workflow).not.toContain(
+      'AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}',
+    );
+    expect(workflow).not.toContain(
+      'AWS_RELEASE_BUCKET: ${{ vars.AWS_RELEASE_BUCKET }}',
+    );
+    expect(workflow).not.toContain(
+      'AWS_SSM_INSTANCE_ID: ${{ vars.AWS_SSM_INSTANCE_ID }}',
+    );
     expect(workflow).not.toContain('EC2_SSH_KEY');
     expect(workflow).not.toContain('ssh-keyscan');
     expect(workflow).toContain('cancel-in-progress: false');
     expect(workflow).toContain('timeout-minutes: 175');
+    expect(workflow).toContain(
+      '--diagnostics-dir "$RUNNER_TEMP/studytube-private-deployment-diagnostics"',
+    );
+    expect(workflow).toContain(
+      'node scripts/write-public-deployment-diagnostics.mjs',
+    );
+    expect(workflow).toMatch(
+      /id: public_deployment_diagnostics[\s\S]*?--source "\$RUNNER_TEMP\/studytube-private-deployment-diagnostics"[\s\S]*?--output "\$RUNNER_TEMP\/studytube-public-deployment-diagnostics"/u,
+    );
+    expect(workflow).toMatch(
+      /if: \$\{\{ always\(\) && steps\.public_deployment_diagnostics\.outcome == 'success' \}\}[\s\S]*?path: \$\{\{ runner\.temp \}\}\/studytube-public-deployment-diagnostics\/summary\.json[\s\S]*?if-no-files-found: error/u,
+    );
+    expect(workflow).not.toContain('path: .deployment-diagnostics');
+    expect(workflow).not.toMatch(
+      /name: deployment-diagnostics-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}[\s\S]*?include-hidden-files: true[\s\S]*?retention-days: 14/u,
+    );
+  });
+
+  it('publishes only allowlisted deployment diagnostics', () => {
+    const workspace = mkdtempSync(
+      join(tmpdir(), 'studytube-public-deployment-diagnostics-'),
+    );
+    const privateDirectory = join(workspace, '.deployment-private-diagnostics');
+    const publicDirectory = join(workspace, '.deployment-diagnostics');
+    const writer = resolve(
+      __dirname,
+      '../../scripts/write-public-deployment-diagnostics.mjs',
+    );
+
+    mkdirSync(privateDirectory, { recursive: true });
+    writeFileSync(
+      join(privateDirectory, 'command-invocation.json'),
+      JSON.stringify({
+        CommandId: '11111111-2222-3333-4444-555555555555',
+        InstanceId: 'i-0123456789abcdef0',
+        Status: 'Failed',
+        ResponseCode: 42,
+        ExecutionStartDateTime: '2026-07-30T01:00:00.000Z',
+        ExecutionEndDateTime: '2026-07-30T01:00:03.000Z',
+        StandardOutputContent: 'token=diagnostic-canary',
+        StandardErrorContent:
+          's3://studytube-releases-123456789012-ap-northeast-2/private',
+      }),
+      'utf8',
+    );
+    writeFileSync(
+      join(privateDirectory, 'send-command.stderr'),
+      'account 123456789012 must remain private',
+      'utf8',
+    );
+
+    try {
+      const result = spawnSync(
+        process.execPath,
+        [writer, '--source', privateDirectory, '--output', publicDirectory],
+        {
+          encoding: 'utf8',
+          env: {
+            ...process.env,
+            DEPLOY_SHA: 'a'.repeat(40),
+            GITHUB_REPOSITORY: 'NearthYou/studytube',
+            GITHUB_RUN_ATTEMPT: '2',
+            GITHUB_RUN_ID: '1234',
+          },
+        },
+      );
+
+      expect(result.status).toBe(0);
+      expect(readdirSync(publicDirectory)).toEqual(['summary.json']);
+
+      const summaryText = readFileSync(
+        join(publicDirectory, 'summary.json'),
+        'utf8',
+      );
+      expect(JSON.parse(summaryText)).toEqual({
+        schemaVersion: 1,
+        repository: 'NearthYou/studytube',
+        runId: '1234',
+        runAttempt: '2',
+        deploySha: 'a'.repeat(40),
+        deployment: {
+          attempted: true,
+          status: 'Failed',
+          responseCode: 42,
+          executionStartedAt: '2026-07-30T01:00:00.000Z',
+          executionEndedAt: '2026-07-30T01:00:03.000Z',
+        },
+      });
+      expect(summaryText).not.toMatch(
+        /123456789012|i-0123456789abcdef0|diagnostic-canary|studytube-releases/u,
+      );
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps raw SSM diagnostics out of public workflow logs', () => {
+    expect(ssmSender).not.toContain('cat "$head_error"');
+    expect(ssmSender).not.toContain('cat "$head_error.put"');
+    expect(ssmSender).not.toContain('cat "$send_error_path"');
+    expect(ssmSender).not.toContain("jq -r '.StandardOutputContent // empty'");
+    expect(ssmSender).not.toContain("jq -r '.StandardErrorContent // empty'");
+    expect(ssmSender).not.toContain("printf 'ssm_command_id=%s");
+    expect(ssmSender).not.toContain('artifact_uri=%s');
+    expect(ssmSender).toContain('restricted AWS diagnostics');
+  });
+
+  it('records a safe not-started summary when AWS authentication fails early', () => {
+    const workspace = mkdtempSync(
+      join(tmpdir(), 'studytube-not-started-deployment-diagnostics-'),
+    );
+    const writer = resolve(
+      __dirname,
+      '../../scripts/write-public-deployment-diagnostics.mjs',
+    );
+    const publicDirectory = join(workspace, '.deployment-diagnostics');
+
+    try {
+      const result = spawnSync(
+        process.execPath,
+        [
+          writer,
+          '--source',
+          join(workspace, '.deployment-private-diagnostics'),
+          '--output',
+          publicDirectory,
+        ],
+        {
+          encoding: 'utf8',
+          env: {
+            ...process.env,
+            DEPLOY_SHA: 'b'.repeat(40),
+            GITHUB_REPOSITORY: 'NearthYou/studytube',
+            GITHUB_RUN_ATTEMPT: '1',
+            GITHUB_RUN_ID: '5678',
+          },
+        },
+      );
+
+      expect(result.status).toBe(0);
+      expect(
+        JSON.parse(readFileSync(join(publicDirectory, 'summary.json'), 'utf8')),
+      ).toEqual({
+        schemaVersion: 1,
+        repository: 'NearthYou/studytube',
+        runId: '5678',
+        runAttempt: '1',
+        deploySha: 'b'.repeat(40),
+        deployment: {
+          attempted: false,
+          status: 'NotStarted',
+          responseCode: null,
+          executionStartedAt: null,
+          executionEndedAt: null,
+        },
+      });
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
   });
 
   it('syntax-checks every production runtime script independently', () => {

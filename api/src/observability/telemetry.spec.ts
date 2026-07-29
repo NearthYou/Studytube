@@ -44,6 +44,34 @@ describe('OpenTelemetry SDK registration', () => {
     expect(instrumentations?.[3]).toBeInstanceOf(PgInstrumentation);
   });
 
+  it('redacts inbound URL queries before HTTP spans are created', () => {
+    let receivedConfiguration: Record<string, unknown> | undefined;
+    const dependencies: OpenTelemetryDependencies = {
+      createSdk: (configuration) => {
+        receivedConfiguration = configuration;
+        return fakeSdk();
+      },
+    };
+
+    startOpenTelemetry({ OTEL_TRACES_EXPORTER: 'otlp' }, dependencies);
+
+    const instrumentations = receivedConfiguration?.instrumentations as
+      | unknown[]
+      | undefined;
+    const httpInstrumentation = instrumentations?.[0] as HttpInstrumentation;
+    const hook = httpInstrumentation.getConfig().startIncomingSpanHook;
+    const privateQuery = 'search=private-learning-topic&cursor=opaque';
+
+    expect(hook).toEqual(expect.any(Function));
+    expect(hook?.({ url: `/posts?${privateQuery}` } as never)).toEqual({
+      'url.query': '[REDACTED]',
+    });
+    expect(
+      JSON.stringify(hook?.({ url: `/posts?${privateQuery}` } as never)),
+    ).not.toContain(privateQuery);
+    expect(hook?.({ url: '/health/ready' } as never)).toEqual({});
+  });
+
   it('does not register an exporter when telemetry is not configured', () => {
     const sdk = fakeSdk();
     const dependencies = fakeDependencies(sdk);

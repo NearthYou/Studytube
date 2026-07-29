@@ -47,7 +47,7 @@ Branch protection에는 다음 다섯 check를 required로 설정한다.
 
 `Deploy immutable release with SSM` job은 Security, Web, API, Backend Integration, AI의 다섯 검증 job이 모두 성공한 `main` push와 `main`의 수동 실행에서만 동작한다. pull request에서는 deploy job을 required check로 사용하지 않는다.
 
-Backend Integration은 auth lookup, Course detail, outbox claim, hybrid retrieval의 index 사용 contract를 검사한다. 실패 시 server와 migration 상태, table 및 index 통계, activity, schema-only dump, PostgreSQL 및 Valkey log를 `backend-integration-evidence-<run-id>-<attempt>` artifact로 보존한다. 행 dump와 runtime secret은 포함하지 않는다. API가 생성한 OpenAPI 문서, deploy job의 SSM command 응답과 deployment diagnostics도 14일 보존한다. CI job 결과 자체가 실패한 경우에는 별도 failure summary artifact를 남긴다.
+Backend Integration은 auth lookup, Course detail, outbox claim, hybrid retrieval의 index 사용 contract를 검사한다. 실패 시 server와 migration 상태, table 및 index 통계, activity, schema-only dump, PostgreSQL 및 Valkey log를 `backend-integration-evidence-<run-id>-<attempt>` artifact로 보존한다. 행 dump와 runtime secret은 포함하지 않는다. API가 생성한 OpenAPI 문서와 deploy job의 허용 목록 기반 공개 요약도 14일 보존한다. 원본 SSM 응답과 출력은 공개 GitHub artifact나 workflow log에 복사하지 않는다. CI job 결과 자체가 실패한 경우에는 별도 failure summary artifact를 남긴다.
 
 ## AWS 구성
 
@@ -111,19 +111,27 @@ EC2 runtime role에는 `AmazonSSMManagedInstanceCore`와 다음 범위가 필요
 - `releases/*`, `deploy-tools/*` 읽기
 - `ssm-output/*` 쓰기
 - `/studytube/deploy` log stream 생성, 조회, event 쓰기
+- 설정된 sender의 검증된 SES identity에 한정한 `ses:SendEmail`
+
+SES 권한은 배포 리전과 실제 `AUTH_EMAIL_SENDER` identity ARN만 resource로 허용한다. Worker는 단순 verification mail만 보내므로 `ses:SendRawEmail`, identity 관리, credential 관리 권한은 주지 않는다.
 
 IAM policy는 release bucket 삭제, EC2 mutation, 다른 instance의 Run Command, 다른 repository branch의 role assumption을 허용하지 않는다.
 
-## GitHub repository variables
+## GitHub Actions configuration
 
-GitHub repository의 Actions variables에 다음 값을 설정한다. SSH secret은 사용하지 않는다.
+AWS 장기 access key나 SSH secret은 저장하지 않는다. 다만 account, bucket, instance 식별자가 공개 workflow log에 그대로 나타나지 않도록 다음 세 값은 Actions secret으로 마스킹한다. 이 값들은 자격 증명이 아니며 실제 권한 경계는 OIDC trust와 IAM policy다.
 
-| 변수 | 값 또는 형식 | 필수 |
+| Actions secret | 값 또는 형식 | 필수 |
 | --- | --- | --- |
 | `AWS_DEPLOY_ROLE_ARN` | `arn:aws:iam::<aws-account-id>:role/StudyTubeGitHubDeployRole` | 예 |
-| `AWS_REGION` | `ap-northeast-2` | 예 |
 | `AWS_RELEASE_BUCKET` | `studytube-releases-<aws-account-id>-ap-northeast-2` | 예 |
 | `AWS_SSM_INSTANCE_ID` | 현재 운영 instance의 `i-...` ID | 예 |
+
+나머지는 Actions variable로 저장한다.
+
+| Actions variable | 값 또는 형식 | 필수 |
+| --- | --- | --- |
+| `AWS_REGION` | `ap-northeast-2` | 예 |
 | `AWS_CLOUDWATCH_LOG_GROUP` | `/studytube/deploy` | 권장 |
 | `STUDYTUBE_CONFIG_FILE` | `/etc/studytube/deployment.env` | 기본값 사용 가능 |
 | `STUDYTUBE_DEPLOY_ROOT` | `/opt/studytube` | 기본값 사용 가능 |
@@ -131,13 +139,14 @@ GitHub repository의 Actions variables에 다음 값을 설정한다. SSH secret
 | `STUDYTUBE_MINIMUM_FREE_BYTES` | `3221225472` | 기본값 사용 가능 |
 | `AWS_ARTIFACT_OBJECT_LOCK_DAYS` | `30` | 기본값 사용 가능 |
 
-GitHub CLI로 값을 설정하는 예시는 다음과 같다. instance ID는 실제 값을 사용한다.
+GitHub CLI로 값을 설정하는 예시는 다음과 같다. secret 값은 명령 인자나 shell history에 남기지 말고 각 명령의 입력 prompt로 전달한다.
 
 ```bash
-gh variable set AWS_DEPLOY_ROLE_ARN --body 'arn:aws:iam::<aws-account-id>:role/StudyTubeGitHubDeployRole'
+gh secret set AWS_DEPLOY_ROLE_ARN
+gh secret set AWS_RELEASE_BUCKET
+gh secret set AWS_SSM_INSTANCE_ID
+
 gh variable set AWS_REGION --body 'ap-northeast-2'
-gh variable set AWS_RELEASE_BUCKET --body 'studytube-releases-<aws-account-id>-ap-northeast-2'
-gh variable set AWS_SSM_INSTANCE_ID --body '<current-instance-id>'
 gh variable set AWS_CLOUDWATCH_LOG_GROUP --body '/studytube/deploy'
 gh variable set STUDYTUBE_CONFIG_FILE --body '/etc/studytube/deployment.env'
 gh variable set STUDYTUBE_DEPLOY_ROOT --body '/opt/studytube'
@@ -226,11 +235,13 @@ cutover 이후 health gate가 실패했고 schema barrier와 Course 활성화 �
 
 실패 원인은 다음 위치에서 확인한다.
 
-- GitHub run의 `deployment-diagnostics-<run-id>-<attempt>` artifact
+- GitHub run의 `deployment-diagnostics-<run-id>-<attempt>` artifact에는 repository, run, SHA, 실행 여부, SSM 상태, 응답 코드, 시작 및 종료 시각만 기록한다.
 - S3의 `ssm-output/<deploy-sha>/<run-id>-<attempt>/`
 - CloudWatch Logs의 `/studytube/deploy`
 - EC2의 `/opt/studytube/deployment-diagnostics/<deploy-sha>/`
 - systemd journal의 `studytube-api`, `studytube-ai`, `studytube-worker`
+
+원격 실행의 원본 표준 출력과 표준 오류는 접근이 제한된 S3와 CloudWatch에서만 확인한다. runner에 임시 저장한 SSM API 응답과 AWS CLI 오류는 GitHub에 업로드하지 않는다. GitHub artifact 생성기는 저장소 밖의 runner 임시 경로에 허용 목록 기반 `summary.json`을 새로 만들고 그 파일 하나만 업로드하므로 account, bucket, instance, command ID, 출력 본문을 전달하지 않는다. 생성 단계가 실패하면 artifact 업로드도 실행하지 않는다.
 
 ## 수동 배포와 확인
 

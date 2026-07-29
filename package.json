@@ -16,6 +16,7 @@
     "db:migrate:down": "npm --prefix api run db:migrate:down",
     "db:migrate:status": "npm --prefix api run db:migrate:status",
     "db:seed:demo": "npm --prefix api run db:seed",
-    "retrieval:evaluate": "npm --prefix api run retrieval:evaluate"
+    "retrieval:evaluate": "npm --prefix api run retrieval:evaluate",
+    "portfolio:verify": "node scripts/verify-portfolio-facts.mjs"
   }
 }

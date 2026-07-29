@@ -36,7 +36,6 @@ function createMemoryStorage(seed: Record<string, string> = {}): Storage {
 
 function session(input: Partial<Session['user']> = {}): Session {
   return {
-    token: 'token',
     user: {
       id: 1,
       name: 'Learner',
@@ -51,6 +50,18 @@ function session(input: Partial<Session['user']> = {}): Session {
     },
   };
 }
+
+test('removes a legacy bearer token when restoring a cookie session', () => {
+  const storage = createMemoryStorage({
+    [SESSION_STORAGE_KEY]: JSON.stringify({
+      token: 'must-not-survive',
+      user: session().user,
+    }),
+  });
+
+  assert.deepEqual(readSession(storage), session());
+  assert.equal('token' in (readSession(storage) ?? {}), false);
+});
 
 test('preserves an unset learning profile on sessions', () => {
   const normalized = normalizeSession(

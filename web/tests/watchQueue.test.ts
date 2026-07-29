@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { StudyPost } from '../src/types.ts';
+import type { CourseStep, StudyPost } from '../src/types.ts';
 import {
   DEFAULT_LEARNING_STATE,
   extractPostIds,
@@ -8,6 +8,7 @@ import {
   getVideoLearningState,
   mergeVideosIntoQueue,
   postPayloadFromQueueVideo,
+  queueVideoFromCourseStep,
   queueVideoFromMcpVideo,
   queueVideoFromPost,
   queueVideoKey,
@@ -55,6 +56,34 @@ test('converts saved posts into queue videos with stable video keys', () => {
   assert.equal(queueVideo.id, 'post-7');
   assert.equal(queueVideo.videoId, 'yt-777');
   assert.equal(queueVideoKey(queueVideo), 'yt-777');
+});
+
+test('plays a Course snapshot with a null source while retaining its step id', () => {
+  const step: CourseStep = {
+    id: '9001',
+    position: 1,
+    sourcePostId: null,
+    snapshot: {
+      title: 'Deleted source survives',
+      videoUrl: 'https://www.youtube.com/watch?v=snapshot1',
+      thumbnailUrl: 'snapshot.jpg',
+      channelName: 'Archive Channel',
+    },
+    ownerLearningState: {
+      captionLanguage: 'en',
+      captionsEnabled: false,
+      playbackRate: 1.25,
+      loop: { enabled: true, manual: true, start: 4, end: 9 },
+      marks: [],
+    },
+  };
+
+  const queueVideo = queueVideoFromCourseStep(step);
+
+  assert.equal(queueVideo.id, 'course-step-9001');
+  assert.equal(queueVideo.videoId, 'snapshot1');
+  assert.equal(queueVideo.learning?.captionLanguage, 'en');
+  assert.equal(queueVideo.learning?.loop.end, 9);
 });
 
 test('deduplicates queue videos by video key instead of source id', () => {

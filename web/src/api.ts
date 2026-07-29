@@ -4,8 +4,6 @@ import type {
   Comment as StudyComment,
   McpResponse,
   PaginatedPosts,
-  Playlist,
-  PlaylistFeedback,
   RagResponse,
   Session,
   StudyPost,
@@ -25,6 +23,12 @@ const API_BASE_URL = resolveApiBaseUrl(
   viteEnv?.VITE_API_BASE_URL,
   globalThis.location,
 );
+
+let unauthorizedHandler: (() => void) | null = null;
+
+export function setUnauthorizedHandler(handler: (() => void) | null) {
+  unauthorizedHandler = handler;
+}
 
 export function resolveApiBaseUrl(
   configuredUrl?: string,
@@ -78,18 +82,20 @@ export function isUnauthorizedRequest(error: unknown) {
 export async function requestJson<T>(
   path: string,
   options: RequestInit = {},
-  token?: string,
 ): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...options.headers,
     },
   });
 
   if (!response.ok) {
+    if (response.status === 401) {
+      unauthorizedHandler?.();
+    }
     let message = `API ${response.status}: ${response.statusText}`;
 
     try {
@@ -106,6 +112,10 @@ export async function requestJson<T>(
     }
 
     throw new ApiRequestError(response.status, message);
+  }
+
+  if (response.status === 204) {
+    return undefined as T;
   }
 
   return response.json() as Promise<T>;
@@ -136,12 +146,17 @@ export function login(input: {
   });
 }
 
-export function fetchMe(token: string): Promise<User> {
-  return requestJson<User>("/me", {}, token);
+export function logout() {
+  return requestJson<void>("/auth/logout", {
+    method: "POST",
+  });
+}
+
+export function fetchMe(): Promise<User> {
+  return requestJson<User>("/me");
 }
 
 export function verifyMe(
-  token: string,
   input: {
     currentPassword: string;
   },
@@ -149,12 +164,10 @@ export function verifyMe(
   return requestJson<User>(
     "/me/verify",
     { method: "POST", body: JSON.stringify(input) },
-    token,
   );
 }
 
 export function updateMe(
-  token: string,
   input: {
     currentPassword?: string;
     name?: string;
@@ -169,12 +182,10 @@ export function updateMe(
   return requestJson<User>(
     "/me",
     { method: "PUT", body: JSON.stringify(input) },
-    token,
   );
 }
 
 export function fetchPosts(
-  token: string,
   search: string,
   page: number,
   pageSize = 6,
@@ -188,7 +199,7 @@ export function fetchPosts(
     params.set("search", search.trim());
   }
 
-  return requestJson<PaginatedPosts>(`/posts?${params.toString()}`, {}, token);
+  return requestJson<PaginatedPosts>(`/posts?${params.toString()}`);
 }
 
 export function fetchPublicPosts(
@@ -209,7 +220,6 @@ export function fetchPublicPosts(
 }
 
 export function createPost(
-  token: string,
   input: {
     title: string;
     videoUrl: string;
@@ -223,98 +233,40 @@ export function createPost(
   return requestJson<StudyPost>(
     "/posts",
     { method: "POST", body: JSON.stringify(input) },
-    token,
   );
 }
 
 export function updatePost(
-  token: string,
   id: number,
   input: Partial<StudyPost>,
 ): Promise<StudyPost> {
   return requestJson<StudyPost>(
     `/posts/${id}`,
     { method: "PUT", body: JSON.stringify(input) },
-    token,
   );
 }
 
-export function deletePost(token: string, id: number) {
+export function deletePost(id: number) {
   return requestJson<{ deleted: boolean }>(
     `/posts/${id}`,
     { method: "DELETE" },
-    token,
   );
 }
 
-export function addComment(token: string, postId: number, body: string) {
+export function addComment(postId: number, body: string) {
   return requestJson<StudyComment>(
     `/posts/${postId}/comments`,
     { method: "POST", body: JSON.stringify({ body }) },
-    token,
   );
 }
 
 export function deleteComment(
-  token: string,
   postId: number,
   commentId: number,
 ) {
   return requestJson<{ deleted: boolean }>(
     `/posts/${postId}/comments/${commentId}`,
     { method: "DELETE" },
-    token,
-  );
-}
-
-export function fetchPlaylists(token: string): Promise<Playlist[]> {
-  return requestJson<Playlist[]>("/playlists?scope=mine", {}, token);
-}
-
-export function fetchPublicPlaylists(): Promise<Playlist[]> {
-  return requestJson<Playlist[]>("/playlists");
-}
-
-export function createPlaylist(
-  token: string,
-  input: { title: string; description: string; postIds: number[] },
-) {
-  return requestJson<Playlist>(
-    "/playlists",
-    { method: "POST", body: JSON.stringify(input) },
-    token,
-  );
-}
-
-export function updatePlaylist(
-  token: string,
-  id: number,
-  input: { title?: string; description?: string; postIds?: number[] },
-) {
-  return requestJson<Playlist>(
-    `/playlists/${id}`,
-    { method: "PUT", body: JSON.stringify(input) },
-    token,
-  );
-}
-
-export function deletePlaylist(token: string, id: number) {
-  return requestJson<{ deleted: boolean }>(
-    `/playlists/${id}`,
-    { method: "DELETE" },
-    token,
-  );
-}
-
-export function addPlaylistFeedback(
-  token: string,
-  playlistId: number,
-  body: string,
-) {
-  return requestJson<PlaylistFeedback>(
-    `/playlists/${playlistId}/feedback`,
-    { method: "POST", body: JSON.stringify({ rating: 5, body }) },
-    token,
   );
 }
 

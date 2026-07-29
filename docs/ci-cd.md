@@ -111,6 +111,9 @@ EC2 runtime role에는 `AmazonSSMManagedInstanceCore`와 다음 범위가 필요
 - `releases/*`, `deploy-tools/*` 읽기
 - `ssm-output/*` 쓰기
 - `/studytube/deploy` log stream 생성, 조회, event 쓰기
+- 설정된 sender의 검증된 SES identity에 한정한 `ses:SendEmail`
+
+SES 권한은 배포 리전과 실제 `AUTH_EMAIL_SENDER` identity ARN만 resource로 허용한다. Worker는 단순 verification mail만 보내므로 `ses:SendRawEmail`, identity 관리, credential 관리 권한은 주지 않는다.
 
 IAM policy는 release bucket 삭제, EC2 mutation, 다른 instance의 Run Command, 다른 repository branch의 role assumption을 허용하지 않는다.
 

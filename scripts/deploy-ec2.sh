@@ -80,10 +80,12 @@ require_course_cutover_configuration() {
   course_activation_marker="$course_cutover_state_dir/course-activated"
 
   if [ -e "$course_activation_marker" ] || [ -L "$course_activation_marker" ]; then
+    course_database_identity="$(read_course_database_identity)"
     if [ ! -f "$course_activation_marker" ] ||
        [ ! -r "$course_activation_marker" ] ||
        [ -L "$course_activation_marker" ] ||
-       ! grep -Fqx -- "course_activated=true" "$course_activation_marker"; then
+       ! grep -Fqx -- "course_activated=true" "$course_activation_marker" ||
+       ! grep -Fqx -- "database_identity=$course_database_identity" "$course_activation_marker"; then
       echo "Refusing deployment: the Course activation marker is invalid." >&2
       return 1
     fi
@@ -140,10 +142,14 @@ write_frozen_parity_marker() {
 write_course_activation_marker() {
   install -m 700 -d "$course_cutover_state_dir"
   local temporary_marker
+  if [ -z "$course_database_identity" ]; then
+    course_database_identity="$(read_course_database_identity)"
+  fi
   temporary_marker="$(mktemp "$course_cutover_state_dir/.course-activated.XXXXXX")"
   printf '%s\n' \
     "course_activated=true" \
-    "first_deploy_sha=$deploy_sha" >"$temporary_marker"
+    "first_deploy_sha=$deploy_sha" \
+    "database_identity=$course_database_identity" >"$temporary_marker"
   chmod 600 "$temporary_marker"
   mv -f -- "$temporary_marker" "$course_activation_marker"
 }

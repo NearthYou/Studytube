@@ -286,6 +286,17 @@ source '${deployScript}'
 
     expect(activationMarker).toBeGreaterThanOrEqual(0);
     expect(activationMarker).toBeLessThan(processStart);
+
+    const activationWriterStart = script.indexOf(
+      'write_course_activation_marker()',
+    );
+    const activationWriter = script.slice(
+      activationWriterStart,
+      script.indexOf('\n}', activationWriterStart) + 2,
+    );
+    expect(activationWriter).toContain(
+      'database_identity=$course_database_identity',
+    );
   });
 
   it('runs explicit Course migration and concurrency evidence in CI', () => {

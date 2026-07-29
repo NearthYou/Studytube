@@ -115,6 +115,29 @@ test('patches only the active draft', () => {
   assert.equal(nextState.drafts[0].title, 'React');
   assert.equal(selectActivePlaylistDraft(nextState).title, 'FastAPI Backend');
   assert.equal(selectActivePlaylistDraft(nextState).videos.length, 1);
+  assert.equal(selectActivePlaylistDraft(nextState).revision, 2);
+});
+
+test('preserves a persisted draft revision across normalization', () => {
+  const state = normalizePlaylistDraftState<TestVideo>(
+    {
+      drafts: [
+        {
+          id: 'draft-a',
+          title: 'React',
+          videos: [],
+          revision: 8,
+          createdAt: '2026-06-10T00:00:00.000Z',
+          updatedAt: '2026-06-11T00:00:00.000Z',
+        },
+      ],
+    },
+    { normalizeVideo, now: '2026-06-12T00:00:00.000Z' },
+  );
+
+  assert.equal(state.drafts[0].revision, 8);
+  assert.equal(state.drafts[0].createdAt, '2026-06-10T00:00:00.000Z');
+  assert.equal(state.drafts[0].updatedAt, '2026-06-11T00:00:00.000Z');
 });
 
 test('removes the active draft and selects the next available draft', () => {

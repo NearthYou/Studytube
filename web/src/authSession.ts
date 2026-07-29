@@ -19,7 +19,6 @@ export function saveSession(
 
 export function normalizeSession(session: Session): Session {
   return {
-    ...session,
     user: normalizeUser(session.user),
   };
 }

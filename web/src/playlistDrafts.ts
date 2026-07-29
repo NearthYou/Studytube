@@ -2,6 +2,7 @@ export const DEFAULT_PLAYLIST_DRAFT_TITLE = "나만의 학습 플레이리스트
 
 export type PlaylistDraft<TVideo> = {
   id: string;
+  revision: number;
   title: string;
   description: string;
   videos: TVideo[];
@@ -32,20 +33,25 @@ export function createPlaylistDraft<TVideo>({
   description = "",
   videos = [],
   now = new Date().toISOString(),
+  updatedAt = now,
+  revision = 1,
 }: {
   id?: string;
   title?: string;
   description?: string;
   videos?: TVideo[];
   now?: string;
+  updatedAt?: string;
+  revision?: number;
 } = {}): PlaylistDraft<TVideo> {
   return {
     id,
+    revision,
     title,
     description,
     videos,
     createdAt: now,
-    updatedAt: now,
+    updatedAt,
   };
 }
 
@@ -114,6 +120,7 @@ export function patchActivePlaylistDraft<TVideo>(
         ? {
             ...draft,
             ...patch,
+            revision: draft.revision + 1,
             updatedAt: now,
           }
         : draft,
@@ -166,10 +173,22 @@ function normalizePlaylistDraft<TVideo>(
           : `작성 중인 플레이리스트 ${index + 1}`,
     description: typeof draft.description === "string" ? draft.description : "",
     videos,
+    revision:
+      typeof draft.revision === "number" &&
+      Number.isSafeInteger(draft.revision) &&
+      draft.revision > 0
+        ? draft.revision
+        : 1,
     now:
       typeof draft.createdAt === "string" && draft.createdAt
         ? draft.createdAt
         : now,
+    updatedAt:
+      typeof draft.updatedAt === "string" && draft.updatedAt
+        ? draft.updatedAt
+        : typeof draft.createdAt === "string" && draft.createdAt
+          ? draft.createdAt
+          : now,
   });
 }
 

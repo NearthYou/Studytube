@@ -2,7 +2,7 @@
 set -euo pipefail
 
 app_dir="${APP_DIR:-/home/ubuntu/studytube}"
-deploy_branch="${DEPLOY_BRANCH:-sw}"
+deploy_branch="${DEPLOY_BRANCH:-main}"
 repo_full_name="${GITHUB_REPOSITORY:-NearthYou/studytube}"
 workflow_name="${GITHUB_WORKFLOW_NAME:-CI/CD}"
 lock_file="${AUTODEPLOY_LOCK_FILE:-/tmp/studytube-autodeploy.lock}"

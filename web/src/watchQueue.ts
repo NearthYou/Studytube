@@ -1,4 +1,10 @@
-import type { AgentResponse, McpResponse, RagResponse, StudyPost } from './types.ts';
+import type {
+  AgentResponse,
+  CourseStep,
+  McpResponse,
+  RagResponse,
+  StudyPost,
+} from './types.ts';
 import { deriveTags, extractYouTubeId, slugify } from './videoMetadata.ts';
 
 export type QueueVideo = {
@@ -12,6 +18,8 @@ export type QueueVideo = {
   translatedNotes: string;
   source: string;
   evidenceSnippet?: string;
+  courseStepId?: string;
+  sourcePostId?: number | null;
   learning?: VideoLearningState;
 };
 
@@ -67,6 +75,23 @@ export function queueVideoFromPost(post: StudyPost): QueueVideo {
     summary: post.summary,
     translatedNotes: post.translatedNotes,
     source: 'board',
+  };
+}
+
+export function queueVideoFromCourseStep(step: CourseStep): QueueVideo {
+  return {
+    id: `course-step-${step.id}`,
+    courseStepId: step.id,
+    sourcePostId: step.sourcePostId ?? null,
+    title: step.snapshot.title,
+    videoId: extractYouTubeId(step.snapshot.videoUrl) ?? `course-step-${step.id}`,
+    videoUrl: step.snapshot.videoUrl,
+    thumbnailUrl: step.snapshot.thumbnailUrl,
+    channelName: step.snapshot.channelName,
+    summary: '',
+    translatedNotes: '',
+    source: 'course',
+    learning: step.ownerLearningState,
   };
 }
 

@@ -1,8 +1,11 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
+import { CourseCutoverPolicy } from './course/course-cutover.policy';
 import { MemoryBoardRepository } from './memory-board.repository';
 import { StudyBoardService, type BoardActor } from './study-board.service';
 import type { VideoAssetService } from './video-asset.service';
@@ -143,6 +146,66 @@ describe('StudyBoardService', () => {
     expect(await service.listPlaylists(curator)).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ id: created.id })]),
     );
+  });
+
+  it('freezes source and legacy aggregate mutations during final parity', async () => {
+    service = new StudyBoardService(
+      new MemoryBoardRepository(),
+      undefined,
+      new CourseCutoverPolicy('freeze'),
+    );
+
+    await expect(
+      service.createPost(learner, postInput('frozen-source')),
+    ).rejects.toBeInstanceOf(ServiceUnavailableException);
+    await expect(
+      service.createPlaylist(learner, {
+        title: 'Frozen playlist',
+        description: '',
+        postIds: [],
+      }),
+    ).rejects.toBeInstanceOf(ServiceUnavailableException);
+  });
+
+  it('retires playlist writes but keeps source posts mutable after Course activation', async () => {
+    service = new StudyBoardService(
+      new MemoryBoardRepository(),
+      undefined,
+      new CourseCutoverPolicy('course'),
+    );
+
+    await expect(
+      service.createPost(learner, postInput('course-mode-source')),
+    ).resolves.toMatchObject({ authorId: learner.userId });
+    await expect(
+      service.createPlaylist(learner, {
+        title: 'Retired playlist',
+        description: '',
+        postIds: [],
+      }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('protects an audited legacy source post until Course activation', async () => {
+    const repository = new MemoryBoardRepository();
+    repository.hasCompletedCourseBackfillAuditForPost = jest
+      .fn()
+      .mockResolvedValue(true);
+    service = new StudyBoardService(repository);
+    const post = await service.createPost(learner, postInput('audited-source'));
+
+    await expect(service.deletePost(learner, post.id)).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+
+    service = new StudyBoardService(
+      repository,
+      undefined,
+      new CourseCutoverPolicy('course'),
+    );
+    await expect(service.deletePost(learner, post.id)).resolves.toEqual({
+      deleted: true,
+    });
   });
 
   it('enforces playlist ownership while preserving authenticated item additions', async () => {

@@ -1,9 +1,15 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
+import {
+  CourseCutoverPolicy,
+  CourseCutoverPolicyError,
+} from './course/course-cutover.policy';
 import {
   assertPostInput,
   assertText,
@@ -30,6 +36,7 @@ export class StudyBoardService {
   constructor(
     private readonly repository: BoardRepository,
     private readonly videoAssetService?: VideoAssetService,
+    private readonly courseCutoverPolicy = new CourseCutoverPolicy('legacy'),
   ) {}
 
   async listPosts(
@@ -78,18 +85,21 @@ export class StudyBoardService {
     actor: BoardActor,
     input: Omit<CreatePostInput, 'authorId'>,
   ): Promise<StudyPost> {
-    assertPostInput(input);
-    await this.assertUniqueVideoPost(actor.userId, input.videoUrl);
+    this.assertSourceMutationAllowed();
+    return this.withCourseWriterSharedLease(async () => {
+      assertPostInput(input);
+      await this.assertUniqueVideoPost(actor.userId, input.videoUrl);
 
-    const post = await this.repository.createPost({
-      ...input,
-      authorId: actor.userId,
-      tags: input.tags ?? [],
+      const post = await this.repository.createPost({
+        ...input,
+        authorId: actor.userId,
+        tags: input.tags ?? [],
+      });
+
+      this.videoAssetService?.enqueuePost(post);
+
+      return post;
     });
-
-    this.videoAssetService?.enqueuePost(post);
-
-    return post;
   }
 
   async getVideoAsset(_actor: BoardActor, postId: number): Promise<VideoAsset> {
@@ -108,23 +118,26 @@ export class StudyBoardService {
     id: number,
     input: UpdatePostInput,
   ): Promise<StudyPost> {
-    const currentPost = await this.requireOwnedPost(id, actor.userId);
-    assertVideoTags(input.tags);
-    const videoUrlChanged =
-      typeof input.videoUrl === 'string' &&
-      input.videoUrl !== currentPost.videoUrl;
+    this.assertSourceMutationAllowed();
+    return this.withCourseWriterSharedLease(async () => {
+      const currentPost = await this.requireOwnedPost(id, actor.userId);
+      assertVideoTags(input.tags);
+      const videoUrlChanged =
+        typeof input.videoUrl === 'string' &&
+        input.videoUrl !== currentPost.videoUrl;
 
-    const post = await this.repository.updatePost(id, input);
+      const post = await this.repository.updatePost(id, input);
 
-    if (!post) {
-      throw new NotFoundException('Post not found');
-    }
+      if (!post) {
+        throw new NotFoundException('Post not found');
+      }
 
-    if (videoUrlChanged) {
-      this.videoAssetService?.enqueuePost(post);
-    }
+      if (videoUrlChanged) {
+        this.videoAssetService?.enqueuePost(post);
+      }
 
-    return post;
+      return post;
+    });
   }
 
   async deletePost(
@@ -133,11 +146,23 @@ export class StudyBoardService {
   ): Promise<{
     deleted: boolean;
   }> {
-    await this.requireOwnedPost(id, actor.userId);
+    this.assertSourceMutationAllowed();
+    return this.withCourseWriterSharedLease(async () => {
+      await this.requireOwnedPost(id, actor.userId);
 
-    return {
-      deleted: await this.repository.deletePost(id),
-    };
+      if (
+        this.courseCutoverPolicy.mode !== 'course' &&
+        (await this.repository.hasCompletedCourseBackfillAuditForPost(id))
+      ) {
+        throw new ConflictException(
+          'An audited legacy source post cannot be deleted before Course activation',
+        );
+      }
+
+      return {
+        deleted: await this.repository.deletePost(id),
+      };
+    });
   }
 
   async addComment(actor: BoardActor, postId: number, input: { body: string }) {
@@ -188,13 +213,16 @@ export class StudyBoardService {
       postIds: number[];
     },
   ): Promise<Playlist> {
-    assertText(input.title, 'title');
+    this.assertLegacyMutationAllowed();
+    return this.withCourseWriterSharedLease(() => {
+      assertText(input.title, 'title');
 
-    return this.repository.createPlaylist({
-      ownerId: actor.userId,
-      title: input.title.trim(),
-      description: input.description?.trim() ?? '',
-      postIds: input.postIds ?? [],
+      return this.repository.createPlaylist({
+        ownerId: actor.userId,
+        title: input.title.trim(),
+        description: input.description?.trim() ?? '',
+        postIds: input.postIds ?? [],
+      });
     });
   }
 
@@ -203,34 +231,37 @@ export class StudyBoardService {
     id: number,
     input: UpdatePlaylistInput,
   ): Promise<Playlist> {
-    await this.requireOwnedPlaylist(id, actor.userId);
+    this.assertLegacyMutationAllowed();
+    return this.withCourseWriterSharedLease(async () => {
+      await this.requireOwnedPlaylist(id, actor.userId);
 
-    const title = input.title !== undefined ? input.title.trim() : undefined;
-    const description =
-      input.description !== undefined ? input.description.trim() : undefined;
-    const hasPostIds = input.postIds !== undefined;
+      const title = input.title !== undefined ? input.title.trim() : undefined;
+      const description =
+        input.description !== undefined ? input.description.trim() : undefined;
+      const hasPostIds = input.postIds !== undefined;
 
-    if (title === undefined && description === undefined && !hasPostIds) {
-      throw new BadRequestException(
-        'title, description, or postIds is required',
-      );
-    }
+      if (title === undefined && description === undefined && !hasPostIds) {
+        throw new BadRequestException(
+          'title, description, or postIds is required',
+        );
+      }
 
-    if (title !== undefined) {
-      assertText(title, 'title');
-    }
+      if (title !== undefined) {
+        assertText(title, 'title');
+      }
 
-    const playlist = await this.repository.updatePlaylist(id, {
-      title,
-      description,
-      postIds: hasPostIds ? input.postIds : undefined,
+      const playlist = await this.repository.updatePlaylist(id, {
+        title,
+        description,
+        postIds: hasPostIds ? input.postIds : undefined,
+      });
+
+      if (!playlist) {
+        throw new NotFoundException('Playlist not found');
+      }
+
+      return playlist;
     });
-
-    if (!playlist) {
-      throw new NotFoundException('Playlist not found');
-    }
-
-    return playlist;
   }
 
   async deletePlaylist(
@@ -239,11 +270,14 @@ export class StudyBoardService {
   ): Promise<{
     deleted: boolean;
   }> {
-    await this.requireOwnedPlaylist(id, actor.userId);
+    this.assertLegacyMutationAllowed();
+    return this.withCourseWriterSharedLease(async () => {
+      await this.requireOwnedPlaylist(id, actor.userId);
 
-    return {
-      deleted: await this.repository.deletePlaylist(id),
-    };
+      return {
+        deleted: await this.repository.deletePlaylist(id),
+      };
+    });
   }
 
   async addPlaylistItem(
@@ -251,13 +285,19 @@ export class StudyBoardService {
     playlistId: number,
     postId: number,
   ): Promise<Playlist> {
-    const playlist = await this.repository.addPlaylistItem(playlistId, postId);
+    this.assertLegacyMutationAllowed();
+    return this.withCourseWriterSharedLease(async () => {
+      const playlist = await this.repository.addPlaylistItem(
+        playlistId,
+        postId,
+      );
 
-    if (!playlist) {
-      throw new NotFoundException('Playlist not found');
-    }
+      if (!playlist) {
+        throw new NotFoundException('Playlist not found');
+      }
 
-    return playlist;
+      return playlist;
+    });
   }
 
   async addPlaylistFeedback(
@@ -268,20 +308,31 @@ export class StudyBoardService {
       body: string;
     },
   ): Promise<PlaylistFeedback> {
-    const rating = Number(input.rating);
+    this.assertLegacyMutationAllowed();
+    return this.withCourseWriterSharedLease(() => {
+      const rating = Number(input.rating);
 
-    if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
-      throw new BadRequestException('rating must be an integer from 1 to 5');
-    }
+      if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+        throw new BadRequestException('rating must be an integer from 1 to 5');
+      }
 
-    assertText(input.body, 'body');
+      assertText(input.body, 'body');
 
-    return this.repository.addPlaylistFeedback({
-      playlistId,
-      authorId: actor.userId,
-      rating,
-      body: input.body.trim(),
+      return this.repository.addPlaylistFeedback({
+        playlistId,
+        authorId: actor.userId,
+        rating,
+        body: input.body.trim(),
+      });
     });
+  }
+
+  private withCourseWriterSharedLease<T>(
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    return (
+      this.repository.withCourseWriterSharedLease?.(operation) ?? operation()
+    );
   }
 
   private async requireOwnedPost(
@@ -295,6 +346,38 @@ export class StudyBoardService {
     }
 
     return post;
+  }
+
+  private assertSourceMutationAllowed(): void {
+    try {
+      this.courseCutoverPolicy.assertSourceMutationAllowed();
+    } catch (error) {
+      if (!(error instanceof CourseCutoverPolicyError)) {
+        throw error;
+      }
+
+      throw new ServiceUnavailableException(
+        'Source mutations are paused during Course cutover verification',
+      );
+    }
+  }
+
+  private assertLegacyMutationAllowed(): void {
+    try {
+      this.courseCutoverPolicy.assertLegacyMutationAllowed();
+    } catch (error) {
+      if (!(error instanceof CourseCutoverPolicyError)) {
+        throw error;
+      }
+
+      if (this.courseCutoverPolicy.mode === 'course') {
+        throw new NotFoundException('Legacy playlist mutation route retired');
+      }
+
+      throw new ServiceUnavailableException(
+        'Legacy playlist mutations are paused during Course cutover verification',
+      );
+    }
   }
 
   private async requireOwnedPlaylist(

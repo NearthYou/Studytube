@@ -13,7 +13,6 @@ export type LearningPreferences = {
 };
 
 export type Session = {
-  token: string;
   user: User;
 };
 
@@ -67,6 +66,99 @@ export type Playlist = {
   postIds: number[];
   feedback: PlaylistFeedback[];
   createdAt: string;
+};
+
+export type CourseStatus = 'draft' | 'published' | 'archived';
+
+export type CourseVisibility = 'private' | 'public';
+
+export type CourseSnapshot = {
+  title: string;
+  videoUrl: string;
+  thumbnailUrl: string;
+  channelName: string;
+};
+
+export type CourseLearningMark = {
+  id: string;
+  start: number;
+  end: number;
+  note: string;
+  caption: string;
+  createdAt: string;
+};
+
+export type CourseLearningState = {
+  captionLanguage: 'ko' | 'en';
+  captionsEnabled: boolean;
+  playbackRate: 0.75 | 1 | 1.25 | 1.5 | 2;
+  loop: {
+    enabled: boolean;
+    manual: boolean;
+    start: number;
+    end: number;
+  };
+  marks: CourseLearningMark[];
+};
+
+export type CourseStep = {
+  id: string;
+  position: number;
+  sourcePostId?: number | null;
+  snapshot: CourseSnapshot;
+  ownerLearningState?: CourseLearningState;
+};
+
+export type CourseFeedback = {
+  id: number;
+  authorName: string;
+  authorId?: number;
+  rating: number;
+  body: string;
+  createdAt: string;
+};
+
+export type Course = {
+  id: number;
+  ownerId?: number;
+  title: string;
+  description: string;
+  visibility: CourseVisibility;
+  status: CourseStatus;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+  publishedAt: string | null;
+  archivedAt?: string | null;
+  steps: CourseStep[];
+  feedback: CourseFeedback[];
+};
+
+export type CoursePage<TCourse extends Course = Course> = {
+  items: TCourse[];
+  nextCursor: string | null;
+};
+
+export type NewCourseStep =
+  | {
+      sourcePostId: number;
+      snapshot?: never;
+      ownerLearningState?: CourseLearningState;
+    }
+  | {
+      sourcePostId?: never;
+      snapshot: CourseSnapshot;
+      ownerLearningState?: CourseLearningState;
+    };
+
+export type CourseStepMutation =
+  | { stepId: string }
+  | NewCourseStep;
+
+export type CreateCourseInput = {
+  title: string;
+  description: string;
+  steps: NewCourseStep[];
 };
 
 export type RagResponse = {

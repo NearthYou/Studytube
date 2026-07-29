@@ -23,6 +23,19 @@ import {
   saveSession,
 } from "./authSession";
 import {
+  addCourseFeedback,
+  archiveCourse,
+  createCourse,
+  fetchOwnerCourses,
+  fetchPublicCourses,
+  publishCourse,
+  updateCourse,
+} from "./courseApi";
+import {
+  completeImportedPlaylistDraft,
+  importCourseDraft,
+} from "./courseDraftImport";
+import {
   courseAnalysisBodyFromSummarySections,
   courseAnalysisSectionsFromPosts,
   isRedundantCourseAnalysis,
@@ -125,6 +138,7 @@ import {
   normalizeQueueVideo,
   postPayloadFromQueueVideo,
   queueVideoFromMcpVideo,
+  queueVideoFromCourseStep,
   queueVideoFromPost,
   queueVideoFromRagPost,
   queueVideoFromRecommendation,
@@ -159,25 +173,21 @@ import {
   parseTimestampedSummaryText,
 } from "./videoSummaryDetails";
 import {
-  addPlaylistFeedback,
   askAgent,
   askMcp,
   askRag,
-  createPlaylist,
   createPost,
-  deletePlaylist,
   deletePost,
-  fetchPlaylists,
   fetchPosts,
-  fetchPublicPlaylists,
   fetchPublicPosts,
   fetchTranslatedCaptions,
   fetchVideoSummary,
   fetchMe,
   isUnauthorizedRequest,
   login,
+  logout,
+  setUnauthorizedHandler,
   signUp,
-  updatePlaylist,
   updateMe,
   updatePost,
   verifyMe,
@@ -185,9 +195,10 @@ import {
 import type {
   AgentResponse,
   CaptionResponse,
+  Course,
+  CourseFeedback,
   McpResponse,
   Playlist,
-  PlaylistFeedback,
   RagResponse,
   Session,
   StudyPost,
@@ -281,15 +292,28 @@ const LIVE_CAPTION_PROVIDERS = new Set([
 function App() {
   const [session, setSession] = useState<Session | null>(() => readSession());
 
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      window.localStorage.removeItem(SESSION_STORAGE_KEY);
+      setSession(null);
+    });
+
+    return () => setUnauthorizedHandler(null);
+  }, []);
+
   function handleAuthComplete(nextSession: Session) {
     const normalizedSession = normalizeSession(nextSession);
     saveSession(normalizedSession);
     setSession(normalizedSession);
   }
 
-  function handleLogout() {
-    window.localStorage.removeItem(SESSION_STORAGE_KEY);
-    setSession(null);
+  async function handleLogout() {
+    try {
+      await logout();
+    } finally {
+      window.localStorage.removeItem(SESSION_STORAGE_KEY);
+      setSession(null);
+    }
   }
 
   function handleUserUpdate(user: User) {
@@ -766,7 +790,7 @@ function TutorialPage({
     setPreferenceStatus("학습 취향을 저장하는 중입니다.");
 
     try {
-      const nextUser = await updateMe(session.token, {
+      const nextUser = await updateMe({
         preferences: nextPreferences,
       });
 
@@ -958,9 +982,9 @@ function MyPage({
     async function loadProfile() {
       try {
         const [nextUser, postResult, nextPlaylists] = await Promise.all([
-          fetchMe(session.token),
-          fetchPosts(session.token, "", 1, 1),
-          fetchPlaylists(session.token),
+          fetchMe(),
+          fetchPosts("", 1, 1),
+          fetchOwnerCourses(),
         ]);
 
         if (!mounted) {
@@ -985,7 +1009,7 @@ function MyPage({
       mounted = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session.token]);
+  }, [session.user.id]);
 
   return (
     <main className="page-shell profile-page">
@@ -1073,7 +1097,6 @@ function MyPage({
 
       {isVerifying && (
         <ProfileVerificationForm
-          token={session.token}
           submitLabel="본인 확인 후 수정"
           onVerified={(nextUser, currentPassword) => {
             setUser(nextUser);
@@ -1123,7 +1146,7 @@ function MyEditPage({
 
     async function loadProfile() {
       try {
-        const nextUser = await fetchMe(session.token);
+        const nextUser = await fetchMe();
 
         if (!mounted) {
           return;
@@ -1146,7 +1169,7 @@ function MyEditPage({
       mounted = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session.token]);
+  }, [session.user.id]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -1189,7 +1212,7 @@ function MyEditPage({
     setStatus("내 정보를 저장하는 중입니다.");
 
     try {
-      const nextUser = await updateMe(session.token, {
+      const nextUser = await updateMe({
         currentPassword: verifiedPassword,
         name: trimmedName,
         password: trimmedPassword || undefined,
@@ -1230,7 +1253,6 @@ function MyEditPage({
           </div>
         </section>
         <ProfileVerificationForm
-          token={session.token}
           submitLabel="수정 페이지 열기"
           onVerified={(nextUser, currentPassword) => {
             setUser(nextUser);
@@ -1369,11 +1391,9 @@ function MyEditPage({
 }
 
 function ProfileVerificationForm({
-  token,
   submitLabel,
   onVerified,
 }: {
-  token: string;
   submitLabel: string;
   onVerified: (user: User, currentPassword: string) => void;
 }) {
@@ -1399,7 +1419,7 @@ function ProfileVerificationForm({
     setStatus("본인 확인 중입니다.");
 
     try {
-      const user = await verifyMe(token, {
+      const user = await verifyMe({
         currentPassword: trimmedCurrentPassword,
       });
 
@@ -1446,7 +1466,14 @@ function ProfileVerificationForm({
 function MyPostsPage({ session }: { session: Session }) {
   const navigate = useNavigate();
   const [posts, setPosts] = useState<StudyPost[]>([]);
-  const [playlists, setPlaylists] = useState<Playlist[]>([]);
+  const [courses, setCourses] = useState<Course[]>([]);
+  const playlists = useMemo(
+    () =>
+      courses
+        .filter((course) => course.status !== "archived")
+        .map(playlistViewFromCourse),
+    [courses],
+  );
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<number | null>(
     null,
   );
@@ -1488,6 +1515,10 @@ function MyPostsPage({ session }: { session: Session }) {
       null,
     [selectedPlaylistId, visiblePlaylists],
   );
+  const selectedCourse = useMemo(
+    () => courses.find((course) => course.id === selectedPlaylist?.id) ?? null,
+    [courses, selectedPlaylist],
+  );
   const selectedPosts = useMemo(
     () =>
       selectedPlaylist
@@ -1496,8 +1527,8 @@ function MyPostsPage({ session }: { session: Session }) {
     [posts, selectedPlaylist],
   );
   const selectedVideos = useMemo(
-    () => selectedPosts.map(queueVideoFromPost),
-    [selectedPosts],
+    () => selectedCourse?.steps.map(queueVideoFromCourseStep) ?? [],
+    [selectedCourse],
   );
   const selectedFeedback = useMemo(
     () =>
@@ -1531,10 +1562,17 @@ function MyPostsPage({ session }: { session: Session }) {
     setIsLoading(true);
 
     try {
-      const [nextPlaylists, nextPosts] = await Promise.all([
-        fetchPlaylists(session.token),
-        fetchOwnedPostsForLibrary(session.token),
+      const [nextCourses, ownedPosts] = await Promise.all([
+        fetchOwnerCourses(),
+        fetchOwnedPostsForLibrary(),
       ]);
+      const nextPlaylists = nextCourses
+        .filter((course) => course.status !== "archived")
+        .map(playlistViewFromCourse);
+      const nextPosts = [
+        ...nextCourses.flatMap((course) => postsFromCourse(course, ownedPosts)),
+        ...ownedPosts,
+      ];
       const nextFiltered = filterManagedPlaylists(
         nextPlaylists,
         nextPosts,
@@ -1551,7 +1589,7 @@ function MyPostsPage({ session }: { session: Session }) {
         MY_PLAYLISTS_PAGE_SIZE,
       );
 
-      setPlaylists(nextPlaylists);
+      setCourses(nextCourses);
       setPosts(nextPosts);
       setPage(boundedPage);
       setSelectedPlaylistId((current) => {
@@ -1596,7 +1634,7 @@ function MyPostsPage({ session }: { session: Session }) {
       mounted = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session.token]);
+  }, [session.user.id]);
 
   function selectPlaylist(playlistId: number) {
     setSelectedPlaylistId(playlistId);
@@ -1639,9 +1677,14 @@ function MyPostsPage({ session }: { session: Session }) {
     setStatus("플레이리스트 글을 수정하는 중입니다.");
 
     try {
-      const saved = await updatePlaylist(session.token, editingId, {
+      const currentCourse = courses.find((course) => course.id === editingId);
+      if (!currentCourse) {
+        throw new Error("수정할 코스를 찾지 못했어요.");
+      }
+      const saved = await updateCourse(editingId, {
         title,
         description,
+        expectedVersion: currentCourse.version,
       });
       await loadPlaylistBoard(search, page);
       setSelectedPlaylistId(saved.id);
@@ -1683,7 +1726,11 @@ function MyPostsPage({ session }: { session: Session }) {
     setStatus("플레이리스트 글을 삭제하는 중입니다.");
 
     try {
-      await deletePlaylist(session.token, playlist.id);
+      const currentCourse = courses.find((course) => course.id === playlist.id);
+      if (!currentCourse) {
+        throw new Error("보관할 코스를 찾지 못했어요.");
+      }
+      await archiveCourse(playlist.id, currentCourse.version);
       await loadPlaylistBoard(search, nextPage);
 
       if (editingId === playlist.id) {
@@ -2024,11 +2071,14 @@ function MyPostsPage({ session }: { session: Session }) {
 function HomePage({ session }: { session: Session }) {
   const navigate = useNavigate();
   const [posts, setPosts] = useState<StudyPost[]>([]);
-  const [playlists, setPlaylists] = useState<Playlist[]>([]);
+  const [courses, setCourses] = useState<Course[]>([]);
   const latestPost = posts[0];
-  const latestPlaylist = playlists[0];
-  const playlistPosts = latestPlaylist
-    ? posts.filter((post) => latestPlaylist.postIds.includes(post.id))
+  const latestCourse = courses.find((course) => course.status !== "archived");
+  const latestPlaylist = latestCourse
+    ? playlistViewFromCourse(latestCourse)
+    : null;
+  const playlistPosts = latestCourse
+    ? postsFromCourse(latestCourse, posts)
     : [];
   const latestVideo = latestPost ? queueVideoFromPost(latestPost) : null;
   const latestVideoTarget = latestPost
@@ -2051,20 +2101,20 @@ function HomePage({ session }: { session: Session }) {
     async function boot() {
       try {
         const [postResult, playlistResult] = await Promise.all([
-          fetchPosts(session.token, "", 1, 4),
-          fetchPlaylists(session.token),
+          fetchPosts("", 1, 4),
+          fetchOwnerCourses(),
         ]);
 
         setPosts(postResult.items);
-        setPlaylists(playlistResult);
+        setCourses(playlistResult);
       } catch {
         setPosts([]);
-        setPlaylists([]);
+        setCourses([]);
       }
     }
 
     void boot();
-  }, [session.token]);
+  }, [session.user.id]);
 
   return (
     <main className="page-shell product-home">
@@ -2194,7 +2244,11 @@ function HomePage({ session }: { session: Session }) {
 function ExplorePage({ session }: { session: Session }) {
   const navigate = useNavigate();
   const [posts, setPosts] = useState<StudyPost[]>([]);
-  const [playlists, setPlaylists] = useState<Playlist[]>([]);
+  const [courses, setCourses] = useState<Course[]>([]);
+  const playlists = useMemo(
+    () => courses.map(playlistViewFromCourse),
+    [courses],
+  );
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<number | null>(
     null,
   );
@@ -2224,6 +2278,10 @@ function ExplorePage({ session }: { session: Session }) {
     filteredPlaylists,
     selectedPlaylistId,
   );
+  const selectedCourse = useMemo(
+    () => courses.find((course) => course.id === selectedPlaylist?.id) ?? null,
+    [courses, selectedPlaylist],
+  );
   const selectedPosts = useMemo(
     () =>
       selectedPlaylist
@@ -2239,7 +2297,8 @@ function ExplorePage({ session }: { session: Session }) {
     () => courseAnalysisSectionsFromPosts(selectedPosts),
     [selectedPosts],
   );
-  const selectedVideos = selectedPosts.map(queueVideoFromPost);
+  const selectedVideos =
+    selectedCourse?.steps.map(queueVideoFromCourseStep) ?? [];
   const selectedAlreadyInPlaylist =
     selectedVideos.length > 0 &&
     selectedVideos.every((video) => isVideoInQueue(playlistQueue, video));
@@ -2348,13 +2407,18 @@ function ExplorePage({ session }: { session: Session }) {
 
   async function loadPublicBoard() {
     try {
-      const [postResult, nextPlaylists] = await Promise.all([
+      const [postResult, nextCourses] = await Promise.all([
         fetchPublicPosts("", 1, 80),
-        fetchPublicPlaylists(),
+        fetchPublicCourses(),
       ]);
-      setPosts(postResult.items);
-      setPlaylists(nextPlaylists);
-      preloadCourseSummariesForBoard(postResult.items, nextPlaylists);
+      const nextPlaylists = nextCourses.map(playlistViewFromCourse);
+      const nextPosts = [
+        ...nextCourses.flatMap((course) => postsFromCourse(course, postResult.items)),
+        ...postResult.items,
+      ];
+      setPosts(nextPosts);
+      setCourses(nextCourses);
+      preloadCourseSummariesForBoard(nextPosts, nextPlaylists);
       setSelectedPlaylistId((current) =>
         nextPlaylists.some((playlist) => playlist.id === current)
           ? current
@@ -2447,7 +2511,7 @@ function ExplorePage({ session }: { session: Session }) {
       return;
     }
 
-    await addPlaylistFeedback(session.token, selectedPlaylist.id, body);
+    await addCourseFeedback(selectedPlaylist.id, { rating: 5, body });
     await loadPublicBoard();
   }
 
@@ -2855,14 +2919,10 @@ function BoardPage({
 
     void boot();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session.token]);
+  }, [session.user.id]);
 
-  async function loadPosts(
-    nextSearch = search,
-    nextPage = page,
-    token = session.token,
-  ) {
-    const result = await fetchPosts(token, nextSearch, nextPage, 6);
+  async function loadPosts(nextSearch = search, nextPage = page) {
+    const result = await fetchPosts(nextSearch, nextPage, 6);
     setPosts(result.items);
     setTotal(result.total);
     setSelectedPostId((current) => {
@@ -3072,10 +3132,10 @@ function BoardPage({
     payload: ReturnType<typeof postPayloadFromEditor>,
   ) {
     const saved = editingId
-      ? await updatePost(session.token, editingId, payload)
-      : await createPost(session.token, payload);
+      ? await updatePost(editingId, payload)
+      : await createPost(payload);
 
-    return { saved, token: session.token };
+    return saved;
   }
 
   async function submitPost(event: FormEvent) {
@@ -3166,7 +3226,7 @@ function BoardPage({
 
       try {
         const wasEditing = Boolean(editingId);
-        const { saved, token } = await savePost(payload);
+        const saved = await savePost(payload);
         const savedVideo = queueVideoFromPost(saved);
         const syncedPlaylist = replaceVideoInQueueIfPresent(
           playlistQueue,
@@ -3179,7 +3239,7 @@ function BoardPage({
 
         const refreshSearch = postRegistrationRefreshSearch(search);
         setSearch(refreshSearch);
-        await loadPosts(refreshSearch, 1, token);
+        await loadPosts(refreshSearch, 1);
         setPage(1);
         setSelectedPostId(saved.id);
         setStatus(
@@ -3259,7 +3319,7 @@ function BoardPage({
     }
 
     try {
-      await deletePost(session.token, id);
+      await deletePost(id);
       await loadPosts(search, page);
       setStatus("영상을 삭제했어요");
     } catch {
@@ -3292,6 +3352,7 @@ function BoardPage({
           ? {
               ...draft,
               videos: nextQueue,
+              revision: draft.revision + 1,
               updatedAt: new Date().toISOString(),
             }
           : draft,
@@ -3334,10 +3395,9 @@ function BoardPage({
 
   async function publishCurrentPlaylist(event: FormEvent) {
     event.preventDefault();
-    const postIds = extractPostIds(playlistQueue);
 
-    if (postIds.length === 0) {
-      setStatus("게시글로 공개할 플레이리스트에 영상을 먼저 담아주세요.");
+    if (playlistQueue.length === 0) {
+      setStatus("공개할 코스에 영상을 먼저 담아주세요.");
       return;
     }
 
@@ -3349,18 +3409,39 @@ function BoardPage({
     setIsPublishingCourse(true);
 
     try {
-      const saved = await createPlaylist(session.token, {
+      const draft = {
+        ...activeDraft,
         title: courseTitle.trim(),
         description:
           courseDescription.trim() ||
-          `${postIds.length}개 영상으로 구성한 학습 플레이리스트입니다.`,
-        postIds,
+          `${playlistQueue.length}개 영상으로 구성한 학습 코스입니다.`,
+      };
+      const saved = await importCourseDraft({
+        userId: session.user.id,
+        draft,
+        activeUserId: () => readSession()?.user.id ?? null,
+        create: createCourse,
+        publish: publishCourse,
+        complete: (envelope) => {
+          commitPlaylistDraftState((current) =>
+            completeImportedPlaylistDraft(
+              current,
+              envelope,
+              session.user.id,
+              createPlaylistDraft<QueueVideo>(),
+            ),
+          );
+        },
       });
       setStatus(
-        `"${saved.title}" 게시글을 공개했어요. 내 플레이리스트는 그대로 유지됩니다.`,
+        `"${saved.title}" 코스를 공개했어요.`,
       );
-    } catch {
-      setStatus("게시글 공개에 실패했어요.");
+    } catch (error) {
+      setStatus(
+        error instanceof Error
+          ? `코스 공개에 실패했어요. ${error.message}`
+          : "코스 공개에 실패했어요. 작성 중인 코스는 그대로 보존됩니다.",
+      );
     } finally {
       setIsPublishingCourse(false);
     }
@@ -4030,7 +4111,7 @@ function PlaylistCommentSection({
   title,
   onSubmit,
 }: {
-  comments: PlaylistFeedback[];
+  comments: CourseFeedback[];
   currentUserId: number;
   title?: string;
   onSubmit: (body: string) => Promise<void>;
@@ -4126,7 +4207,14 @@ function CoursePage({ session }: { session: Session }) {
   const [courseMatches, setCourseMatches] = useState<Playlist[]>([]);
   const [agentResult, setAgentResult] = useState<AgentResponse | null>(null);
   const [mcpResult, setMcpResult] = useState<McpResponse | null>(null);
-  const [playlists, setPlaylists] = useState<Playlist[]>([]);
+  const [courses, setCourses] = useState<Course[]>([]);
+  const playlists = useMemo(
+    () =>
+      courses
+        .filter((course) => course.status !== "archived")
+        .map(playlistViewFromCourse),
+    [courses],
+  );
   const [posts, setPosts] = useState<StudyPost[]>([]);
   const [status, setStatus] = useState(
     hasProfile
@@ -4139,17 +4227,19 @@ function CoursePage({ session }: { session: Session }) {
 
   useEffect(() => {
     void refreshCourseData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session.token]);
+  }, [session.user.id]);
 
   async function refreshCourseData() {
     try {
-      const [nextPlaylists, nextPosts] = await Promise.all([
-        fetchPlaylists(session.token),
-        fetchOwnedPostsForLibrary(session.token),
+      const [nextCourses, ownedPosts] = await Promise.all([
+        fetchOwnerCourses(),
+        fetchOwnedPostsForLibrary(),
       ]);
-      setPlaylists(nextPlaylists);
-      setPosts(nextPosts);
+      setCourses(nextCourses);
+      setPosts([
+        ...nextCourses.flatMap((course) => postsFromCourse(course, ownedPosts)),
+        ...ownedPosts,
+      ]);
     } catch {
       setStatus("학습 코스 데이터를 불러오지 못했어요. 서버를 확인하세요.");
     }
@@ -4234,9 +4324,8 @@ function CoursePage({ session }: { session: Session }) {
   }
 
   function playSavedPlaylist(playlist: Playlist) {
-    const courseVideos = postsForPlaylist(playlist).map((post) =>
-      queueVideoFromPost(post),
-    );
+    const course = courses.find((candidate) => candidate.id === playlist.id);
+    const courseVideos = course?.steps.map(queueVideoFromCourseStep) ?? [];
 
     if (courseVideos.length === 0) {
       setStatus(
@@ -4247,12 +4336,6 @@ function CoursePage({ session }: { session: Session }) {
 
     addVideosToQueue(courseVideos, courseVideos[0]);
     navigate(`/watch?videoId=${courseVideos[0].videoId}`);
-  }
-
-  function postsForPlaylist(playlist: Playlist) {
-    return playlist.postIds
-      .map((postId) => posts.find((post) => post.id === postId))
-      .filter((post): post is StudyPost => Boolean(post));
   }
 
   async function saveGeneratedCourse() {
@@ -4267,15 +4350,29 @@ function CoursePage({ session }: { session: Session }) {
     try {
       const postIds = await ensurePostIdsForGeneratedVideos(generatedVideos);
 
-      const saved = await createPlaylist(session.token, {
-        title:
-          agentResult?.playlistTitle ??
-          `${query.trim() || initialQuery || "AI 추천"} 학습 코스`,
-        description:
-          agentResult?.rationale ??
-          "내 취향과 검색 결과를 바탕으로 만든 학습 코스입니다.",
-        postIds,
-      });
+      const title =
+        agentResult?.playlistTitle ??
+        `${query.trim() || initialQuery || "AI 추천"} 학습 코스`;
+      const description =
+        agentResult?.rationale ??
+        "내 취향과 검색 결과를 바탕으로 만든 학습 코스입니다.";
+      const created = await createCourse(
+        {
+          title,
+          description,
+          steps: postIds.map((sourcePostId) => ({ sourcePostId })),
+        },
+        generatedCourseIdempotencyKey(
+          session.user.id,
+          title,
+          description,
+          postIds,
+        ),
+      );
+      const saved =
+        created.status === "draft"
+          ? await publishCourse(created.id, created.version)
+          : created;
       await refreshCourseData();
       setStatus(
         `"${saved.title}" 코스를 저장했어요. 학습 화면에서 바로 선택할 수 있습니다.`,
@@ -4304,10 +4401,7 @@ function CoursePage({ session }: { session: Session }) {
         continue;
       }
 
-      const savedPost = await createPost(
-        session.token,
-        postPayloadFromQueueVideo(video),
-      );
+      const savedPost = await createPost(postPayloadFromQueueVideo(video));
       availablePosts = [savedPost, ...availablePosts];
 
       if (!seenPostIds.has(savedPost.id)) {
@@ -4502,8 +4596,7 @@ function CoursePage({ session }: { session: Session }) {
 function WatchPage({ session }: { session: Session }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [queue, setQueue] = useState<QueueVideo[]>(() => readWatchQueue());
-  const [savedPlaylists, setSavedPlaylists] = useState<Playlist[]>([]);
-  const [libraryPosts, setLibraryPosts] = useState<StudyPost[]>([]);
+  const [savedCourses, setSavedCourses] = useState<Course[]>([]);
   const [playlistDraftState, setPlaylistDraftState] = useState<
     PlaylistDraftState<QueueVideo>
   >(() => readPlaylistDraftState());
@@ -4682,12 +4775,11 @@ function WatchPage({ session }: { session: Session }) {
   const playlistChoices = useMemo(
     () =>
       buildWatchPlaylistChoices({
-        savedPlaylists,
-        posts: libraryPosts,
+        savedCourses,
         drafts: playlistDraftState.drafts,
-        videoFromPost: queueVideoFromPost,
+        videoFromCourseStep: queueVideoFromCourseStep,
       }),
-    [libraryPosts, playlistDraftState.drafts, savedPlaylists],
+    [playlistDraftState.drafts, savedCourses],
   );
   const activePlaylistChoice = useMemo(
     () =>
@@ -4710,24 +4802,19 @@ function WatchPage({ session }: { session: Session }) {
       setPlaylistDraftState(draftState);
 
       try {
-        const [nextPlaylists, nextPosts] = await Promise.all([
-          fetchPlaylists(session.token),
-          fetchOwnedPostsForLibrary(session.token),
-        ]);
+        const nextCourses = await fetchOwnerCourses();
 
         if (cancelled) {
           return;
         }
 
         const nextChoices = buildWatchPlaylistChoices({
-          savedPlaylists: nextPlaylists,
-          posts: nextPosts,
+          savedCourses: nextCourses,
           drafts: draftState.drafts,
-          videoFromPost: queueVideoFromPost,
+          videoFromCourseStep: queueVideoFromCourseStep,
         });
 
-        setSavedPlaylists(nextPlaylists);
-        setLibraryPosts(nextPosts);
+        setSavedCourses(nextCourses);
         setPlaylistLibraryStatus(
           nextChoices.length > 0
             ? `${nextChoices.length}개의 플레이리스트를 고를 수 있어요.`
@@ -4748,7 +4835,7 @@ function WatchPage({ session }: { session: Session }) {
     return () => {
       cancelled = true;
     };
-  }, [session.token]);
+  }, [session.user.id]);
 
   useEffect(() => {
     if (!currentVideo) {
@@ -5984,18 +6071,75 @@ function PlaylistPreview({
   );
 }
 
-async function fetchOwnedPostsForLibrary(token: string) {
+async function fetchOwnedPostsForLibrary() {
   const pageSize = 24;
-  const firstPage = await fetchPosts(token, "", 1, pageSize);
+  const firstPage = await fetchPosts("", 1, pageSize);
   const posts = [...firstPage.items];
   const totalPages = Math.ceil(firstPage.total / pageSize);
 
   for (let page = 2; page <= totalPages; page += 1) {
-    const result = await fetchPosts(token, "", page, pageSize);
+    const result = await fetchPosts("", page, pageSize);
     posts.push(...result.items);
   }
 
   return posts;
+}
+
+function playlistViewFromCourse(course: Course): Playlist {
+  return {
+    id: course.id,
+    ownerId: course.ownerId ?? 0,
+    title: course.title,
+    description: course.description,
+    postIds: course.steps.map((step) => courseStepViewId(course.id, step)),
+    feedback: course.feedback.map((feedback) => ({
+      ...feedback,
+      playlistId: course.id,
+      authorId: feedback.authorId ?? -1,
+    })),
+    createdAt: course.createdAt,
+  };
+}
+
+function postsFromCourse(course: Course, sourcePosts: StudyPost[] = []) {
+  const sourceById = new Map(sourcePosts.map((post) => [post.id, post]));
+  return course.steps.map((step) => {
+    const source = step.sourcePostId ? sourceById.get(step.sourcePostId) : null;
+    return {
+      id: courseStepViewId(course.id, step),
+      authorId: course.ownerId ?? source?.authorId ?? 0,
+      authorName: source?.authorName ?? "Course author",
+      title: step.snapshot.title,
+      videoUrl: step.snapshot.videoUrl,
+      thumbnailUrl: step.snapshot.thumbnailUrl,
+      channelName: step.snapshot.channelName,
+      summary: source?.summary ?? "",
+      translatedNotes: source?.translatedNotes ?? "",
+      tags: source?.tags ?? [],
+      comments: [],
+      createdAt: course.createdAt,
+      updatedAt: course.updatedAt,
+    } satisfies StudyPost;
+  });
+}
+
+function courseStepViewId(courseId: number, step: Course["steps"][number]) {
+  return -(courseId * 1_000 + step.position);
+}
+
+function generatedCourseIdempotencyKey(
+  userId: number,
+  title: string,
+  description: string,
+  postIds: number[],
+) {
+  const value = `${title}\n${description}\n${postIds.join(",")}`;
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `generated-course:v1:u${userId}:p${(hash >>> 0).toString(36)}`;
 }
 
 function formatDate(value: string) {

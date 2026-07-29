@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   NotFoundException,
   ServiceUnavailableException,
@@ -183,6 +184,28 @@ describe('StudyBoardService', () => {
         postIds: [],
       }),
     ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('protects an audited legacy source post until Course activation', async () => {
+    const repository = new MemoryBoardRepository();
+    repository.hasCompletedCourseBackfillAuditForPost = jest
+      .fn()
+      .mockResolvedValue(true);
+    service = new StudyBoardService(repository);
+    const post = await service.createPost(learner, postInput('audited-source'));
+
+    await expect(service.deletePost(learner, post.id)).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+
+    service = new StudyBoardService(
+      repository,
+      undefined,
+      new CourseCutoverPolicy('course'),
+    );
+    await expect(service.deletePost(learner, post.id)).resolves.toEqual({
+      deleted: true,
+    });
   });
 
   it('enforces playlist ownership while preserving authenticated item additions', async () => {

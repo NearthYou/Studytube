@@ -100,6 +100,7 @@ export type BoardRepository = {
   findPost(id: number): Promise<StudyPost | null>;
   createPost(input: CreatePostInput): Promise<StudyPost>;
   updatePost(id: number, input: UpdatePostInput): Promise<StudyPost | null>;
+  hasCompletedCourseBackfillAuditForPost(postId: number): Promise<boolean>;
   deletePost(id: number): Promise<boolean>;
   findVideoAsset(postId: number): Promise<VideoAsset | null>;
   upsertVideoAsset(input: CreateVideoAssetInput): Promise<VideoAsset>;

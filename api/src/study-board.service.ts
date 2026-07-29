@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -148,6 +149,15 @@ export class StudyBoardService {
     this.assertSourceMutationAllowed();
     return this.withCourseWriterSharedLease(async () => {
       await this.requireOwnedPost(id, actor.userId);
+
+      if (
+        this.courseCutoverPolicy.mode !== 'course' &&
+        (await this.repository.hasCompletedCourseBackfillAuditForPost(id))
+      ) {
+        throw new ConflictException(
+          'An audited legacy source post cannot be deleted before Course activation',
+        );
+      }
 
       return {
         deleted: await this.repository.deletePost(id),

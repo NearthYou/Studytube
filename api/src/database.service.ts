@@ -1086,6 +1086,25 @@ export class DatabaseService
     return (result.rowCount ?? 0) > 0;
   }
 
+  async hasCompletedCourseBackfillAuditForPost(
+    postId: number,
+  ): Promise<boolean> {
+    const result = await this.pool.query<{ audited: boolean }>(
+      `
+        SELECT EXISTS (
+          SELECT 1
+          FROM playlist_items AS item
+          JOIN course_backfill_audits AS audit
+            ON audit.legacy_playlist_id = item.playlist_id
+          WHERE item.post_id = $1
+        ) AS audited
+      `,
+      [postId],
+    );
+
+    return result.rows[0]?.audited ?? false;
+  }
+
   async findVideoAsset(postId: number): Promise<VideoAsset | null> {
     const result = await this.pool.query<VideoAssetRow>(
       `

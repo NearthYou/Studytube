@@ -3,9 +3,9 @@ import { check, fail, group, sleep } from 'k6';
 import { Rate } from 'k6/metrics';
 
 const BASE_URL = (__ENV.K6_BASE_URL || 'http://127.0.0.1:3000').replace(/\/+$/, '');
+const READINESS_URL = (__ENV.K6_READINESS_URL || `${BASE_URL}/health/live`).replace(/\/+$/, '');
 const SEARCH_TERM = __ENV.K6_SEARCH_TERM || '학습';
-const LOGIN_EMAIL = __ENV.K6_LOGIN_EMAIL || '';
-const LOGIN_PASSWORD = __ENV.K6_LOGIN_PASSWORD || '';
+const SESSION_COOKIE = __ENV.K6_SESSION_COOKIE || '';
 const RUN_ID = __ENV.K6_RUN_ID || `load-${new Date().toISOString().replace(/[-:.]/g, '')}`;
 const EVIDENCE_PATH = __ENV.K6_EVIDENCE_PATH || `docs/evidence/operations/results/${RUN_ID}.json`;
 const flowErrors = new Rate('flow_errors');
@@ -42,7 +42,6 @@ export const options = {
     http_req_failed: ['rate<0.01'],
     http_req_duration: ['p(95)<1000', 'p(99)<2000'],
     'http_req_duration{flow:public_posts}': ['p(95)<800', 'p(99)<1500'],
-    'http_req_duration{flow:login}': ['p(95)<1500', 'p(99)<2500'],
     'http_req_duration{flow:posts}': ['p(95)<800', 'p(99)<1500'],
     'http_req_duration{flow:courses}': ['p(95)<800', 'p(99)<1500'],
     'http_req_duration{flow:search}': ['p(95)<1000', 'p(99)<1800'],
@@ -62,18 +61,35 @@ function isLoopbackTarget(value) {
   return ['127.0.0.1', 'localhost', '[::1]'].includes(host);
 }
 
-function assertSafeConfiguration() {
-  if (!/^https?:\/\//i.test(BASE_URL) || BASE_URL.includes('@') || /[?#]/.test(BASE_URL)) {
-    fail('K6_BASE_URL must be an HTTP base path without credentials, query parameters, or fragments.');
+function targetAuthority(value) {
+  const match = value.match(/^(https?):\/\/([^/?#]+)/i);
+  return match ? `${match[1].toLowerCase()}://${match[2].toLowerCase()}` : '';
+}
+
+function assertHttpTarget(value, name) {
+  if (!/^https?:\/\//i.test(value) || value.includes('@') || /[?#]/.test(value)) {
+    fail(`${name} must be an HTTP URL without credentials, query parameters, or fragments.`);
   }
+}
+
+function assertSafeConfiguration() {
+  assertHttpTarget(BASE_URL, 'K6_BASE_URL');
+  assertHttpTarget(READINESS_URL, 'K6_READINESS_URL');
   if (__ENV.K6_ACKNOWLEDGE_LOAD !== 'true') {
     fail('Set K6_ACKNOWLEDGE_LOAD=true after confirming the target and test window.');
   }
   if (!isLoopbackTarget(BASE_URL) && __ENV.K6_ACKNOWLEDGE_TARGET !== BASE_URL) {
     fail('For a non-loopback target, K6_ACKNOWLEDGE_TARGET must exactly match K6_BASE_URL.');
   }
-  if (!LOGIN_EMAIL || !LOGIN_PASSWORD) {
-    fail('K6_LOGIN_EMAIL and K6_LOGIN_PASSWORD are required for the full core flow.');
+  if (
+    targetAuthority(READINESS_URL) !== targetAuthority(BASE_URL) &&
+    !isLoopbackTarget(READINESS_URL) &&
+    __ENV.K6_ACKNOWLEDGE_READINESS_TARGET !== READINESS_URL
+  ) {
+    fail('A non-loopback readiness URL on another authority requires an exact K6_ACKNOWLEDGE_READINESS_TARGET match.');
+  }
+  if (!/^(?:__Host-)?studytube_session=[^\s;]+$/.test(SESSION_COOKIE)) {
+    fail('K6_SESSION_COOKIE must contain only a StudyTube session cookie name and value.');
   }
 }
 
@@ -87,15 +103,22 @@ function expectStatus(response, flow, expectedStatus) {
   return passed;
 }
 
-function get(path, flow) {
-  const response = http.get(`${BASE_URL}${path}`, { tags: { flow } });
+function get(path, flow, headers) {
+  const response = http.get(`${BASE_URL}${path}`, {
+    tags: { flow },
+    ...(headers ? { headers } : {}),
+  });
   expectStatus(response, flow, 200);
   return response;
 }
 
+function sessionHeaders() {
+  return { Cookie: SESSION_COOKIE };
+}
+
 export function setup() {
   assertSafeConfiguration();
-  const response = http.get(`${BASE_URL}/health/ready`, { tags: { flow: 'readiness' } });
+  const response = http.get(READINESS_URL, { tags: { flow: 'readiness' } });
   if (!expectStatus(response, 'readiness', 200)) {
     fail('Target readiness failed before the load scenario started.');
   }
@@ -108,27 +131,12 @@ export default function () {
     get('/explore/courses?limit=20', 'public_courses');
   });
 
-  const login = http.post(
-    `${BASE_URL}/auth/login`,
-    JSON.stringify({ email: LOGIN_EMAIL, password: LOGIN_PASSWORD }),
-    {
-      headers: { 'Content-Type': 'application/json' },
-      tags: { flow: 'login' },
-    },
-  );
-  if (!expectStatus(login, 'login', 200)) {
-    sleep(1);
-    return;
-  }
-
+  const headers = sessionHeaders();
   group('authenticated learning lists', () => {
-    get('/posts?page=1&pageSize=20', 'posts');
-    get('/courses?limit=20', 'courses');
-    get(`/posts?search=${encodeURIComponent(SEARCH_TERM)}&page=1&pageSize=20`, 'search');
+    get('/posts?page=1&pageSize=20', 'posts', headers);
+    get('/courses?limit=20', 'courses', headers);
+    get(`/posts?search=${encodeURIComponent(SEARCH_TERM)}&page=1&pageSize=20`, 'search', headers);
   });
-
-  const logout = http.post(`${BASE_URL}/auth/logout`, null, { tags: { flow: 'logout' } });
-  expectStatus(logout, 'logout', 204);
   sleep(Number(__ENV.K6_ITERATION_SLEEP_SECONDS || 1));
 }
 
@@ -180,6 +188,8 @@ export function handleSummary(data) {
       profile: 'authenticated-read-only',
     },
     configuration: {
+      readinessUrl: READINESS_URL,
+      authentication: 'preprovisioned-session',
       startVus: START_VUS,
       targetVus: TARGET_VUS,
       rampDuration: RAMP_DURATION,

@@ -50,6 +50,9 @@
 | `selectedScenario` | string | 실행한 단일 시나리오 또는 All |
 | `safety.localTargetsOnly` | boolean | 루프백과 로컬 Docker 제한 적용 여부 |
 | `safety.explicitInterruptionAcknowledgement` | boolean | 중단 승인 스위치 존재 여부 |
+| `safety.apiTransport` | string | API readiness에 사용한 tcp 또는 unix-socket 경계 |
+| `safety.apiSocketPath` | string 또는 null | Unix socket 사용 시 로컬 socket 경로 |
+| `safety.apiReadinessUrl` | string | 응답 본문을 버리고 확인한 readiness URL |
 | `scenarios[].hypothesis` | string | 실행 전에 선언한 복구 가설 |
 | `scenarios[].baselineHealthy` | boolean | 실패 주입 전 정상 상태 여부 |
 | `scenarios[].faultObserved` | boolean | 의도한 실패가 실제 관찰됐는지 여부 |
@@ -69,10 +72,10 @@
 | --- | --- | --- |
 | `target.baseUrl` | string | 승인된 테스트 대상, 자격 증명은 없음 |
 | `target.profile` | string | 현재 흐름인 authenticated-read-only |
-| `configuration` | object | VU 수, 각 구간 길이, 고정 검색어 |
+| `configuration` | object | readiness URL, preprovisioned-session 인증 방식, VU 수, 각 구간 길이, 고정 검색어 |
 | `latency.overall` | object | 전체 p50, p95, p99, 평균, 최대, 표본 수 |
 | `latency.publicPosts` | object | 공개 게시물 목록 지연 시간 |
-| `latency.login` | object | 로그인 지연 시간 |
+| `latency.login` | object 또는 null | 스키마 호환 필드. 미리 발급한 세션 흐름에서는 null |
 | `latency.posts` | object | 인증 게시물 목록 지연 시간 |
 | `latency.courses` | object | 인증 코스 목록 지연 시간 |
 | `latency.search` | object | 게시물 검색 지연 시간 |
@@ -82,6 +85,8 @@
 | `volume.httpFailures` | object | HTTP 실패율 |
 | `thresholds` | object | 각 k6 임계값의 통과 여부 |
 | `retention` | object | 자격 증명, 응답 본문, Cookie 미보존 확인 |
+
+세션 cookie는 환경에서 각 VU의 명시적 request header로만 전달되며 setup return이나 k6 cookie jar를 거치지 않습니다. summary에는 readiness URL과 `preprovisioned-session` 방식만 기록하고 session cookie 값과 자격 증명은 기록하지 않습니다. 스크립트가 로그인이나 로그아웃을 호출하지 않으므로 `latency.login`은 null입니다.
 
 ## 실험 기록
 

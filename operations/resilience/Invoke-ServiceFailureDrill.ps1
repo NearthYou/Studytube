@@ -10,6 +10,7 @@ param(
   [string]$Scenario = 'All',
   [string]$ComposeFile,
   [string]$ApiBaseUrl = 'http://127.0.0.1:3000',
+  [string]$ApiSocketPath,
   [string]$AiBaseUrl = 'http://127.0.0.1:8000',
   [string]$DatabaseName = 'app_dev',
   [string]$DatabaseUser = 'app',
@@ -42,6 +43,14 @@ Assert-SafePostgresIdentifier -Value $DatabaseUser -Name 'DatabaseUser'
 
 $apiUri = Assert-LocalHttpUri -Value $ApiBaseUrl -Name 'ApiBaseUrl'
 $aiUri = Assert-LocalHttpUri -Value $AiBaseUrl -Name 'AiBaseUrl'
+if ($ApiSocketPath -and $ApiSocketPath -cnotmatch '^/run/studytube/[A-Za-z0-9._-]+\.sock$') {
+  throw 'ApiSocketPath must match /run/studytube/[A-Za-z0-9._-]+.sock.'
+}
+$apiReadinessUri = if ($ApiSocketPath) {
+  [Uri]'http://localhost/health/ready'
+} else {
+  [Uri]::new($apiUri, '/health/ready')
+}
 $scenarioDefinitions = @(
   [ordered]@{
     name = 'Valkey'
@@ -84,6 +93,9 @@ $plan = [ordered]@{
   recoveryGuaranteed = $true
   composeFile = [IO.Path]::GetFullPath($ComposeFile)
   apiBaseUrl = $apiUri.GetLeftPart([UriPartial]::Authority)
+  apiTransport = if ($ApiSocketPath) { 'unix-socket' } else { 'tcp' }
+  apiSocketPath = if ($ApiSocketPath) { $ApiSocketPath } else { $null }
+  apiReadinessUrl = $apiReadinessUri.AbsoluteUri
   aiBaseUrl = $aiUri.GetLeftPart([UriPartial]::Authority)
   scenarios = $selectedDefinitions
 }
@@ -130,6 +142,45 @@ function Test-PostgresReady {
     'exec', '-T', 'postgres', 'pg_isready', '-U', $DatabaseUser, '-d', $DatabaseName
   ) -AllowFailure
   return $result.ExitCode -eq 0 -and $result.Output -match 'accepting connections'
+}
+
+function Get-ApiReadinessProbe {
+  param(
+    [Parameter(Mandatory = $true)][Uri]$Uri,
+    [AllowNull()][string]$SocketPath,
+    [int]$TimeoutSeconds = 5
+  )
+
+  if (-not $SocketPath) {
+    return Get-HttpProbe -Uri $Uri -TimeoutSeconds $TimeoutSeconds
+  }
+
+  $result = Invoke-ExternalCommand -FilePath 'curl' -ArgumentList @(
+    '--silent',
+    '--show-error',
+    '--output', '/dev/null',
+    '--write-out', '%{http_code}',
+    '--max-time', [string]$TimeoutSeconds,
+    '--unix-socket', $SocketPath,
+    $Uri.AbsoluteUri
+  ) -AllowFailure
+  $statusCode = if ($result.Output -match '^[0-9]{3}$') {
+    [int]$result.Output
+  } else {
+    0
+  }
+  $success = $result.ExitCode -eq 0 -and $statusCode -ge 200 -and $statusCode -lt 300
+  return [pscustomobject]@{
+    Success = $success
+    StatusCode = $statusCode
+    Error = if ($success) {
+      $null
+    } elseif ($statusCode -gt 0) {
+      "HTTP status $statusCode"
+    } else {
+      Protect-OperationalText $result.Output
+    }
+  }
 }
 
 function Test-WorkerResultUniqueness {
@@ -334,11 +385,11 @@ function Invoke-DatabaseFailure {
   $wasHealthy = $false
   $faultAttempted = $false
   $recoveryStartedAt = $null
-  $readinessUri = [Uri]::new($apiUri, '/health/ready')
+  $readinessUri = $apiReadinessUri
   try {
     [void](Assert-ComposeServiceOwnership -ComposeFile $ComposeFile -Service 'postgres')
     $wasHealthy = Test-PostgresReady
-    $baseline = Get-HttpProbe -Uri $readinessUri
+    $baseline = Get-ApiReadinessProbe -Uri $readinessUri -SocketPath $ApiSocketPath
     if (-not $wasHealthy -or -not $baseline.Success) { throw 'Database or API readiness baseline failed before fault injection.' }
     $result.baselineHealthy = $true
 
@@ -346,7 +397,7 @@ function Invoke-DatabaseFailure {
     $faultAttempted = $true
     [void](Invoke-DockerCompose -ComposeFile $ComposeFile -ArgumentList @('stop', '--timeout', '10', 'postgres'))
     Wait-OperationsCondition -TimeoutSeconds 20 -Description 'API database outage response' -Condition {
-      -not (Get-HttpProbe -Uri $readinessUri -TimeoutSeconds 3).Success
+      -not (Get-ApiReadinessProbe -Uri $readinessUri -SocketPath $ApiSocketPath -TimeoutSeconds 3).Success
     }
     $result.faultObserved = $true
   }
@@ -359,11 +410,11 @@ function Invoke-DatabaseFailure {
         [void](Invoke-DockerCompose -ComposeFile $ComposeFile -ArgumentList @('up', '-d', '--no-deps', 'postgres'))
         Wait-OperationsCondition -TimeoutSeconds $RecoveryTimeoutSeconds -Description 'PostgreSQL recovery' -Condition { Test-PostgresReady }
         Wait-OperationsCondition -TimeoutSeconds $RecoveryTimeoutSeconds -Description 'API readiness recovery' -Condition {
-          (Get-HttpProbe -Uri $readinessUri).Success
+          (Get-ApiReadinessProbe -Uri $readinessUri -SocketPath $ApiSocketPath).Success
         }
         $result.integrityCheck = [ordered]@{
           name = 'database_query_and_api_readiness'
-          passed = (Test-PostgresReady) -and (Get-HttpProbe -Uri $readinessUri).Success
+          passed = (Test-PostgresReady) -and (Get-ApiReadinessProbe -Uri $readinessUri -SocketPath $ApiSocketPath).Success
         }
         $result.recoveryObserved = $result.integrityCheck.passed
       }
@@ -390,6 +441,9 @@ try {
   $dockerContext = Assert-LocalDockerContext
   if (-not (Get-Command systemctl -ErrorAction SilentlyContinue)) {
     throw 'systemctl is required for the worker and AI recovery drills.'
+  }
+  if ($ApiSocketPath -and -not (Get-Command curl -ErrorAction SilentlyContinue)) {
+    throw 'curl is required for API Unix socket readiness probes.'
   }
 }
 catch {
@@ -428,6 +482,9 @@ $evidence = [ordered]@{
     explicitInterruptionAcknowledgement = [bool]$AcknowledgeServiceInterruption
     composeFile = [IO.Path]::GetFullPath($ComposeFile)
     dockerContext = $dockerContext
+    apiTransport = if ($ApiSocketPath) { 'unix-socket' } else { 'tcp' }
+    apiSocketPath = if ($ApiSocketPath) { $ApiSocketPath } else { $null }
+    apiReadinessUrl = $apiReadinessUri.AbsoluteUri
   }
   scenarios = @($results)
   preflightError = $preflightError

@@ -59,7 +59,8 @@ pwsh ./operations/backup/Invoke-PostgresRestoreDrill.ps1 `
 pwsh ./operations/resilience/Invoke-ServiceFailureDrill.ps1 `
   -PlanOnly `
   -Scenario All `
-  -ComposeFile ./infra/production.compose.yml
+  -ComposeFile ./infra/production.compose.yml `
+  -ApiSocketPath /run/studytube/api.sock
 ```
 
 승인된 점검 창에서 실제 실행합니다.
@@ -70,11 +71,13 @@ pwsh ./operations/resilience/Invoke-ServiceFailureDrill.ps1 `
   -AcknowledgeServiceInterruption `
   -Scenario All `
   -ComposeFile ./infra/production.compose.yml `
-  -ApiBaseUrl http://127.0.0.1:3000 `
+  -ApiSocketPath /run/studytube/api.sock `
   -AiBaseUrl http://127.0.0.1:8000
 ```
 
 개별 `-Scenario` 값은 `Valkey`, `Worker`, `AI`, `Database`입니다.
+
+운영 API readiness는 임시 TCP proxy를 만들지 않고 `-ApiSocketPath`로 지정한 Unix socket에 `curl --unix-socket`으로 직접 연결합니다. 허용되는 경로는 `/run/studytube/[A-Za-z0-9._-]+.sock`이며 기본 production systemd 경계는 `/run/studytube/api.sock`입니다. 로컬 개발처럼 API가 실제 loopback TCP listener를 사용하는 환경에서만 `-ApiSocketPath`를 생략하고 `-ApiBaseUrl`을 사용합니다.
 
 | 시나리오 | 실패 관찰 | 자동 복구와 검증 |
 | --- | --- | --- |
@@ -87,14 +90,14 @@ pwsh ./operations/resilience/Invoke-ServiceFailureDrill.ps1 `
 
 ## k6 핵심 흐름
 
-이 시나리오는 공개 게시물 목록, 공개 코스 목록, 로그인, 인증 게시물 목록, 인증 코스 목록, 게시물 검색, 로그아웃을 같은 반복에서 실행합니다. 운영 데이터를 늘리지 않도록 읽기 중심으로 구성했으며 응답 본문, Cookie, 이메일, 비밀번호를 증거에 저장하지 않습니다.
+이 시나리오는 setup에서 안전한 live endpoint의 readiness만 확인합니다. 운영자가 secure store에서 미리 발급받은 읽기 전용 테스트 세션을 `K6_SESSION_COOKIE`로 전달하면 각 VU가 매 iteration 동일한 명시적 Cookie header를 재사용합니다. 스크립트 자체는 로그인이나 로그아웃을 호출하지 않으므로 email/IP 로그인 rate limit을 소진하지 않으며 k6 cookie jar reset에도 의존하지 않습니다. 응답 본문, Cookie와 자격 증명은 setup return이나 증거에 저장하지 않습니다. 테스트 창이 끝나면 운영자가 secure store의 세션을 별도로 폐기합니다.
 
 로컬 실행 예시는 다음과 같습니다.
 
 ```powershell
 $env:K6_BASE_URL = 'http://127.0.0.1:3000'
-$env:K6_LOGIN_EMAIL = 'load-test@example.com'
-$env:K6_LOGIN_PASSWORD = '<secret-from-secure-store>'
+$env:K6_READINESS_URL = 'http://127.0.0.1:3000/health/live'
+$env:K6_SESSION_COOKIE = 'studytube_session=<value-from-secure-store>'
 $env:K6_ACKNOWLEDGE_LOAD = 'true'
 $env:K6_SEARCH_TERM = '학습'
 k6 run ./operations/load/studytube-core.js
@@ -104,6 +107,8 @@ k6 run ./operations/load/studytube-core.js
 
 ```powershell
 $env:K6_BASE_URL = 'https://approved.example.com/api'
+$env:K6_READINESS_URL = 'https://approved.example.com/api/health/live'
+$env:K6_SESSION_COOKIE = '__Host-studytube_session=<value-from-secure-store>'
 $env:K6_ACKNOWLEDGE_LOAD = 'true'
 $env:K6_ACKNOWLEDGE_TARGET = $env:K6_BASE_URL
 k6 run ./operations/load/studytube-core.js
@@ -118,10 +123,13 @@ k6 run ./operations/load/studytube-core.js
 | `K6_RAMP_DURATION` | 30s | 증가 구간 |
 | `K6_STEADY_DURATION` | 2m | 유지 구간 |
 | `K6_COOL_DOWN_DURATION` | 30s | 감소 구간 |
+| `K6_READINESS_URL` | `${K6_BASE_URL}/health/live` | setup에서 한 번 확인하는 안전한 live endpoint. 공개 Caddy의 private readiness 경로를 사용하지 않음 |
+| `K6_ACKNOWLEDGE_READINESS_TARGET` | 없음 | readiness가 비루프백의 다른 authority를 사용할 때 URL과 정확히 일치해야 하는 추가 승인값 |
+| `K6_SESSION_COOKIE` | 없음, 필수 | secure store에서 준비한 `studytube_session` 또는 `__Host-studytube_session` 이름과 값. CR/LF와 다른 cookie 이름은 거부 |
 | `K6_SEARCH_TERM` | 학습 | 모든 실행에 사용하는 검색어 |
 | `K6_EVIDENCE_PATH` | 실행 ID 기반 JSON 경로 | 결과 저장 경로 |
 
-기본 임계값은 전체 오류율 1퍼센트 미만, 전체 p95 1000ms 미만, 전체 p99 2000ms 미만입니다. 로그인 p95는 1500ms, p99는 2500ms이며 게시물과 코스 목록 p95는 800ms입니다. 임계값 변경이 필요하면 코드와 실행 증거에 변경 이유를 함께 남깁니다.
+기본 임계값은 전체 오류율 1퍼센트 미만, 전체 p95 1000ms 미만, 전체 p99 2000ms 미만입니다. 게시물과 코스 목록 p95는 800ms입니다. 임계값 변경이 필요하면 코드와 실행 증거에 변경 이유를 함께 남깁니다.
 
 ## 정적 계약 검증
 

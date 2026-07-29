@@ -6,6 +6,12 @@ type Rule = {
   pattern: RegExp;
 };
 
+type AllowedRuleMatch = {
+  ruleName: string;
+  relativePath: string;
+  sourceText: string;
+};
+
 const sourceRoot = resolve(__dirname, '../src');
 const rules: Rule[] = [
   {
@@ -19,20 +25,49 @@ const rules: Rule[] = [
       /\bINSERT\s+INTO\s+sessions\s*\(\s*token\b|\bSELECT\s+(?:s\.)?token\b[\s\S]{0,240}?\bFROM\s+sessions\b|\b(?:WHERE|AND)\s+(?:s\.)?token\s*=|\bRETURNING\s+token\s*,\s*user_id\b/giu,
   },
 ];
+// This guard consumes an internal service credential, never a browser session.
+// Keep the exception path, source text, and allowed occurrence count exact.
+const allowedRuleMatches: AllowedRuleMatch[] = [
+  {
+    ruleName: 'Authorization or Bearer credential consumer',
+    relativePath: 'mcp/mcp-service-assertion.guard.ts',
+    sourceText: 'headers.authorization',
+  },
+];
 
 async function main(): Promise<void> {
   const files = await productionTypeScriptFiles(sourceRoot);
   const violations: string[] = [];
+  const allowedMatchCounts = new Map<AllowedRuleMatch, number>();
 
   for (const file of files) {
     const source = await readFile(file, 'utf8');
+    const sourcePath = relative(sourceRoot, file).replaceAll('\\', '/');
     for (const rule of rules) {
       rule.pattern.lastIndex = 0;
       for (const match of source.matchAll(rule.pattern)) {
+        const allowed = allowedRuleMatches.find(
+          (candidate) =>
+            candidate.ruleName === rule.name &&
+            candidate.relativePath === sourcePath &&
+            candidate.sourceText === match[0],
+        );
+        if (allowed && (allowedMatchCounts.get(allowed) ?? 0) === 0) {
+          allowedMatchCounts.set(allowed, 1);
+          continue;
+        }
         violations.push(
-          `${relative(sourceRoot, file)}:${lineNumber(source, match.index ?? 0)} ${rule.name}`,
+          `${sourcePath}:${lineNumber(source, match.index ?? 0)} ${rule.name}`,
         );
       }
+    }
+  }
+
+  for (const allowed of allowedRuleMatches) {
+    if ((allowedMatchCounts.get(allowed) ?? 0) !== 1) {
+      violations.push(
+        `${allowed.relativePath} expected one explicit internal service assertion credential consumer`,
+      );
     }
   }
 

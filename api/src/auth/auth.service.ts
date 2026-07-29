@@ -27,6 +27,7 @@ import type {
   PasswordUpgrade,
   RateLimitResult,
 } from './auth.types';
+import { renderVerificationEmail } from './verification-email';
 
 export type VerificationTokenFactory = (
   pepper: Buffer | string,
@@ -396,12 +397,14 @@ export class AuthService {
       );
       const createdAt = startedAt;
       const outboxId = this.uuid();
-      const payloadHash = renderVerificationPayloadHash({
+      const payloadHash = renderVerificationEmail({
         pendingRegistrationId: verification.persistence.pendingRegistrationId,
+        verificationToken: verification.token,
         recipient: emailCanonical,
         ...this.options.delivery,
-      });
+      }).payloadHash;
       await this.repository.createPendingRegistration({
+        action,
         pendingRegistrationId: verification.persistence.pendingRegistrationId,
         emailCanonical,
         recipient: emailCanonical,
@@ -413,7 +416,7 @@ export class AuthService {
         ),
         outbox: {
           id: outboxId,
-          idempotencyKey: `verification:${verification.persistence.pendingRegistrationId}:${this.options.delivery.templateVersion}`,
+          idempotencyKey: `email-verification/${verification.persistence.pendingRegistrationId}`,
           ...this.options.delivery,
           payloadHash,
         },
@@ -562,29 +565,4 @@ function isLoginCredential(user: AuthUserCredential): boolean {
     (user.identityAssurance === 'email_verified' ||
       user.identityAssurance === 'legacy_grandfathered')
   );
-}
-
-function renderVerificationPayloadHash(input: {
-  pendingRegistrationId: string;
-  recipient: string;
-  sender: string;
-  publicOrigin: string;
-  templateVersion: string;
-  locale: string;
-  subject: string;
-}): Buffer {
-  const bytes = Buffer.from(
-    [
-      'studytube-verification-payload:v1',
-      input.pendingRegistrationId,
-      input.recipient,
-      input.sender,
-      input.publicOrigin,
-      input.templateVersion,
-      input.locale,
-      input.subject,
-    ].join('\n'),
-    'utf8',
-  );
-  return createHash('sha256').update(bytes).digest();
 }

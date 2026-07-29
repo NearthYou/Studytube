@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 import { COURSE_CUTOVER_ADVISORY_LOCK_KEY } from './course-cutover.policy';
 import {
@@ -129,6 +130,7 @@ export class PostgresCourseRepository implements CourseRepository {
         for (const [index, step] of command.course.steps.entries()) {
           await this.insertStep(client, courseId, index + 1, step);
         }
+        await this.enqueueCourseStepRetrieval(client, courseId, 1);
       }
 
       return this.requireOwner(client, command.ownerId, courseId);
@@ -188,7 +190,7 @@ export class PostgresCourseRepository implements CourseRepository {
     command: CourseMutationCommand & { title?: string; description?: string },
   ): Promise<CourseAggregate> {
     return this.mutate(async (client) => {
-      const result = await client.query<{ id: number }>(
+      const result = await client.query<{ id: number; version: number }>(
         `
           UPDATE courses
           SET title = COALESCE($4, title),
@@ -199,7 +201,7 @@ export class PostgresCourseRepository implements CourseRepository {
             AND owner_id = $2
             AND version = $3
             AND status <> 'archived'
-          RETURNING id
+          RETURNING id, version
         `,
         [
           command.courseId,
@@ -212,6 +214,11 @@ export class PostgresCourseRepository implements CourseRepository {
       if (!result.rows[0]) {
         await this.throwMutationMismatch(client, command);
       }
+      await this.enqueueCourseStepRetrieval(
+        client,
+        command.courseId,
+        result.rows[0].version,
+      );
       return this.requireOwner(client, command.ownerId, command.courseId);
     });
   }
@@ -262,6 +269,9 @@ export class PostgresCourseRepository implements CourseRepository {
           retainedIds.push(step.stepId);
         }
       }
+      const deletedIds = existing.rows
+        .filter(({ id }) => !retainedIds.includes(id))
+        .map(({ id }) => id);
 
       if (retainedIds.length === 0) {
         await client.query('DELETE FROM course_steps WHERE course_id = $1', [
@@ -288,13 +298,20 @@ export class PostgresCourseRepository implements CourseRepository {
         }
       }
 
-      await client.query(
+      const updated = await client.query<{ version: number }>(
         `
           UPDATE courses
           SET version = version + 1, updated_at = statement_timestamp()
           WHERE id = $1
+          RETURNING version
         `,
         [command.courseId],
+      );
+      await this.enqueueCourseStepRetrieval(
+        client,
+        command.courseId,
+        updated.rows[0].version,
+        deletedIds,
       );
       return this.requireOwner(client, command.ownerId, command.courseId);
     });
@@ -365,6 +382,7 @@ export class PostgresCourseRepository implements CourseRepository {
   ): Promise<CourseAggregate> {
     return this.mutate(async (client) => {
       const root = await this.lockOwnedCourse(client, command);
+      let courseVersion: number;
       if (action === 'publish') {
         if (root.status !== 'draft') {
           throw new CourseLifecycleError(
@@ -380,7 +398,7 @@ export class PostgresCourseRepository implements CourseRepository {
             'A Course must contain a step before publishing',
           );
         }
-        await client.query(
+        const updated = await client.query<{ version: number }>(
           `
             UPDATE courses
             SET status = 'published', visibility = 'public',
@@ -388,14 +406,16 @@ export class PostgresCourseRepository implements CourseRepository {
                 published_at = statement_timestamp(),
                 updated_at = statement_timestamp()
             WHERE id = $1
+            RETURNING version
           `,
           [command.courseId],
         );
+        courseVersion = updated.rows[0].version;
       } else {
         if (root.status === 'archived') {
           throw new CourseLifecycleError('An archived Course is immutable');
         }
-        await client.query(
+        const updated = await client.query<{ version: number }>(
           `
             UPDATE courses
             SET status = 'archived', visibility = 'private',
@@ -403,10 +423,17 @@ export class PostgresCourseRepository implements CourseRepository {
                 archived_at = statement_timestamp(),
                 updated_at = statement_timestamp()
             WHERE id = $1
+            RETURNING version
           `,
           [command.courseId],
         );
+        courseVersion = updated.rows[0].version;
       }
+      await this.enqueueCourseStepRetrieval(
+        client,
+        command.courseId,
+        courseVersion,
+      );
       return this.requireOwner(client, command.ownerId, command.courseId);
     });
   }
@@ -548,6 +575,70 @@ export class PostgresCourseRepository implements CourseRepository {
         snapshot.channelName,
         JSON.stringify(learningState),
       ],
+    );
+  }
+
+  private async enqueueCourseStepRetrieval(
+    client: PoolClient,
+    courseId: number,
+    courseVersion: number,
+    deletedStepIds: string[] = [],
+  ): Promise<void> {
+    const steps = await client.query<{ id: string }>(
+      `
+        SELECT id::text AS id
+        FROM course_steps
+        WHERE course_id = $1
+        ORDER BY id
+      `,
+      [courseId],
+    );
+    for (const step of steps.rows) {
+      await this.enqueueCourseStepRetrievalEvent(
+        client,
+        courseId,
+        courseVersion,
+        step.id,
+        true,
+      );
+    }
+    for (const stepId of deletedStepIds) {
+      await this.enqueueCourseStepRetrievalEvent(
+        client,
+        courseId,
+        courseVersion,
+        stepId,
+        false,
+      );
+    }
+  }
+
+  private async enqueueCourseStepRetrievalEvent(
+    client: PoolClient,
+    courseId: number,
+    courseVersion: number,
+    courseStepId: string,
+    includeSourceVersion: boolean,
+  ): Promise<void> {
+    const payload = {
+      sourceKind: 'course_step',
+      sourceId: courseStepId,
+      courseStepId,
+      ...(includeSourceVersion ? { sourceVersion: String(courseVersion) } : {}),
+      courseId,
+    };
+    await client.query(
+      `
+        INSERT INTO work_outbox_events (
+          id, event_type, aggregate_type, aggregate_id,
+          aggregate_version, payload_schema_version, payload, trace_context
+        )
+        VALUES (
+          $1, 'retrieval_embedding.requested', 'course_step', $2,
+          $3, 1, $4::jsonb, '{}'::jsonb
+        )
+      `,
+      [randomUUID(), courseStepId, courseVersion, JSON.stringify(payload)],
     );
   }
 

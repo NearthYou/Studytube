@@ -1,0 +1,11 @@
+export const RETRIEVAL_LEXICAL_MIN_SIMILARITY = 0.05;
+export const RETRIEVAL_VECTOR_MAX_DISTANCE = 0.45;
+export const RETRIEVAL_RRF_K = 60;
+export const RETRIEVAL_CANDIDATE_LIMIT = 50;
+
+export const RETRIEVAL_TUNING = Object.freeze({
+  lexicalMinSimilarity: RETRIEVAL_LEXICAL_MIN_SIMILARITY,
+  vectorMaxDistance: RETRIEVAL_VECTOR_MAX_DISTANCE,
+  rrfK: RETRIEVAL_RRF_K,
+  candidateLimit: RETRIEVAL_CANDIDATE_LIMIT,
+});

@@ -18,7 +18,7 @@ export class CreateCourseDto {
 
   @IsString()
   @MaxLength(COURSE_LIMITS.description)
-  description = '';
+  description: string = '';
 
   @IsArray()
   @ArrayMaxSize(COURSE_LIMITS.steps)

@@ -17,11 +17,7 @@ import {
   useSearchParams,
 } from "react-router";
 import "./App.css";
-import {
-  normalizeSession,
-  readSession,
-  saveSession,
-} from "./authSession";
+import { normalizeSession, readSession, saveSession } from "./authSession";
 import {
   addCourseFeedback,
   archiveCourse,
@@ -176,22 +172,32 @@ import {
   askAgent,
   askMcp,
   askRag,
+  completeRegistration,
+  consumeEmailVerification,
   createPost,
   deletePost,
   fetchPosts,
   fetchPublicPosts,
+  fetchRegistrationReadiness,
   fetchTranslatedCaptions,
   fetchVideoSummary,
   fetchMe,
   isUnauthorizedRequest,
   login,
   logout,
+  resendEmailVerification,
   setUnauthorizedHandler,
   signUp,
   updateMe,
   updatePost,
   verifyMe,
 } from "./api";
+import {
+  acceptedRegistrationEmail,
+  registrationEmailRequest,
+  type RegistrationEmailStage,
+} from "./registrationEmailFlow";
+import { consumeVerificationFragment } from "./verificationFlow";
 import type {
   AgentResponse,
   CaptionResponse,
@@ -341,6 +347,13 @@ function App() {
           path="/signup"
           element={<AuthPage mode="signup" onComplete={handleAuthComplete} />}
         />
+        <Route path="/signup/verify" element={<VerificationPage />} />
+        <Route
+          path="/signup/complete"
+          element={
+            <RegistrationCompletionPage onComplete={handleAuthComplete} />
+          }
+        />
         <Route
           path="/"
           element={
@@ -364,9 +377,7 @@ function App() {
           path="/board"
           element={
             <ProtectedRoute session={session}>
-              <BoardPage
-                session={session!}
-              />
+              <BoardPage session={session!} />
             </ProtectedRoute>
           }
         />
@@ -523,13 +534,7 @@ function GuardedLink({
   );
 }
 
-function GuardedNavLink({
-  children,
-  to,
-}: {
-  children: ReactNode;
-  to: string;
-}) {
+function GuardedNavLink({ children, to }: { children: ReactNode; to: string }) {
   const location = useLocation();
 
   function ignoreSamePageClick(event: ReactMouseEvent<HTMLAnchorElement>) {
@@ -555,16 +560,27 @@ function AuthPage({
   const navigate = useNavigate();
   const location = useLocation();
   const [form, setForm] = useState({
-    name: "",
     email: "",
     password: "",
   });
   const [status, setStatus] = useState(
     mode === "login"
       ? "계정으로 로그인하면 모든 학습 서비스가 열립니다."
-      : "회원가입 후 로그인 화면에서 다시 로그인해주세요.",
+      : "이메일을 입력하면 가입을 계속할 인증 링크를 보내드립니다.",
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const submissionInFlight = useRef(false);
+  const [registrationEmailStage, setRegistrationEmailStage] =
+    useState<RegistrationEmailStage>({ kind: "initial" });
+  const resendRequested =
+    mode === "signup" &&
+    typeof location.state === "object" &&
+    location.state !== null &&
+    "resend" in location.state &&
+    location.state.resend === true;
+  const isRegistrationResend =
+    mode === "signup" &&
+    (resendRequested || registrationEmailStage.kind === "sent");
   const from =
     typeof location.state === "object" &&
     location.state &&
@@ -576,22 +592,30 @@ function AuthPage({
   async function submit(event: FormEvent) {
     event.preventDefault();
 
-    if (isSubmitting) {
+    if (submissionInFlight.current) {
       return;
     }
 
+    submissionInFlight.current = true;
     setIsSubmitting(true);
 
     try {
       if (mode === "signup") {
-        await signUp(form);
-        navigate("/login", {
-          replace: true,
-          state: {
-            from: "/tutorial",
-            next: signupTutorialNextDestination(from),
-          },
-        });
+        const delivery = registrationEmailRequest(
+          registrationEmailStage,
+          form.email,
+          resendRequested,
+        );
+        if (delivery.action === "resend") {
+          await resendEmailVerification({ email: delivery.email });
+        } else {
+          await signUp({ email: delivery.email });
+        }
+        setRegistrationEmailStage(acceptedRegistrationEmail(delivery.email));
+        setForm((current) => ({ ...current, email: delivery.email }));
+        setStatus(
+          "인증 메일을 보냈습니다. 메일의 링크를 열어 가입을 계속해주세요.",
+        );
         return;
       }
 
@@ -607,6 +631,7 @@ function AuthPage({
           : "인증에 실패했어요. 이메일과 비밀번호를 확인하세요.",
       );
     } finally {
+      submissionInFlight.current = false;
       setIsSubmitting(false);
     }
   }
@@ -629,7 +654,7 @@ function AuthPage({
           ? { next: signupTutorialNextDestination(from) }
           : destination === "/tutorial" && nextAfterTutorial
             ? { next: nextAfterTutorial }
-          : undefined,
+            : undefined,
     });
   }
 
@@ -640,16 +665,6 @@ function AuthPage({
         <h1>{mode === "login" ? "로그인" : "회원가입"}</h1>
         <p>{status}</p>
         <form className="stack-form" onSubmit={submit}>
-          {mode === "signup" && (
-            <input
-              value={form.name}
-              onChange={(event) =>
-                setForm({ ...form, name: event.target.value })
-              }
-              placeholder="이름"
-              disabled={isSubmitting}
-            />
-          )}
           <input
             value={form.email}
             onChange={(event) =>
@@ -657,22 +672,31 @@ function AuthPage({
             }
             placeholder="이메일"
             type="email"
-            disabled={isSubmitting}
-          />
-          <input
-            value={form.password}
-            onChange={(event) =>
-              setForm({ ...form, password: event.target.value })
+            disabled={
+              isSubmitting ||
+              (mode === "signup" && registrationEmailStage.kind === "sent")
             }
-            placeholder="비밀번호"
-            type="password"
-            disabled={isSubmitting}
+            required
           />
+          {mode === "login" && (
+            <input
+              value={form.password}
+              onChange={(event) =>
+                setForm({ ...form, password: event.target.value })
+              }
+              placeholder="비밀번호"
+              type="password"
+              disabled={isSubmitting}
+              required
+            />
+          )}
           <button type="submit" disabled={isSubmitting}>
             {isSubmitting
               ? "처리 중"
               : mode === "signup"
-                ? "회원가입"
+                ? isRegistrationResend
+                  ? "인증 메일 다시 받기"
+                  : "인증 메일 받기"
                 : "로그인"}
           </button>
         </form>
@@ -683,6 +707,151 @@ function AuthPage({
             <Link to="/login">로그인으로 돌아가기</Link>
           )}
         </div>
+      </section>
+    </main>
+  );
+}
+
+function VerificationPage() {
+  const navigate = useNavigate();
+  const started = useRef(false);
+  const [status, setStatus] = useState("인증 링크를 확인하고 있습니다.");
+
+  useEffect(() => {
+    if (started.current) {
+      return;
+    }
+    started.current = true;
+
+    void consumeVerificationFragment(
+      window.location,
+      window.history,
+      consumeEmailVerification,
+    )
+      .then(() => navigate("/signup/complete", { replace: true }))
+      .catch(() => {
+        setStatus(
+          "인증 링크가 올바르지 않거나 만료되었습니다. 새 인증 메일을 요청해주세요.",
+        );
+      });
+  }, [navigate]);
+
+  return (
+    <main className="auth-page">
+      <section className="auth-card">
+        <p className="eyebrow">StudyTube Account</p>
+        <h1>이메일 인증</h1>
+        <p>{status}</p>
+        <div className="auth-switch">
+          <Link to="/signup" state={{ resend: true }}>
+            인증 메일 다시 받기
+          </Link>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function RegistrationCompletionPage({
+  onComplete,
+}: {
+  onComplete: (session: Session) => void;
+}) {
+  const navigate = useNavigate();
+  const [readiness, setReadiness] = useState<"checking" | "ready" | "invalid">(
+    "checking",
+  );
+  const [form, setForm] = useState({ name: "", password: "" });
+  const [status, setStatus] = useState("안전한 가입 세션을 확인하고 있습니다.");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    void fetchRegistrationReadiness()
+      .then(() => {
+        if (active) {
+          setReadiness("ready");
+          setStatus("이름과 비밀번호를 정하면 가입이 완료됩니다.");
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setReadiness("invalid");
+          setStatus(
+            "가입 세션이 없거나 만료되었습니다. 이메일 인증부터 다시 시작해주세요.",
+          );
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (readiness !== "ready" || isSubmitting) {
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const session = await completeRegistration(form);
+      onComplete(session);
+      navigate("/tutorial", {
+        replace: true,
+        state: { next: signupTutorialNextDestination("/") },
+      });
+    } catch (error) {
+      setStatus(
+        error instanceof Error
+          ? error.message
+          : "가입을 완료하지 못했습니다. 다시 시도해주세요.",
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  return (
+    <main className="auth-page">
+      <section className="auth-card">
+        <p className="eyebrow">StudyTube Account</p>
+        <h1>가입 완료</h1>
+        <p>{status}</p>
+        {readiness === "ready" && (
+          <form className="stack-form" onSubmit={submit}>
+            <input
+              value={form.name}
+              onChange={(event) =>
+                setForm({ ...form, name: event.target.value })
+              }
+              placeholder="이름"
+              autoComplete="name"
+              disabled={isSubmitting}
+              required
+            />
+            <input
+              value={form.password}
+              onChange={(event) =>
+                setForm({ ...form, password: event.target.value })
+              }
+              placeholder="비밀번호"
+              type="password"
+              autoComplete="new-password"
+              disabled={isSubmitting}
+              required
+            />
+            <button type="submit" disabled={isSubmitting}>
+              {isSubmitting ? "처리 중" : "가입 완료"}
+            </button>
+          </form>
+        )}
+        {readiness === "invalid" && (
+          <div className="auth-switch">
+            <Link to="/signup">이메일 인증 다시 시작하기</Link>
+          </div>
+        )}
       </section>
     </main>
   );
@@ -743,7 +912,7 @@ function TutorialPage({
     {
       label: "등록",
       title: "링크 분석",
-      meta: "요약 · 태그 · 노트",
+      meta: "요약 / 태그 / 노트",
     },
     {
       label: "코스",
@@ -753,7 +922,7 @@ function TutorialPage({
     {
       label: "학습",
       title: "마킹 메모",
-      meta: "자막 · 반복 구간",
+      meta: "자막 / 반복 구간",
     },
   ];
 
@@ -1018,8 +1187,8 @@ function MyPage({
           <p className="eyebrow">My page</p>
           <h1>내 정보</h1>
           <p>
-            계정 정보와 학습 취향을 확인합니다. 수정하려면 현재 비밀번호로
-            본인 확인을 먼저 진행합니다.
+            계정 정보와 학습 취향을 확인합니다. 수정하려면 현재 비밀번호로 본인
+            확인을 먼저 진행합니다.
           </p>
           <div className="profile-actions">
             <Link className="primary-link" to="/me/posts">
@@ -1086,7 +1255,7 @@ function MyPage({
           <small>현재 학습 취향</small>
           <p>{user.preferences.interests.join(", ")}</p>
           <span>
-            {user.preferences.pace} · {user.preferences.goal}
+            {user.preferences.pace} / {user.preferences.goal}
           </span>
           <span>가입일 {formatDate(user.createdAt)}</span>
           <Link className="profile-note-action" to="/me/posts">
@@ -1136,7 +1305,9 @@ function MyEditPage({
       ? verificationState.currentPassword
       : "";
   const [user, setUser] = useState(session.user);
-  const [draft, setDraft] = useState(() => profileEditDraftFromUser(session.user));
+  const [draft, setDraft] = useState(() =>
+    profileEditDraftFromUser(session.user),
+  );
   const [status, setStatus] = useState("수정할 정보를 불러오는 중입니다.");
   const [isSaving, setIsSaving] = useState(false);
   const verified = isProfileEditVerificationFresh(verifiedAt);
@@ -1239,7 +1410,9 @@ function MyEditPage({
           <div>
             <p className="eyebrow">Profile edit</p>
             <h1>본인 확인</h1>
-            <p>내 정보를 수정하려면 먼저 현재 비밀번호로 본인 확인을 진행합니다.</p>
+            <p>
+              내 정보를 수정하려면 먼저 현재 비밀번호로 본인 확인을 진행합니다.
+            </p>
           </div>
           <div className="profile-stats" aria-label="내 학습 데이터">
             <span>
@@ -1454,7 +1627,10 @@ function ProfileVerificationForm({
         </label>
         <div className="section-title compact-title">
           <span>{status}</span>
-          <button type="submit" disabled={isChecking || !currentPassword.trim()}>
+          <button
+            type="submit"
+            disabled={isChecking || !currentPassword.trim()}
+          >
             {isChecking ? "확인 중" : submitLabel}
           </button>
         </div>
@@ -1493,24 +1669,15 @@ function MyPostsPage({ session }: { session: Session }) {
     [playlists, posts, search],
   );
   const total = filteredPlaylists.length;
-  const totalPages = Math.max(
-    1,
-    Math.ceil(total / MY_PLAYLISTS_PAGE_SIZE),
-  );
+  const totalPages = Math.max(1, Math.ceil(total / MY_PLAYLISTS_PAGE_SIZE));
   const visiblePlaylists = useMemo(
     () =>
-      paginateManagedPlaylists(
-        filteredPlaylists,
-        page,
-        MY_PLAYLISTS_PAGE_SIZE,
-      ),
+      paginateManagedPlaylists(filteredPlaylists, page, MY_PLAYLISTS_PAGE_SIZE),
     [filteredPlaylists, page],
   );
   const selectedPlaylist = useMemo(
     () =>
-      visiblePlaylists.find(
-        (playlist) => playlist.id === selectedPlaylistId,
-      ) ??
+      visiblePlaylists.find((playlist) => playlist.id === selectedPlaylistId) ??
       visiblePlaylists[0] ??
       null,
     [selectedPlaylistId, visiblePlaylists],
@@ -1593,7 +1760,10 @@ function MyPostsPage({ session }: { session: Session }) {
       setPosts(nextPosts);
       setPage(boundedPage);
       setSelectedPlaylistId((current) => {
-        if (current && nextVisible.some((playlist) => playlist.id === current)) {
+        if (
+          current &&
+          nextVisible.some((playlist) => playlist.id === current)
+        ) {
           return current;
         }
 
@@ -1790,7 +1960,9 @@ function MyPostsPage({ session }: { session: Session }) {
     }
 
     addVideosToQueue(selectedVideos, selectedVideos[0]);
-    setStatus(`"${selectedPlaylist.title}" 플레이리스트를 학습 화면에 담았어요.`);
+    setStatus(
+      `"${selectedPlaylist.title}" 플레이리스트를 학습 화면에 담았어요.`,
+    );
     navigate(`/watch?videoId=${selectedVideos[0].videoId}`);
   }
 
@@ -1848,7 +2020,7 @@ function MyPostsPage({ session }: { session: Session }) {
                   <span>
                     <strong>{playlist.title}</strong>
                     <small>
-                      {playlistPosts.length}개 영상 · 댓글{" "}
+                      {playlistPosts.length}개 영상 / 댓글{" "}
                       {playlist.feedback.length}개
                     </small>
                     <TagLine tags={tagsFromPosts(playlistPosts).slice(0, 3)} />
@@ -1885,7 +2057,7 @@ function MyPostsPage({ session }: { session: Session }) {
                 <PlaylistThumbnailStack posts={selectedPosts} size="detail" />
                 <div>
                   <small>
-                    보드 플레이리스트 · {selectedPosts.length}개 영상
+                    보드 플레이리스트 / {selectedPosts.length}개 영상
                   </small>
                   <h2>{selectedPlaylist.title}</h2>
                   <TagLine tags={tagsFromPosts(selectedPosts)} />
@@ -1985,7 +2157,7 @@ function MyPostsPage({ session }: { session: Session }) {
                           <span>
                             <strong>{post.title}</strong>
                             <small>
-                              {post.channelName} · 약{" "}
+                              {post.channelName} / 약{" "}
                               {estimateVideoMinutes(post)}분
                             </small>
                           </span>
@@ -2159,7 +2331,7 @@ function HomePage({ session }: { session: Session }) {
             </button>
             <div className="home-feature-copy">
               <small>
-                {latestPost.channelName} · 약 {estimateVideoMinutes(latestPost)}
+                {latestPost.channelName} / 약 {estimateVideoMinutes(latestPost)}
                 분
               </small>
               <h2>{latestPost.title}</h2>
@@ -2224,7 +2396,7 @@ function HomePage({ session }: { session: Session }) {
                   <span>
                     <strong>{post.title}</strong>
                     <small>
-                      {post.channelName} · 약 {estimateVideoMinutes(post)}분
+                      {post.channelName} / 약 {estimateVideoMinutes(post)}분
                     </small>
                   </span>
                 </button>
@@ -2413,7 +2585,9 @@ function ExplorePage({ session }: { session: Session }) {
       ]);
       const nextPlaylists = nextCourses.map(playlistViewFromCourse);
       const nextPosts = [
-        ...nextCourses.flatMap((course) => postsFromCourse(course, postResult.items)),
+        ...nextCourses.flatMap((course) =>
+          postsFromCourse(course, postResult.items),
+        ),
         ...postResult.items,
       ];
       setPosts(nextPosts);
@@ -2561,7 +2735,7 @@ function ExplorePage({ session }: { session: Session }) {
                 <PlaylistThumbnailStack posts={playlistPosts} />
                 <span className="explore-card-body">
                   <small>
-                    {playlistPosts.length}개 영상 · 댓글{" "}
+                    {playlistPosts.length}개 영상 / 댓글{" "}
                     {playlist.feedback.length}개
                   </small>
                   <strong>{playlist.title}</strong>
@@ -2611,7 +2785,7 @@ function ExplorePage({ session }: { session: Session }) {
               <div className="explore-detail-hero">
                 <PlaylistThumbnailStack posts={selectedPosts} size="detail" />
                 <div className="explore-detail-copy">
-                  <small>학습 코스 · {selectedPosts.length}개 영상</small>
+                  <small>학습 코스 / {selectedPosts.length}개 영상</small>
                   <h2>{selectedPlaylist.title}</h2>
                   <p>
                     {selectedPlaylist.description ||
@@ -2681,8 +2855,7 @@ function ExplorePage({ session }: { session: Session }) {
                   <div className="course-video-strip">
                     <div
                       className={
-                        selectedPosts.length >=
-                        EXPLORE_COURSE_SUMMARY_THRESHOLD
+                        selectedPosts.length >= EXPLORE_COURSE_SUMMARY_THRESHOLD
                           ? "course-video-summary condensed"
                           : "course-video-summary"
                       }
@@ -2715,8 +2888,8 @@ function ExplorePage({ session }: { session: Session }) {
                             preload?.status === "loading" || !preload
                               ? "AI 요약을 미리 생성 중입니다."
                               : preload.status === "error"
-                              ? "AI 요약을 아직 생성하지 못했습니다. 잠시 후 다시 열면 다시 시도합니다."
-                              : "AI 요약이 설명과 중복되어 추가로 보여줄 내용이 없습니다.";
+                                ? "AI 요약을 아직 생성하지 못했습니다. 잠시 후 다시 열면 다시 시도합니다."
+                                : "AI 요약이 설명과 중복되어 추가로 보여줄 내용이 없습니다.";
 
                           return (
                             <li
@@ -2738,7 +2911,7 @@ function ExplorePage({ session }: { session: Session }) {
                                   </small>
                                   <strong>{post.title}</strong>
                                   <small>
-                                    {post.channelName} ·{" "}
+                                    {post.channelName} /{" "}
                                     {estimateVideoMinutes(post)}분
                                   </small>
                                 </span>
@@ -2815,11 +2988,7 @@ function ExplorePage({ session }: { session: Session }) {
   );
 }
 
-function BoardPage({
-  session,
-}: {
-  session: Session;
-}) {
+function BoardPage({ session }: { session: Session }) {
   const navigate = useNavigate();
   const [posts, setPosts] = useState<StudyPost[]>([]);
   const [selectedPostId, setSelectedPostId] = useState<number | null>(null);
@@ -2870,16 +3039,16 @@ function BoardPage({
     playlistAddTargets.find((target) => target.id === playlistTargetId) ??
     playlistAddTargets[0];
   const selectedTargetDraft = selectedPlaylistTarget
-    ? playlistDraftState.drafts.find(
+    ? (playlistDraftState.drafts.find(
         (draft) => draft.id === selectedPlaylistTarget.draftId,
-      ) ?? null
+      ) ?? null)
     : null;
   const selectedPostAlreadyInTarget = Boolean(
     selectedPost &&
-      selectedVideo &&
-      selectedPlaylistTarget &&
-      selectedTargetDraft &&
-      isVideoInQueue(selectedTargetDraft.videos, selectedVideo),
+    selectedVideo &&
+    selectedPlaylistTarget &&
+    selectedTargetDraft &&
+    isVideoInQueue(selectedTargetDraft.videos, selectedVideo),
   );
   const playlistPostIds = extractPostIds(playlistQueue);
   const playlistMinutes = estimateQueueMinutes(playlistQueue);
@@ -3128,9 +3297,7 @@ function BoardPage({
     };
   }
 
-  async function savePost(
-    payload: ReturnType<typeof postPayloadFromEditor>,
-  ) {
+  async function savePost(payload: ReturnType<typeof postPayloadFromEditor>) {
     const saved = editingId
       ? await updatePost(editingId, payload)
       : await createPost(payload);
@@ -3374,7 +3541,10 @@ function BoardPage({
     setIsAddingToPlaylistTarget(true);
 
     try {
-      const added = addSelectedPostToDraft(post, selectedPlaylistTarget.draftId);
+      const added = addSelectedPostToDraft(
+        post,
+        selectedPlaylistTarget.draftId,
+      );
 
       if (added) {
         setIsPlaylistTargetOpen(false);
@@ -3433,9 +3603,7 @@ function BoardPage({
           );
         },
       });
-      setStatus(
-        `"${saved.title}" 코스를 공개했어요.`,
-      );
+      setStatus(`"${saved.title}" 코스를 공개했어요.`);
     } catch (error) {
       setStatus(
         error instanceof Error
@@ -3507,8 +3675,9 @@ function BoardPage({
         <p className="eyebrow">Video registration</p>
         <h1>영상 등록</h1>
         <p>
-          링크를 넣으면 먼저 영상 보관함에 저장됩니다. 저장한 영상을 먼저 확인한 뒤
-          여러 내 플레이리스트에 담아 학습하고, 공유할 때만 게시글로 공개하세요.
+          링크를 넣으면 먼저 영상 보관함에 저장됩니다. 저장한 영상을 먼저 확인한
+          뒤 여러 내 플레이리스트에 담아 학습하고, 공유할 때만 게시글로
+          공개하세요.
         </p>
         <p className="system-note">{status}</p>
       </section>
@@ -3520,8 +3689,9 @@ function BoardPage({
               <p className="eyebrow">1. 영상 저장</p>
               <h2>{editingId ? "영상 정보 수정" : "YouTube 링크 저장"}</h2>
               <p>
-                URL 하나면 보관함 저장까지 먼저 처리합니다. 저장한 영상을 확인한 뒤
-                학습 화면의 보유한 플레이리스트에 담으면 학습에서 바로 이어볼 수 있습니다.
+                URL 하나면 보관함 저장까지 먼저 처리합니다. 저장한 영상을 확인한
+                뒤 학습 화면의 보유한 플레이리스트에 담으면 학습에서 바로 이어볼
+                수 있습니다.
               </p>
             </div>
             <aside className="register-destination" aria-label="등록 저장 위치">
@@ -3796,7 +3966,7 @@ function BoardPage({
               <div className="post-detail-hero">
                 <img src={selectedPost.thumbnailUrl} alt="" />
                 <div className="post-detail-heading">
-                  <small>2. 보관함 선택 · {selectedPost.channelName}</small>
+                  <small>2. 보관함 선택 / {selectedPost.channelName}</small>
                   <h2>{selectedPost.title}</h2>
                   <TagLine tags={selectedPost.tags} />
                 </div>
@@ -3827,7 +3997,8 @@ function BoardPage({
                 <p>
                   {videoLibraryAnalysisPreview({
                     channelName: selectedPost.channelName,
-                    summary: selectedPost.translatedNotes || selectedPost.summary,
+                    summary:
+                      selectedPost.translatedNotes || selectedPost.summary,
                     title: selectedPost.title,
                   })}
                 </p>
@@ -3836,9 +4007,7 @@ function BoardPage({
                 <button
                   className={isPlaylistTargetOpen ? "added-action" : undefined}
                   type="button"
-                  onClick={() =>
-                    setIsPlaylistTargetOpen((current) => !current)
-                  }
+                  onClick={() => setIsPlaylistTargetOpen((current) => !current)}
                 >
                   내 플레이리스트에 담기
                 </button>
@@ -3949,7 +4118,10 @@ function BoardPage({
                   다듬은 뒤 오른쪽에서 별도 게시글로 공개할 수 있습니다.
                 </p>
               </section>
-              <section className="draft-switcher" aria-label="내 플레이리스트 선택">
+              <section
+                className="draft-switcher"
+                aria-label="내 플레이리스트 선택"
+              >
                 <div className="draft-tabs">
                   {playlistDraftState.drafts.map((draft, index) => (
                     <button
@@ -4043,8 +4215,9 @@ function BoardPage({
                   placeholder="학습 목표, 추천 대상, 순서 의도를 적어주세요"
                 />
                 <p className="publish-form-note">
-                  포함 영상 {playlistPostIds.length}개 · 예상 학습 {playlistMinutes}분
-                  · 공개 후에도 내 플레이리스트는 그대로 유지됩니다.
+                  포함 영상 {playlistPostIds.length}개 / 예상 학습{" "}
+                  {playlistMinutes}분 / 공개 후에도 내 플레이리스트는 그대로
+                  유지됩니다.
                 </p>
                 <button
                   type="submit"
@@ -4448,7 +4621,7 @@ function CoursePage({ session }: { session: Session }) {
           <div className="preference-summary">
             <strong>{profile.goal}</strong>
             <span>
-              {profile.interests.join(", ")} · {profile.pace}
+              {profile.interests.join(", ")} / {profile.pace}
             </span>
           </div>
         )}
@@ -4695,9 +4868,8 @@ function WatchPage({ session }: { session: Session }) {
   );
   const captions = liveCaptions;
   const activeCaptionWindowStart =
-    Math.floor(
-      Math.max(0, currentTime) / CAPTION_TRANSLATION_WINDOW_SECONDS,
-    ) * CAPTION_TRANSLATION_WINDOW_SECONDS;
+    Math.floor(Math.max(0, currentTime) / CAPTION_TRANSLATION_WINDOW_SECONDS) *
+    CAPTION_TRANSLATION_WINDOW_SECONDS;
   const sourceCaptionTranslationPending =
     captionResponseMatchesVideo &&
     isSourceCaptionTranslationPending({
@@ -5541,8 +5713,8 @@ function WatchPage({ session }: { session: Session }) {
             <p className="eyebrow">학습</p>
             <h1>학습할 플레이리스트를 선택하세요</h1>
             <p>
-              공개 플레이리스트와 작성 중인 플레이리스트를 바로 이어서 볼 수 있습니다.
-              선택하면 첫 영상부터 재생목록이 시작됩니다.
+              공개 플레이리스트와 작성 중인 플레이리스트를 바로 이어서 볼 수
+              있습니다. 선택하면 첫 영상부터 재생목록이 시작됩니다.
             </p>
             <div className="watch-empty-actions">
               <Link className="primary-link" to="/playlists">
@@ -5636,7 +5808,10 @@ function WatchPage({ session }: { session: Session }) {
                       label={detail.label}
                       onSeek={jumpTo}
                     />
-                    <TimestampedSummaryBody body={detail.body} onSeek={jumpTo} />
+                    <TimestampedSummaryBody
+                      body={detail.body}
+                      onSeek={jumpTo}
+                    />
                   </article>
                 ))}
                 {isSummaryBusy && (

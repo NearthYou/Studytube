@@ -1,0 +1,21 @@
+{
+  "theme": "neutral",
+  "securityLevel": "strict",
+  "deterministicIds": true,
+  "deterministicIDSeed": "studytube-architecture-evidence-v1",
+  "fontFamily": "Arial, Noto Sans KR, sans-serif",
+  "flowchart": {
+    "curve": "basis",
+    "htmlLabels": false,
+    "useMaxWidth": false
+  },
+  "sequence": {
+    "diagramMarginX": 40,
+    "diagramMarginY": 20,
+    "useMaxWidth": false,
+    "wrap": true
+  },
+  "state": {
+    "useMaxWidth": false
+  }
+}

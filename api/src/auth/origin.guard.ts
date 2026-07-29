@@ -36,6 +36,15 @@ export class OriginGuard implements CanActivate {
       return true;
     }
 
+    if (isMcpServiceBoundary(request)) {
+      if (!isJsonContentType(request.headers?.['content-type'])) {
+        throw new UnsupportedMediaTypeException(
+          'State-changing requests require application/json',
+        );
+      }
+      return true;
+    }
+
     const origin = request.headers?.origin;
     if (
       typeof origin !== 'string' ||
@@ -54,6 +63,14 @@ export class OriginGuard implements CanActivate {
     }
     return true;
   }
+}
+
+function isMcpServiceBoundary(request: GuardRequest): boolean {
+  const path = request.path ?? request.url?.split('?', 1)[0] ?? '';
+  return (
+    request.method?.toUpperCase() === 'POST' &&
+    (path === '/internal/mcp/search' || path === '/internal/mcp/tool-calls')
+  );
 }
 
 function isJsonContentType(

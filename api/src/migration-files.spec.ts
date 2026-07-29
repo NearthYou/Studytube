@@ -149,8 +149,14 @@ describe('database migration files', () => {
     const lowercase = preflight.indexOf(`lower(btrim(email, ' ') COLLATE "C")`);
     const collisionCheck = preflight.indexOf('canonical_collision');
 
-    expect(preflight).toContain('invalid legacy email user IDs');
-    expect(preflight).toContain('unknown password representation user IDs');
+    expect(preflight).toContain('invalid legacy email records');
+    expect(preflight).toContain('unknown password representation records');
+    expect(preflight).toContain('AUTH_INVALID_LEGACY_EMAIL');
+    expect(preflight).toContain('AUTH_CANONICAL_EMAIL_COLLISION');
+    expect(preflight).toContain('AUTH_UNKNOWN_PASSWORD_REPRESENTATION');
+    expect(preflight).not.toContain('user IDs');
+    expect(preflight).not.toContain('collision_details');
+    expect(preflight).not.toContain('string_agg');
     expect(preflight).toContain("password_hash !~ '^[0-9a-f]{64}$'");
     expect(printableAsciiCheck).toBeGreaterThanOrEqual(0);
     expect(asciiSpaceTrim).toBeGreaterThan(printableAsciiCheck);
@@ -302,6 +308,135 @@ describe('database migration files', () => {
     expect(migration).toContain('ON DELETE SET NULL');
     expect(migration).toContain('course aggregate rollback refused');
     expect(migration).not.toMatch(/DROP TABLE\s+(playlists|playlist_items)/i);
+  });
+
+  it('defines durable work, retrieval, agent-run, progress, and quiz persistence', async () => {
+    const migrationPath = join(
+      process.cwd(),
+      'migrations',
+      '1753660804000_reliability-learning.cjs',
+    );
+
+    expect(existsSync(migrationPath)).toBe(true);
+
+    if (!existsSync(migrationPath)) {
+      return;
+    }
+
+    const migration = await readFile(migrationPath, 'utf8');
+
+    for (const table of [
+      'work_outbox_events',
+      'work_job_results',
+      'work_dead_letters',
+      'work_replay_audits',
+      'retrieval_embeddings',
+      'agent_runs',
+      'agent_run_attempts',
+      'agent_tool_calls',
+      'learning_progress',
+      'learning_progress_events',
+      'quizzes',
+      'quiz_questions',
+      'quiz_attempts',
+      'quiz_answers',
+    ]) {
+      expect(migration).toContain(`CREATE TABLE ${table}`);
+    }
+
+    for (const contract of [
+      'payload_schema_version',
+      'lease_token',
+      'work_job_results_event_handler_key',
+      'retrieval_embeddings_vector_dimensions',
+      'vector(1536)',
+      'agent_runs_state_valid',
+      'agent_runs_budget_positive',
+      'learning_progress_ranges_array',
+      'quiz_questions_position_key',
+      'quiz_attempts_idempotency_key',
+    ]) {
+      expect(migration).toContain(contract);
+    }
+
+    expect(migration).toContain('reliability learning rollback refused');
+    expect(migration).not.toMatch(/DROP TABLE\s+(users|posts|courses)/i);
+  });
+
+  it('keeps one current embedding per source and model', async () => {
+    const migrationPath = join(
+      process.cwd(),
+      'migrations',
+      '1753660805000_retrieval-source-model-key.cjs',
+    );
+    expect(existsSync(migrationPath)).toBe(true);
+    if (!existsSync(migrationPath)) {
+      return;
+    }
+
+    const migration = await readFile(migrationPath, 'utf8');
+    expect(migration).toContain('UNIQUE (source_kind, source_id, model)');
+    expect(migration).toContain('retrieval source model rollback refused');
+  });
+
+  it('backfills durable retrieval work for existing posts exactly once', async () => {
+    const migrationPath = join(
+      process.cwd(),
+      'migrations',
+      '1753660806000_retrieval-backfill-events.cjs',
+    );
+    expect(existsSync(migrationPath)).toBe(true);
+    if (!existsSync(migrationPath)) {
+      return;
+    }
+
+    const migration = await readFile(migrationPath, 'utf8');
+    expect(migration).toContain("'retrieval_embedding.requested'");
+    expect(migration).toContain("'text-embedding-3-small'");
+    expect(migration).toContain('NOT EXISTS');
+    expect(migration).toContain("jsonb_build_object('postId', post.id)");
+    expect(migration).toContain('retrieval backfill rollback refused');
+  });
+
+  it('backfills current retrieval work for existing posts and Course steps exactly once', async () => {
+    const migrationPath = join(
+      process.cwd(),
+      'migrations',
+      '1753660807000_retrieval-chunks-and-source-version.cjs',
+    );
+    expect(existsSync(migrationPath)).toBe(true);
+    if (!existsSync(migrationPath)) {
+      return;
+    }
+
+    const migration = await readFile(migrationPath, 'utf8');
+    expect(migration).toContain("'course_step'");
+    expect(migration).toContain(
+      'INNER JOIN courses AS course ON course.id = step.course_id',
+    );
+    expect(migration).toContain("'courseStepId', step.id::text");
+    expect(migration).toContain("'sourceVersion', course.version::text");
+    expect(migration).toContain("event.aggregate_type = 'course_step'");
+    expect(migration).toContain("retrieval.source_kind = 'course_step'");
+  });
+
+  it('adds an ordered last-used index for bounded embedding cache retention', async () => {
+    const migrationPath = join(
+      process.cwd(),
+      'migrations',
+      '1753660810000_retrieval-embedding-cache-retention.cjs',
+    );
+    expect(existsSync(migrationPath)).toBe(true);
+    if (!existsSync(migrationPath)) {
+      return;
+    }
+
+    const migration = await readFile(migrationPath, 'utf8');
+    expect(migration).toContain('pgm.noTransaction()');
+    expect(migration).toContain('CREATE INDEX CONCURRENTLY');
+    expect(migration).toContain('retrieval_embedding_cache_last_used_at_idx');
+    expect(migration).toContain('(last_used_at, model, content_hash)');
+    expect(migration).not.toMatch(/DELETE FROM|DROP TABLE/i);
   });
 
   it('checks in a complete legacy runtime fixture with data and sequence state', async () => {

@@ -1,0 +1,37 @@
+[Unit]
+Description=StudyTube AI service
+After=network-online.target docker.service
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=@AI_USER@
+Group=@AI_USER@
+SupplementaryGroups=@SOCKET_GROUP@ @RUNTIME_GROUP@
+WorkingDirectory=@APP_DIR@
+EnvironmentFile=@RUNTIME_CONFIG_DIR@/ai.env
+CacheDirectory=studytube-ai
+CacheDirectoryMode=0700
+Environment=HOME=/var/cache/studytube-ai
+Environment=XDG_CACHE_HOME=/var/cache/studytube-ai
+Environment=NODE_ENV=production
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+Environment=STUDYTUBE_API_SOCKET_PATH=/run/studytube/api.sock
+ExecStart=@APP_DIR@/ai/.venv/bin/python -m uvicorn main:app --app-dir @APP_DIR@/ai --host 127.0.0.1 --port 8000 --workers 1
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=30
+KillSignal=SIGTERM
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectProc=invisible
+ProcSubset=pid
+ProtectSystem=full
+IPAddressDeny=169.254.169.254/32
+IPAddressDeny=fd00:ec2::254/128
+
+[Install]
+WantedBy=multi-user.target

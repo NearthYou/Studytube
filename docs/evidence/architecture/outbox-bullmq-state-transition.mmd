@@ -1,0 +1,31 @@
+flowchart LR
+  Domain["Domain transaction"]
+  Pending["PostgreSQL outbox<br/>pending and available"]
+  Leased["leased<br/>FOR UPDATE SKIP LOCKED<br/>attempt incremented"]
+  QueueAdd["BullMQ add<br/>jobId = eventId-handlerVersion<br/>retained job"]
+  Published["outbox published<br/>lease cleared"]
+  Retry["retry scheduled<br/>available_at moved<br/>lease cleared"]
+  Terminal["terminal outbox event<br/>dead letter recorded"]
+  Waiting["BullMQ waiting or active"]
+  Handler["Versioned durable handler"]
+  Existing{"Job result already exists for<br/>eventId and handlerVersion?"}
+  Return["Return persisted result<br/>skip repeated side effect"]
+  Effect["Perform handler work<br/>append follow-up outbox events if required"]
+  Result["Insert one work_job_results row<br/>unique event and handler version"]
+  WorkerRetry["Throw transient failure<br/>BullMQ retry and backoff"]
+  WorkerDead["Unrecoverable or exhausted<br/>dead letter and terminal result"]
+
+  Domain -->|same database commit| Pending
+  Pending -->|relay claim| Leased
+  Leased -->|queue accepted| QueueAdd
+  QueueAdd --> Waiting
+  QueueAdd -->|ack with current lease token| Published
+  Leased -->|queue unavailable and attempts remain| Retry --> Pending
+  Leased -->|attempts exhausted| Terminal
+  Waiting --> Handler --> Existing
+  Existing -->|yes| Return
+  Existing -->|no| Effect --> Result
+  Handler -->|transient error| WorkerRetry --> Waiting
+  Handler -->|typed terminal error or final attempt| WorkerDead
+
+  QueueAdd -. "relay dies before ack: lease expires and the same jobId is added again" .-> Pending

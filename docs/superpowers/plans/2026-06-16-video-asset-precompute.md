@@ -1362,9 +1362,9 @@ Expected:
 
 - [ ] **Step 5: Deploy to EC2**
 
-```bash
-ssh -i C:\jungler.pem ubuntu@15.164.98.162 "cd /home/ubuntu/studytube && bash scripts/deploy-ec2.sh sw"
-```
+Run the immutable GitHub Actions deployment described in `docs/ci-cd.md`. The
+instance accepts deployment commands through AWS Systems Manager and does not
+expose SSH.
 
 Expected: deploy script ends with API health and AI health OK.
 
@@ -1373,7 +1373,7 @@ Expected: deploy script ends with API health and AI health OK.
 Use `novnyCaa7To`:
 
 ```bash
-curl -sS http://15.164.98.162:3000/video-assets/novnyCaa7To
+curl -sS https://studytube.page/api/video-assets/novnyCaa7To
 ```
 
 Expected after preparation:

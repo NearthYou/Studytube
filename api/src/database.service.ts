@@ -3,11 +3,16 @@
   Logger,
   OnModuleDestroy,
   OnModuleInit,
+  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { timingSafeEqual } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { Pool, PoolClient, type QueryConfig } from 'pg';
 import { AuthRepositoryUnavailableError } from './auth/auth.repository';
+import {
+  PostgresVerificationEmailOutboxRepository,
+  type VerificationEmailOutboxRepository,
+} from './auth/verification-email-outbox.repository';
 import type {
   CompleteRegistrationCommand,
   CompleteRegistrationResult,
@@ -36,7 +41,6 @@ import {
   normalizeFeedback,
   normalizeTagNames,
   normalizeVideoAsset,
-  vectorLiteral,
   type PostRow,
   type VideoAssetRow,
 } from './database-board.mapper';
@@ -59,6 +63,20 @@ import type {
 import { COURSE_CUTOVER_ADVISORY_LOCK_KEY } from './course/course-cutover.policy';
 import type { CourseRepository } from './course/course.repository';
 import { PostgresCourseRepository } from './course/postgres-course.repository';
+import { PostgresWorkRepository } from './work/postgres-work.repository';
+import type { WorkRepository } from './work/work.repository';
+import { PostgresRetrievalRepository } from './retrieval/postgres-retrieval.repository';
+import type { RetrievalRepository } from './retrieval/retrieval.repository';
+import {
+  assertRequiredMigrationsApplied,
+  requiredMigrationNames,
+  resolveDatabaseUrl,
+} from './database-migration-readiness';
+import {
+  observabilityRuntime,
+  type ObservabilityRuntime,
+} from './observability/runtime';
+import { observePostgresPool } from './observability/postgres-pool-observer';
 
 @Injectable()
 export class DatabaseService
@@ -69,13 +87,22 @@ export class DatabaseService
   private readonly databaseInitAttempts: number;
   private readonly databaseInitRetryDelayMs: number;
   private readonly databaseQueryTimeoutMs: number;
+  private readonly verificationEmailMaxAttempts: number;
+  private readonly stopPoolObservation: () => void;
   private courseRepository?: CourseRepository;
+  private workRepository?: WorkRepository;
+  private retrievalRepository?: RetrievalRepository;
+  private verificationEmailOutboxRepository?: VerificationEmailOutboxRepository;
   private courseWriterLeaseStateTail: Promise<void> = Promise.resolve();
   private courseWriterLeaseClient?: PoolClient;
   private activeCourseWriterLeases = 0;
   private pendingCourseWriterLeases = 0;
 
-  constructor(configService: ConfigService) {
+  constructor(
+    configService: ConfigService,
+    @Optional()
+    observability: ObservabilityRuntime = observabilityRuntime,
+  ) {
     this.databaseInitAttempts = this.positiveInteger(
       configService.get<string>('DB_INIT_ATTEMPTS'),
       15,
@@ -88,12 +115,21 @@ export class DatabaseService
       configService.get<string>('DB_QUERY_TIMEOUT_MS'),
       3000,
     );
+    this.verificationEmailMaxAttempts = this.positiveInteger(
+      configService.get<string>('AUTH_EMAIL_MAX_ATTEMPTS'),
+      5,
+    );
     this.pool = new Pool({
-      connectionString:
-        configService.get<string>('DATABASE_URL') ??
-        'postgresql://app:app@localhost:5432/app_dev',
+      connectionString: resolveDatabaseUrl(
+        process.env,
+        configService.get<string>('DATABASE_URL'),
+      ),
       connectionTimeoutMillis: 3000,
     });
+    this.stopPoolObservation = observePostgresPool(
+      this.pool,
+      observability.metrics,
+    );
   }
 
   async onModuleInit() {
@@ -106,6 +142,12 @@ export class DatabaseService
     for (let attempt = 1; attempt <= this.databaseInitAttempts; attempt += 1) {
       try {
         await this.probeDatabase();
+        if (process.env.NODE_ENV === 'production') {
+          await assertRequiredMigrationsApplied(
+            this.pool,
+            requiredMigrationNames(process.env),
+          );
+        }
         return;
       } catch (error) {
         lastError = error;
@@ -136,12 +178,32 @@ export class DatabaseService
   }
 
   async onModuleDestroy() {
-    await this.pool.end();
+    try {
+      await this.pool.end();
+    } finally {
+      this.stopPoolObservation();
+    }
   }
 
   getCourseRepository(): CourseRepository {
     this.courseRepository ??= new PostgresCourseRepository(this.pool);
     return this.courseRepository;
+  }
+
+  getWorkRepository(): WorkRepository {
+    this.workRepository ??= new PostgresWorkRepository(this.pool);
+    return this.workRepository;
+  }
+
+  getRetrievalRepository(): RetrievalRepository {
+    this.retrievalRepository ??= new PostgresRetrievalRepository(this.pool);
+    return this.retrievalRepository;
+  }
+
+  getVerificationEmailOutboxRepository(): VerificationEmailOutboxRepository {
+    this.verificationEmailOutboxRepository ??=
+      new PostgresVerificationEmailOutboxRepository(this.pool);
+    return this.verificationEmailOutboxRepository;
   }
 
   async withCourseWriterSharedLease<T>(
@@ -348,28 +410,125 @@ export class DatabaseService
     try {
       await client.query('BEGIN');
       transactionOpen = true;
-      const eligibility = await client.query<{
-        userExists: boolean;
-        pendingExists: boolean;
-      }>(
+      await client.query(
         `
-          SELECT EXISTS (
-                   SELECT 1
-                   FROM users
-                   WHERE email_canonical = $1
-                 ) AS "userExists",
-                 EXISTS (
-                   SELECT 1
-                   FROM pending_registrations
-                   WHERE email_canonical = $1
-                     AND completed_at IS NULL
-                     AND verification_expires_at > statement_timestamp()
-                 ) AS "pendingExists"
+          SELECT pg_advisory_xact_lock(
+            hashtextextended('auth-registration:' || $1, 0)
+          )
         `,
         [command.emailCanonical],
       );
-      const state = eligibility.rows[0];
-      if (!state || state.userExists || state.pendingExists) {
+      const active = await client.query<PendingRegistrationEligibilityRow>(
+        `
+          SELECT pending.id,
+                 pending.verified_at AS "verifiedAt",
+                 EXISTS (
+                   SELECT 1
+                   FROM verification_email_outbox AS outbox
+                   WHERE outbox.pending_registration_id = pending.id
+                     AND outbox.sent_at IS NULL
+                     AND outbox.failed_at IS NULL
+                     AND (
+                       outbox.attempts < $2
+                       OR (
+                         outbox.lease_token IS NOT NULL
+                         AND outbox.lease_expires_at > statement_timestamp()
+                       )
+                     )
+                 ) AS "deliveryInProgress"
+          FROM pending_registrations AS pending
+          WHERE pending.email_canonical = $1
+            AND pending.completed_at IS NULL
+            AND (
+              (
+                pending.verified_at IS NULL
+                AND pending.verification_expires_at
+                  > statement_timestamp() + interval '2 minutes'
+                AND pending.attempt_count < pending.max_attempts
+              )
+              OR (
+                pending.verified_at IS NOT NULL
+                AND pending.enrollment_expires_at > statement_timestamp()
+              )
+            )
+          ORDER BY (pending.verified_at IS NOT NULL) DESC,
+                   pending.created_at DESC,
+                   pending.id DESC
+          LIMIT 1
+          FOR UPDATE OF pending
+        `,
+        [command.emailCanonical, this.verificationEmailMaxAttempts],
+      );
+      const account = await client.query<{ userExists: boolean }>(
+        `
+          SELECT EXISTS (
+            SELECT 1
+            FROM users
+            WHERE email_canonical = $1
+          ) AS "userExists"
+        `,
+        [command.emailCanonical],
+      );
+      const userExists = account.rows[0]?.userExists;
+      if (userExists === undefined) {
+        throw new Error('Registration eligibility query returned no state');
+      }
+      if (
+        userExists ||
+        active.rows.some((row) => row.verifiedAt !== null) ||
+        (command.action === 'signup' && active.rows.length > 0)
+      ) {
+        await client.query('COMMIT');
+        transactionOpen = false;
+        return { status: 'accepted' };
+      }
+
+      const activePending = active.rows[0];
+      if (command.action === 'resend' && activePending) {
+        if (activePending.deliveryInProgress) {
+          await client.query('COMMIT');
+          transactionOpen = false;
+          return { status: 'accepted' };
+        }
+        await client.query(
+          `
+            UPDATE verification_email_outbox
+            SET failed_at = statement_timestamp(),
+                last_error_code = 'delivery_attempts_exhausted',
+                lease_token = NULL,
+                lease_expires_at = NULL
+            WHERE pending_registration_id = $1
+              AND sent_at IS NULL
+              AND failed_at IS NULL
+              AND attempts >= $2
+              AND (
+                lease_token IS NULL
+                OR lease_expires_at <= statement_timestamp()
+              )
+          `,
+          [activePending.id, this.verificationEmailMaxAttempts],
+        );
+        const requeued = await client.query(
+          `
+            INSERT INTO verification_email_outbox (
+              id, pending_registration_id, recipient, idempotency_key,
+              sender, public_origin, template_version, locale, subject,
+              payload_hash
+            )
+            SELECT $1, source.pending_registration_id, source.recipient, $2,
+                   source.sender, source.public_origin,
+                   source.template_version, source.locale, source.subject,
+                   source.payload_hash
+            FROM verification_email_outbox AS source
+            WHERE source.pending_registration_id = $3
+            ORDER BY source.created_at DESC, source.id DESC
+            LIMIT 1
+          `,
+          [command.outbox.id, command.outbox.idempotencyKey, activePending.id],
+        );
+        if (requeued.rowCount !== 1) {
+          throw new Error('Pending registration has no delivery intent');
+        }
         await client.query('COMMIT');
         transactionOpen = false;
         return { status: 'accepted' };
@@ -1020,15 +1179,18 @@ export class DatabaseService
       );
       const post = result.rows[0];
       await this.syncTags(client, post.id, input.tags);
-      await this.upsertEmbedding(
+      await this.getWorkRepository().appendOutboxEvent(
+        this.videoAssetRequestedEvent({
+          id: post.id,
+          authorId: post.authorId,
+          title: post.title,
+          videoUrl: post.videoUrl,
+        }),
         client,
-        post.id,
-        [
-          input.title,
-          input.summary,
-          input.translatedNotes,
-          input.tags.join(' '),
-        ].join('\n'),
+      );
+      await this.getWorkRepository().appendOutboxEvent(
+        this.retrievalEmbeddingRequestedEvent(post.id),
+        client,
       );
       await client.query('COMMIT');
 
@@ -1093,15 +1255,20 @@ export class DatabaseService
         ],
       );
       await this.syncTags(client, id, next.tags);
-      await this.upsertEmbedding(
+      if (next.videoUrl !== current.videoUrl) {
+        await this.getWorkRepository().appendOutboxEvent(
+          this.videoAssetRequestedEvent({
+            id,
+            authorId: current.authorId,
+            title: next.title,
+            videoUrl: next.videoUrl,
+          }),
+          client,
+        );
+      }
+      await this.getWorkRepository().appendOutboxEvent(
+        this.retrievalEmbeddingRequestedEvent(id),
         client,
-        id,
-        [
-          next.title,
-          next.summary,
-          next.translatedNotes,
-          next.tags.join(' '),
-        ].join('\n'),
       );
       await client.query('COMMIT');
 
@@ -1163,6 +1330,84 @@ export class DatabaseService
     );
 
     return result.rows[0] ? normalizeVideoAsset(result.rows[0]) : null;
+  }
+
+  async requestVideoAssetPreparation(
+    input: CreateVideoAssetInput,
+  ): Promise<VideoAsset> {
+    const client = await this.pool.connect();
+
+    try {
+      await client.query('BEGIN');
+      const result = await client.query<VideoAssetRow>(
+        `
+          INSERT INTO video_assets (
+            post_id,
+            video_id,
+            video_url,
+            language,
+            status,
+            source_caption_status,
+            translation_status,
+            summary_status
+          )
+          VALUES (
+            $1, $2, $3, COALESCE($4::text, 'ko'),
+            'processing', 'pending', 'pending', 'pending'
+          )
+          ON CONFLICT (post_id) DO UPDATE
+          SET video_id = EXCLUDED.video_id,
+              video_url = EXCLUDED.video_url,
+              language = EXCLUDED.language,
+              source_language = '',
+              status = 'processing',
+              source_caption_status = 'pending',
+              translation_status = 'pending',
+              summary_status = 'pending',
+              source_segments = '[]'::jsonb,
+              translated_segments = '[]'::jsonb,
+              summary_sections = '[]'::jsonb,
+              transcript_body = '',
+              error_message = '',
+              updated_at = now()
+          RETURNING id, post_id AS "postId", video_id AS "videoId",
+                    video_url AS "videoUrl", language,
+                    source_language AS "sourceLanguage", status,
+                    source_caption_status AS "sourceCaptionStatus",
+                    translation_status AS "translationStatus",
+                    summary_status AS "summaryStatus",
+                    source_segments AS "sourceSegments",
+                    translated_segments AS "translatedSegments",
+                    summary_sections AS "summarySections",
+                    transcript_body AS "transcriptBody",
+                    error_message AS "errorMessage",
+                    created_at AS "createdAt", updated_at AS "updatedAt"
+        `,
+        [input.postId, input.videoId, input.videoUrl, input.language ?? null],
+      );
+      await this.getWorkRepository().appendOutboxEvent(
+        {
+          id: randomUUID(),
+          eventType: 'video_asset.requested',
+          aggregateType: 'post',
+          aggregateId: String(input.postId),
+          aggregateVersion: 1,
+          payloadSchemaVersion: 1,
+          payload: {
+            postId: input.postId,
+            videoUrl: input.videoUrl,
+          },
+        },
+        client,
+      );
+      await client.query('COMMIT');
+      return normalizeVideoAsset(result.rows[0]);
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async upsertVideoAsset(input: CreateVideoAssetInput): Promise<VideoAsset> {
@@ -1588,22 +1833,38 @@ export class DatabaseService
     }
   }
 
-  private async upsertEmbedding(
-    client: PoolClient,
-    postId: number,
-    content: string,
-  ): Promise<void> {
-    await client.query(
-      `
-        INSERT INTO post_embeddings (post_id, content, embedding)
-        VALUES ($1, $2, $3::vector)
-        ON CONFLICT (post_id)
-        DO UPDATE SET content = EXCLUDED.content,
-                      embedding = EXCLUDED.embedding,
-                      updated_at = now()
-      `,
-      [postId, content, vectorLiteral(content)],
-    );
+  private videoAssetRequestedEvent(post: {
+    id: number;
+    authorId: number;
+    title: string;
+    videoUrl: string;
+  }) {
+    return {
+      id: randomUUID(),
+      eventType: 'video_asset.requested',
+      aggregateType: 'post',
+      aggregateId: String(post.id),
+      aggregateVersion: 1,
+      payloadSchemaVersion: 1,
+      payload: {
+        postId: post.id,
+        authorId: post.authorId,
+        title: post.title,
+        videoUrl: post.videoUrl,
+      },
+    };
+  }
+
+  private retrievalEmbeddingRequestedEvent(postId: number) {
+    return {
+      id: randomUUID(),
+      eventType: 'retrieval_embedding.requested',
+      aggregateType: 'post',
+      aggregateId: String(postId),
+      aggregateVersion: 1,
+      payloadSchemaVersion: 1,
+      payload: { postId },
+    };
   }
 
   private positiveInteger(value: string | undefined, fallback: number) {
@@ -1700,6 +1961,12 @@ type PendingVerificationRow = {
   enrollmentDigest: Buffer | null;
   enrollmentExpiresAt: Date | string | null;
   completedAt: Date | string | null;
+};
+
+type PendingRegistrationEligibilityRow = {
+  id: string;
+  verifiedAt: Date | string | null;
+  deliveryInProgress: boolean;
 };
 
 type CompletionPendingRow = {

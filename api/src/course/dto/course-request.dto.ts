@@ -37,5 +37,5 @@ export class ListCoursesQueryDto {
   @IsInt()
   @Min(1)
   @Max(COURSE_LIMITS.pageSize)
-  limit = 20;
+  limit: number = 20;
 }

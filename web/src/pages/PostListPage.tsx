@@ -12,7 +12,7 @@ export function PostListPage() {
                     <li key={post.id}>
                         <Link to={`/posts/${post.id}`}>{post.title}</Link>
                         <p>
-                            {post.author} · {post.createdAt}
+                            {post.author} / {post.createdAt}
                         </p>
                     </li>
                 ))}

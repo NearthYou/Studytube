@@ -1,0 +1,34 @@
+[Unit]
+Description=StudyTube API
+After=network-online.target docker.service
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=@API_USER@
+Group=@SOCKET_GROUP@
+SupplementaryGroups=@API_USER@ @RUNTIME_GROUP@
+WorkingDirectory=@APP_DIR@
+EnvironmentFile=@RUNTIME_CONFIG_DIR@/api.env
+Environment=API_SOCKET_PATH=/run/studytube/api.sock
+RuntimeDirectory=studytube
+RuntimeDirectoryMode=0750
+RuntimeDirectoryPreserve=yes
+ExecStartPre=/usr/bin/rm -f /run/studytube/api.sock
+ExecStart=/usr/bin/env NODE_ENV=production AUTH_TRUST_PROXY_ONE_HOP=true COURSE_CUTOVER_MODE=@COURSE_CUTOVER_MODE@ @NODE_BIN@ api/dist/src/main.js
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=30
+KillSignal=SIGTERM
+UMask=0007
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectProc=invisible
+ProcSubset=pid
+ProtectSystem=full
+IPAddressDeny=169.254.169.254/32
+IPAddressDeny=fd00:ec2::254/128
+
+[Install]
+WantedBy=multi-user.target

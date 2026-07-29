@@ -16,6 +16,8 @@ import {
   seedDemoRows,
 } from './seed-demo';
 
+// Fixed non-secret SHA-256 fixture used only to identify the legacy demo row
+// whose obsolete credential must have been replaced by the disabled marker.
 const LEGACY_DEMO_PASSWORD_HASH =
   '47f65a9430b5f109208eea5ad01ce9f5c8335244bfab3626eb91aea9a7b97b87';
 const CUSTOM_PASSWORD_HASH =

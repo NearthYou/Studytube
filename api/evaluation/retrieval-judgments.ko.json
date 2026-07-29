@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "language": "ko",
+  "queries": [
+    { "id": "react-hooks", "query": "리액트 상태와 생명주기 훅", "relevant": [{ "sourceKey": "post:1", "minTimestampSeconds": 0, "maxTimestampSeconds": 14400 }] },
+    { "id": "server-state", "query": "서버 상태 캐시와 재조회", "relevant": [{ "sourceKey": "post:2", "minTimestampSeconds": 0, "maxTimestampSeconds": 14400 }] },
+    { "id": "fastapi", "query": "파이썬 API 라우팅과 의존성 주입", "relevant": [{ "sourceKey": "post:3", "minTimestampSeconds": 0, "maxTimestampSeconds": 28800 }] },
+    { "id": "postgres", "query": "관계형 데이터베이스 조인과 인덱스", "relevant": [{ "sourceKey": "post:4", "minTimestampSeconds": 0, "maxTimestampSeconds": 28800 }, { "sourceKey": "post:203", "minTimestampSeconds": 0, "maxTimestampSeconds": 28800 }] },
+    { "id": "practice", "query": "의도적인 연습으로 기술 익히기", "relevant": [{ "sourceKey": "post:102", "minTimestampSeconds": 0, "maxTimestampSeconds": 7200 }] },
+    { "id": "python", "query": "파이썬 입문 문법 함수 반복문", "relevant": [{ "sourceKey": "post:103", "minTimestampSeconds": 0, "maxTimestampSeconds": 28800 }] },
+    { "id": "docker", "query": "컨테이너 이미지 볼륨과 배포", "relevant": [{ "sourceKey": "post:201", "minTimestampSeconds": 0, "maxTimestampSeconds": 28800 }] },
+    { "id": "leadership", "query": "왜에서 시작하는 리더십 골든 서클", "relevant": [{ "sourceKey": "post:107", "minTimestampSeconds": 0, "maxTimestampSeconds": 7200 }] },
+    { "id": "language", "query": "외국어를 빠르게 배우는 학습법", "relevant": [{ "sourceKey": "post:206", "minTimestampSeconds": 0, "maxTimestampSeconds": 7200 }, { "sourceKey": "post:207", "minTimestampSeconds": 0, "maxTimestampSeconds": 7200 }] },
+    { "id": "sleep", "query": "수면 부족이 학습과 건강에 미치는 영향", "relevant": [{ "sourceKey": "post:215", "minTimestampSeconds": 0, "maxTimestampSeconds": 7200 }] }
+  ]
+}

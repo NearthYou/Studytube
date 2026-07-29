@@ -97,19 +97,18 @@ describe('StudyBoardService', () => {
     ).resolves.toMatchObject({ postId: created.id });
   });
 
-  it('enqueues video processing after create and after a changed video URL', async () => {
+  it('does not publish queue work outside the post transaction', async () => {
     const enqueuePost = jest.fn();
     service = new StudyBoardService(new MemoryBoardRepository(), {
       enqueuePost,
     } as unknown as VideoAssetService);
 
     const created = await service.createPost(learner, postInput('enqueue-one'));
-    expect(enqueuePost).toHaveBeenCalledWith(created);
-
-    const updated = await service.updatePost(learner, created.id, {
+    await service.updatePost(learner, created.id, {
       videoUrl: 'https://www.youtube.com/watch?v=enqueue-two',
     });
-    expect(enqueuePost).toHaveBeenLastCalledWith(updated);
+
+    expect(enqueuePost).not.toHaveBeenCalled();
   });
 
   it('allows the comment author or post owner to delete and rejects outsiders', async () => {

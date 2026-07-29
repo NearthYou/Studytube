@@ -94,7 +94,7 @@ function PostListPage() {
           <li key={post.id}>
             <Link to={`/posts/${post.id}`}>{post.title}</Link>
             <p>
-              {post.author} · {post.createdAt}
+              {post.author} / {post.createdAt}
             </p>
           </li>
         ))}
@@ -146,7 +146,7 @@ function PostDetailPage() {
       <Link to="/posts">목록으로</Link>
       <h1>{post.title}</h1>
       <p>
-        {post.author} · {post.createdAt}
+        {post.author} / {post.createdAt}
       </p>
       <p>{post.content}</p>
     </main>

@@ -1,6 +1,9 @@
 import { createHash } from 'node:crypto';
 import { AuthRepositoryUnavailableError } from './auth/auth.repository';
+import { PostgresVerificationEmailOutboxRepository } from './auth/verification-email-outbox.repository';
 import { DatabaseService } from './database.service';
+import { createObservabilityRuntime } from './observability';
+import { PostgresWorkRepository } from './work/postgres-work.repository';
 
 const AUTH_NOW = new Date('2026-07-28T12:00:00.000Z');
 const PENDING_ID = '11111111-1111-4111-8111-111111111111';
@@ -54,6 +57,57 @@ function sqlTexts(query: jest.Mock): string[] {
 }
 
 describe('DatabaseService fail-fast persistence', () => {
+  it('attaches pool pressure metrics when the PostgreSQL pool is created', async () => {
+    const observability = createObservabilityRuntime('database-test');
+    const service = new DatabaseService(configService(), observability);
+
+    const output = observability.registry.toPrometheus();
+    expect(output).toContain('studytube_db_pool_connections{state="total"} 0');
+    expect(output).toContain('studytube_db_pool_connections{state="idle"} 0');
+    expect(output).toContain('studytube_db_pool_waiting 0');
+
+    await service.onModuleDestroy();
+  });
+
+  it('refuses to construct a production pool without DATABASE_URL', () => {
+    const previousEnvironment = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    try {
+      expect(() => new DatabaseService(configService())).toThrow(
+        'DATABASE_URL must be explicitly configured in production',
+      );
+    } finally {
+      if (previousEnvironment === undefined) {
+        delete process.env.NODE_ENV;
+      } else {
+        process.env.NODE_ENV = previousEnvironment;
+      }
+    }
+  });
+
+  it('shares one PostgreSQL work repository with API domain services', () => {
+    const service = new DatabaseService(configService());
+    const workOwner = service as unknown as {
+      getWorkRepository(): unknown;
+    };
+
+    const first = workOwner.getWorkRepository();
+    const second = workOwner.getWorkRepository();
+
+    expect(first).toBeInstanceOf(PostgresWorkRepository);
+    expect(second).toBe(first);
+  });
+
+  it('shares one verification email outbox repository with the worker', () => {
+    const service = new DatabaseService(configService());
+
+    const first = service.getVerificationEmailOutboxRepository();
+    const second = service.getVerificationEmailOutboxRepository();
+
+    expect(first).toBeInstanceOf(PostgresVerificationEmailOutboxRepository);
+    expect(second).toBe(first);
+  });
+
   it('retries connectivity and rejects startup without loading fallback data', async () => {
     const service = new DatabaseService(
       configService({
@@ -75,6 +129,36 @@ describe('DatabaseService fail-fast persistence', () => {
     ]);
 
     await service.onModuleDestroy();
+  });
+
+  it('refuses production startup when a required migration is pending', async () => {
+    const previousEnvironment = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    const service = new DatabaseService(
+      configService({
+        DATABASE_URL: 'postgresql://app:app@localhost:5432/app_test',
+        DB_INIT_ATTEMPTS: '1',
+      }),
+    );
+    const query = jest
+      .fn()
+      .mockResolvedValueOnce({ rows: [{ ok: 1 }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    replacePool(service, query);
+
+    try {
+      await expect(service.onModuleInit()).rejects.toThrow(
+        'Production startup refused because database migrations are pending',
+      );
+      expect(query).toHaveBeenCalledTimes(2);
+    } finally {
+      await service.onModuleDestroy();
+      if (previousEnvironment === undefined) {
+        delete process.env.NODE_ENV;
+      } else {
+        process.env.NODE_ENV = previousEnvironment;
+      }
+    }
   });
 
   it('redacts credentials from startup retry warnings while retaining PostgreSQL context', async () => {
@@ -263,10 +347,9 @@ describe('DatabaseService verified enrollment persistence', () => {
     const query = jest
       .fn()
       .mockResolvedValueOnce({ rows: [], rowCount: null })
-      .mockResolvedValueOnce({
-        rows: [{ userExists: false, pendingExists: false }],
-        rowCount: 1,
-      })
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 })
+      .mockResolvedValueOnce({ rows: [{ userExists: false }], rowCount: 1 })
       .mockResolvedValueOnce({ rows: [], rowCount: 1 })
       .mockResolvedValueOnce({ rows: [], rowCount: 1 })
       .mockResolvedValueOnce({ rows: [], rowCount: null });
@@ -280,13 +363,15 @@ describe('DatabaseService verified enrollment persistence', () => {
     const calls = query.mock.calls as Array<[string, unknown[]?]>;
     expect(calls.map(([sql]) => sql)).toEqual([
       'BEGIN',
+      expect.stringContaining('pg_advisory_xact_lock'),
+      expect.stringContaining('FOR UPDATE OF pending'),
       expect.stringContaining('FROM users'),
       expect.stringContaining('INSERT INTO pending_registrations'),
       expect.stringContaining('INSERT INTO verification_email_outbox'),
       'COMMIT',
     ]);
-    expect(calls[1][0]).toContain('pending_registrations');
-    expect(calls[2][1]).toEqual([
+    expect(calls[2][0]).toContain('pending_registrations');
+    expect(calls[4][1]).toEqual([
       PENDING_ID,
       'ada@example.com',
       'ada@example.com',
@@ -295,8 +380,8 @@ describe('DatabaseService verified enrollment persistence', () => {
       command.createdAt,
       command.verificationExpiresAt,
     ]);
-    expect(calls[2][0]).toContain('created_at');
-    expect(calls[3][1]).toEqual([
+    expect(calls[4][0]).toContain('created_at');
+    expect(calls[5][1]).toEqual([
       OUTBOX_ID,
       PENDING_ID,
       'ada@example.com',
@@ -318,10 +403,9 @@ describe('DatabaseService verified enrollment persistence', () => {
     const existingQuery = jest
       .fn()
       .mockResolvedValueOnce({ rows: [], rowCount: null })
-      .mockResolvedValueOnce({
-        rows: [{ userExists: true, pendingExists: false }],
-        rowCount: 1,
-      })
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 })
+      .mockResolvedValueOnce({ rows: [{ userExists: true }], rowCount: 1 })
       .mockResolvedValueOnce({ rows: [], rowCount: null });
     replacePoolConnection(existingService, existingQuery);
 
@@ -330,9 +414,157 @@ describe('DatabaseService verified enrollment persistence', () => {
     ).resolves.toEqual({ status: 'accepted' });
     expect(sqlTexts(existingQuery)).toEqual([
       'BEGIN',
+      expect.stringContaining('pg_advisory_xact_lock'),
+      expect.stringContaining('FOR UPDATE OF pending'),
       expect.stringContaining('FROM users'),
       'COMMIT',
     ]);
+  });
+
+  it('serializes resend and requeues the existing token without invalidating it', async () => {
+    const oldPendingId = '44444444-4444-4444-8444-444444444444';
+    const service = new DatabaseService(configService());
+    const query = pendingRegistrationStateQuery({
+      activeRows: [
+        {
+          id: oldPendingId,
+          verifiedAt: null,
+          deliveryInProgress: false,
+        },
+      ],
+    });
+    replacePoolConnection(service, query);
+
+    await expect(
+      service.createPendingRegistration(pendingRegistrationCommand('resend')),
+    ).resolves.toEqual({ status: 'accepted' });
+
+    const calls = query.mock.calls as Array<[string, unknown[]?]>;
+    const sql = calls.map(([statement]) => statement);
+    const lockIndex = sql.findIndex((statement) =>
+      statement.includes('pg_advisory_xact_lock'),
+    );
+    const pendingLockIndex = sql.findIndex((statement) =>
+      statement.includes('FOR UPDATE OF pending'),
+    );
+    expect(lockIndex).toBeGreaterThan(sql.indexOf('BEGIN'));
+    expect(pendingLockIndex).toBeGreaterThan(lockIndex);
+    expect(sql).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('INSERT INTO verification_email_outbox'),
+      ]),
+    );
+    expect(sql.join(' ')).not.toContain('SET attempt_count = max_attempts');
+    expect(sql.join(' ')).not.toContain('INSERT INTO pending_registrations');
+    const requeue = calls.find(
+      ([statement]) =>
+        statement.includes('INSERT INTO verification_email_outbox') &&
+        statement.includes('SELECT'),
+    );
+    expect(requeue?.[0]).toContain('source.payload_hash');
+    expect(requeue?.[1]).toEqual([
+      OUTBOX_ID,
+      pendingRegistrationCommand('resend').outbox.idempotencyKey,
+      oldPendingId,
+    ]);
+    const eligibility = calls.find(([statement]) =>
+      statement.includes('AS "deliveryInProgress"'),
+    );
+    expect(eligibility?.[0]).toContain('outbox.attempts < $2');
+    expect(eligibility?.[0]).toContain(
+      'outbox.lease_expires_at > statement_timestamp()',
+    );
+    expect(eligibility?.[1]).toEqual(['ada@example.com', 5]);
+    const terminalize = calls.find(([statement]) =>
+      statement.includes("last_error_code = 'delivery_attempts_exhausted'"),
+    );
+    expect(terminalize?.[0]).toContain('attempts >= $2');
+    expect(terminalize?.[0]).toContain(
+      'lease_expires_at <= statement_timestamp()',
+    );
+    expect(terminalize?.[1]).toEqual([oldPendingId, 5]);
+    expect(sql.at(-1)).toBe('COMMIT');
+  });
+
+  it('coalesces resend while an unsent delivery is queued or leased', async () => {
+    const service = new DatabaseService(
+      configService({ AUTH_EMAIL_MAX_ATTEMPTS: '7' }),
+    );
+    const query = pendingRegistrationStateQuery({
+      activeRows: [
+        {
+          id: '55555555-5555-4555-8555-555555555555',
+          verifiedAt: null,
+          deliveryInProgress: true,
+        },
+      ],
+    });
+    replacePoolConnection(service, query);
+
+    await expect(
+      service.createPendingRegistration(pendingRegistrationCommand('resend')),
+    ).resolves.toEqual({ status: 'accepted' });
+
+    const sql = sqlTexts(query);
+    expect(sql).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('pg_advisory_xact_lock'),
+        expect.stringContaining('FOR UPDATE OF pending'),
+      ]),
+    );
+    expect(sql.join(' ')).not.toContain('INSERT INTO pending_registrations');
+    expect(sql.join(' ')).not.toContain(
+      'INSERT INTO verification_email_outbox',
+    );
+    expect(sql.join(' ')).not.toContain(
+      "last_error_code = 'delivery_attempts_exhausted'",
+    );
+    const eligibility = query.mock.calls.find(([statement]: [string]) =>
+      statement.includes('AS "deliveryInProgress"'),
+    ) as [string, unknown[]] | undefined;
+    expect(eligibility?.[1]).toEqual(['ada@example.com', 7]);
+  });
+
+  it('does not replace an already verified pending enrollment', async () => {
+    const service = new DatabaseService(configService());
+    const query = pendingRegistrationStateQuery({
+      activeRows: [
+        {
+          id: '66666666-6666-4666-8666-666666666666',
+          verifiedAt: AUTH_NOW,
+          deliveryInProgress: false,
+        },
+      ],
+    });
+    replacePoolConnection(service, query);
+
+    await expect(
+      service.createPendingRegistration(pendingRegistrationCommand('resend')),
+    ).resolves.toEqual({ status: 'accepted' });
+
+    const sql = sqlTexts(query).join(' ');
+    expect(sql).toContain('FOR UPDATE OF pending');
+    expect(sql).toContain("statement_timestamp() + interval '2 minutes'");
+    expect(sql).toContain(
+      'pending.enrollment_expires_at > statement_timestamp()',
+    );
+    expect(sql).toContain('(pending.verified_at IS NOT NULL) DESC');
+    expect(sql).not.toContain('INSERT INTO pending_registrations');
+    expect(sql).not.toContain('INSERT INTO verification_email_outbox');
+  });
+
+  it('creates a new pending token only after no live unverified token remains', async () => {
+    const service = new DatabaseService(configService());
+    const query = pendingRegistrationStateQuery({ activeRows: [] });
+    replacePoolConnection(service, query);
+
+    await expect(
+      service.createPendingRegistration(pendingRegistrationCommand('resend')),
+    ).resolves.toEqual({ status: 'accepted' });
+
+    const sql = sqlTexts(query).join(' ');
+    expect(sql).toContain('INSERT INTO pending_registrations');
+    expect(sql).toContain('INSERT INTO verification_email_outbox');
   });
 
   it('rolls back and sanitizes a pending-registration unique violation', async () => {
@@ -340,10 +572,9 @@ describe('DatabaseService verified enrollment persistence', () => {
     const query = jest
       .fn()
       .mockResolvedValueOnce({ rows: [], rowCount: null })
-      .mockResolvedValueOnce({
-        rows: [{ userExists: false, pendingExists: false }],
-        rowCount: 1,
-      })
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 })
+      .mockResolvedValueOnce({ rows: [{ userExists: false }], rowCount: 1 })
       .mockRejectedValueOnce(
         Object.assign(new Error('pending digest detail'), {
           code: '23505',
@@ -365,10 +596,9 @@ describe('DatabaseService verified enrollment persistence', () => {
     const query = jest
       .fn()
       .mockResolvedValueOnce({ rows: [], rowCount: null })
-      .mockResolvedValueOnce({
-        rows: [{ userExists: false, pendingExists: false }],
-        rowCount: 1,
-      })
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 })
+      .mockResolvedValueOnce({ rows: [{ userExists: false }], rowCount: 1 })
       .mockResolvedValueOnce({ rows: [], rowCount: 1 })
       .mockRejectedValueOnce(
         Object.assign(new Error('outbox detail'), {
@@ -907,8 +1137,162 @@ describe('DatabaseService core session persistence', () => {
   });
 });
 
-function pendingRegistrationCommand() {
+describe('DatabaseService durable post work', () => {
+  it('commits the post and its asset and retrieval events in one transaction', async () => {
+    const service = new DatabaseService(configService());
+    const timestamp = new Date('2026-07-29T00:00:00.000Z');
+    const clientQuery = jest.fn().mockImplementation((sql: string) => {
+      if (sql.includes('INSERT INTO posts')) {
+        return Promise.resolve({
+          rows: [
+            {
+              id: 42,
+              authorId: 7,
+              authorName: 'Learner',
+              title: 'Durable post',
+              videoUrl: 'https://youtu.be/durablePost',
+              thumbnailUrl: '',
+              channelName: 'StudyTube',
+              summary: 'Summary',
+              translatedNotes: 'Notes',
+              createdAt: timestamp,
+              updatedAt: timestamp,
+            },
+          ],
+        });
+      }
+      return Promise.resolve({ rows: [], rowCount: 0 });
+    });
+    const poolQuery = jest.fn().mockResolvedValue({ rows: [], rowCount: 0 });
+    const release = jest.fn();
+    (
+      service as unknown as {
+        pool: {
+          connect(): Promise<{ query: jest.Mock; release: jest.Mock }>;
+          query: jest.Mock;
+        };
+      }
+    ).pool = {
+      connect: () => Promise.resolve({ query: clientQuery, release }),
+      query: poolQuery,
+    };
+
+    await service.createPost({
+      authorId: 7,
+      title: 'Durable post',
+      videoUrl: 'https://youtu.be/durablePost',
+      thumbnailUrl: '',
+      channelName: 'StudyTube',
+      summary: 'Summary',
+      translatedNotes: 'Notes',
+      tags: [],
+    });
+
+    const sql = sqlTexts(clientQuery);
+    const outboxIndexes = sql
+      .map((statement, index) =>
+        statement.includes('INSERT INTO work_outbox_events') ? index : -1,
+      )
+      .filter((index) => index >= 0);
+    expect(outboxIndexes).toHaveLength(2);
+    expect(outboxIndexes[0]).toBeGreaterThan(sql.indexOf('BEGIN'));
+    expect(outboxIndexes[1]).toBeLessThan(sql.indexOf('COMMIT'));
+    const calls = clientQuery.mock.calls as unknown as Array<
+      [string, unknown[]]
+    >;
+    const values = calls[outboxIndexes[0] ?? -1]?.[1] ?? [];
+    expect(values.slice(1, 7)).toEqual([
+      'video_asset.requested',
+      'post',
+      '42',
+      1,
+      1,
+      expect.objectContaining({
+        postId: 42,
+        videoUrl: 'https://youtu.be/durablePost',
+      }),
+    ]);
+    expect(calls[outboxIndexes[1] ?? -1]?.[1]?.[1]).toBe(
+      'retrieval_embedding.requested',
+    );
+    expect(release).toHaveBeenCalled();
+  });
+
+  it('commits a manual asset request and its outbox event atomically', async () => {
+    const service = new DatabaseService(configService());
+    const timestamp = new Date('2026-07-29T00:00:00.000Z');
+    const clientQuery = jest.fn().mockImplementation((sql: string) => {
+      if (sql.includes('INSERT INTO video_assets')) {
+        return Promise.resolve({
+          rows: [
+            {
+              id: 9,
+              postId: 42,
+              videoId: 'durablePost',
+              videoUrl: 'https://youtu.be/durablePost',
+              language: 'ko',
+              sourceLanguage: '',
+              status: 'processing',
+              sourceCaptionStatus: 'pending',
+              translationStatus: 'pending',
+              summaryStatus: 'pending',
+              sourceSegments: [],
+              translatedSegments: [],
+              summarySections: [],
+              transcriptBody: '',
+              errorMessage: '',
+              createdAt: timestamp,
+              updatedAt: timestamp,
+            },
+          ],
+        });
+      }
+      return Promise.resolve({ rows: [], rowCount: 0 });
+    });
+    const release = jest.fn();
+    (
+      service as unknown as {
+        pool: {
+          connect(): Promise<{ query: jest.Mock; release: jest.Mock }>;
+        };
+      }
+    ).pool = {
+      connect: () => Promise.resolve({ query: clientQuery, release }),
+    };
+
+    await (
+      service as unknown as {
+        requestVideoAssetPreparation(input: {
+          postId: number;
+          videoId: string;
+          videoUrl: string;
+          language: string;
+        }): Promise<unknown>;
+      }
+    ).requestVideoAssetPreparation({
+      postId: 42,
+      videoId: 'durablePost',
+      videoUrl: 'https://youtu.be/durablePost',
+      language: 'ko',
+    });
+
+    const sql = sqlTexts(clientQuery);
+    const assetIndex = sql.findIndex((statement) =>
+      statement.includes('INSERT INTO video_assets'),
+    );
+    const outboxIndex = sql.findIndex((statement) =>
+      statement.includes('INSERT INTO work_outbox_events'),
+    );
+    expect(assetIndex).toBeGreaterThan(sql.indexOf('BEGIN'));
+    expect(outboxIndex).toBeGreaterThan(assetIndex);
+    expect(outboxIndex).toBeLessThan(sql.indexOf('COMMIT'));
+    expect(release).toHaveBeenCalled();
+  });
+});
+
+function pendingRegistrationCommand(action: 'signup' | 'resend' = 'signup') {
   return {
+    action,
     pendingRegistrationId: PENDING_ID,
     emailCanonical: 'ada@example.com',
     recipient: 'ada@example.com',
@@ -927,6 +1311,34 @@ function pendingRegistrationCommand() {
       payloadHash: Buffer.alloc(32, 2),
     },
   };
+}
+
+function pendingRegistrationStateQuery(input: {
+  activeRows: Array<{
+    id: string;
+    verifiedAt: Date | null;
+    deliveryInProgress: boolean;
+  }>;
+  userExists?: boolean;
+}) {
+  return jest.fn((sql: string) => {
+    if (sql.includes('pg_advisory_xact_lock')) {
+      return Promise.resolve({ rows: [], rowCount: 1 });
+    }
+    if (sql.includes('FOR UPDATE OF pending')) {
+      return Promise.resolve({
+        rows: input.activeRows,
+        rowCount: input.activeRows.length,
+      });
+    }
+    if (sql.includes('FROM users')) {
+      return Promise.resolve({
+        rows: [{ userExists: input.userExists ?? false }],
+        rowCount: 1,
+      });
+    }
+    return Promise.resolve({ rows: [], rowCount: 1 });
+  });
 }
 
 function verificationCommand() {

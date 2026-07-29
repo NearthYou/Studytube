@@ -6,6 +6,14 @@ import type { UpdateVideoAssetInput } from './video-asset.types';
 
 class RecordingRepository extends MemoryBoardRepository {
   readonly updatedPostIds: number[] = [];
+  readonly requestedPostIds: number[] = [];
+
+  override async requestVideoAssetPreparation(
+    input: Parameters<MemoryBoardRepository['requestVideoAssetPreparation']>[0],
+  ) {
+    this.requestedPostIds.push(input.postId);
+    return super.requestVideoAssetPreparation(input);
+  }
 
   override async updateVideoAsset(
     postId: number,
@@ -297,55 +305,8 @@ describe('VideoAssetService', () => {
     );
   });
 
-  it('continues queued jobs after an escaped job failure', async () => {
-    const repository = new MemoryBoardRepository();
-    const preparePostAsset = jest
-      .fn<Promise<null>, [StudyPost]>()
-      .mockRejectedValueOnce(new Error('escaped job failure'))
-      .mockResolvedValue(null);
-    class QueueProbeService extends VideoAssetService {
-      override preparePostAsset(post: StudyPost): Promise<null> {
-        return preparePostAsset(post);
-      }
-    }
-    const service = new QueueProbeService(repository, {
-      captions: jest.fn(),
-      summary: jest.fn(),
-    } as unknown as AiProxyService);
-    const firstPost = await repository.createPost({
-      authorId: 1,
-      title: 'Failing queued lesson',
-      videoUrl: 'https://www.youtube.com/watch?v=queueFail',
-      thumbnailUrl: 'https://i.ytimg.com/vi/queueFail/hqdefault.jpg',
-      channelName: 'StudyTube',
-      summary: 'Queue failure case.',
-      translatedNotes: 'Queue failure notes.',
-      tags: ['queue'],
-    });
-    const secondPost = await repository.createPost({
-      authorId: 1,
-      title: 'Later queued lesson',
-      videoUrl: 'https://www.youtube.com/watch?v=queueLater',
-      thumbnailUrl: 'https://i.ytimg.com/vi/queueLater/hqdefault.jpg',
-      channelName: 'StudyTube',
-      summary: 'Queue recovery case.',
-      translatedNotes: 'Queue recovery notes.',
-      tags: ['queue'],
-    });
-
-    service.enqueuePost(firstPost);
-    await waitFor(() => {
-      expect(preparePostAsset).toHaveBeenCalledWith(firstPost);
-    });
-
-    service.enqueuePost(secondPost);
-    await waitFor(() => {
-      expect(preparePostAsset).toHaveBeenCalledWith(secondPost);
-    });
-  });
-
-  it('creates a processing post-scoped asset before starting preparation', async () => {
-    const repository = new MemoryBoardRepository();
+  it('persists a processing request without starting work in the API process', async () => {
+    const repository = new RecordingRepository();
     class ManualPrepareProbeService extends VideoAssetService {
       readonly started: StudyPost[] = [];
 
@@ -385,91 +346,46 @@ describe('VideoAssetService', () => {
       postId: post.id,
       status: 'processing',
     });
-    await waitFor(() => {
-      expect(service.started).toEqual([post]);
-    });
+    expect(service.started).toEqual([]);
+    expect(repository.requestedPostIds).toEqual([post.id]);
   });
 
-  it('does not reset persisted caption statuses during duplicate active prepares', async () => {
-    const repository = new MemoryBoardRepository();
-    let resolveSummary!: (value: {
-      sections: { label: string; body: string }[];
-    }) => void;
-    const summaryResponse = new Promise<{
-      sections: { label: string; body: string }[];
-    }>((resolve) => {
-      resolveSummary = resolve;
-    });
-    const captions = jest.fn().mockResolvedValue({
-      translated: true,
-      sourceLanguage: 'en',
-      segments: [{ start: 0, end: 4, text: 'Translated intro' }],
-      sourceSegments: [{ start: 0, end: 4, text: 'Source intro' }],
-      translatedSegments: [{ start: 0, end: 4, text: 'Translated intro' }],
-    });
-    const summary = jest.fn().mockReturnValue(summaryResponse);
+  it('keeps duplicate manual requests in the durable queue boundary', async () => {
+    const repository = new RecordingRepository();
+    const captions = jest.fn();
+    const summary = jest.fn();
     const service = new VideoAssetService(repository, {
       captions,
       summary,
     } as unknown as AiProxyService);
     const post = await repository.createPost({
       authorId: 1,
-      title: 'Duplicate active prepare lesson',
+      title: 'Duplicate durable request lesson',
       videoUrl: 'https://www.youtube.com/watch?v=duplicateActive',
       thumbnailUrl: 'https://i.ytimg.com/vi/duplicateActive/hqdefault.jpg',
       channelName: 'StudyTube',
-      summary: 'Duplicate active prepare should be idempotent.',
-      translatedNotes: 'Duplicate active prepare notes.',
+      summary: 'Duplicate requests remain outside the API worker.',
+      translatedNotes: 'Duplicate durable request notes.',
       tags: ['asset'],
-    });
-
-    await service.preparePostAssetRequest(post);
-    await waitFor(async () => {
-      await expect(repository.findVideoAsset(post.id)).resolves.toMatchObject({
-        status: 'processing',
-        sourceCaptionStatus: 'ready',
-        translationStatus: 'ready',
-        summaryStatus: 'pending',
-      });
     });
 
     await expect(service.preparePostAssetRequest(post)).resolves.toMatchObject({
       status: 'processing',
-      sourceCaptionStatus: 'ready',
-      translationStatus: 'ready',
-      summaryStatus: 'pending',
     });
-    await expect(repository.findVideoAsset(post.id)).resolves.toMatchObject({
+    await expect(service.preparePostAssetRequest(post)).resolves.toMatchObject({
       status: 'processing',
-      sourceCaptionStatus: 'ready',
-      translationStatus: 'ready',
+      sourceCaptionStatus: 'pending',
+      translationStatus: 'pending',
       summaryStatus: 'pending',
     });
-    expect(captions).toHaveBeenCalledTimes(1);
-    expect(summary).toHaveBeenCalledTimes(1);
-
-    resolveSummary({
-      sections: [{ label: 'Summary', body: 'Prepared once.' }],
-    });
-    await waitFor(async () => {
-      await expect(repository.findVideoAsset(post.id)).resolves.toMatchObject({
-        status: 'ready',
-      });
-    });
+    expect(repository.requestedPostIds).toEqual([post.id, post.id]);
+    expect(captions).not.toHaveBeenCalled();
+    expect(summary).not.toHaveBeenCalled();
   });
 
   it('replaces a ready asset when the post video url changes', async () => {
-    const repository = new MemoryBoardRepository();
-    class ManualPrepareProbeService extends VideoAssetService {
-      readonly started: StudyPost[] = [];
-
-      override preparePostAsset(post: StudyPost): Promise<null> {
-        this.started.push(post);
-
-        return new Promise(() => undefined);
-      }
-    }
-    const service = new ManualPrepareProbeService(repository, {
+    const repository = new RecordingRepository();
+    const service = new VideoAssetService(repository, {
       captions: jest.fn(),
       summary: jest.fn(),
     } as unknown as AiProxyService);
@@ -521,28 +437,12 @@ describe('VideoAssetService', () => {
       translatedSegments: [],
       transcriptBody: '',
     });
-    await waitFor(() => {
-      expect(service.started).toEqual([
-        expect.objectContaining({
-          id: post.id,
-          videoUrl: 'https://www.youtube.com/watch?v=newVideo',
-        }),
-      ]);
-    });
+    expect(repository.requestedPostIds).toEqual([post.id]);
   });
 
   it('retries a persisted processing asset when no job is active', async () => {
-    const repository = new MemoryBoardRepository();
-    class ManualPrepareProbeService extends VideoAssetService {
-      readonly started: StudyPost[] = [];
-
-      override preparePostAsset(post: StudyPost): Promise<null> {
-        this.started.push(post);
-
-        return new Promise(() => undefined);
-      }
-    }
-    const service = new ManualPrepareProbeService(repository, {
+    const repository = new RecordingRepository();
+    const service = new VideoAssetService(repository, {
       captions: jest.fn(),
       summary: jest.fn(),
     } as unknown as AiProxyService);
@@ -582,26 +482,6 @@ describe('VideoAssetService', () => {
       errorMessage: '',
     });
 
-    await waitFor(() => {
-      expect(service.started).toEqual([post]);
-    });
+    expect(repository.requestedPostIds).toEqual([post.id]);
   });
 });
-
-async function waitFor(assertion: () => void | Promise<void>): Promise<void> {
-  let lastError: unknown;
-
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    try {
-      await assertion();
-      return;
-    } catch (error) {
-      lastError = error;
-      await new Promise((resolve) => {
-        setTimeout(resolve, 10);
-      });
-    }
-  }
-
-  throw lastError;
-}

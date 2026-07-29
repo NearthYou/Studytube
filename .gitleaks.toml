@@ -1,0 +1,41 @@
+title = "StudyTube secret scanning policy"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Disabled legacy demo SHA-256 fixture identifiers"
+targetRules = ["generic-api-key"]
+condition = "AND"
+regexTarget = "match"
+paths = [
+  '''(?:^|[\\/])api[\\/]scripts[\\/](?:seed-demo|verify-demo-seed)\.ts$''',
+]
+regexes = [
+  '''LEGACY_DEMO_PASSWORD_HASH\s*=\s*['"][0-9a-f]{64}['"]''',
+]
+
+[[allowlists]]
+description = "Synthetic verification-token serialization fixture"
+targetRules = ["generic-api-key"]
+condition = "AND"
+regexTarget = "match"
+paths = [
+  '''(?:^|[\\/])web[\\/]tests[\\/]api\.test\.ts$''',
+]
+regexes = [
+  '''verificationToken\s*:\s*["']v1\.pending\.[a-z]{6}["']''',
+]
+
+[[allowlists]]
+description = "Public Git commit provenance for the generated OpenAPI baseline"
+targetRules = ["generic-api-key"]
+condition = "AND"
+regexTarget = "match"
+paths = [
+  '''(?:^|[\\/])api[\\/]openapi[\\/]baseline\.json$''',
+  '''(?:^|[\\/])api[\\/]src[\\/]openapi-compatibility\.spec\.ts$''',
+]
+regexes = [
+  '''["']?apiSourceTree["']?\s*:\s*["'][0-9a-f]{40}["']''',
+]

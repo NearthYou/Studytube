@@ -6,6 +6,7 @@ import type {
   OpaqueTokenFactory,
   VerificationTokenFactory,
 } from './auth.service';
+import { renderVerificationEmail } from './verification-email';
 
 const NOW = new Date('2026-07-28T12:00:00.000Z');
 const PENDING_ID = '11111111-1111-4111-8111-111111111111';
@@ -62,14 +63,17 @@ function createRepository(): AuthRepositoryMock {
 }
 
 function createVerificationFactory(): jest.MockedFunction<VerificationTokenFactory> {
-  return jest.fn(() => ({
-    token: VERIFICATION_TOKEN,
-    persistence: {
-      pendingRegistrationId: PENDING_ID,
-      keyVersion: 'v1',
-      secretDigest: createHash('sha256').update(VERIFICATION_SECRET).digest(),
-    },
-  }));
+  return jest.fn((pepper: Buffer | string) => {
+    void pepper;
+    return {
+      token: VERIFICATION_TOKEN,
+      persistence: {
+        pendingRegistrationId: PENDING_ID,
+        keyVersion: 'v1',
+        secretDigest: createHash('sha256').update(VERIFICATION_SECRET).digest(),
+      },
+    };
+  });
 }
 
 function createOpaqueFactory(): jest.MockedFunction<OpaqueTokenFactory> {
@@ -178,7 +182,7 @@ function createService(
     delivery: {
       sender: 'StudyTube <no-reply@example.com>',
       publicOrigin: 'https://studytube.example',
-      templateVersion: 'verify-v1',
+      templateVersion: 'v2',
       locale: 'en',
       subject: 'Verify your StudyTube email',
     },
@@ -222,9 +226,25 @@ describe('AuthService enrollment', () => {
     expect(repository.consumeRateLimit).toHaveBeenCalledTimes(2);
     expect(repository.createPendingRegistration).toHaveBeenCalledTimes(1);
     const command = repository.createPendingRegistration.mock.calls[0][0];
+    expect(command.action).toBe('signup');
     expect(command.emailCanonical).toBe('ada@example.com');
     expect(command.recipient).toBe('ada@example.com');
     expect(command.keyVersion).toBe(1);
+    expect(command.outbox.idempotencyKey).toBe(
+      `email-verification/${PENDING_ID}`,
+    );
+    expect(command.outbox.payloadHash).toEqual(
+      renderVerificationEmail({
+        pendingRegistrationId: PENDING_ID,
+        verificationToken: VERIFICATION_TOKEN,
+        recipient: 'ada@example.com',
+        sender: 'StudyTube <no-reply@example.com>',
+        publicOrigin: 'https://studytube.example',
+        templateVersion: 'v2',
+        locale: 'en',
+        subject: 'Verify your StudyTube email',
+      }).payloadHash,
+    );
     expect(JSON.stringify(command)).not.toContain(VERIFICATION_TOKEN);
     expect(JSON.stringify(command)).not.toContain('password');
     expect(passwordHasher.validate).not.toHaveBeenCalled();
@@ -243,6 +263,9 @@ describe('AuthService enrollment', () => {
     await expect(
       service.resend({ email: 'existing@example.com' }, '203.0.113.8'),
     ).resolves.toEqual({ status: 'accepted' });
+    expect(repository.createPendingRegistration).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'resend' }),
+    );
   });
 
   it('returns durable retry metadata before token generation or expensive work', async () => {

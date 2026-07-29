@@ -1,0 +1,35 @@
+import type {
+  HybridSearchInput,
+  EmbeddingResponse,
+  ReplaceRetrievalChunks,
+  ReplaceRetrievalChunksOutcome,
+  RetrievalHit,
+  RetrievalSourceReference,
+  RetrievalSourceSnapshot,
+  ResolveRetrievalEmbedding,
+} from './retrieval.types';
+
+export type RemoveMissingSourceChunksOutcome = 'removed' | 'superseded';
+
+export type PruneEmbeddingCacheInput = {
+  retentionDays: number;
+  batchSize: number;
+};
+
+export interface RetrievalRepository {
+  readSourceSnapshot(
+    source: RetrievalSourceReference,
+  ): Promise<RetrievalSourceSnapshot | null>;
+  resolveEmbedding(
+    input: ResolveRetrievalEmbedding,
+    load: () => Promise<EmbeddingResponse>,
+  ): Promise<EmbeddingResponse>;
+  pruneEmbeddingCache(input: PruneEmbeddingCacheInput): Promise<number>;
+  replaceSourceChunks(
+    input: ReplaceRetrievalChunks,
+  ): Promise<ReplaceRetrievalChunksOutcome>;
+  removeMissingSourceChunks(
+    source: RetrievalSourceReference,
+  ): Promise<RemoveMissingSourceChunksOutcome>;
+  hybridSearch(input: HybridSearchInput): Promise<RetrievalHit[]>;
+}

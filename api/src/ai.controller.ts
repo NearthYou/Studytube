@@ -1,4 +1,5 @@
-import { Body, Controller, Post } from '@nestjs/common';
+import { Body, Controller, Post, Req } from '@nestjs/common';
+import type { AuthenticatedRequest } from './auth/session.guard';
 import { AiProxyService } from './ai-proxy.service';
 
 @Controller('ai')
@@ -6,8 +7,8 @@ export class AiController {
   constructor(private readonly aiProxyService: AiProxyService) {}
 
   @Post('rag/recommend')
-  recommend(@Body() body: unknown) {
-    return this.aiProxyService.recommend(body);
+  recommend(@Req() request: AuthenticatedRequest, @Body() body: unknown) {
+    return this.aiProxyService.recommend(body, request.principal.userId);
   }
 
   @Post('mcp/youtube')

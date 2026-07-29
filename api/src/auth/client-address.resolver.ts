@@ -1,9 +1,11 @@
 import { SocketAddress } from 'node:net';
+import { isProductionApiSocketPath } from '../runtime-listener';
 
 export type ClientAddressResolverOptions = {
   trustProxyOneHop?: boolean;
   environment?: 'development' | 'test' | 'production';
   bindAddress?: string;
+  trustedProxySocketPath?: string;
 };
 
 export type AddressRequest = {
@@ -21,11 +23,29 @@ export class ClientAddressResolutionError extends Error {
 }
 
 export class ClientAddressResolver {
-  private readonly trustProxyOneHop: boolean;
+  private readonly proxyTransport: 'direct' | 'loopback' | 'unix';
 
   constructor(options: ClientAddressResolverOptions = {}) {
-    this.trustProxyOneHop = options.trustProxyOneHop ?? false;
-    if (!this.trustProxyOneHop) {
+    const trustProxyOneHop = options.trustProxyOneHop ?? false;
+    if (options.trustedProxySocketPath !== undefined) {
+      if (
+        options.environment !== 'production' ||
+        !isProductionApiSocketPath(options.trustedProxySocketPath)
+      ) {
+        throw new ClientAddressResolutionError(
+          'Trusted proxy socket path is invalid',
+        );
+      }
+      if (!trustProxyOneHop) {
+        throw new ClientAddressResolutionError(
+          'Unix socket listener requires explicit proxy trust',
+        );
+      }
+      this.proxyTransport = 'unix';
+      return;
+    }
+    if (!trustProxyOneHop) {
+      this.proxyTransport = 'direct';
       return;
     }
     if (!options.environment) {
@@ -38,30 +58,39 @@ export class ClientAddressResolver {
         'One-hop proxy trust requires a loopback-only bind address',
       );
     }
+    this.proxyTransport = 'loopback';
   }
 
   resolve(request: AddressRequest): string {
-    const directAddress = canonicalizeAddress(request.socket.remoteAddress);
-    if (!this.trustProxyOneHop || !isLoopback(directAddress)) {
-      return directAddress;
+    if (this.proxyTransport === 'unix') {
+      if (request.socket.remoteAddress !== undefined) {
+        throw new ClientAddressResolutionError(
+          'Trusted proxy transport does not match the Unix socket listener',
+        );
+      }
+      return forwardedAddress(request.headers['x-forwarded-for']);
     }
 
-    const forwarded = request.headers['x-forwarded-for'];
-    if (forwarded === undefined) {
+    const directAddress = canonicalizeAddress(request.socket.remoteAddress);
+    if (this.proxyTransport === 'direct' || !isLoopback(directAddress)) {
       return directAddress;
     }
-    if (
-      typeof forwarded !== 'string' ||
-      forwarded.length === 0 ||
-      forwarded !== forwarded.trim() ||
-      forwarded.includes(',')
-    ) {
-      throw new ClientAddressResolutionError(
-        'Trusted proxy must provide exactly one forwarded address',
-      );
-    }
-    return canonicalizeAddress(forwarded);
+    return forwardedAddress(request.headers['x-forwarded-for']);
   }
+}
+
+function forwardedAddress(forwarded: string | string[] | undefined): string {
+  if (
+    typeof forwarded !== 'string' ||
+    forwarded.length === 0 ||
+    forwarded !== forwarded.trim() ||
+    forwarded.includes(',')
+  ) {
+    throw new ClientAddressResolutionError(
+      'Trusted proxy must provide exactly one forwarded address',
+    );
+  }
+  return canonicalizeAddress(forwarded);
 }
 
 export function canonicalizeAddress(address: string | undefined): string {

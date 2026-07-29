@@ -1,20 +1,197 @@
+import asyncio
 import json
 import os
+import shutil
+import subprocess
 import tempfile
 import time
 import unittest
+from unittest import mock
 from urllib.parse import parse_qsl, urlparse
 
 import main
 from main import (
+    build_quiz_response,
     build_study_plan,
     handle_mcp_request,
     load_translated_captions,
-    rag_recommend,
 )
 
 
+class ProductionSecretConfigTest(unittest.TestCase):
+    def test_production_rejects_a_missing_or_placeholder_internal_key(self):
+        for key in ("", "change-me", "replace-with-a-production-secret"):
+            with self.subTest(key=key):
+                with mock.patch.dict(
+                    os.environ,
+                    {"NODE_ENV": "production", "INTERNAL_AI_API_KEY": key},
+                    clear=True,
+                ):
+                    with self.assertRaisesRegex(
+                        RuntimeError, "INTERNAL_AI_API_KEY"
+                    ):
+                        main.require_production_internal_key()
+
+    def test_production_accepts_a_long_non_placeholder_internal_key(self):
+        with mock.patch.dict(
+            os.environ,
+            {
+                "NODE_ENV": "production",
+                "INTERNAL_AI_API_KEY": "a" * 32,
+            },
+            clear=True,
+        ):
+            main.require_production_internal_key()
+
+    def test_non_production_does_not_require_an_internal_key(self):
+        with mock.patch.dict(os.environ, {"NODE_ENV": "test"}, clear=True):
+            main.require_production_internal_key()
+
+
 class AiServiceTest(unittest.TestCase):
+    def test_internal_youtube_lookup_route_preserves_the_json_rpc_contract(self):
+        original_handler = main.handle_mcp_request
+        captured = []
+        main.handle_mcp_request = lambda payload: captured.append(payload) or {
+            "jsonrpc": "2.0",
+            "id": payload.get("id"),
+            "result": {"provider": "youtube-test", "videos": []},
+        }
+        request = {
+            "jsonrpc": "2.0",
+            "id": "nest-proxy",
+            "method": "youtube.lookup",
+            "params": {"query": "react hooks"},
+        }
+        try:
+            response = main.youtube_lookup_endpoint(request)
+        finally:
+            main.handle_mcp_request = original_handler
+
+        self.assertEqual(captured, [request])
+        self.assertEqual(response["jsonrpc"], "2.0")
+        self.assertEqual(response["id"], "nest-proxy")
+        self.assertEqual(response["result"]["provider"], "youtube-test")
+
+    def test_runtime_mounts_the_official_mcp_app_without_the_legacy_handler(self):
+        legacy_endpoints = [
+            getattr(route, "endpoint", None)
+            for route in main.app.routes
+            if getattr(route, "path", None) == "/mcp"
+        ]
+        mcp_route_paths = [route.path for route in main.mcp_application.routes]
+
+        self.assertNotIn(main.handle_mcp_request, legacy_endpoints)
+        self.assertIn("/mcp", mcp_route_paths)
+        self.assertNotIn(
+            "/.well-known/oauth-protected-resource/mcp",
+            mcp_route_paths,
+        )
+
+    def test_internal_key_middleware_exempts_only_mcp_protocol_routes(self):
+        original_key = os.environ.get("INTERNAL_AI_API_KEY")
+        os.environ["INTERNAL_AI_API_KEY"] = "internal-test-key"
+
+        async def invoke(path, internal_key=None):
+            headers = []
+            if internal_key is not None:
+                headers.append(
+                    (b"x-internal-api-key", internal_key.encode("ascii"))
+                )
+            request = main.Request(
+                {
+                    "type": "http",
+                    "http_version": "1.1",
+                    "method": "POST",
+                    "scheme": "http",
+                    "path": path,
+                    "raw_path": path.encode("ascii"),
+                    "query_string": b"",
+                    "headers": headers,
+                    "client": ("127.0.0.1", 1),
+                    "server": ("127.0.0.1", 8000),
+                }
+            )
+
+            async def allowed(_request):
+                return main.JSONResponse({"accepted": True})
+
+            return await main.require_internal_service_key(request, allowed)
+
+        try:
+            self.assertEqual(asyncio.run(invoke("/mcp")).status_code, 200)
+            self.assertEqual(
+                asyncio.run(
+                    invoke("/.well-known/oauth-protected-resource/mcp")
+                ).status_code,
+                401,
+            )
+            self.assertEqual(asyncio.run(invoke("/quiz/generate")).status_code, 401)
+            self.assertEqual(asyncio.run(invoke("/youtube/lookup")).status_code, 401)
+            self.assertEqual(
+                asyncio.run(
+                    invoke("/youtube/lookup", internal_key="internal-test-key")
+                ).status_code,
+                200,
+            )
+        finally:
+            if original_key is None:
+                os.environ.pop("INTERNAL_AI_API_KEY", None)
+            else:
+                os.environ["INTERNAL_AI_API_KEY"] = original_key
+
+    def test_fastapi_lifespan_runs_the_mcp_session_manager(self):
+        async def enter_runtime_lifespan():
+            async with main.app.router.lifespan_context(main.app):
+                self.assertIsNotNone(main.mcp_server.session_manager)
+
+        asyncio.run(enter_runtime_lifespan())
+
+    def test_quiz_generation_uses_five_cited_caption_ranges(self):
+        original_loader = main.load_translated_captions
+        main.load_translated_captions = lambda _payload: {
+            "segments": [
+                {"start": index * 10, "end": index * 10 + 8, "text": f"근거 문장 {index}"}
+                for index in range(8)
+            ]
+        }
+        try:
+            response = build_quiz_response(
+                {
+                    "title": "트랜잭션 격리 수준",
+                    "sourceUrl": "https://www.youtube.com/watch?v=example",
+                    "timestampSeconds": 10,
+                    "durationSeconds": 120,
+                }
+            )
+        finally:
+            main.load_translated_captions = original_loader
+
+        self.assertEqual(response["schemaVersion"], 1)
+        self.assertEqual(len(response["questions"]), 5)
+        for question in response["questions"]:
+            self.assertEqual(len(question["choices"]), 4)
+            self.assertGreaterEqual(question["correctChoiceIndex"], 0)
+            self.assertLess(question["correctChoiceIndex"], 4)
+            self.assertEqual(
+                question["sourceUrl"],
+                "https://www.youtube.com/watch?v=example",
+            )
+            self.assertGreater(
+                question["sourceEndSeconds"], question["sourceStartSeconds"]
+            )
+
+    def test_quiz_generation_rejects_non_youtube_sources(self):
+        with self.assertRaisesRegex(ValueError, "allowed YouTube"):
+            build_quiz_response(
+                {
+                    "title": "unsafe",
+                    "sourceUrl": "https://example.com/video",
+                    "timestampSeconds": 0,
+                    "durationSeconds": 60,
+                }
+            )
+
     def test_health_reports_caption_runtime_configuration_without_secret_values(self):
         original_env = {
             name: os.environ.get(name)
@@ -1861,7 +2038,12 @@ class AiServiceTest(unittest.TestCase):
 
         self.assertIsNone(error)
         self.assertEqual(metadata["id"], "caption-only")
-        self.assertIn("--ignore-no-formats", captured_commands[0])
+        yt_dlp_command = next(
+            command
+            for command in captured_commands
+            if isinstance(command, list) and "--dump-json" in command
+        )
+        self.assertIn("--ignore-no-formats", yt_dlp_command)
 
     def test_youtube_captions_reports_rate_limit_from_yt_dlp_metadata(self):
         original_fetch_tracks = main.fetch_youtube_caption_tracks
@@ -2023,6 +2205,7 @@ class AiServiceTest(unittest.TestCase):
 
         try:
             args = main.yt_dlp_recovery_args()
+            sensitive_args = main.yt_dlp_sensitive_recovery_args()
         finally:
             for key, value in original_env.items():
                 if value is None:
@@ -2038,13 +2221,17 @@ class AiServiceTest(unittest.TestCase):
         self.assertIn(r"C:\captions\cookies.txt", args)
         self.assertIn("--cookies-from-browser", args)
         self.assertIn("edge", args)
-        self.assertIn("--proxy", args)
-        self.assertIn("http://127.0.0.1:8888", args)
-        self.assertIn("--extractor-args", args)
+        self.assertNotIn("TEST_TOKEN", " ".join(args))
+        self.assertNotIn("TEST_VISITOR", " ".join(args))
+        self.assertNotIn("http://127.0.0.1:8888", args)
+        self.assertIn("--proxy", sensitive_args)
+        self.assertIn("http://127.0.0.1:8888", sensitive_args)
+        self.assertIn("--extractor-args", sensitive_args)
         youtube_extractor_args = [
-            args[index + 1]
-            for index, arg in enumerate(args[:-1])
-            if arg == "--extractor-args" and args[index + 1].startswith("youtube:")
+            sensitive_args[index + 1]
+            for index, arg in enumerate(sensitive_args[:-1])
+            if arg == "--extractor-args"
+            and sensitive_args[index + 1].startswith("youtube:")
         ]
         self.assertTrue(youtube_extractor_args)
         self.assertIn("po_token=web.subs+TEST_TOKEN", youtube_extractor_args[0])
@@ -2102,15 +2289,146 @@ class AiServiceTest(unittest.TestCase):
         self.assertEqual(query["potc"], "1")
         self.assertEqual(query["c"], "WEB")
 
-    def test_sanitized_caption_exception_redacts_po_token_query_values(self):
+    def test_sanitized_caption_exception_never_exposes_upstream_details(self):
         error = main.sanitized_caption_exception(
             RuntimeError(
-                "HTTP 429 for https://www.youtube.com/api/timedtext?v=abc&pot=SECRET&potc=1"
+                "yt-dlp --extractor-args youtube:po_token=SECRET;visitor_data=VISITOR "
+                "--proxy http://user:password@proxy.example "
+                "https://www.youtube.com/api/timedtext?v=abc&pot=QUERY_SECRET"
             )
         )
 
-        self.assertNotIn("SECRET", str(error))
-        self.assertIn("pot=[REDACTED]", str(error))
+        self.assertEqual(str(error), "youtube-caption-upstream-failed")
+
+    def test_yt_dlp_secrets_are_loaded_from_a_private_config_not_argv(self):
+        captured: dict[str, object] = {}
+
+        def fake_run(command, **_kwargs):
+            captured["command"] = list(command)
+            captured["environment"] = dict(_kwargs["env"])
+            config_index = command.index("--config-locations")
+            config_path = command[config_index + 1]
+            captured["config_path"] = config_path
+            with open(config_path, encoding="utf-8") as config_file:
+                captured["config"] = config_file.read()
+            return main.subprocess.CompletedProcess(
+                command,
+                0,
+                stdout="{}",
+                stderr="",
+            )
+
+        env_updates = {
+            "YOUTUBE_PO_TOKEN": "web.subs+PO_SECRET",
+            "YOUTUBE_VISITOR_DATA": "VISITOR_SECRET",
+            "YOUTUBE_PROXY_URL": "http://user:PROXY_SECRET@proxy.example",
+            "OPENAI_API_KEY": "OPENAI_SHOULD_NOT_REACH_YT_DLP",
+        }
+        with mock.patch.dict(os.environ, env_updates, clear=False):
+            with mock.patch.object(main, "yt_dlp_commands", return_value=[["yt-dlp"]]):
+                with mock.patch.object(main.subprocess, "run", side_effect=fake_run):
+                    metadata, error = main.fetch_yt_dlp_metadata("abc123")
+
+        self.assertEqual(metadata, {})
+        self.assertIsNone(error)
+        command_text = " ".join(captured["command"])
+        self.assertNotIn("PO_SECRET", command_text)
+        self.assertNotIn("VISITOR_SECRET", command_text)
+        self.assertNotIn("PROXY_SECRET", command_text)
+        self.assertIn("PO_SECRET", captured["config"])
+        self.assertIn("VISITOR_SECRET", captured["config"])
+        self.assertIn("PROXY_SECRET", captured["config"])
+        self.assertNotIn("OPENAI_API_KEY", captured["environment"])
+        self.assertFalse(os.path.exists(captured["config_path"]))
+
+    def test_bgutil_proxy_credentials_are_passed_by_environment_not_argv(self):
+        captured: dict[str, object] = {}
+
+        def fake_run(command, **kwargs):
+            captured["command"] = list(command)
+            captured["env"] = dict(kwargs["env"])
+            return main.subprocess.CompletedProcess(
+                command,
+                0,
+                stdout='{"poToken":"GENERATED_TOKEN"}\n',
+                stderr="",
+            )
+
+        with tempfile.TemporaryDirectory() as server_home:
+            build_directory = os.path.join(server_home, "build")
+            os.makedirs(build_directory)
+            with open(
+                os.path.join(build_directory, "generate_once.js"),
+                "w",
+                encoding="utf-8",
+            ) as script_file:
+                script_file.write("// fixture\n")
+
+            proxy_url = "http://user:BGUTIL_SECRET@proxy.example"
+            with mock.patch.dict(
+                os.environ,
+                {"YOUTUBE_PROXY_URL": proxy_url},
+                clear=False,
+            ):
+                with mock.patch.object(
+                    main,
+                    "youtube_bgutil_server_home",
+                    return_value=server_home,
+                ):
+                    with mock.patch.object(
+                        main,
+                        "youtube_node_runtime_path",
+                        return_value="node",
+                    ):
+                        with mock.patch.object(
+                            main.subprocess,
+                            "run",
+                            side_effect=fake_run,
+                        ):
+                            token = main.generate_bgutil_subtitle_po_token("abc123")
+
+        self.assertEqual(token, "GENERATED_TOKEN")
+        self.assertNotIn("BGUTIL_SECRET", " ".join(captured["command"]))
+        self.assertEqual(captured["env"]["HTTPS_PROXY"], proxy_url)
+        self.assertEqual(captured["env"]["HTTP_PROXY"], proxy_url)
+
+    def test_bgutil_subprocess_can_initialize_its_managed_cache(self):
+        node_path = shutil.which("node")
+        self.assertIsNotNone(node_path)
+
+        with tempfile.TemporaryDirectory() as cache_home:
+            with mock.patch.dict(
+                os.environ,
+                {"HOME": cache_home, "XDG_CACHE_HOME": cache_home},
+                clear=False,
+            ):
+                environment = main.youtube_subprocess_environment()
+
+            cache_directory = os.path.join(
+                cache_home,
+                ".cache",
+                "bgutil-ytdlp-pot-provider",
+            )
+            result = subprocess.run(
+                [
+                    node_path,
+                    "-e",
+                    (
+                        "const fs = require('node:fs'); "
+                        "const path = require('node:path'); "
+                        "fs.mkdirSync(path.join(process.env.HOME, '.cache', "
+                        "'bgutil-ytdlp-pot-provider'), { recursive: true });"
+                    ),
+                ],
+                env=environment,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(os.path.isdir(cache_directory))
+            self.assertEqual(environment["XDG_CACHE_HOME"], cache_home)
 
     def test_fetch_caption_segments_uses_recovery_url_and_proxy(self):
         class FakeResponse:
@@ -2827,43 +3145,117 @@ Second subtitle line
         self.assertEqual(response["segments"][1]["end"], 10.0)
         self.assertIn("리액트", response["segments"][0]["text"])
 
-    def test_rag_recommend_returns_related_posts_and_summary(self):
-        original_load_board_posts = main.load_board_posts
-        main.load_board_posts = lambda: main.DEMO_POSTS
+    def test_embedding_response_uses_text_embedding_3_small_without_hash_fallback(self):
+        original_openai = main.OpenAI
+        original_key = os.environ.get("OPENAI_API_KEY")
+        captured = {}
 
+        class FakeEmbeddings:
+            def create(self, **kwargs):
+                captured.update(kwargs)
+                item = type("EmbeddingItem", (), {"embedding": [0.01] * 1536})()
+                return type("EmbeddingResponse", (), {"data": [item]})()
+
+        class FakeClient:
+            embeddings = FakeEmbeddings()
+
+        os.environ["OPENAI_API_KEY"] = "sk-test"
+        main.OpenAI = lambda **_kwargs: FakeClient()
         try:
-            response = rag_recommend({"query": "react hooks for beginners", "limit": 2})
+            response = main.create_embedding_response(
+                {"input": "PostgreSQL isolation"}
+            )
         finally:
-            main.load_board_posts = original_load_board_posts
+            main.OpenAI = original_openai
+            if original_key is None:
+                os.environ.pop("OPENAI_API_KEY", None)
+            else:
+                os.environ["OPENAI_API_KEY"] = original_key
 
-        self.assertEqual(len(response["relatedPosts"]), 2)
-        self.assertIn("react", response["answer"].lower())
-        self.assertEqual(
-            response["relatedPosts"][0]["evidenceSource"],
-            "video_analysis",
-        )
-        self.assertTrue(response["relatedPosts"][0]["evidenceSnippet"])
+        self.assertEqual(captured["model"], "text-embedding-3-small")
+        self.assertEqual(captured["dimensions"], 1536)
+        self.assertEqual(response["dimensions"], 1536)
+        self.assertEqual(len(response["embedding"]), 1536)
+        self.assertNotIn("hash", json.dumps(response).lower())
 
-    def test_rag_recommend_returns_empty_when_query_has_no_overlap(self):
-        original_load_board_posts = main.load_board_posts
-        main.load_board_posts = lambda: main.DEMO_POSTS
+    def test_embedding_response_reuses_cached_vector_and_reports_cost(self):
+        original_openai = main.OpenAI
+        original_key = os.environ.get("OPENAI_API_KEY")
+        main.EMBEDDING_RESPONSE_CACHE.clear()
 
+        class FakeEmbeddings:
+            calls = 0
+
+            def create(self, **_kwargs):
+                FakeEmbeddings.calls += 1
+                item = type("EmbeddingItem", (), {"embedding": [0.01] * 1536})()
+                usage = type("EmbeddingUsage", (), {"prompt_tokens": 25})()
+                return type(
+                    "EmbeddingResponse",
+                    (),
+                    {"data": [item], "usage": usage},
+                )()
+
+        class FakeClient:
+            embeddings = FakeEmbeddings()
+
+        os.environ["OPENAI_API_KEY"] = "sk-test"
+        main.OpenAI = lambda **_kwargs: FakeClient()
         try:
-            response = rag_recommend({"query": "zzzz-no-board-topic", "limit": 2})
+            cold = main.create_embedding_response({"input": "격리 수준"})
+            warm = main.create_embedding_response({"input": "격리 수준"})
         finally:
-            main.load_board_posts = original_load_board_posts
+            main.OpenAI = original_openai
+            main.EMBEDDING_RESPONSE_CACHE.clear()
+            if original_key is None:
+                os.environ.pop("OPENAI_API_KEY", None)
+            else:
+                os.environ["OPENAI_API_KEY"] = original_key
 
-        self.assertEqual(response["relatedPosts"], [])
-        self.assertIn("찾지 못했", response["answer"])
+        self.assertEqual(FakeEmbeddings.calls, 1)
+        self.assertFalse(cold["cacheHit"])
+        self.assertTrue(warm["cacheHit"])
+        self.assertEqual(cold["inputTokens"], 25)
+        self.assertEqual(warm["estimatedCostUsd"], 0)
+        self.assertGreater(cold["estimatedCostUsd"], 0)
+
+    def test_embedding_response_fails_explicitly_without_provider_credentials(self):
+        original_key = os.environ.pop("OPENAI_API_KEY", None)
+        try:
+            with self.assertRaisesRegex(
+                main.EmbeddingProviderUnavailable,
+                "Embedding provider is unavailable",
+            ):
+                main.create_embedding_response({"input": "no fallback"})
+        finally:
+            if original_key is not None:
+                os.environ["OPENAI_API_KEY"] = original_key
 
     def test_agent_stops_with_playlist_and_trace(self):
-        response = build_study_plan(
-            {
-                "goal": "React hooks를 공부하고 싶어",
-                "language": "ko",
-                "interests": ["frontend"],
-            }
-        )
+        original_lookup = main.lookup_youtube
+        main.lookup_youtube = lambda _payload: {
+            "provider": "youtube-test",
+            "summary": "테스트 영상",
+            "videos": [
+                {
+                    "title": "React hooks",
+                    "sourceUrl": "https://youtu.be/hooks",
+                    "thumbnailUrl": "https://i.ytimg.com/vi/hooks/hqdefault.jpg",
+                    "provider": "youtube-test",
+                    "summary": "Hooks for beginners",
+                }
+            ],
+        }
+        try:
+            response = build_study_plan(
+                {
+                    "goal": "React hooks를 공부하고 싶어",
+                    "language": "ko",
+                    "interests": ["frontend"],
+                }
+            )
+        finally:
+            main.lookup_youtube = original_lookup
 
         self.assertLessEqual(len(response["trace"]), 4)
         self.assertGreaterEqual(len(response["recommendations"]), 1)

@@ -54,7 +54,10 @@ test("registration screen checks saved videos before playlist building", () => {
   assert.match(boardPageSource, new RegExp(`<h1>${text.boardHeading}</h1>`));
   assert.match(boardPageSource, new RegExp(text.savedVideosFirst));
   assert.match(boardPageSource, new RegExp(text.watchPlaylist));
-  assert.match(boardPageSource, new RegExp(text.continueInWatch));
+  assert.match(
+    boardPageSource,
+    new RegExp(text.continueInWatch.replaceAll(" ", "\\s+")),
+  );
   assert.match(boardPageSource, new RegExp(text.privatePlaylists));
   assert.doesNotMatch(boardPageSource, new RegExp(text.singleLearningPlaylist));
   assert.doesNotMatch(boardPageSource, new RegExp(text.oldPlaylistHeading));

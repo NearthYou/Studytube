@@ -35,7 +35,7 @@ export type BoardActor = Readonly<{ userId: number }>;
 export class StudyBoardService {
   constructor(
     private readonly repository: BoardRepository,
-    private readonly videoAssetService?: VideoAssetService,
+    _videoAssetService?: VideoAssetService,
     private readonly courseCutoverPolicy = new CourseCutoverPolicy('legacy'),
   ) {}
 
@@ -96,8 +96,6 @@ export class StudyBoardService {
         tags: input.tags ?? [],
       });
 
-      this.videoAssetService?.enqueuePost(post);
-
       return post;
     });
   }
@@ -120,20 +118,13 @@ export class StudyBoardService {
   ): Promise<StudyPost> {
     this.assertSourceMutationAllowed();
     return this.withCourseWriterSharedLease(async () => {
-      const currentPost = await this.requireOwnedPost(id, actor.userId);
+      await this.requireOwnedPost(id, actor.userId);
       assertVideoTags(input.tags);
-      const videoUrlChanged =
-        typeof input.videoUrl === 'string' &&
-        input.videoUrl !== currentPost.videoUrl;
 
       const post = await this.repository.updatePost(id, input);
 
       if (!post) {
         throw new NotFoundException('Post not found');
-      }
-
-      if (videoUrlChanged) {
-        this.videoAssetService?.enqueuePost(post);
       }
 
       return post;

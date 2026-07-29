@@ -1,0 +1,35 @@
+flowchart TB
+  Query["Owner-scoped query<br/>text, embedding, model, limit"]
+
+  subgraph Lexical["Lexical candidate path"]
+    LP["Private pools<br/>owner_id must equal caller"]
+    LU["Public pools"]
+    LSource["Join authoritative post or Course step<br/>owner, visibility, status, source version must still match"]
+    LRank["pg_trgm similarity candidates<br/>rank descending"]
+    LP --> LSource
+    LU --> LSource
+    LSource --> LRank
+  end
+
+  subgraph Vector["Vector candidate path"]
+    VP["Private pools<br/>owner_id must equal caller"]
+    VU["Public pools"]
+    VSource["Join authoritative post or Course step<br/>owner, visibility, status, source version must still match"]
+    VRank["pgvector cosine distance candidates<br/>HNSW-compatible strict distance order"]
+    VP --> VSource
+    VU --> VSource
+    VSource --> VRank
+  end
+
+  RRF["Reciprocal rank fusion by chunk ID<br/>1 divided by k plus lexical rank<br/>plus 1 divided by k plus vector rank"]
+  Chunk["Choose the highest-scoring chunk per source"]
+  Audience["Fill result limit with caller-private sources first<br/>then eligible public sources"]
+  Citation["Return finite score and chunk citation<br/>source URL and timestamp"]
+
+  Query --> LP
+  Query --> LU
+  Query --> VP
+  Query --> VU
+  LRank --> RRF
+  VRank --> RRF
+  RRF --> Chunk --> Audience --> Citation

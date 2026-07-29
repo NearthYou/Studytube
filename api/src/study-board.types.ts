@@ -103,6 +103,9 @@ export type BoardRepository = {
   hasCompletedCourseBackfillAuditForPost(postId: number): Promise<boolean>;
   deletePost(id: number): Promise<boolean>;
   findVideoAsset(postId: number): Promise<VideoAsset | null>;
+  requestVideoAssetPreparation?(
+    input: CreateVideoAssetInput,
+  ): Promise<VideoAsset>;
   upsertVideoAsset(input: CreateVideoAssetInput): Promise<VideoAsset>;
   updateVideoAsset(
     postId: number,

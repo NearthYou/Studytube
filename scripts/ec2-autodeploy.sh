@@ -13,14 +13,66 @@ if ! flock -n 9; then
   exit 0
 fi
 
+load_deployment_environment() {
+  local path="$1"
+  local line key value
+  while IFS= read -r line || [ -n "$line" ]; do
+    [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+    if [[ "$line" == *$'\r'* ]] ||
+       [[ ! "$line" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; then
+      echo "Deployment environment must contain only Unix KEY=value entries" >&2
+      return 1
+    fi
+    key="${line%%=*}"
+    value="${line#*=}"
+    case "$key" in
+      BASH_ENV|BASHOPTS|CDPATH|ENV|GLOBIGNORE|HOME|IFS|PATH|PROMPT_COMMAND|PS4|SHELLOPTS|NODE_OPTIONS|PYTHONHOME|PYTHONPATH|PERL5OPT|RUBYOPT|LD_PRELOAD|LD_LIBRARY_PATH|NPM_CONFIG_USERCONFIG|GIT_CONFIG_COUNT|GIT_CONFIG_KEY_*|GIT_CONFIG_VALUE_*|DYLD_*)
+        echo "Deployment environment contains forbidden process-control variable $key" >&2
+        return 1
+        ;;
+    esac
+    if [[ "$value" == *"'"* || "$value" == *'"'* || "$value" == *\\* ]]; then
+      echo "Deployment environment values must use portable unquoted literals" >&2
+      return 1
+    fi
+    export "$key=$value"
+  done <"$path"
+}
+
 cd "$app_dir"
+
+if [ -f .env ]; then
+  load_deployment_environment ./.env
+fi
+if [ -f api/.env ]; then
+  load_deployment_environment ./api/.env
+fi
 
 git fetch origin "$deploy_branch"
 remote_sha="$(git rev-parse "origin/$deploy_branch")"
-current_sha="$(git rev-parse HEAD)"
 
-if [ "$remote_sha" = "$current_sha" ]; then
-  echo "already deployed $current_sha"
+state_dir="${COURSE_CUTOVER_STATE_DIR:-.studytube-deploy-state}"
+case "$state_dir" in
+  /*) ;;
+  *) state_dir="$app_dir/$state_dir" ;;
+esac
+success_marker="$state_dir/deploy-success"
+deployed_sha=""
+
+if [ -f "$success_marker" ] && [ -r "$success_marker" ] &&
+   [ ! -L "$success_marker" ] &&
+   grep -Fqx -- "deploy_succeeded=true" "$success_marker"; then
+  deployed_sha="$(sed -n 's/^deploy_sha=//p' "$success_marker")"
+fi
+
+if [ "$remote_sha" = "$deployed_sha" ] &&
+   systemctl is-active --quiet studytube-api.service &&
+   systemctl is-active --quiet studytube-ai.service &&
+   systemctl is-active --quiet studytube-worker.service &&
+   [ "$(docker inspect --format '{{.State.Running}}' studytube-postgres 2>/dev/null || true)" = "true" ] &&
+   [ "$(docker inspect --format '{{.State.Running}}' studytube-valkey 2>/dev/null || true)" = "true" ] &&
+   [ "$(docker inspect --format '{{.State.Running}}' studytube-caddy 2>/dev/null || true)" = "true" ]; then
+  echo "already deployed $deployed_sha"
   exit 0
 fi
 

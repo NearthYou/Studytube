@@ -15,6 +15,7 @@
     "db:migrate:up": "npm --prefix api run db:migrate:up",
     "db:migrate:down": "npm --prefix api run db:migrate:down",
     "db:migrate:status": "npm --prefix api run db:migrate:status",
-    "db:seed:demo": "npm --prefix api run db:seed"
+    "db:seed:demo": "npm --prefix api run db:seed",
+    "retrieval:evaluate": "npm --prefix api run retrieval:evaluate"
   }
 }

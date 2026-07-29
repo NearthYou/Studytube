@@ -1,0 +1,67 @@
+flowchart TB
+  subgraph Run["AgentRun state machine"]
+    Queued((queued))
+    Running((running))
+    Awaiting((awaiting approval))
+    Approved((approved))
+    Completed((completed))
+    Failed((failed))
+    Cancelled((cancelled))
+
+    Queued -->|worker claims one attempt lease| Running
+    Running -->|expired lease reclaimed| Running
+    Running -->|grounded plan stored| Awaiting
+    Running -->|timeout, invalid schema, provider or budget failure| Failed
+    Queued -->|user cancel with expected version| Cancelled
+    Running -->|user cancel wins row lock| Cancelled
+    Awaiting -->|user cancel| Cancelled
+    Failed -->|retry before Course exists, append attempt| Queued
+    Cancelled -->|retry, append attempt| Queued
+    Awaiting -->|user approves cited steps in one transaction| Approved
+    Approved -->|all materialization work items complete| Completed
+    Approved -->|any materialization work item fails| Failed
+    Failed -->|retry failed materialization only| Approved
+  end
+
+  subgraph Budget["Atomic lifetime budget reservation"]
+    Lease["Lock the leased run and attempt"]
+    Reserve{"Cumulative wall time, tool calls,<br/>tokens and estimated cost stay in fixed limits?"}
+    Charge["Atomically reserve usage on run and attempt"]
+    Tool["Start the paid retrieval tool call<br/>bounded by the lifetime wall-time deadline"]
+    Deny["Do not start the tool call<br/>record budget exhausted"]
+
+    Lease --> Reserve
+    Reserve -->|yes| Charge --> Tool
+    Reserve -->|no| Deny
+  end
+
+  subgraph Materialize["Approval and asynchronous materialization"]
+    Course["Create and publish Course with cited snapshots"]
+    Work["Create video, retrieval and quiz work items<br/>append matching outbox events"]
+    Settle["Workers settle each item"]
+    Course --> Work --> Settle
+  end
+
+  subgraph Learning["Progress and quiz state machine"]
+    Interval["Raw watched interval with idempotency key"]
+    Merge["Advisory lock per user and step<br/>merge clipped ranges without double counting"]
+    Quiz["Published quiz<br/>exactly five cited questions"]
+    Submit["Serialize attempts, keep answers private,<br/>update best score"]
+    Gate{"Server sees watched coverage at least 80 percent<br/>and best quiz score at least 70 percent?"}
+    Partial((in progress))
+    Learned((completed))
+
+    Interval --> Merge --> Gate
+    Quiz --> Submit --> Gate
+    Gate -->|no| Partial
+    Partial -->|later progress or quiz event| Gate
+    Gate -->|yes| Learned
+  end
+
+  Running -. "before each paid call" .-> Lease
+  Tool -. "measured usage and outcome settle" .-> Running
+  Deny --> Failed
+  Approved --> Course
+  Settle --> Completed
+  Course --> Interval
+  Work --> Quiz

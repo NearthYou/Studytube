@@ -476,7 +476,7 @@ Canary tests inject unique values for password, Cookie and Set-Cookie token, leg
 
 Reintroducing the raw-token table is not an acceptable down migration. Cutover rollback restores the verified pre-cutover dump and the prior web/API artifacts, so its documented RPO includes writes paused at the maintenance boundary. The existing deploy script must refuse this migration without the backup preflight marker.
 
-## Portfolio evidence
+## Engineering evidence
 
 The development log should preserve:
 

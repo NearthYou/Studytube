@@ -1,0 +1,14 @@
+# Manually reviewed historical non-secret fingerprints only.
+# Do not replace these exact entries with path or rule wildcards.
+9601836bdb22c6f6e14148b34dc8a088bded9051:api/scripts/seed-demo.ts:generic-api-key:12
+9601836bdb22c6f6e14148b34dc8a088bded9051:api/scripts/verify-demo-seed.ts:generic-api-key:16
+402a989fcbceccddf057ede8ee085176439210ec:docs/01-project-context.md:curl-auth-header:368
+101993d7dc046b8eb2e0d16bc6c9609c40950c08:ai-server/README.md:curl-auth-header:24
+74bc07359cad80606480241e0b9860cf1a39a33a:backend/README.md:generic-api-key:5
+078444ddb57969d0144cfdf7bb56e0d7905eb0ca:docs/2026-06-13/토요일_AI서버분석_학습문서.md:curl-auth-header:207
+085987cbb6108d0df10c82aa78b332b86d4d1ce4:docs/2026-06-13/토요일_공부하기싫을때_읽는문서.md:curl-auth-header:331
+085987cbb6108d0df10c82aa78b332b86d4d1ce4:docs/2026-06-13/토요일_공부하기싫을때_읽는문서.md:curl-auth-header:411
+016d8e2a1f7616faa80b558f73b705c1c64acef7:docs/2026-06-11/목요일_전체테스트문서.md:generic-api-key:309
+eeef0b8860cbe9c052a0019b9213951b69af5e93:docs/2026-06-11/목요일_인증JWT_학습문서.md:generic-api-key:1376
+0017078c20360f73b5b436eaa816c341bdc0c131:backend/README.md:generic-api-key:5
+d98eb1f1935a5678cd3c14d6a180c3dc218aeab6:api/README.md:generic-api-key:5

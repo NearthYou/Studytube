@@ -120,6 +120,7 @@ describe('application smoke with PostgreSQL (e2e)', () => {
     await request(app.getHttpServer())
       .delete(`/posts/${postId}`)
       .set('Origin', WEB_ORIGIN)
+      .set('Content-Type', 'application/json')
       .set('Cookie', identity.cookie)
       .expect(200)
       .expect({ deleted: true });

@@ -307,7 +307,7 @@ export function encodeCourseCursor(
 ): string {
   if (
     (value.kind !== 'owner' && value.kind !== 'public') ||
-    !isCanonicalTimestamp(value.timestamp) ||
+    !isCanonicalCursorTimestamp(value.timestamp) ||
     !isPositiveInteger(value.id)
   ) {
     throw new CourseValidationError('cursor', 'cursor values are malformed');
@@ -356,7 +356,7 @@ export function decodeCourseCursor(
       payload.k !== expectedKind ||
       (payload.k !== 'owner' && payload.k !== 'public') ||
       typeof payload.t !== 'string' ||
-      !isCanonicalTimestamp(payload.t) ||
+      !isCanonicalCursorTimestamp(payload.t) ||
       !isPositiveInteger(payload.i) ||
       JSON.stringify({
         v: payload.v,
@@ -515,6 +515,24 @@ function isCanonicalTimestamp(value: string): boolean {
   const timestamp = Date.parse(value);
   return (
     Number.isFinite(timestamp) && new Date(timestamp).toISOString() === value
+  );
+}
+
+function isCanonicalCursorTimestamp(value: string): boolean {
+  if (isCanonicalTimestamp(value)) {
+    return true;
+  }
+
+  const match = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.)(\d{6})Z$/.exec(value);
+  if (!match) {
+    return false;
+  }
+
+  const millisecondTimestamp = `${match[1]}${match[2].slice(0, 3)}Z`;
+  const parsed = Date.parse(millisecondTimestamp);
+  return (
+    Number.isFinite(parsed) &&
+    new Date(parsed).toISOString() === millisecondTimestamp
   );
 }
 

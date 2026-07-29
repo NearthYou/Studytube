@@ -43,6 +43,7 @@ type OwnerCourseRow = {
   archivedAt: Date | string | null;
   steps: CourseStep[];
   feedback: CourseFeedback[];
+  cursorTimestamp: string;
 };
 
 type PublicCourseRow = Omit<
@@ -52,6 +53,13 @@ type PublicCourseRow = Omit<
   createdAt: Date | string;
   updatedAt: Date | string;
   publishedAt: Date | string;
+  cursorTimestamp: string;
+};
+
+type CursorStamped<T> = {
+  item: T;
+  timestamp: string;
+  id: number;
 };
 
 type LockedCourse = {
@@ -151,7 +159,7 @@ export class PostgresCourseRepository implements CourseRepository {
       'c.owner_id = $1 AND c.id = $2',
       [ownerId, courseId],
     );
-    return rows[0] ?? null;
+    return rows[0]?.item ?? null;
   }
 
   async listPublic(
@@ -173,7 +181,7 @@ export class PostgresCourseRepository implements CourseRepository {
       `c.id = $1 AND c.status = 'published' AND c.visibility = 'public'`,
       [courseId],
     );
-    return rows[0] ?? null;
+    return rows[0]?.item ?? null;
   }
 
   async updateMetadata(
@@ -557,7 +565,7 @@ export class PostgresCourseRepository implements CourseRepository {
     if (!course) {
       throw new CourseNotFoundError();
     }
-    return course;
+    return course.item;
   }
 
   private async queryOwner(
@@ -565,7 +573,7 @@ export class PostgresCourseRepository implements CourseRepository {
     where: string,
     values: unknown[],
     suffix = '',
-  ): Promise<CourseAggregate[]> {
+  ): Promise<Array<CursorStamped<CourseAggregate>>> {
     try {
       const result = await client.query<OwnerCourseRow>(
         `
@@ -573,6 +581,10 @@ export class PostgresCourseRepository implements CourseRepository {
                c.visibility, c.status, c.version,
                c.created_at AS "createdAt", c.updated_at AS "updatedAt",
                c.published_at AS "publishedAt", c.archived_at AS "archivedAt",
+               to_char(
+                 c.created_at AT TIME ZONE 'UTC',
+                 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
+               ) AS "cursorTimestamp",
                COALESCE(steps.value, '[]'::jsonb) AS steps,
                COALESCE(feedback.value, '[]'::jsonb) AS feedback
         FROM courses c
@@ -615,7 +627,11 @@ export class PostgresCourseRepository implements CourseRepository {
       `,
         values,
       );
-      return result.rows.map(hydrateOwner);
+      return result.rows.map((row) => ({
+        item: hydrateOwner(row),
+        timestamp: row.cursorTimestamp,
+        id: row.id,
+      }));
     } catch (error) {
       throw translatePostgresError(error);
     }
@@ -625,13 +641,17 @@ export class PostgresCourseRepository implements CourseRepository {
     where: string,
     values: unknown[],
     suffix = '',
-  ): Promise<PublicCourseProjection[]> {
+  ): Promise<Array<CursorStamped<PublicCourseProjection>>> {
     try {
       const result = await this.pool.query<PublicCourseRow>(
         `
         SELECT c.id, c.title, c.description, c.visibility, c.status, c.version,
                c.created_at AS "createdAt", c.updated_at AS "updatedAt",
                c.published_at AS "publishedAt",
+               to_char(
+                 c.published_at AT TIME ZONE 'UTC',
+                 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
+               ) AS "cursorTimestamp",
                COALESCE(steps.value, '[]'::jsonb) AS steps,
                COALESCE(feedback.value, '[]'::jsonb) AS feedback
         FROM courses c
@@ -670,14 +690,9 @@ export class PostgresCourseRepository implements CourseRepository {
         values,
       );
       return result.rows.map((row) => ({
-        ...row,
-        createdAt: iso(row.createdAt),
-        updatedAt: iso(row.updatedAt),
-        publishedAt: iso(row.publishedAt),
-        feedback: row.feedback.map((item) => ({
-          ...item,
-          createdAt: iso(item.createdAt),
-        })),
+        item: hydratePublic(row),
+        timestamp: row.cursorTimestamp,
+        id: row.id,
       }));
     } catch (error) {
       throw translatePostgresError(error);
@@ -716,8 +731,10 @@ export class PostgresCourseRepository implements CourseRepository {
 }
 
 function hydrateOwner(row: OwnerCourseRow): CourseAggregate {
+  const { cursorTimestamp, ...course } = row;
+  void cursorTimestamp;
   return {
-    ...row,
+    ...course,
     createdAt: iso(row.createdAt),
     updatedAt: iso(row.updatedAt),
     publishedAt: row.publishedAt ? iso(row.publishedAt) : null,
@@ -730,8 +747,34 @@ function hydrateOwner(row: OwnerCourseRow): CourseAggregate {
   };
 }
 
-function page<T>(items: T[], limit: number): CoursePageSlice<T> {
-  return { items: items.slice(0, limit), hasMore: items.length > limit };
+function hydratePublic(row: PublicCourseRow): PublicCourseProjection {
+  const { cursorTimestamp, ...course } = row;
+  void cursorTimestamp;
+  return {
+    ...course,
+    createdAt: iso(row.createdAt),
+    updatedAt: iso(row.updatedAt),
+    publishedAt: iso(row.publishedAt),
+    feedback: (row.feedback ?? []).map((item) => ({
+      ...item,
+      createdAt: iso(item.createdAt),
+    })),
+  };
+}
+
+function page<T>(
+  records: Array<CursorStamped<T>>,
+  limit: number,
+): CoursePageSlice<T> {
+  const visible = records.slice(0, limit);
+  const last = visible.at(-1);
+  const hasMore = records.length > limit;
+  return {
+    items: visible.map(({ item }) => item),
+    hasMore,
+    nextCursor:
+      hasMore && last ? { timestamp: last.timestamp, id: last.id } : null,
+  };
 }
 
 function iso(value: Date | string): string {

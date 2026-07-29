@@ -865,10 +865,9 @@ export class MemoryBoardRepository implements BoardRepository {
     return this.posts.length !== before;
   }
 
-  async hasCompletedCourseBackfillAuditForPost(
-    _postId: number,
-  ): Promise<boolean> {
-    return false;
+  hasCompletedCourseBackfillAuditForPost(postId: number): Promise<boolean> {
+    void postId;
+    return Promise.resolve(false);
   }
 
   async findVideoAsset(postId: number): Promise<VideoAsset | null> {

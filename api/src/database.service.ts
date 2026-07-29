@@ -70,7 +70,10 @@ export class DatabaseService
   private readonly databaseInitRetryDelayMs: number;
   private readonly databaseQueryTimeoutMs: number;
   private courseRepository?: CourseRepository;
-  private courseWriterLeaseTail: Promise<void> = Promise.resolve();
+  private courseWriterLeaseStateTail: Promise<void> = Promise.resolve();
+  private courseWriterLeaseClient?: PoolClient;
+  private activeCourseWriterLeases = 0;
+  private pendingCourseWriterLeases = 0;
 
   constructor(configService: ConfigService) {
     this.databaseInitAttempts = this.positiveInteger(
@@ -144,35 +147,68 @@ export class DatabaseService
   async withCourseWriterSharedLease<T>(
     operation: () => Promise<T>,
   ): Promise<T> {
-    const previousLease = this.courseWriterLeaseTail;
-    let releaseLease: () => void = () => undefined;
-    this.courseWriterLeaseTail = new Promise<void>((resolve) => {
-      releaseLease = resolve;
-    });
-    await previousLease;
-
-    let client: PoolClient | undefined;
-    let locked = false;
-    let destroyClient = false;
-    try {
-      client = await this.pool.connect();
-      await client.query('SELECT pg_advisory_lock_shared($1)', [
-        COURSE_CUTOVER_ADVISORY_LOCK_KEY,
-      ]);
-      locked = true;
-      return await operation();
-    } finally {
-      if (locked && client) {
+    this.pendingCourseWriterLeases += 1;
+    await this.withCourseWriterLeaseState(async () => {
+      this.pendingCourseWriterLeases -= 1;
+      if (!this.courseWriterLeaseClient) {
+        const client = await this.pool.connect();
         try {
-          await client.query('SELECT pg_advisory_unlock_shared($1)', [
+          await client.query('SELECT pg_advisory_lock_shared($1)', [
             COURSE_CUTOVER_ADVISORY_LOCK_KEY,
           ]);
-        } catch {
-          destroyClient = true;
+          this.courseWriterLeaseClient = client;
+        } catch (error) {
+          client.release(true);
+          throw error;
         }
       }
-      client?.release(destroyClient);
-      releaseLease();
+      this.activeCourseWriterLeases += 1;
+    });
+
+    try {
+      return await operation();
+    } finally {
+      await this.withCourseWriterLeaseState(async () => {
+        this.activeCourseWriterLeases -= 1;
+        if (
+          this.activeCourseWriterLeases !== 0 ||
+          this.pendingCourseWriterLeases !== 0 ||
+          !this.courseWriterLeaseClient
+        ) {
+          return;
+        }
+
+        const client = this.courseWriterLeaseClient;
+        this.courseWriterLeaseClient = undefined;
+        let destroyClient = false;
+        try {
+          const unlocked = await client.query<{ unlocked: boolean }>(
+            'SELECT pg_advisory_unlock_shared($1) AS unlocked',
+            [COURSE_CUTOVER_ADVISORY_LOCK_KEY],
+          );
+          destroyClient = unlocked.rows[0]?.unlocked !== true;
+        } catch {
+          destroyClient = true;
+        } finally {
+          client.release(destroyClient);
+        }
+      });
+    }
+  }
+
+  private async withCourseWriterLeaseState<T>(
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    const previous = this.courseWriterLeaseStateTail;
+    let releaseState: () => void = () => undefined;
+    this.courseWriterLeaseStateTail = new Promise<void>((resolve) => {
+      releaseState = resolve;
+    });
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      releaseState();
     }
   }
 

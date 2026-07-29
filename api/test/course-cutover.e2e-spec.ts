@@ -1,12 +1,16 @@
 import { type INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { Pool } from 'pg';
+import { Pool, type PoolClient } from 'pg';
 import request from 'supertest';
 import type { App } from 'supertest/types';
 import { AppModule } from '../src/app.module';
 import { configureApplication } from '../src/configure-application';
-import type { CourseCutoverMode } from '../src/course/course-cutover.policy';
+import {
+  COURSE_CUTOVER_ADVISORY_LOCK_KEY,
+  type CourseCutoverMode,
+} from '../src/course/course-cutover.policy';
+import { DatabaseService } from '../src/database.service';
 
 const DATABASE_URL =
   process.env.DATABASE_URL ?? 'postgresql://app:app@localhost:5432/app_dev';
@@ -24,6 +28,51 @@ describe('Course authority cutover (e2e)', () => {
 
   beforeAll(() => {
     pool = new Pool({ connectionString: DATABASE_URL });
+  });
+
+  it('keeps all admitted writers under one shared lease until they drain', async () => {
+    activeApp = await createApplication('legacy');
+    const database = activeApp.get(DatabaseService);
+    const firstEntered = deferred<void>();
+    const secondEntered = deferred<void>();
+    const releaseFirst = deferred<void>();
+    const releaseSecond = deferred<void>();
+    let exclusiveClient: PoolClient | undefined;
+
+    const first = database.withCourseWriterSharedLease(async () => {
+      firstEntered.resolve();
+      await releaseFirst.promise;
+    });
+    await firstEntered.promise;
+    const second = database.withCourseWriterSharedLease(async () => {
+      secondEntered.resolve();
+      await releaseSecond.promise;
+    });
+
+    try {
+      await withTimeout(secondEntered.promise, 2_000);
+      exclusiveClient = await pool.connect();
+      await expectExclusiveLock(exclusiveClient, false);
+
+      releaseFirst.resolve();
+      await first;
+      await expectExclusiveLock(exclusiveClient, false);
+
+      releaseSecond.resolve();
+      await second;
+      await expectExclusiveLock(exclusiveClient, true);
+    } finally {
+      releaseFirst.resolve();
+      releaseSecond.resolve();
+      await Promise.allSettled([first, second]);
+      if (exclusiveClient) {
+        await exclusiveClient.query('SELECT pg_advisory_unlock($1)', [
+          COURSE_CUTOVER_ADVISORY_LOCK_KEY,
+        ]);
+        exclusiveClient.release();
+      }
+      await closeActiveApp();
+    }
   });
 
   it('keeps exactly one writer family active and preserves snapshots at activation', async () => {
@@ -277,4 +326,42 @@ async function countPost(pool: Pool, postId: number): Promise<number> {
     [postId],
   );
   return result.rows[0]?.count ?? 0;
+}
+
+async function expectExclusiveLock(
+  client: PoolClient,
+  expected: boolean,
+): Promise<void> {
+  const result = await client.query<{ acquired: boolean }>(
+    'SELECT pg_try_advisory_lock($1) AS acquired',
+    [COURSE_CUTOVER_ADVISORY_LOCK_KEY],
+  );
+  expect(result.rows[0]?.acquired).toBe(expected);
+}
+
+function deferred<T>() {
+  let resolve: (value: T | PromiseLike<T>) => void = () => undefined;
+  const promise = new Promise<T>((settle) => {
+    resolve = settle;
+  });
+  return { promise, resolve };
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number) {
+  let timeout: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_resolve, reject) => {
+        timeout = setTimeout(
+          () => reject(new Error('Timed out waiting for admitted writer')),
+          timeoutMs,
+        );
+      }),
+    ]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
 }

@@ -205,14 +205,14 @@ describe('Course domain policy', () => {
   it('round trips the route kind, immutable timestamp, and tie-breaker ID in a v1 cursor', () => {
     const encoded = encodeCourseCursor({
       kind: 'owner',
-      timestamp: '2026-07-29T01:02:03.456Z',
+      timestamp: '2026-07-29T01:02:03.456789Z',
       id: 41,
     });
 
     expect(decodeCourseCursor(encoded, 'owner')).toEqual({
       version: 1,
       kind: 'owner',
-      timestamp: '2026-07-29T01:02:03.456Z',
+      timestamp: '2026-07-29T01:02:03.456789Z',
       id: 41,
     });
   });

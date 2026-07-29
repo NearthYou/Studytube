@@ -243,6 +243,110 @@ describe('Course HTTP and PostgreSQL boundary (e2e)', () => {
       .expect(409);
   });
 
+  it('does not skip owner courses that share a millisecond at a page boundary', async () => {
+    const owner = await createIdentity(pool, 'Cursor Owner');
+    userIds.push(owner.userId);
+    const timestamps = [
+      '2026-07-29T12:00:00.123900Z',
+      '2026-07-29T12:00:00.123800Z',
+      '2026-07-29T12:00:00.123700Z',
+    ];
+    const expectedIds: number[] = [];
+
+    for (const [index, timestamp] of timestamps.entries()) {
+      const inserted = await pool.query<{ id: number }>(
+        `
+          INSERT INTO courses (
+            owner_id, title, description,
+            idempotency_key_digest, idempotency_payload_hash,
+            created_at, updated_at
+          )
+          VALUES ($1, $2, '', $3, $4, $5::timestamptz, $5::timestamptz)
+          RETURNING id
+        `,
+        [
+          owner.userId,
+          `Cursor Course ${index + 1}`,
+          Buffer.alloc(32, index + 1),
+          Buffer.alloc(32, index + 11),
+          timestamp,
+        ],
+      );
+      expectedIds.push(inserted.rows[0].id);
+    }
+
+    const seenIds: number[] = [];
+    let cursor: string | null = null;
+    do {
+      const query = cursor
+        ? `/courses?limit=1&cursor=${encodeURIComponent(cursor)}`
+        : '/courses?limit=1';
+      const page = (
+        await request(app.getHttpServer())
+          .get(query)
+          .set('Cookie', owner.cookie)
+          .expect(200)
+      ).body as {
+        items: Array<{ id: number }>;
+        nextCursor: string | null;
+      };
+      seenIds.push(...page.items.map(({ id }) => id));
+      cursor = page.nextCursor;
+    } while (cursor);
+
+    expect(seenIds).toEqual(expectedIds);
+
+    const publicTimestamps = [
+      '2099-07-29T12:00:00.987900Z',
+      '2099-07-29T12:00:00.987800Z',
+      '2099-07-29T12:00:00.987700Z',
+    ];
+    for (const [index, courseId] of expectedIds.entries()) {
+      await pool.query(
+        `
+          INSERT INTO course_steps (
+            course_id, position, title_snapshot, video_url_snapshot,
+            thumbnail_url_snapshot, channel_name_snapshot, owner_learning_state
+          )
+          VALUES (
+            $1, 1, $2, $3, '', 'Cursor Lab',
+            '{"captionLanguage":"ko","captionsEnabled":true,"playbackRate":1,"loop":{"enabled":false,"manual":false,"start":0,"end":15},"marks":[]}'::jsonb
+          )
+        `,
+        [
+          courseId,
+          `Public Cursor Course ${index + 1}`,
+          `https://video.example.test/public-cursor-${index + 1}`,
+        ],
+      );
+      await pool.query(
+        `
+          UPDATE courses
+          SET status = 'published', visibility = 'public',
+              published_at = $2::timestamptz, updated_at = $2::timestamptz
+          WHERE id = $1
+        `,
+        [courseId, publicTimestamps[index]],
+      );
+    }
+
+    const publicIds: number[] = [];
+    let publicCursor: string | null = null;
+    for (let pageNumber = 0; pageNumber < expectedIds.length; pageNumber += 1) {
+      const query = publicCursor
+        ? `/explore/courses?limit=1&cursor=${encodeURIComponent(publicCursor)}`
+        : '/explore/courses?limit=1';
+      const page = (await request(app.getHttpServer()).get(query).expect(200))
+        .body as {
+        items: Array<{ id: number }>;
+        nextCursor: string | null;
+      };
+      publicIds.push(...page.items.map(({ id }) => id));
+      publicCursor = page.nextCursor;
+    }
+    expect(publicIds).toEqual(expectedIds);
+  });
+
   afterAll(async () => {
     try {
       if (pool && userIds.length > 0) {

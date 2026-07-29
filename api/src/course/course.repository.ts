@@ -12,6 +12,7 @@ export const COURSE_REPOSITORY = Symbol('COURSE_REPOSITORY');
 export type CoursePageSlice<T> = {
   items: T[];
   hasMore: boolean;
+  nextCursor: Pick<CourseCursor, 'timestamp' | 'id'> | null;
 };
 
 export type CreateCourseCommand = {

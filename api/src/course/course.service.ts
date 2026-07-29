@@ -68,15 +68,13 @@ export class CourseService {
       validatePageSize(limit),
     );
     const items = slice.items.map(toOwnerCourseProjection);
-    const last = items.at(-1);
     return {
       items,
       nextCursor:
-        slice.hasMore && last
+        slice.hasMore && slice.nextCursor
           ? encodeCourseCursor({
               kind: 'owner',
-              timestamp: last.createdAt,
-              id: last.id,
+              ...slice.nextCursor,
             })
           : null,
     };
@@ -107,15 +105,13 @@ export class CourseService {
       cursor,
       validatePageSize(limit),
     );
-    const last = slice.items.at(-1);
     return {
       items: slice.items,
       nextCursor:
-        slice.hasMore && last
+        slice.hasMore && slice.nextCursor
           ? encodeCourseCursor({
               kind: 'public',
-              timestamp: last.publishedAt,
-              id: last.id,
+              ...slice.nextCursor,
             })
           : null,
     };

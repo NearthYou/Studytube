@@ -6,7 +6,7 @@ import { resolveRuntimeListener } from './runtime-listener';
 import { assertProductionRuntimeSecrets } from './runtime-secrets';
 
 async function bootstrap() {
-  assertProductionRuntimeSecrets(process.env);
+  assertProductionRuntimeSecrets(process.env, 'api');
   const app = await NestFactory.create(AppModule);
   app.enableShutdownHooks();
   configureApplication(app);

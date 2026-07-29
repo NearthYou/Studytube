@@ -1,6 +1,6 @@
 [Unit]
 Description=StudyTube AI service
-After=network-online.target docker.service
+After=network-online.target docker.service studytube-deploy-resume.service
 Wants=network-online.target
 Requires=docker.service
 StartLimitIntervalSec=60
@@ -8,14 +8,15 @@ StartLimitBurst=5
 
 [Service]
 Type=simple
-User=@APP_USER@
-Group=@APP_GROUP@
+User=@AI_USER@
+Group=@AI_USER@
+SupplementaryGroups=@SOCKET_GROUP@ @RUNTIME_GROUP@
 WorkingDirectory=@APP_DIR@
-EnvironmentFile=-@APP_DIR@/.env
-EnvironmentFile=-@APP_DIR@/ai/.env
+EnvironmentFile=@RUNTIME_CONFIG_DIR@/ai.env
 Environment=NODE_ENV=production
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=PYTHONUNBUFFERED=1
+Environment=STUDYTUBE_API_SOCKET_PATH=/run/studytube/api.sock
 ExecStart=@APP_DIR@/ai/.venv/bin/python -m uvicorn main:app --app-dir @APP_DIR@/ai --host 127.0.0.1 --port 8000 --workers 1
 Restart=on-failure
 RestartSec=3
@@ -25,6 +26,8 @@ UMask=0077
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
+IPAddressDeny=169.254.169.254/32
+IPAddressDeny=fd00:ec2::254/128
 
 [Install]
 WantedBy=multi-user.target

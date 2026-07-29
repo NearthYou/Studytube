@@ -1,8 +1,10 @@
-const productionSecretNames = [
+const sharedProductionSecretNames = [
   'INTERNAL_AI_API_KEY',
   'AUTH_VERIFICATION_PEPPER',
   'AUTH_RATE_LIMIT_PEPPER',
 ] as const;
+
+const apiOnlyProductionSecretNames = ['MCP_SERVICE_ASSERTION_SECRET'] as const;
 
 const forbiddenMarkers = [
   'change-me',
@@ -13,11 +15,16 @@ const forbiddenMarkers = [
 
 export function assertProductionRuntimeSecrets(
   environment: NodeJS.ProcessEnv,
+  runtimeRole: 'api' | 'worker',
 ): void {
   if (environment.NODE_ENV !== 'production') {
     return;
   }
 
+  const productionSecretNames =
+    runtimeRole === 'api'
+      ? [...sharedProductionSecretNames, ...apiOnlyProductionSecretNames]
+      : sharedProductionSecretNames;
   const values = productionSecretNames.map((name) => {
     const value = environment[name]?.trim() ?? '';
     const normalized = value.toLowerCase();

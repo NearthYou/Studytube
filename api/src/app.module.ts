@@ -17,13 +17,11 @@ import { WorkModule } from './work/work.module';
 import { ObservabilityModule } from './observability';
 import { LearningModule } from './learning/learning.module';
 import { McpModule } from './mcp/mcp.module';
+import { runtimeConfigOptions } from './runtime-environment-files';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({
-      isGlobal: true,
-      envFilePath: ['api/.env', '.env'],
-    }),
+    ConfigModule.forRoot(runtimeConfigOptions(process.env)),
     ObservabilityModule,
     LearningModule,
     McpModule,

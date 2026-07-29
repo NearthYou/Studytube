@@ -4,7 +4,7 @@ import { WorkerModule } from './work/worker.module';
 import { assertProductionRuntimeSecrets } from './runtime-secrets';
 
 async function bootstrap(): Promise<void> {
-  assertProductionRuntimeSecrets(process.env);
+  assertProductionRuntimeSecrets(process.env, 'worker');
   const app = await NestFactory.createApplicationContext(WorkerModule);
   app.enableShutdownHooks();
 }

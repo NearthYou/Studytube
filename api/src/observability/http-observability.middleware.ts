@@ -24,15 +24,16 @@ export class HttpObservabilityMiddleware implements NestMiddleware {
 
       response.once('finish', () => {
         const durationMs = performance.now() - startedAt;
+        const route = request.path;
         this.runtime.metrics.httpRequest(
           request.method,
-          request.originalUrl || request.url,
+          route,
           response.statusCode,
           durationMs,
         );
         this.runtime.logger.info('http_request_completed', {
           method: request.method,
-          route: request.originalUrl || request.url,
+          route,
           status_code: response.statusCode,
           duration_ms: durationMs,
         });

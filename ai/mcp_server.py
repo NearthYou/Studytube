@@ -94,7 +94,7 @@ class GatewaySettings:
 
     @classmethod
     def from_environment(cls) -> GatewaySettings:
-        return cls(
+        settings = cls(
             service_assertion_secret=os.getenv(
                 "MCP_SERVICE_ASSERTION_SECRET", ""
             ).strip(),
@@ -119,6 +119,36 @@ class GatewaySettings:
                 "MCP_ALLOWED_HOSTS", DEFAULT_MCP_ALLOWED_HOSTS
             ),
         )
+
+        if os.getenv("NODE_ENV", "").strip().casefold() == "production":
+            secret = settings.service_assertion_secret
+            normalized = secret.casefold()
+            if len(secret) < 32 or any(
+                marker in normalized
+                for marker in (
+                    "change-me",
+                    "replace-with",
+                    "example",
+                    "placeholder",
+                )
+            ):
+                raise RuntimeError(
+                    "MCP_SERVICE_ASSERTION_SECRET must be a non-placeholder "
+                    "secret of at least 32 characters in production"
+                )
+
+            for other_name in (
+                "INTERNAL_AI_API_KEY",
+                "AUTH_VERIFICATION_PEPPER",
+                "AUTH_RATE_LIMIT_PEPPER",
+            ):
+                if secret == os.getenv(other_name, "").strip():
+                    raise RuntimeError(
+                        "MCP_SERVICE_ASSERTION_SECRET and "
+                        f"{other_name} must use different production secrets"
+                    )
+
+        return settings
 
     @classmethod
     def for_test(

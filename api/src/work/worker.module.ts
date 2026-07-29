@@ -33,13 +33,11 @@ import {
 } from '../auth/verification-email-sender';
 import { VerificationEmailOutboxWorker } from '../auth/verification-email-outbox.worker';
 import { observabilityRuntime } from '../observability/runtime';
+import { runtimeConfigOptions } from '../runtime-environment-files';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({
-      isGlobal: true,
-      envFilePath: ['api/.env', '.env'],
-    }),
+    ConfigModule.forRoot(runtimeConfigOptions(process.env)),
     AuthModule,
     LearningModule,
     HttpModule,

@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import importlib
 import json
+import os
 import socket
 import threading
 import time
@@ -13,6 +14,7 @@ import unittest
 import uuid
 from contextlib import asynccontextmanager
 from typing import Any
+from unittest import mock
 
 TEST_SECRET = "mcp-test-secret-that-is-at-least-thirty-two-bytes"
 
@@ -66,6 +68,83 @@ def mint_assertion(
     ).digest()
     encoded_signature = base64.urlsafe_b64encode(signature).rstrip(b"=").decode("ascii")
     return f"{signing_input}.{encoded_signature}"
+
+
+class GatewaySettingsProductionSecretTest(unittest.TestCase):
+    def test_production_rejects_a_missing_or_weak_mcp_secret(self):
+        gateway = load_gateway_module()
+        for case, secret in (
+            ("missing", None),
+            ("short", "too-short"),
+            ("placeholder", "replace-with-a-random-production-secret"),
+        ):
+            environment = {
+                "NODE_ENV": "production",
+                "INTERNAL_AI_API_KEY": "a" * 32,
+                "AUTH_VERIFICATION_PEPPER": "b" * 32,
+                "AUTH_RATE_LIMIT_PEPPER": "c" * 32,
+            }
+            if secret is not None:
+                environment["MCP_SERVICE_ASSERTION_SECRET"] = secret
+
+            with self.subTest(case=case):
+                with mock.patch.dict(os.environ, environment, clear=True):
+                    with self.assertRaisesRegex(
+                        RuntimeError, "MCP_SERVICE_ASSERTION_SECRET"
+                    ):
+                        gateway.GatewaySettings.from_environment()
+
+    def test_production_rejects_mcp_secret_reuse_across_core_boundaries(self):
+        gateway = load_gateway_module()
+        environment = {
+            "NODE_ENV": "production",
+            "INTERNAL_AI_API_KEY": "a" * 32,
+            "AUTH_VERIFICATION_PEPPER": "b" * 32,
+            "AUTH_RATE_LIMIT_PEPPER": "c" * 32,
+            "MCP_SERVICE_ASSERTION_SECRET": TEST_SECRET,
+        }
+
+        for other_name in (
+            "INTERNAL_AI_API_KEY",
+            "AUTH_VERIFICATION_PEPPER",
+            "AUTH_RATE_LIMIT_PEPPER",
+        ):
+            reused_environment = {
+                **environment,
+                "MCP_SERVICE_ASSERTION_SECRET": environment[other_name],
+            }
+            with self.subTest(other_name=other_name):
+                with mock.patch.dict(
+                    os.environ, reused_environment, clear=True
+                ):
+                    with self.assertRaisesRegex(
+                        RuntimeError, "different production secrets"
+                    ):
+                        gateway.GatewaySettings.from_environment()
+
+    def test_production_accepts_a_distinct_strong_mcp_secret(self):
+        gateway = load_gateway_module()
+        with mock.patch.dict(
+            os.environ,
+            {
+                "NODE_ENV": "production",
+                "INTERNAL_AI_API_KEY": "a" * 32,
+                "AUTH_VERIFICATION_PEPPER": "b" * 32,
+                "AUTH_RATE_LIMIT_PEPPER": "c" * 32,
+                "MCP_SERVICE_ASSERTION_SECRET": TEST_SECRET,
+            },
+            clear=True,
+        ):
+            settings = gateway.GatewaySettings.from_environment()
+
+        self.assertEqual(settings.service_assertion_secret, TEST_SECRET)
+
+    def test_non_production_allows_an_unconfigured_mcp_secret(self):
+        gateway = load_gateway_module()
+        with mock.patch.dict(os.environ, {"NODE_ENV": "test"}, clear=True):
+            settings = gateway.GatewaySettings.from_environment()
+
+        self.assertEqual(settings.service_assertion_secret, "")
 
 
 class ServiceAssertionVerifierTest(unittest.IsolatedAsyncioTestCase):

@@ -13,17 +13,27 @@ runner="$repo_root/scripts/ssm-deploy-release.sh"
 sender="$repo_root/scripts/send-ssm-deployment.sh"
 workflow="$repo_root/.github/workflows/ci-cd.yml"
 production_compose="$repo_root/infra/production.compose.yml"
+runtime_isolation_contract="$script_dir/runtime-isolation-contract.sh"
 
-for path in "$builder" "$runner" "$sender" "$workflow" "$production_compose"; do
+for path in \
+  "$builder" \
+  "$runner" \
+  "$sender" \
+  "$workflow" \
+  "$production_compose" \
+  "$runtime_isolation_contract"; do
   [[ -f "$path" ]] || fail "missing required file: $path"
 done
 
 bash -n "$builder"
 bash -n "$runner"
 bash -n "$sender"
+bash -n "$runtime_isolation_contract"
 if command -v shellcheck >/dev/null 2>&1; then
-  shellcheck "$builder" "$runner" "$sender" "$0"
+  shellcheck "$builder" "$runner" "$sender" "$runtime_isolation_contract" "$0"
 fi
+
+bash "$runtime_isolation_contract"
 
 grep -Eq '^[[:space:]]*uses:[[:space:]]+aws-actions/configure-aws-credentials@[0-9a-f]{40}[[:space:]]+#[[:space:]]+v[0-9]+\.[0-9]+\.[0-9]+[[:space:]]*$' "$workflow" ||
   fail 'workflow does not establish AWS credentials through GitHub OIDC'
@@ -71,6 +81,29 @@ grep -Fq 'config_fingerprint' "$runner" || fail 'runner does not persist a confi
 grep -Fq 'check_disk_space' "$runner" || fail 'runner has no disk preflight'
 grep -Fq 'rollback_previous_release' "$runner" || fail 'runner has no rollback path'
 grep -Fq 'studytube-deploy-resume.service' "$runner" || fail 'runner cannot recover after reboot'
+grep -Fq 'Before=studytube-api.service studytube-ai.service studytube-worker.service' "$runner" ||
+  fail 'resume is not ordered before application services after reboot'
+for transient_unit in \
+  studytube-release-web-dependencies.service \
+  studytube-release-api-dependencies.service \
+  studytube-release-web-build.service \
+  studytube-release-api-build.service \
+  studytube-release-ai-venv.service \
+  studytube-release-ai-dependencies.service \
+  studytube-release-migration.service \
+  studytube-release-course-backfill.service \
+  studytube-release-course-verify.service; do
+  grep -Fq "$transient_unit" "$runner" ||
+    fail "runner cannot detect orphaned transient unit $transient_unit"
+done
+grep -Fq 'assert_release_transient_units_quiescent' "$runner" ||
+  fail 'a new deployment does not fail closed on an orphaned transient unit'
+grep -Fq 'stop_release_transient_units || return 1' "$runner" ||
+  fail 'activation failure can roll back before transient mutations stop'
+grep -Fq 'stop_release_transient_units || exit 1' "$runner" ||
+  fail 'resume can recover while transient mutations remain active'
+grep -Fq -- '--property=ActiveState --value' "$runner" ||
+  fail 'transient cleanup does not verify the final systemd active state'
 grep -Fq 'disable_legacy_pull_deployment' "$runner" || fail 'runner leaves the legacy pull deploy active'
 grep -Fq 'snapshot_legacy_runtime' "$runner" || fail 'runner cannot restore the first cutover'
 

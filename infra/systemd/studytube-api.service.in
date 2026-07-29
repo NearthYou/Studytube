@@ -1,6 +1,6 @@
 [Unit]
 Description=StudyTube API
-After=network-online.target docker.service
+After=network-online.target docker.service studytube-deploy-resume.service
 Wants=network-online.target
 Requires=docker.service
 StartLimitIntervalSec=60
@@ -8,11 +8,11 @@ StartLimitBurst=5
 
 [Service]
 Type=simple
-User=@APP_USER@
-Group=@APP_GROUP@
+User=@API_USER@
+Group=@SOCKET_GROUP@
+SupplementaryGroups=@API_USER@ @RUNTIME_GROUP@
 WorkingDirectory=@APP_DIR@
-EnvironmentFile=-@APP_DIR@/.env
-EnvironmentFile=-@APP_DIR@/api/.env
+EnvironmentFile=@RUNTIME_CONFIG_DIR@/api.env
 Environment=API_SOCKET_PATH=/run/studytube/api.sock
 RuntimeDirectory=studytube
 RuntimeDirectoryMode=0750
@@ -27,6 +27,8 @@ UMask=0007
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
+IPAddressDeny=169.254.169.254/32
+IPAddressDeny=fd00:ec2::254/128
 
 [Install]
 WantedBy=multi-user.target

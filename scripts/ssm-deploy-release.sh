@@ -6,6 +6,17 @@ readonly DEFAULT_DEPLOY_ROOT='/opt/studytube'
 readonly DEFAULT_CONFIG_FILE='/etc/studytube/deployment.env'
 readonly DEFAULT_RETAIN_RELEASES='5'
 readonly DEFAULT_MINIMUM_FREE_BYTES='3221225472'
+readonly -a RELEASE_TRANSIENT_UNITS=(
+  studytube-release-web-dependencies.service
+  studytube-release-api-dependencies.service
+  studytube-release-web-build.service
+  studytube-release-api-build.service
+  studytube-release-ai-venv.service
+  studytube-release-ai-dependencies.service
+  studytube-release-migration.service
+  studytube-release-course-backfill.service
+  studytube-release-course-verify.service
+)
 
 usage() {
   cat <<'EOF'
@@ -39,6 +50,48 @@ fail() {
 
 require_command() {
   command -v "$1" >/dev/null 2>&1 || fail "$1 is required"
+}
+
+release_transient_unit_state() {
+  local load_state load_status=0 unit_state
+  load_state="$(systemctl show "$1" --property=LoadState --value 2>/dev/null)" ||
+    load_status=$?
+  if [[ "$load_state" == 'not-found' ]]; then
+    printf 'inactive\n'
+    return 0
+  fi
+  ((load_status == 0)) && [[ "$load_state" == 'loaded' ]] || return 1
+  unit_state="$(systemctl show "$1" --property=ActiveState --value 2>/dev/null)" || return 1
+  [[ -n "$unit_state" ]] || return 1
+  printf '%s\n' "$unit_state"
+}
+
+release_transient_unit_is_quiescent() {
+  case "$(release_transient_unit_state "$1")" in
+    inactive|failed) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+assert_release_transient_units_quiescent() {
+  local unit_name
+  for unit_name in "${RELEASE_TRANSIENT_UNITS[@]}"; do
+    release_transient_unit_is_quiescent "$unit_name" ||
+      fail "refusing to overlap active release transient unit: $unit_name"
+  done
+}
+
+stop_release_transient_units() {
+  local unit_name
+  for unit_name in "${RELEASE_TRANSIENT_UNITS[@]}"; do
+    if ! release_transient_unit_is_quiescent "$unit_name"; then
+      systemctl kill --kill-whom=all --signal=KILL "$unit_name" >/dev/null 2>&1 || true
+      systemctl stop "$unit_name" >/dev/null 2>&1 || true
+    fi
+    release_transient_unit_is_quiescent "$unit_name" ||
+      fail "release transient unit did not stop before recovery: $unit_name"
+    systemctl reset-failed "$unit_name" >/dev/null 2>&1 || true
+  done
 }
 
 validate_sha() {
@@ -216,17 +269,23 @@ current_release_target() {
 link_release_config() {
   local release_path="$1"
   local snapshot_path="$2"
-  local environment_path
-  for environment_path in \
-    "$release_path/source/.env" \
+  local root_environment_path="$release_path/source/.env"
+  if [[ -e "$root_environment_path" && ! -L "$root_environment_path" ]]; then
+    fail "refusing to replace tracked environment path $root_environment_path"
+    return 1
+  fi
+  rm -f -- "$root_environment_path"
+  ln -s -- "$snapshot_path" "$root_environment_path"
+
+  local legacy_environment_path
+  for legacy_environment_path in \
     "$release_path/source/api/.env" \
     "$release_path/source/ai/.env"; do
-    if [[ -e "$environment_path" && ! -L "$environment_path" ]]; then
-      fail "refusing to replace tracked environment path $environment_path"
+    if [[ -e "$legacy_environment_path" && ! -L "$legacy_environment_path" ]]; then
+      fail "refusing to replace tracked environment path $legacy_environment_path"
       return 1
     fi
-    rm -f -- "$environment_path"
-    ln -s -- "$snapshot_path" "$environment_path"
+    rm -f -- "$legacy_environment_path"
   done
 }
 
@@ -371,6 +430,7 @@ install_resume_service() {
     '[Unit]' \
     'Description=Resume or roll back an interrupted StudyTube deployment' \
     'After=network-online.target docker.service' \
+    'Before=studytube-api.service studytube-ai.service studytube-worker.service' \
     'Wants=network-online.target' \
     "ConditionPathExists=$pending_file" \
     '' \
@@ -406,6 +466,7 @@ initialize_paths() {
     "$state_dir" \
     "$diagnostics_dir" \
     "$config_snapshots_dir"
+  chmod 0755 "$deploy_root" "$releases_dir"
   chmod 0700 "$state_dir" "$config_snapshots_dir"
 }
 
@@ -494,6 +555,7 @@ stage_release() {
     "BUNDLE_SHA256=$(manifest_value "$incoming_dir/manifest.env" BUNDLE_SHA256)" \
     >"$incoming_dir/release-metadata.env"
   chmod -R go-w "$incoming_dir"
+  chmod 0755 "$incoming_dir" "$incoming_dir/source"
   mv -- "$incoming_dir" "$release_path"
   link_release_config "$release_path" "$config_snapshot"
   release_dir="$release_path"
@@ -509,16 +571,6 @@ prepare_release() {
   (
     load_config_file "$config_snapshot"
     cd -- "$source_dir"
-    npm ci --prefix web --no-audit --fund=false
-    npm ci --prefix api --no-audit --fund=false
-    npm --prefix web run build
-    npm --prefix api run build
-    python3 -m venv ai/.venv
-    ai/.venv/bin/python -m pip install \
-      --disable-pip-version-check \
-      --no-cache-dir \
-      --require-hashes \
-      -r ai/requirements.txt
     docker compose -f infra/production.compose.yml config --quiet
     docker compose -f infra/production.compose.yml run --rm --no-deps caddy \
       validate --config /etc/caddy/Caddyfile --adapter caddyfile
@@ -731,6 +783,7 @@ activate_release() {
   if ! invoke_release_deploy "$release_dir" "$deploy_sha" "$config_snapshot"; then
     phase='rollback_required'
     write_state
+    stop_release_transient_units || return 1
     if [[ -n "$previous_release" ]]; then
       rollback_previous_release || return 1
     elif [[ -n "$legacy_runtime_snapshot" ]]; then
@@ -793,6 +846,7 @@ run_deployment() {
 
   exec 9>"$state_dir/deployment.lock"
   flock -n 9 || fail 'another immutable deployment is already running'
+  assert_release_transient_units_quiescent
 
   if [[ -z "$previous_release" ]]; then
     previous_release="$(current_release_target "$current_link" 2>/dev/null || true)"
@@ -956,14 +1010,15 @@ case "$command_name" in
     initialize_paths
     start_diagnostic_log
     state_file="$state_dir/$deploy_sha.env"
+    exec 9>"$state_dir/deployment.lock"
+    flock -n 9 || { fail 'another immutable deployment is already running'; exit 1; }
+    stop_release_transient_units || exit 1
     if [[ "$phase" == 'complete' || "$phase" == 'rolled_back' ]]; then
       clear_pending_state
       printf 'Recovered completed deployment state for %s.\n' "$deploy_sha"
       exit 0
     fi
     if [[ "$phase" == 'activating' || "$phase" == 'rollback_required' || "$phase" == 'rolling_back' ]]; then
-      exec 9>"$state_dir/deployment.lock"
-      flock -n 9 || { fail 'another immutable deployment is already running'; exit 1; }
       if [[ -n "$previous_release" ]]; then
         rollback_previous_release
         printf 'Interrupted deployment rolled back to %s.\n' "$(basename -- "$previous_release")"

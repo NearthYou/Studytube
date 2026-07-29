@@ -397,6 +397,7 @@ for required_name in \
   POSTGRES_PASSWORD \
   POSTGRES_DB \
   INTERNAL_AI_API_KEY \
+  MCP_SERVICE_ASSERTION_SECRET \
   AUTH_VERIFICATION_PEPPER \
   AUTH_RATE_LIMIT_PEPPER \
   AUTH_EMAIL_PROVIDER \
@@ -419,6 +420,7 @@ fi
 for secret_name in \
   POSTGRES_PASSWORD \
   INTERNAL_AI_API_KEY \
+  MCP_SERVICE_ASSERTION_SECRET \
   AUTH_VERIFICATION_PEPPER \
   AUTH_RATE_LIMIT_PEPPER; do
   require_strong_secret "$secret_name"
@@ -427,6 +429,9 @@ done
 require_distinct_secrets INTERNAL_AI_API_KEY AUTH_VERIFICATION_PEPPER
 require_distinct_secrets INTERNAL_AI_API_KEY AUTH_RATE_LIMIT_PEPPER
 require_distinct_secrets AUTH_VERIFICATION_PEPPER AUTH_RATE_LIMIT_PEPPER
+require_distinct_secrets MCP_SERVICE_ASSERTION_SECRET INTERNAL_AI_API_KEY
+require_distinct_secrets MCP_SERVICE_ASSERTION_SECRET AUTH_VERIFICATION_PEPPER
+require_distinct_secrets MCP_SERVICE_ASSERTION_SECRET AUTH_RATE_LIMIT_PEPPER
 
 if [ "$VALKEY_URL" != "redis://127.0.0.1:6379" ]; then
   echo "VALKEY_URL must use the loopback Valkey service in production" >&2
@@ -460,17 +465,8 @@ if ! sudo swapon --show --noheadings | grep -q '/swapfile'; then
   sudo swapon /swapfile
 fi
 
-npm ci --prefix web --no-audit --fund=false
-npm ci --prefix api --no-audit --fund=false
-npm --prefix web run build
-npm --prefix api run build
-
-python3 -m venv ai/.venv
-ai/.venv/bin/python -m pip install \
-  --disable-pip-version-check \
-  --no-cache-dir \
-  --require-hashes \
-  -r ai/requirements.txt
+APP_DIR="$app_dir" COURSE_CUTOVER_MODE="$course_cutover_mode" \
+  bash scripts/install-production-runtime.sh prepare-release
 
 APP_DIR="$app_dir" COURSE_CUTOVER_MODE="$course_cutover_mode" \
   bash scripts/install-production-runtime.sh
@@ -511,7 +507,8 @@ if [ "$retrieval_dedup_pending" = "true" ]; then
   printf 'retrieval_duplicate_rows_before=%s\n' "$retrieval_duplicate_rows_before"
 fi
 
-npm --prefix api run db:migrate:up
+APP_DIR="$app_dir" COURSE_CUTOVER_MODE="$course_cutover_mode" \
+  bash scripts/install-production-runtime.sh run-migration
 
 if [ "$retrieval_dedup_pending" = "true" ]; then
   retrieval_duplicate_rows_after="$(retrieval_duplicate_excess_count)"
@@ -590,9 +587,10 @@ fi
 
 if [ "$course_cutover_mode" = "freeze" ]; then
   if [ "$course_already_activated" = "false" ]; then
-    ALLOW_COURSE_BACKFILL=true COURSE_CUTOVER_MODE=freeze \
-      npm --prefix api run db:course:backfill
-    COURSE_CUTOVER_MODE=freeze npm --prefix api run db:course:verify
+    APP_DIR="$app_dir" COURSE_CUTOVER_MODE=freeze \
+      bash scripts/install-production-runtime.sh run-course-backfill
+    APP_DIR="$app_dir" COURSE_CUTOVER_MODE=freeze \
+      bash scripts/install-production-runtime.sh run-course-verify
     write_frozen_parity_marker
   else
     echo "Post-activation freeze: automatic legacy backfill is disabled; diagnose and roll forward."

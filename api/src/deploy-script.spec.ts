@@ -37,6 +37,10 @@ describe('EC2 deployment script', () => {
     resolve(__dirname, '../../scripts/install-ec2-autodeploy.sh'),
     'utf8',
   );
+  const runtimeInstaller = readFileSync(
+    resolve(__dirname, '../../scripts/install-production-runtime.sh'),
+    'utf8',
+  );
   const environmentExample = readFileSync(
     resolve(__dirname, '../.env.example'),
     'utf8',
@@ -75,6 +79,7 @@ describe('EC2 deployment script', () => {
     AUTH_RATE_LIMIT_PEPPER: 'c'.repeat(32),
     AUTH_VERIFICATION_PEPPER: 'b'.repeat(32),
     INTERNAL_AI_API_KEY: 'a'.repeat(32),
+    MCP_SERVICE_ASSERTION_SECRET: 'd'.repeat(32),
     POSTGRES_PASSWORD: 'p'.repeat(32),
     STUDYTUBE_PUBLIC_URL: 'https://studytube.test',
   };
@@ -86,14 +91,15 @@ describe('EC2 deployment script', () => {
     const cleanCheckout = script.indexOf(
       'git status --porcelain --untracked-files=all',
     );
-    const webBuild = script.indexOf('npm --prefix web run build');
-    const apiBuild = script.indexOf('npm --prefix api run build');
-    const aiInstall = script.indexOf('ai/.venv/bin/python -m pip install');
-    const aiInstallBlock = script.slice(aiInstall, aiInstall + 240);
+    const isolatedPreparation = script.indexOf(
+      'bash scripts/install-production-runtime.sh prepare-release',
+    );
     const postgresStart = script.indexOf(
       'docker compose -f infra/production.compose.yml up -d --wait postgres',
     );
-    const migration = script.indexOf('npm --prefix api run db:migrate:up');
+    const migration = script.indexOf(
+      'bash scripts/install-production-runtime.sh run-migration',
+    );
     const serviceStop = script.indexOf(
       'systemctl stop studytube-api.service studytube-ai.service',
     );
@@ -110,23 +116,21 @@ describe('EC2 deployment script', () => {
     expect(staleDeploymentGuard).toBeGreaterThanOrEqual(0);
     expect(immutableCheckout).toBeGreaterThan(staleDeploymentGuard);
     expect(cleanCheckout).toBeGreaterThan(immutableCheckout);
-    expect(webBuild).toBeGreaterThan(immutableCheckout);
-    expect(apiBuild).toBeGreaterThan(immutableCheckout);
-    expect(aiInstallBlock).toContain('--require-hashes');
-    expect(aiInstallBlock).toContain('-r ai/requirements.txt');
+    expect(isolatedPreparation).toBeGreaterThan(immutableCheckout);
+    expect(runtimeInstaller).toContain('--require-hashes');
+    expect(runtimeInstaller).toContain('--only-binary=:all:');
+    expect(runtimeInstaller).toContain('--ignore-scripts');
+    expect(runtimeInstaller).toContain('--uid="$build_user"');
+    expect(runtimeInstaller).toContain('IPAddressDeny=169.254.169.254/32');
     expect(postgresStart).toBeGreaterThan(cleanCheckout);
-    expect(postgresStart).toBeLessThan(webBuild);
-    expect(postgresStart).toBeLessThan(apiBuild);
+    expect(postgresStart).toBeLessThan(isolatedPreparation);
     expect(migrationGuards).toHaveLength(2);
     expect(migrationGuards[0]?.index).toBeGreaterThan(postgresStart);
-    expect(migrationGuards[0]?.index).toBeLessThan(webBuild);
+    expect(migrationGuards[0]?.index).toBeLessThan(isolatedPreparation);
     expect(serviceStop).toBeGreaterThan(migrationGuards[0]?.index ?? -1);
-    expect(serviceStop).toBeGreaterThan(webBuild);
-    expect(serviceStop).toBeGreaterThan(apiBuild);
-    expect(serviceStop).toBeGreaterThan(aiInstall);
+    expect(serviceStop).toBeGreaterThan(isolatedPreparation);
     expect(migrationGuards[1]?.index).toBeGreaterThan(serviceStop);
-    expect(migration).toBeGreaterThan(webBuild);
-    expect(migration).toBeGreaterThan(apiBuild);
+    expect(migration).toBeGreaterThan(isolatedPreparation);
     expect(migration).toBeGreaterThan(migrationGuards[1]?.index ?? -1);
     expect(processStart).toBeGreaterThan(migration);
   });
@@ -138,11 +142,13 @@ describe('EC2 deployment script', () => {
     const cleanCheckout = script.indexOf(
       'git status --porcelain --untracked-files=all',
     );
-    const webBuild = script.indexOf('npm --prefix web run build');
+    const isolatedPreparation = script.indexOf(
+      'bash scripts/install-production-runtime.sh prepare-release',
+    );
 
     expect(script).toContain('Refusing to build a dirty deployment checkout');
     expect(cleanCheckout).toBeGreaterThan(immutableCheckout);
-    expect(cleanCheckout).toBeLessThan(webBuild);
+    expect(cleanCheckout).toBeLessThan(isolatedPreparation);
   });
 
   it('gates deployment on API readiness instead of liveness', () => {
@@ -162,8 +168,15 @@ describe('EC2 deployment script', () => {
   });
 
   it('uses production builds and managed services instead of development servers', () => {
-    expect(script).toContain('npm --prefix web run build');
-    expect(script).toContain('npm --prefix api run build');
+    expect(script).toContain(
+      'bash scripts/install-production-runtime.sh prepare-release',
+    );
+    expect(runtimeInstaller).toMatch(
+      /run_isolated_build_command studytube-release-web-build\.service \\\s+"\$npm_bin" --prefix web run build --ignore-scripts/u,
+    );
+    expect(runtimeInstaller).toMatch(
+      /run_isolated_build_command studytube-release-api-build\.service \\\s+"\$npm_bin" --prefix api run build --ignore-scripts/u,
+    );
     expect(script).not.toContain('npm run all');
     expect(script).not.toContain('setsid nohup');
     expect(script).not.toContain('wait_for_url http://localhost:5173/');
@@ -263,6 +276,82 @@ describe('EC2 deployment script', () => {
     expect(originGuard).toBeGreaterThanOrEqual(0);
     expect(originGuard).toBeLessThan(immutableCheckout);
   });
+
+  it.each([
+    ['missing', undefined],
+    ['short', 'too-short'],
+    ['placeholder', 'replace-with-a-random-production-secret'],
+    ['reused INTERNAL_AI_API_KEY', 'a'.repeat(32)],
+    ['reused AUTH_VERIFICATION_PEPPER', 'b'.repeat(32)],
+    ['reused AUTH_RATE_LIMIT_PEPPER', 'c'.repeat(32)],
+  ])(
+    'rejects a %s MCP service assertion secret before checkout',
+    (_case, secret) => {
+      const workspace = mkdtempSync(join(tmpdir(), 'studytube-mcp-guard-'));
+      const commandLog = join(workspace, 'commands.log');
+      const bash =
+        process.platform === 'win32' &&
+        existsSync('C:\\Program Files\\Git\\bin\\bash.exe')
+          ? 'C:\\Program Files\\Git\\bin\\bash.exe'
+          : 'bash';
+      const deployScript = shellPath(
+        resolve(__dirname, '../../scripts/deploy-ec2.sh'),
+      );
+      const harness = `
+git() {
+  printf 'git %s\\n' "$*" >>"$COMMAND_LOG"
+  case "$*" in
+    *"rev-parse origin/"*) printf '%s\\n' "$DEPLOY_SHA" ;;
+    *"checkout"*) return 97 ;;
+  esac
+  return 0
+}
+flock() { return 0; }
+docker() { printf 'docker %s\\n' "$*" >>"$COMMAND_LOG"; return 0; }
+sudo() { printf 'sudo %s\\n' "$*" >>"$COMMAND_LOG"; return 0; }
+source '${deployScript}'
+`;
+      const deploymentEnvironment: NodeJS.ProcessEnv = {
+        ...process.env,
+        ...validProductionEnvironment,
+        APP_DIR: workspace,
+        COMMAND_LOG: commandLog,
+        COURSE_CUTOVER_MODE: 'legacy',
+        DATABASE_URL: 'postgresql://unused.invalid/stubbed',
+        DEPLOY_LOCK_FILE: join(workspace, 'deploy.lock'),
+        DEPLOY_SHA: '0123456789abcdef0123456789abcdef01234567',
+        POSTGRES_USER: 'app',
+        POSTGRES_DB: 'app',
+        STUDYTUBE_PUBLIC_URL: 'https://studytube.example.test',
+        STUDYTUBE_SITE_ADDRESS: 'studytube.example.test',
+        WEB_ORIGIN: 'https://studytube.example.test',
+      };
+
+      if (secret === undefined) {
+        delete deploymentEnvironment.MCP_SERVICE_ASSERTION_SECRET;
+      } else {
+        deploymentEnvironment.MCP_SERVICE_ASSERTION_SECRET = secret;
+      }
+
+      try {
+        const result = spawnSync(bash, ['-c', harness], {
+          cwd: workspace,
+          encoding: 'utf8',
+          env: deploymentEnvironment,
+        });
+        const commands = existsSync(commandLog)
+          ? readFileSync(commandLog, 'utf8')
+          : '';
+
+        expect(result.status).not.toBe(0);
+        expect(result.stderr).toContain('MCP_SERVICE_ASSERTION_SECRET');
+        expect(commands).not.toContain('checkout');
+        expect(commands).not.toContain('docker');
+      } finally {
+        rmSync(workspace, { recursive: true, force: true });
+      }
+    },
+  );
 
   it('rejects a plaintext production edge before checkout or runtime mutation', () => {
     const workspace = mkdtempSync(join(tmpdir(), 'studytube-origin-guard-'));
@@ -397,7 +486,9 @@ source '${deployScript}'
     const processShutdown = script.indexOf(
       'systemctl stop studytube-api.service studytube-ai.service',
     );
-    const migration = script.indexOf('npm --prefix api run db:migrate:up');
+    const migration = script.indexOf(
+      'bash scripts/install-production-runtime.sh run-migration',
+    );
 
     expect(script).toContain('"1753660802000_auth-hardening"');
     expect(script).toContain('"1753660805000_retrieval-source-model-key"');
@@ -413,7 +504,9 @@ source '${deployScript}'
   });
 
   it('records the destructive retrieval survivor count and requires zero duplicates afterward', () => {
-    const migration = script.indexOf('npm --prefix api run db:migrate:up');
+    const migration = script.indexOf(
+      'bash scripts/install-production-runtime.sh run-migration',
+    );
     const before = script.indexOf('retrieval_duplicate_rows_before=%s');
     const after = script.indexOf('retrieval_duplicate_rows_after=%s');
 
@@ -561,10 +654,10 @@ source '${deployScript}'
       'wait_for_unix_url /run/studytube/api.sock http://localhost/health/ready api',
     );
     const deltaBackfill = script.indexOf(
-      'npm --prefix api run db:course:backfill',
+      'bash scripts/install-production-runtime.sh run-course-backfill',
     );
     const exactVerification = script.indexOf(
-      'npm --prefix api run db:course:verify',
+      'bash scripts/install-production-runtime.sh run-course-verify',
     );
     const parityMarker = script.lastIndexOf('write_frozen_parity_marker');
 

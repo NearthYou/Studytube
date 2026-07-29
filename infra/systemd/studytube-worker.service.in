@@ -1,6 +1,6 @@
 [Unit]
 Description=StudyTube durable work processor
-After=network-online.target docker.service
+After=network-online.target docker.service studytube-deploy-resume.service
 Wants=network-online.target
 Requires=docker.service
 StartLimitIntervalSec=60
@@ -8,11 +8,11 @@ StartLimitBurst=5
 
 [Service]
 Type=simple
-User=@APP_USER@
-Group=@APP_GROUP@
+User=@WORKER_USER@
+Group=@WORKER_USER@
+SupplementaryGroups=@RUNTIME_GROUP@
 WorkingDirectory=@APP_DIR@
-EnvironmentFile=-@APP_DIR@/.env
-EnvironmentFile=-@APP_DIR@/api/.env
+EnvironmentFile=@RUNTIME_CONFIG_DIR@/worker.env
 ExecStart=/usr/bin/env NODE_ENV=production COURSE_CUTOVER_MODE=@COURSE_CUTOVER_MODE@ @NODE_BIN@ api/dist/src/worker.js
 Restart=on-failure
 RestartSec=3

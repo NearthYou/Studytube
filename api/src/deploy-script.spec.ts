@@ -746,6 +746,24 @@ source '${deployScript}'
     expect(workflow).toContain('DEPLOY_SHA: ${{ github.sha }}');
     expect(workflow).toContain('AWS_SSM_INSTANCE_ID');
     expect(workflow).toContain('AWS_RELEASE_BUCKET');
+    expect(workflow).toContain(
+      'AWS_DEPLOY_ROLE_ARN: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}',
+    );
+    expect(workflow).toContain(
+      'AWS_RELEASE_BUCKET: ${{ secrets.AWS_RELEASE_BUCKET }}',
+    );
+    expect(workflow).toContain(
+      'AWS_SSM_INSTANCE_ID: ${{ secrets.AWS_SSM_INSTANCE_ID }}',
+    );
+    expect(workflow).not.toContain(
+      'AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}',
+    );
+    expect(workflow).not.toContain(
+      'AWS_RELEASE_BUCKET: ${{ vars.AWS_RELEASE_BUCKET }}',
+    );
+    expect(workflow).not.toContain(
+      'AWS_SSM_INSTANCE_ID: ${{ vars.AWS_SSM_INSTANCE_ID }}',
+    );
     expect(workflow).not.toContain('EC2_SSH_KEY');
     expect(workflow).not.toContain('ssh-keyscan');
     expect(workflow).toContain('cancel-in-progress: false');

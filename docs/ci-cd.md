@@ -117,16 +117,21 @@ SES 권한은 배포 리전과 실제 `AUTH_EMAIL_SENDER` identity ARN만 resour
 
 IAM policy는 release bucket 삭제, EC2 mutation, 다른 instance의 Run Command, 다른 repository branch의 role assumption을 허용하지 않는다.
 
-## GitHub repository variables
+## GitHub Actions configuration
 
-GitHub repository의 Actions variables에 다음 값을 설정한다. SSH secret은 사용하지 않는다.
+AWS 장기 access key나 SSH secret은 저장하지 않는다. 다만 account, bucket, instance 식별자가 공개 workflow log에 그대로 나타나지 않도록 다음 세 값은 Actions secret으로 마스킹한다. 이 값들은 자격 증명이 아니며 실제 권한 경계는 OIDC trust와 IAM policy다.
 
-| 변수 | 값 또는 형식 | 필수 |
+| Actions secret | 값 또는 형식 | 필수 |
 | --- | --- | --- |
 | `AWS_DEPLOY_ROLE_ARN` | `arn:aws:iam::<aws-account-id>:role/StudyTubeGitHubDeployRole` | 예 |
-| `AWS_REGION` | `ap-northeast-2` | 예 |
 | `AWS_RELEASE_BUCKET` | `studytube-releases-<aws-account-id>-ap-northeast-2` | 예 |
 | `AWS_SSM_INSTANCE_ID` | 현재 운영 instance의 `i-...` ID | 예 |
+
+나머지는 Actions variable로 저장한다.
+
+| Actions variable | 값 또는 형식 | 필수 |
+| --- | --- | --- |
+| `AWS_REGION` | `ap-northeast-2` | 예 |
 | `AWS_CLOUDWATCH_LOG_GROUP` | `/studytube/deploy` | 권장 |
 | `STUDYTUBE_CONFIG_FILE` | `/etc/studytube/deployment.env` | 기본값 사용 가능 |
 | `STUDYTUBE_DEPLOY_ROOT` | `/opt/studytube` | 기본값 사용 가능 |
@@ -134,13 +139,14 @@ GitHub repository의 Actions variables에 다음 값을 설정한다. SSH secret
 | `STUDYTUBE_MINIMUM_FREE_BYTES` | `3221225472` | 기본값 사용 가능 |
 | `AWS_ARTIFACT_OBJECT_LOCK_DAYS` | `30` | 기본값 사용 가능 |
 
-GitHub CLI로 값을 설정하는 예시는 다음과 같다. instance ID는 실제 값을 사용한다.
+GitHub CLI로 값을 설정하는 예시는 다음과 같다. secret 값은 명령 인자나 shell history에 남기지 말고 각 명령의 입력 prompt로 전달한다.
 
 ```bash
-gh variable set AWS_DEPLOY_ROLE_ARN --body 'arn:aws:iam::<aws-account-id>:role/StudyTubeGitHubDeployRole'
+gh secret set AWS_DEPLOY_ROLE_ARN
+gh secret set AWS_RELEASE_BUCKET
+gh secret set AWS_SSM_INSTANCE_ID
+
 gh variable set AWS_REGION --body 'ap-northeast-2'
-gh variable set AWS_RELEASE_BUCKET --body 'studytube-releases-<aws-account-id>-ap-northeast-2'
-gh variable set AWS_SSM_INSTANCE_ID --body '<current-instance-id>'
 gh variable set AWS_CLOUDWATCH_LOG_GROUP --body '/studytube/deploy'
 gh variable set STUDYTUBE_CONFIG_FILE --body '/etc/studytube/deployment.env'
 gh variable set STUDYTUBE_DEPLOY_ROOT --body '/opt/studytube'

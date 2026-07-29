@@ -59,6 +59,8 @@ import type {
 import { COURSE_CUTOVER_ADVISORY_LOCK_KEY } from './course/course-cutover.policy';
 import type { CourseRepository } from './course/course.repository';
 import { PostgresCourseRepository } from './course/postgres-course.repository';
+import { PostgresWorkRepository } from './work/postgres-work.repository';
+import type { WorkRepository } from './work/work.repository';
 
 @Injectable()
 export class DatabaseService
@@ -70,6 +72,7 @@ export class DatabaseService
   private readonly databaseInitRetryDelayMs: number;
   private readonly databaseQueryTimeoutMs: number;
   private courseRepository?: CourseRepository;
+  private workRepository?: WorkRepository;
   private courseWriterLeaseStateTail: Promise<void> = Promise.resolve();
   private courseWriterLeaseClient?: PoolClient;
   private activeCourseWriterLeases = 0;
@@ -142,6 +145,11 @@ export class DatabaseService
   getCourseRepository(): CourseRepository {
     this.courseRepository ??= new PostgresCourseRepository(this.pool);
     return this.courseRepository;
+  }
+
+  getWorkRepository(): WorkRepository {
+    this.workRepository ??= new PostgresWorkRepository(this.pool);
+    return this.workRepository;
   }
 
   async withCourseWriterSharedLease<T>(

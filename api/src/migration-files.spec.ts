@@ -304,6 +304,59 @@ describe('database migration files', () => {
     expect(migration).not.toMatch(/DROP TABLE\s+(playlists|playlist_items)/i);
   });
 
+  it('defines durable work, retrieval, agent-run, progress, and quiz persistence', async () => {
+    const migrationPath = join(
+      process.cwd(),
+      'migrations',
+      '1753660804000_reliability-learning.cjs',
+    );
+
+    expect(existsSync(migrationPath)).toBe(true);
+
+    if (!existsSync(migrationPath)) {
+      return;
+    }
+
+    const migration = await readFile(migrationPath, 'utf8');
+
+    for (const table of [
+      'work_outbox_events',
+      'work_job_results',
+      'work_dead_letters',
+      'work_replay_audits',
+      'retrieval_embeddings',
+      'agent_runs',
+      'agent_run_attempts',
+      'agent_tool_calls',
+      'learning_progress',
+      'learning_progress_events',
+      'quizzes',
+      'quiz_questions',
+      'quiz_attempts',
+      'quiz_answers',
+    ]) {
+      expect(migration).toContain(`CREATE TABLE ${table}`);
+    }
+
+    for (const contract of [
+      'payload_schema_version',
+      'lease_token',
+      'work_job_results_event_handler_key',
+      'retrieval_embeddings_vector_dimensions',
+      "vector(1536)",
+      'agent_runs_state_valid',
+      'agent_runs_budget_positive',
+      'learning_progress_ranges_array',
+      'quiz_questions_position_key',
+      'quiz_attempts_idempotency_key',
+    ]) {
+      expect(migration).toContain(contract);
+    }
+
+    expect(migration).toContain('reliability learning rollback refused');
+    expect(migration).not.toMatch(/DROP TABLE\s+(users|posts|courses)/i);
+  });
+
   it('checks in a complete legacy runtime fixture with data and sequence state', async () => {
     const fixturePath = join(
       process.cwd(),

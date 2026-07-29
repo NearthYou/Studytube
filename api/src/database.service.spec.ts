@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { AuthRepositoryUnavailableError } from './auth/auth.repository';
 import { DatabaseService } from './database.service';
+import { PostgresWorkRepository } from './work/postgres-work.repository';
 
 const AUTH_NOW = new Date('2026-07-28T12:00:00.000Z');
 const PENDING_ID = '11111111-1111-4111-8111-111111111111';
@@ -54,6 +55,19 @@ function sqlTexts(query: jest.Mock): string[] {
 }
 
 describe('DatabaseService fail-fast persistence', () => {
+  it('shares one PostgreSQL work repository with API domain services', () => {
+    const service = new DatabaseService(configService());
+    const workOwner = service as unknown as {
+      getWorkRepository(): unknown;
+    };
+
+    const first = workOwner.getWorkRepository();
+    const second = workOwner.getWorkRepository();
+
+    expect(first).toBeInstanceOf(PostgresWorkRepository);
+    expect(second).toBe(first);
+  });
+
   it('retries connectivity and rejects startup without loading fallback data', async () => {
     const service = new DatabaseService(
       configService({

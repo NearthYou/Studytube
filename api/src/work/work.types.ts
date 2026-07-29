@@ -1,0 +1,64 @@
+import type { PoolClient } from 'pg';
+
+export type WorkSqlClient = Pick<PoolClient, 'query'>;
+
+export type OutboxEventPayload = Record<string, unknown>;
+
+export type AppendOutboxEvent = {
+  id: string;
+  eventType: string;
+  aggregateType: string;
+  aggregateId: string;
+  aggregateVersion: number;
+  payloadSchemaVersion: number;
+  payload: OutboxEventPayload;
+  occurredAt?: Date;
+  availableAt?: Date;
+  maxAttempts?: number;
+};
+
+export type ClaimedOutboxEvent = Required<
+  Pick<
+    AppendOutboxEvent,
+    | 'id'
+    | 'eventType'
+    | 'aggregateType'
+    | 'aggregateId'
+    | 'aggregateVersion'
+    | 'payloadSchemaVersion'
+    | 'payload'
+  >
+> & {
+  occurredAt: Date;
+  attemptCount: number;
+  maxAttempts: number;
+  leaseToken: string;
+};
+
+export type WorkFailure = {
+  code: string;
+  message: string;
+  retryDelayMs: number;
+  details?: Record<string, unknown>;
+};
+
+export type JobResult = {
+  id: string;
+  eventId: string;
+  handlerVersion: string;
+  outcome: 'succeeded' | 'terminal_failure';
+  result: Record<string, unknown>;
+};
+
+export type ReplayDeadLetter = {
+  deadLetterId: string;
+  actorId: number | null;
+  reason: string;
+};
+
+export type ReplayResult = {
+  auditId: string;
+  eventId: string;
+};
+
+export type RetryResult = 'retry_scheduled' | 'dead_lettered';

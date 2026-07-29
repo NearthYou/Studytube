@@ -1,0 +1,51 @@
+sequenceDiagram
+  autonumber
+  actor Browser as Browser
+  participant API as AuthController and AuthService
+  participant DB as PostgreSQL
+  participant MailWorker as Verification email worker
+  participant SES as AWS SES v2
+
+  Browser->>API: POST /auth/signup with email only
+  API->>API: Canonicalize email, rate limit, derive versioned verification token
+  API->>DB: BEGIN pending registration and durable email outbox intent
+  Note over API,DB: Store only token digests and frozen delivery metadata
+  DB-->>API: COMMIT
+  API-->>Browser: 202 accepted
+
+  MailWorker->>DB: Claim available email row with lease
+  DB-->>MailWorker: Pending registration identity and frozen payload inputs
+  MailWorker->>MailWorker: Reconstruct token from UUID, key version, and server pepper
+  MailWorker->>SES: SendEmail with a stable non-secret delivery tag
+  Note over MailWorker,SES: Provider acceptance can precede a lost response or timeout
+  alt Provider acceptance observed
+    SES-->>MailWorker: Provider message ID
+    MailWorker->>DB: Mark sent only while the lease token still owns the row
+    Note over MailWorker,DB: If the process dies or acknowledgement times out here,<br/>the lease expires and a retry may send the email again
+    Note over Browser,SES: A duplicate carries the same expiring single-use token.<br/>The delivery tag is correlation metadata, not provider idempotency
+  else Retryable or ambiguous provider failure
+    SES-->>MailWorker: Throttle, transient error, or timeout after unknown acceptance
+    MailWorker->>DB: Clear lease and schedule bounded retry
+  else Terminal or exhausted failure
+    MailWorker->>DB: Record terminal failure without exposing secrets
+  end
+
+  Browser->>API: POST /auth/email-verifications/consume with link token
+  API->>DB: Lock pending registration, compare digest, install enrollment digest
+  DB-->>API: Verification consumed once
+  API-->>Browser: 204 and HttpOnly enrollment cookie
+
+  Browser->>API: GET /auth/registrations/current with enrollment cookie
+  API->>DB: Validate unexpired enrollment digest
+  API-->>Browser: ready
+
+  Browser->>API: POST /auth/registrations/complete with name and password
+  API->>API: Validate then hash password outside the row lock
+  API->>DB: Lock enrollment, insert user and session digest, mark completed
+  DB-->>API: COMMIT public user
+  API-->>Browser: Clear enrollment cookie and set HttpOnly session cookie
+
+  Browser->>API: Protected request with session cookie
+  API->>DB: Digest lookup, revoke and expiry checks, bounded touch
+  DB-->>API: Frozen principal and public user
+  API-->>Browser: Authenticated response

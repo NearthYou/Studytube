@@ -13,12 +13,17 @@ Group=@APP_GROUP@
 WorkingDirectory=@APP_DIR@
 EnvironmentFile=-@APP_DIR@/.env
 EnvironmentFile=-@APP_DIR@/api/.env
-ExecStart=/usr/bin/env NODE_ENV=production HOST=127.0.0.1 PORT=3000 AUTH_TRUST_PROXY_ONE_HOP=true COURSE_CUTOVER_MODE=@COURSE_CUTOVER_MODE@ @NODE_BIN@ api/dist/main.js
+Environment=API_SOCKET_PATH=/run/studytube/api.sock
+RuntimeDirectory=studytube
+RuntimeDirectoryMode=0750
+RuntimeDirectoryPreserve=yes
+ExecStartPre=/usr/bin/rm -f /run/studytube/api.sock
+ExecStart=/usr/bin/env NODE_ENV=production AUTH_TRUST_PROXY_ONE_HOP=true COURSE_CUTOVER_MODE=@COURSE_CUTOVER_MODE@ @NODE_BIN@ api/dist/src/main.js
 Restart=on-failure
 RestartSec=3
 TimeoutStopSec=30
 KillSignal=SIGTERM
-UMask=0077
+UMask=0007
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full

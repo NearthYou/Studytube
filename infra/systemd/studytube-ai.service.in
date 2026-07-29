@@ -13,6 +13,9 @@ Group=@APP_GROUP@
 WorkingDirectory=@APP_DIR@
 EnvironmentFile=-@APP_DIR@/.env
 EnvironmentFile=-@APP_DIR@/ai/.env
+Environment=NODE_ENV=production
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
 ExecStart=@APP_DIR@/ai/.venv/bin/python -m uvicorn main:app --app-dir @APP_DIR@/ai --host 127.0.0.1 --port 8000 --workers 1
 Restart=on-failure
 RestartSec=3

@@ -1,4 +1,5 @@
 import { Type } from 'class-transformer';
+import { ApiHideProperty } from '@nestjs/swagger';
 import {
   IsInt,
   IsNotEmpty,
@@ -117,6 +118,7 @@ export class CreateCourseStepDto {
   ownerLearningState?: OwnerLearningStateDto;
 
   @Validate(NewCourseStepShapeConstraint)
+  @ApiHideProperty()
   private readonly stepShape?: never;
 }
 
@@ -142,5 +144,6 @@ export class CourseStepInputDto {
   ownerLearningState?: OwnerLearningStateDto;
 
   @Validate(CourseStepShapeConstraint)
+  @ApiHideProperty()
   private readonly stepShape?: never;
 }

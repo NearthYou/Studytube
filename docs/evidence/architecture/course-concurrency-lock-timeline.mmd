@@ -1,0 +1,33 @@
+sequenceDiagram
+  autonumber
+  participant Test as Concurrency test
+  participant Blocker as Blocker transaction
+  participant Publish as Publish contender, expected version 1
+  participant Remove as Remove-last-step contender, expected version 1
+  participant PG as PostgreSQL Course aggregate
+
+  Test->>Blocker: BEGIN
+  Blocker->>PG: SELECT Course FOR UPDATE
+  PG-->>Blocker: Root row lock held
+
+  par Publish request
+    Publish->>PG: BEGIN and SELECT Course FOR UPDATE
+  and Replace steps with empty list
+    Remove->>PG: BEGIN and SELECT Course FOR UPDATE
+  end
+  Note over Publish,Remove: Both writers wait on the same Course root row
+  Test->>PG: Observe two Lock waiters in pg_stat_activity
+  Test->>Blocker: COMMIT
+  Blocker->>PG: Release root lock
+
+  Note over Publish,Remove: PostgreSQL chooses the first contender nondeterministically
+  Publish->>PG: First contender reads version 1 and aggregate invariants
+  Publish->>PG: Apply one valid mutation, set version 2, COMMIT
+  PG-->>Remove: Grant the root lock after the first commit
+  Remove->>PG: Read version 2
+  Remove->>Remove: expected version 1 no longer matches
+  Remove->>PG: ROLLBACK without a second mutation
+
+  Test->>PG: Read final aggregate
+  PG-->>Test: Exactly one version increment and one valid state
+  Note over Test,PG: The winner can be either operation<br/>Archive versus feedback uses the same root lock pattern

@@ -13,7 +13,92 @@ concurrency:
   group: ci-cd-${{ github.ref }}
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 jobs:
+  security:
+    name: Security
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      GITLEAKS_VERSION: "8.30.1"
+      GITLEAKS_LINUX_X64_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+    steps:
+      - name: Checkout full history without persisted credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install checksum-verified Gitleaks
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          install_dir="$RUNNER_TEMP/gitleaks-${GITLEAKS_VERSION}"
+          curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location \
+            --output "$archive" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          printf '%s  %s\n' "$GITLEAKS_LINUX_X64_SHA256" "$archive" \
+            | sha256sum --check --strict
+          mkdir -p "$install_dir"
+          tar -xzf "$archive" -C "$install_dir" gitleaks
+          printf '%s\n' "$install_dir" >> "$GITHUB_PATH"
+          "$install_dir/gitleaks" version
+
+      - name: Scan complete Git history for secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          gitleaks git \
+            --no-banner \
+            --redact=100 \
+            --log-level=error \
+            --exit-code=1 \
+            --config="$GITHUB_WORKSPACE/.gitleaks.toml" \
+            --gitleaks-ignore-path="$GITHUB_WORKSPACE/.gitleaksignore" \
+            --log-opts=--all \
+            "$GITHUB_WORKSPACE"
+
+      - name: Scan tracked and unignored worktree files for secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
+          snapshot_dir="$(mktemp -d "$RUNNER_TEMP/studytube-gitleaks.XXXXXX")"
+          file_count=0
+          while IFS= read -r -d '' path; do
+            case "$path" in
+              /*|../*|*/../*)
+                echo "Refusing unsafe repository path" >&2
+                exit 1
+                ;;
+            esac
+            if [ -L "$path" ]; then
+              echo "Refusing symlink in secret-scan snapshot: $path" >&2
+              exit 1
+            fi
+            if [ -f "$path" ]; then
+              cp --parents -- "$path" "$snapshot_dir"
+              file_count=$((file_count + 1))
+            fi
+          done < <(git ls-files --cached --others --exclude-standard -z)
+          if [ "$file_count" -eq 0 ]; then
+            echo "Secret-scan snapshot unexpectedly contains no files" >&2
+            exit 1
+          fi
+          gitleaks dir \
+            --no-banner \
+            --redact=100 \
+            --log-level=error \
+            --exit-code=1 \
+            --config="$GITHUB_WORKSPACE/.gitleaks.toml" \
+            --gitleaks-ignore-path="$GITHUB_WORKSPACE/.gitleaksignore" \
+            "$snapshot_dir"
+
   web:
     name: Web
     runs-on: ubuntu-latest
@@ -22,10 +107,12 @@ jobs:
         working-directory: web
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
           cache: npm
@@ -33,6 +120,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
 
       - name: Lint
         run: npm run lint
@@ -46,9 +136,139 @@ jobs:
   api:
     name: API
     runs-on: ubuntu-latest
+    env:
+      NODE_ENV: test
+      WEB_ORIGIN: https://app.studytube.example.test
+      AUTH_VERIFICATION_PEPPER: ci-verification-pepper-change-before-production
+      AUTH_RATE_LIMIT_PEPPER: ci-rate-limit-pepper-change-before-production
+      COURSE_CUTOVER_MODE: legacy
+      CI_TEST_SEED: ${{ github.run_number }}
+    defaults:
+      run:
+        working-directory: api
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: api/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Validate production runtime scripts
+        run: |
+          for script in \
+            ../scripts/build-release-artifact.sh \
+            ../scripts/deploy-ec2.sh \
+            ../scripts/ec2-autodeploy.sh \
+            ../scripts/install-ec2-autodeploy.sh \
+            ../scripts/install-production-runtime.sh \
+            ../scripts/send-ssm-deployment.sh \
+            ../scripts/ssm-deploy-release.sh \
+            ../scripts/tests/immutable-deploy-contract.sh; do
+            bash -n "$script"
+          done
+
+      - name: Verify immutable deployment contract
+        run: bash ../scripts/tests/immutable-deploy-contract.sh
+
+      - name: Validate production Compose model
+        env:
+          POSTGRES_USER: app
+          POSTGRES_PASSWORD: ci-compose-only
+          POSTGRES_DB: app_test
+          STUDYTUBE_SITE_ADDRESS: http://localhost
+        run: docker compose -f ../infra/production.compose.yml config --quiet
+
+      - name: Validate Caddy edge configuration
+        run: >-
+          docker run --rm
+          --entrypoint caddy
+          --env STUDYTUBE_SITE_ADDRESS=http://localhost
+          --volume "${{ github.workspace }}/infra/Caddyfile:/etc/caddy/Caddyfile:ro"
+          caddy:2.11.4-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
+          validate --config /etc/caddy/Caddyfile --adapter caddyfile
+
+      - name: Verify runtime database boundary
+        run: npm run db:verify-runtime-boundary
+
+      - name: Export and verify OpenAPI compatibility
+        env:
+          OPENAPI_OUTPUT_PATH: .ci-artifacts/openapi-current.json
+          OPENAPI_CURRENT_PATH: .ci-artifacts/openapi-current.json
+        run: |
+          npm run openapi:export
+          git diff --no-index --exit-code -- openapi/current.json "$OPENAPI_OUTPUT_PATH"
+          baseline_ref=""
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            baseline_ref="${{ github.event.pull_request.base.sha }}"
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            baseline_ref="${{ github.event.before }}"
+            if [ -z "$baseline_ref" ] || [ "$baseline_ref" = "0000000000000000000000000000000000000000" ]; then
+              echo "Push event does not provide a usable OpenAPI baseline commit" >&2
+              exit 1
+            fi
+          fi
+          if [ -n "$baseline_ref" ]; then
+            if ! git cat-file -e "$baseline_ref:api/openapi/current.json" 2>/dev/null; then
+              if git cat-file -e "$baseline_ref:api/openapi/baseline.json" 2>/dev/null; then
+                echo "OpenAPI baseline is partially adopted at $baseline_ref" >&2
+                exit 1
+              fi
+              echo "Bootstrapping the first versioned OpenAPI baseline"
+              OPENAPI_BOOTSTRAP_BASELINE_REF="$baseline_ref" \
+                npm run openapi:verify
+              exit 0
+            fi
+            OPENAPI_BASELINE_REF="$baseline_ref" \
+              OPENAPI_REQUIRE_BASELINE_REF=1 \
+              npm run openapi:verify
+          else
+            npm run openapi:verify
+          fi
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test -- --runInBand --seed="$CI_TEST_SEED" --showSeed
+
+      - name: Verify cookie-only authentication boundary
+        run: npm run auth:verify-boundary
+
+      - name: Verify bounded Argon2 behavior
+        run: npm run auth:benchmark-password -- --samples=2 --warmup=0 --concurrency=2 --saturate-queue
+
+      - name: Build
+        run: npm run build
+
+      - name: Preserve OpenAPI artifact
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: api-openapi-${{ github.run_id }}-${{ github.run_attempt }}
+          path: api/.ci-artifacts/openapi-current.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  backend_integration:
+    name: Backend Integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     services:
       postgres:
-        image: pgvector/pgvector:pg16
+        image: pgvector/pgvector:pg16@sha256:00ba258a66dac104fd5171074a0084462a64a1369d8513f3d0a634e2f24d15bc
         env:
           POSTGRES_USER: app
           POSTGRES_PASSWORD: app
@@ -61,7 +281,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
       valkey:
-        image: valkey/valkey:9.1.1-alpine
+        image: valkey/valkey:9.1.1-alpine@sha256:ee91f7a174ac4d6a6b0685b3a60e321f0a9dbbb691f9b0e285be2ba1d1be8328
         ports:
           - 6379:6379
         options: >-
@@ -80,15 +300,20 @@ jobs:
       DB_INIT_ATTEMPTS: 3
       DB_INIT_RETRY_DELAY_MS: 100
       VALKEY_URL: redis://127.0.0.1:6379
+      QUERY_PLAN_OUTPUT_PATH: .ci-artifacts/query-plans.json
+      CI_TEST_SEED: ${{ github.run_number }}
     defaults:
       run:
         working-directory: api
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
           cache: npm
@@ -97,32 +322,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Validate production runtime scripts
+      - name: Record deterministic integration context
         run: |
-          for script in \
-            ../scripts/deploy-ec2.sh \
-            ../scripts/ec2-autodeploy.sh \
-            ../scripts/install-ec2-autodeploy.sh \
-            ../scripts/install-production-runtime.sh; do
-            bash -n "$script"
-          done
-
-      - name: Validate production Compose model
-        env:
-          POSTGRES_USER: app
-          POSTGRES_PASSWORD: ci-compose-only
-          POSTGRES_DB: app_test
-          STUDYTUBE_SITE_ADDRESS: http://localhost
-        run: docker compose -f ../infra/production.compose.yml config --quiet
-
-      - name: Validate Caddy edge configuration
-        run: >-
-          docker run --rm
-          --entrypoint caddy
-          --env STUDYTUBE_SITE_ADDRESS=http://localhost
-          --volume "${{ github.workspace }}/infra/Caddyfile:/etc/caddy/Caddyfile:ro"
-          caddy:2.11.4-alpine
-          validate --config /etc/caddy/Caddyfile --adapter caddyfile
+          mkdir -p .ci-artifacts
+          jq -n \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --arg sha "$GITHUB_SHA" \
+            --arg run_id "$GITHUB_RUN_ID" \
+            --arg run_attempt "$GITHUB_RUN_ATTEMPT" \
+            --arg test_seed "$CI_TEST_SEED" \
+            '{repository: $repository, sha: $sha, runId: $run_id, runAttempt: $run_attempt, testSeed: $test_seed}' \
+            > .ci-artifacts/test-context.json
 
       - name: Fresh migration install
         run: npm run db:migrate:up
@@ -130,8 +340,14 @@ jobs:
       - name: Verify migration status
         run: npm run db:migrate:status
 
+      - name: Verify production query plans
+        run: npm run db:verify-query-plans
+
       - name: Verify Course schema invariants
-        run: npm run test:e2e -- --runInBand course-schema.e2e-spec.ts
+        run: >-
+          npm run test:e2e -- --runInBand
+          --seed="$CI_TEST_SEED" --showSeed
+          course-schema.e2e-spec.ts
 
       - name: Verify idempotent demo seed
         env:
@@ -151,6 +367,11 @@ jobs:
         env:
           ALLOW_MIGRATION_ADOPTION_TEST: "true"
         run: npm run db:migrate:test-adoption
+
+      - name: Complete post-adoption migrations
+        run: |
+          npm run db:migrate:up
+          npm run db:migrate:status
 
       - name: Backfill and exactly verify legacy Courses
         env:
@@ -172,42 +393,90 @@ jobs:
         run: |
           rollback_database=migration_rollback_test
           rollback_database_url="postgresql://app:${PGPASSWORD}@localhost:5432/${rollback_database}"
-          cleanup_rollback_database() {
+          drop_rollback_database() {
             dropdb --if-exists --host localhost --username app "$rollback_database"
           }
-          trap cleanup_rollback_database EXIT
-          cleanup_rollback_database
+          finish_rollback_rehearsal() {
+            status="$?"
+            trap - EXIT
+            if [ "$status" -ne 0 ]; then
+              mkdir -p .ci-artifacts/database
+              pg_dump --host localhost --username app --dbname "$rollback_database" \
+                --schema-only --no-owner --no-privileges \
+                > .ci-artifacts/database/rollback-schema.sql \
+                2> .ci-artifacts/database/rollback-schema-error.txt || true
+              psql --host localhost --username app --dbname "$rollback_database" --no-psqlrc \
+                --command='SELECT id, name, run_on FROM pgmigrations ORDER BY id;' \
+                > .ci-artifacts/database/rollback-migrations.txt 2>&1 || true
+            fi
+            drop_rollback_database
+            exit "$status"
+          }
+          trap finish_rollback_rehearsal EXIT
+          drop_rollback_database
           createdb --host localhost --username app "$rollback_database"
           DATABASE_URL="$rollback_database_url" npm run db:migrate:up -- 2
           DATABASE_URL="$rollback_database_url" npm run db:migrate:down -- 1
           DATABASE_URL="$rollback_database_url" npm run db:migrate:up -- 1
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Test
-        run: npm test -- --runInBand
-
-      - name: Verify cookie-only authentication boundary
-        run: npm run auth:verify-boundary
-
-      - name: Verify bounded Argon2 behavior
-        run: npm run auth:benchmark-password -- --samples=2 --warmup=0 --concurrency=2 --saturate-queue
 
       - name: Verify Course HTTP and concurrency contracts
         env:
           COURSE_CUTOVER_MODE: course
         run: >-
           npm run test:e2e -- --runInBand
+          --seed="$CI_TEST_SEED" --showSeed
           course-http.e2e-spec.ts
           course-concurrency.e2e-spec.ts
           course-cutover.e2e-spec.ts
 
-      - name: Test API with PostgreSQL
-        run: npm run test:e2e -- --runInBand
+      - name: Test API with PostgreSQL and Valkey
+        run: >-
+          npm run test:e2e -- --runInBand
+          --seed="$CI_TEST_SEED" --showSeed
 
-      - name: Build
-        run: npm run build
+      - name: Capture database failure diagnostics
+        if: failure()
+        env:
+          PGPASSWORD: app
+        run: |
+          set +e
+          mkdir -p .ci-artifacts/database
+          psql --host localhost --username app --dbname app_test --no-psqlrc \
+            --command='SELECT current_database(), current_setting('"'"'server_version'"'"');' \
+            > .ci-artifacts/database/server.txt 2>&1
+          psql --host localhost --username app --dbname app_test --no-psqlrc \
+            --command='SELECT id, name, run_on FROM pgmigrations ORDER BY id;' \
+            > .ci-artifacts/database/migrations.txt 2>&1
+          psql --host localhost --username app --dbname app_test --no-psqlrc \
+            --command='SELECT relname, n_live_tup, n_dead_tup FROM pg_stat_user_tables ORDER BY relname;' \
+            > .ci-artifacts/database/table-stats.txt 2>&1
+          psql --host localhost --username app --dbname app_test --no-psqlrc \
+            --command='SELECT relname, indexrelname, idx_scan FROM pg_stat_user_indexes ORDER BY relname, indexrelname;' \
+            > .ci-artifacts/database/index-stats.txt 2>&1
+          psql --host localhost --username app --dbname app_test --no-psqlrc \
+            --command='SELECT state, wait_event_type, wait_event, count(*) FROM pg_stat_activity WHERE datname = current_database() GROUP BY state, wait_event_type, wait_event ORDER BY state;' \
+            > .ci-artifacts/database/activity.txt 2>&1
+          pg_dump --host localhost --username app --dbname app_test \
+            --schema-only --no-owner --no-privileges \
+            > .ci-artifacts/database/schema.sql 2> .ci-artifacts/database/schema-error.txt
+          docker ps -a > .ci-artifacts/database/containers.txt 2>&1
+          postgres_container="${{ job.services.postgres.id }}"
+          valkey_container="${{ job.services.valkey.id }}"
+          if [ -n "$postgres_container" ]; then
+            docker logs "$postgres_container" > .ci-artifacts/database/postgres.log 2>&1
+          fi
+          if [ -n "$valkey_container" ]; then
+            docker logs "$valkey_container" > .ci-artifacts/database/valkey.log 2>&1
+          fi
+
+      - name: Preserve backend integration evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: backend-integration-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: api/.ci-artifacts
+          if-no-files-found: warn
+          retention-days: 14
 
   ai:
     name: AI
@@ -217,10 +486,12 @@ jobs:
         working-directory: ai
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
           cache: pip
@@ -228,69 +499,181 @@ jobs:
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
+          python -m pip --version
+          python -m pip install --require-hashes -r requirements.txt
+          python -m pip install --require-hashes -r requirements-audit.txt
+
+      - name: Audit dependencies
+        run: >-
+          python -m pip_audit --strict --require-hashes --disable-pip
+          -r requirements.txt
 
       - name: Test
         run: python -m unittest discover -s .
 
   deploy:
-    name: Deploy EC2
+    name: Deploy immutable release with SSM
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     needs:
+      - security
       - web
       - api
       - ai
+      - backend_integration
     if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || github.event_name == 'push')
+    permissions:
+      contents: read
+      id-token: write
     env:
-      EC2_HOST: ${{ secrets.EC2_HOST }}
-      EC2_USER: ${{ secrets.EC2_USER }}
-      EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
-      EC2_APP_DIR: ${{ secrets.EC2_APP_DIR }}
-      EC2_REPO_DIR: ${{ secrets.EC2_REPO_DIR }}
-      DEPLOY_BRANCH: ${{ github.ref_name }}
+      AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_RELEASE_BUCKET: ${{ vars.AWS_RELEASE_BUCKET }}
+      AWS_SSM_INSTANCE_ID: ${{ vars.AWS_SSM_INSTANCE_ID }}
+      AWS_CLOUDWATCH_LOG_GROUP: ${{ vars.AWS_CLOUDWATCH_LOG_GROUP }}
+      STUDYTUBE_CONFIG_FILE: ${{ vars.STUDYTUBE_CONFIG_FILE }}
+      STUDYTUBE_DEPLOY_ROOT: ${{ vars.STUDYTUBE_DEPLOY_ROOT }}
+      STUDYTUBE_RELEASE_RETENTION: ${{ vars.STUDYTUBE_RELEASE_RETENTION }}
+      STUDYTUBE_MINIMUM_FREE_BYTES: ${{ vars.STUDYTUBE_MINIMUM_FREE_BYTES }}
+      AWS_ARTIFACT_OBJECT_LOCK_DAYS: ${{ vars.AWS_ARTIFACT_OBJECT_LOCK_DAYS }}
       DEPLOY_SHA: ${{ github.sha }}
     steps:
-      - name: Prepare deployment config
-        id: deploy-config
-        run: |
-          echo "EC2_HOST=${EC2_HOST:-15.164.98.162}" >> "$GITHUB_ENV"
-          echo "EC2_USER=${EC2_USER:-ubuntu}" >> "$GITHUB_ENV"
+      - name: Checkout verified commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
-          if [ -z "$EC2_SSH_KEY" ]; then
-            echo "::notice::EC2_SSH_KEY is not configured, so deployment was skipped."
-            echo "deploy=false" >> "$GITHUB_OUTPUT"
-            exit 0
+      - name: Validate deployment variables
+        run: |
+          : "${AWS_DEPLOY_ROLE_ARN:?Set the AWS_DEPLOY_ROLE_ARN repository variable}"
+          : "${AWS_REGION:?Set the AWS_REGION repository variable}"
+          : "${AWS_RELEASE_BUCKET:?Set the AWS_RELEASE_BUCKET repository variable}"
+          : "${AWS_SSM_INSTANCE_ID:?Set the AWS_SSM_INSTANCE_ID repository variable}"
+          {
+            echo "STUDYTUBE_CONFIG_FILE=${STUDYTUBE_CONFIG_FILE:-/etc/studytube/deployment.env}"
+            echo "STUDYTUBE_DEPLOY_ROOT=${STUDYTUBE_DEPLOY_ROOT:-/opt/studytube}"
+            echo "STUDYTUBE_RELEASE_RETENTION=${STUDYTUBE_RELEASE_RETENTION:-5}"
+            echo "STUDYTUBE_MINIMUM_FREE_BYTES=${STUDYTUBE_MINIMUM_FREE_BYTES:-3221225472}"
+            echo "AWS_ARTIFACT_OBJECT_LOCK_DAYS=${AWS_ARTIFACT_OBJECT_LOCK_DAYS:-30}"
+          } >> "$GITHUB_ENV"
+
+      - name: Validate immutable deployment scripts
+        run: |
+          shellcheck \
+            scripts/build-release-artifact.sh \
+            scripts/send-ssm-deployment.sh \
+            scripts/ssm-deploy-release.sh \
+            scripts/tests/immutable-deploy-contract.sh
+          bash scripts/tests/immutable-deploy-contract.sh
+
+      - name: Build exact release artifact
+        id: release
+        run: |
+          bash scripts/build-release-artifact.sh \
+            --deploy-sha "$DEPLOY_SHA" \
+            --output-dir .release-artifacts
+
+      - name: Preserve verified release artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: studytube-release-${{ github.sha }}
+          path: |
+            .release-artifacts/studytube-${{ github.sha }}.tar.gz
+            .release-artifacts/studytube-${{ github.sha }}.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Configure short-lived AWS credentials
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: studytube-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Upload release and deploy through SSM
+        run: |
+          sender_arguments=(
+            --artifact-file "${{ steps.release.outputs.artifact_path }}"
+            --digest-file "${{ steps.release.outputs.digest_path }}"
+            --runner-file scripts/ssm-deploy-release.sh
+            --deploy-sha "$DEPLOY_SHA"
+            --bucket "$AWS_RELEASE_BUCKET"
+            --instance-id "$AWS_SSM_INSTANCE_ID"
+            --region "$AWS_REGION"
+            --config-file "$STUDYTUBE_CONFIG_FILE"
+            --deploy-root "$STUDYTUBE_DEPLOY_ROOT"
+            --retain-releases "$STUDYTUBE_RELEASE_RETENTION"
+            --minimum-free-bytes "$STUDYTUBE_MINIMUM_FREE_BYTES"
+            --object-lock-days "$AWS_ARTIFACT_OBJECT_LOCK_DAYS"
+            --diagnostics-dir .deployment-diagnostics
+          )
+          if [ -n "$AWS_CLOUDWATCH_LOG_GROUP" ]; then
+            sender_arguments+=(--cloudwatch-log-group "$AWS_CLOUDWATCH_LOG_GROUP")
           fi
+          bash scripts/send-ssm-deployment.sh "${sender_arguments[@]}"
 
-          echo "deploy=true" >> "$GITHUB_OUTPUT"
-
-      - name: Configure SSH
-        if: steps.deploy-config.outputs.deploy == 'true'
+      - name: Record deployment job context
+        if: always()
         run: |
-          install -m 700 -d ~/.ssh
-          printf '%s\n' "$EC2_SSH_KEY" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
+          mkdir -p .deployment-diagnostics
+          jq -n \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --arg run_id "$GITHUB_RUN_ID" \
+            --arg run_attempt "$GITHUB_RUN_ATTEMPT" \
+            --arg deploy_sha "$DEPLOY_SHA" \
+            '{repository: $repository, runId: $run_id, runAttempt: $run_attempt, deploySha: $deploy_sha}' \
+            > .deployment-diagnostics/job-context.json
 
-      - name: Deploy application
-        if: steps.deploy-config.outputs.deploy == 'true'
+      - name: Preserve deployment diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: deployment-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .deployment-diagnostics
+          if-no-files-found: warn
+          retention-days: 14
+
+  ci-failure-diagnostics:
+    name: Preserve CI failure summary
+    runs-on: ubuntu-latest
+    needs:
+      - security
+      - web
+      - api
+      - ai
+      - backend_integration
+      - deploy
+    if: ${{ always() && (needs.security.result == 'failure' || needs.web.result == 'failure' || needs.api.result == 'failure' || needs.ai.result == 'failure' || needs.backend_integration.result == 'failure' || needs.deploy.result == 'failure') }}
+    steps:
+      - name: Write failed job summary
+        env:
+          SECURITY_RESULT: ${{ needs.security.result }}
+          WEB_RESULT: ${{ needs.web.result }}
+          API_RESULT: ${{ needs.api.result }}
+          AI_RESULT: ${{ needs.ai.result }}
+          BACKEND_INTEGRATION_RESULT: ${{ needs.backend_integration.result }}
+          DEPLOY_RESULT: ${{ needs.deploy.result }}
         run: |
-          REPO_DIR="${EC2_REPO_DIR:-/home/ubuntu/studytube}"
-          APP_DIR="${EC2_APP_DIR:-$REPO_DIR}"
-          ssh "$EC2_USER@$EC2_HOST" "REPO_DIR='$REPO_DIR' APP_DIR='$APP_DIR' DEPLOY_BRANCH='$DEPLOY_BRANCH' DEPLOY_SHA='$DEPLOY_SHA' bash -s" <<'REMOTE'
-          set -euo pipefail
+          mkdir -p ci-failure-diagnostics
+          jq -n \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --arg run_id "$GITHUB_RUN_ID" \
+            --arg run_attempt "$GITHUB_RUN_ATTEMPT" \
+            --arg sha "$GITHUB_SHA" \
+            --arg security "$SECURITY_RESULT" \
+            --arg web "$WEB_RESULT" \
+            --arg api "$API_RESULT" \
+            --arg ai "$AI_RESULT" \
+            --arg backend_integration "$BACKEND_INTEGRATION_RESULT" \
+            --arg deploy "$DEPLOY_RESULT" \
+            '{repository: $repository, runId: $run_id, runAttempt: $run_attempt, sha: $sha, jobs: {security: $security, web: $web, api: $api, ai: $ai, backendIntegration: $backend_integration, deploy: $deploy}}' \
+            > ci-failure-diagnostics/job-results.json
 
-          cd "$REPO_DIR"
-          git fetch origin "$DEPLOY_BRANCH"
-          fetched_sha="$(git rev-parse "origin/$DEPLOY_BRANCH")"
-          if [ "$fetched_sha" != "$DEPLOY_SHA" ]; then
-            echo "Refusing stale deployment: CI verified $DEPLOY_SHA but origin/$DEPLOY_BRANCH is $fetched_sha" >&2
-            exit 1
-          fi
-          deploy_script="$(mktemp "${TMPDIR:-/tmp}/studytube-deploy.XXXXXX")"
-          trap 'rm -f "$deploy_script"' EXIT
-          git show "$DEPLOY_SHA:scripts/deploy-ec2.sh" >"$deploy_script"
-          APP_DIR="$APP_DIR" DEPLOY_BRANCH="$DEPLOY_BRANCH" DEPLOY_SHA="$DEPLOY_SHA" bash "$deploy_script" "$DEPLOY_BRANCH"
-          REMOTE
+      - name: Upload failed job summary
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ci-failure-summary-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ci-failure-diagnostics
+          if-no-files-found: error
+          retention-days: 14

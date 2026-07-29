@@ -122,11 +122,42 @@ export function apiBaseUrl() {
 }
 
 export function signUp(input: {
-  name: string;
   email: string;
+}): Promise<{ status: "accepted" }> {
+  return requestJson<{ status: "accepted" }>("/auth/signup", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function resendEmailVerification(input: {
+  email: string;
+}): Promise<{ status: "accepted" }> {
+  return requestJson<{ status: "accepted" }>(
+    "/auth/email-verifications/resend",
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export function consumeEmailVerification(verificationToken: string) {
+  return requestJson<void>("/auth/email-verifications/consume", {
+    method: "POST",
+    body: JSON.stringify({ verificationToken }),
+  });
+}
+
+export function fetchRegistrationReadiness(): Promise<{ status: "ready" }> {
+  return requestJson<{ status: "ready" }>("/auth/registrations/current");
+}
+
+export function completeRegistration(input: {
+  name: string;
   password: string;
 }): Promise<Session> {
-  return requestJson<Session>("/auth/signup", {
+  return requestJson<Session>("/auth/registrations/complete", {
     method: "POST",
     body: JSON.stringify(input),
   });
@@ -152,33 +183,27 @@ export function fetchMe(): Promise<User> {
   return requestJson<User>("/me");
 }
 
-export function verifyMe(
-  input: {
-    currentPassword: string;
-  },
-): Promise<User> {
-  return requestJson<User>(
-    "/me/verify",
-    { method: "POST", body: JSON.stringify(input) },
-  );
+export function verifyMe(input: { currentPassword: string }): Promise<User> {
+  return requestJson<User>("/me/verify", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
 }
 
-export function updateMe(
-  input: {
-    currentPassword?: string;
-    name?: string;
-    password?: string;
-    preferences?: {
-      interests: string[];
-      pace: string;
-      goal: string;
-    };
-  },
-): Promise<User> {
-  return requestJson<User>(
-    "/me",
-    { method: "PUT", body: JSON.stringify(input) },
-  );
+export function updateMe(input: {
+  currentPassword?: string;
+  name?: string;
+  password?: string;
+  preferences?: {
+    interests: string[];
+    pace: string;
+    goal: string;
+  };
+}): Promise<User> {
+  return requestJson<User>("/me", {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
 }
 
 export function fetchPosts(
@@ -215,51 +240,45 @@ export function fetchPublicPosts(
   return requestJson<PaginatedPosts>(`/explore/posts?${params.toString()}`);
 }
 
-export function createPost(
-  input: {
-    title: string;
-    videoUrl: string;
-    thumbnailUrl?: string;
-    channelName: string;
-    summary: string;
-    translatedNotes: string;
-    tags: string[];
-  },
-): Promise<StudyPost> {
-  return requestJson<StudyPost>(
-    "/posts",
-    { method: "POST", body: JSON.stringify(input) },
-  );
+export function createPost(input: {
+  title: string;
+  videoUrl: string;
+  thumbnailUrl?: string;
+  channelName: string;
+  summary: string;
+  translatedNotes: string;
+  tags: string[];
+}): Promise<StudyPost> {
+  return requestJson<StudyPost>("/posts", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
 }
 
 export function updatePost(
   id: number,
   input: Partial<StudyPost>,
 ): Promise<StudyPost> {
-  return requestJson<StudyPost>(
-    `/posts/${id}`,
-    { method: "PUT", body: JSON.stringify(input) },
-  );
+  return requestJson<StudyPost>(`/posts/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
 }
 
 export function deletePost(id: number) {
-  return requestJson<{ deleted: boolean }>(
-    `/posts/${id}`,
-    { method: "DELETE" },
-  );
+  return requestJson<{ deleted: boolean }>(`/posts/${id}`, {
+    method: "DELETE",
+  });
 }
 
 export function addComment(postId: number, body: string) {
-  return requestJson<StudyComment>(
-    `/posts/${postId}/comments`,
-    { method: "POST", body: JSON.stringify({ body }) },
-  );
+  return requestJson<StudyComment>(`/posts/${postId}/comments`, {
+    method: "POST",
+    body: JSON.stringify({ body }),
+  });
 }
 
-export function deleteComment(
-  postId: number,
-  commentId: number,
-) {
+export function deleteComment(postId: number, commentId: number) {
   return requestJson<{ deleted: boolean }>(
     `/posts/${postId}/comments/${commentId}`,
     { method: "DELETE" },

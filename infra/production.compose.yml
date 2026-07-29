@@ -2,7 +2,7 @@ name: studytube
 
 services:
   postgres:
-    image: pgvector/pgvector:pg16
+    image: pgvector/pgvector:pg16@sha256:00ba258a66dac104fd5171074a0084462a64a1369d8513f3d0a634e2f24d15bc
     container_name: studytube-postgres
     restart: unless-stopped
     environment:
@@ -21,7 +21,7 @@ services:
       start_period: 10s
 
   valkey:
-    image: valkey/valkey:9.1.1-alpine
+    image: valkey/valkey:9.1.1-alpine@sha256:ee91f7a174ac4d6a6b0685b3a60e321f0a9dbbb691f9b0e285be2ba1d1be8328
     container_name: studytube-valkey
     restart: unless-stopped
     command: ["valkey-server", "--appendonly", "yes", "--appendfsync", "everysec"]
@@ -37,7 +37,7 @@ services:
       start_period: 5s
 
   caddy:
-    image: caddy:2.11.4-alpine
+    image: caddy:2.11.4-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
     container_name: studytube-caddy
     restart: unless-stopped
     network_mode: host
@@ -47,6 +47,7 @@ services:
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - /var/www/studytube:/var/www/studytube:ro
+      - /run/studytube:/run/studytube:ro
       - caddy_data:/data
       - caddy_config:/config
     tmpfs:

@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import copy
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 import html as html_lib
 import hashlib
+import hmac
 import importlib.util
 import json
 import math
@@ -23,6 +24,11 @@ from urllib.parse import parse_qsl, quote_plus, urlencode, urlparse, urlunparse
 from xml.etree import ElementTree
 
 from runtime_environment import load_runtime_environment
+from mcp_server import (
+    GatewaySettings,
+    create_mcp_server,
+    create_streamable_http_app,
+)
 
 try:
     from dotenv import load_dotenv
@@ -31,7 +37,8 @@ except ModuleNotFoundError:  # pragma: no cover - local test fallback
         return None
 
 try:
-    from fastapi import FastAPI
+    from fastapi import FastAPI, Request
+    from fastapi.responses import JSONResponse
 except ModuleNotFoundError:  # pragma: no cover - local test fallback
     class FastAPI:  # type: ignore[override]
         def __init__(self, *_args: Any, **_kwargs: Any) -> None:
@@ -48,6 +55,15 @@ except ModuleNotFoundError:  # pragma: no cover - local test fallback
                 return func
 
             return decorator
+
+        def middleware(self, *_args: Any, **_kwargs: Any):
+            def decorator(func):
+                return func
+
+            return decorator
+
+    Request = Any  # type: ignore[misc,assignment]
+    JSONResponse = None
 
 try:
     import httpx
@@ -81,7 +97,8 @@ ROOT_DIR = AI_DIR.parent
 load_runtime_environment(load_dotenv, ai_dir=AI_DIR, root_dir=ROOT_DIR)
 
 DEFAULT_DATABASE_URL = "postgresql://app:app@localhost:5432/app_dev"
-EMBEDDING_DIMENSIONS = 64
+EMBEDDING_DIMENSIONS = 1536
+RETRIEVAL_EMBEDDING_MODEL = "text-embedding-3-small"
 DEFAULT_FALLBACK_CAPTION_DURATION_SECONDS = 600
 CAPTION_TRANSLATION_BATCH_SIZE = 32
 CAPTION_TRANSLATION_MAX_WORKERS = 8
@@ -100,104 +117,75 @@ SUMMARY_CACHE_POLICY_VERSION = "transcript-summary-v1"
 SUMMARY_RESPONSE_CACHE_TTL_SECONDS = 30 * 60
 SUMMARY_RESPONSE_CACHE_MAX_SIZE = 64
 SUMMARY_RESPONSE_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+EMBEDDING_RESPONSE_CACHE_TTL_SECONDS = 60 * 60
+EMBEDDING_RESPONSE_CACHE_MAX_SIZE = 256
+EMBEDDING_RESPONSE_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+EMBEDDING_INPUT_USD_PER_MILLION_TOKENS = 0.02
 YOUTUBE_SUBTITLE_PO_TOKEN_CACHE_TTL_SECONDS = 5 * 60 * 60
 YOUTUBE_SUBTITLE_PO_TOKEN_CACHE: dict[str, tuple[float, tuple[str, str]]] = {}
 CAPTION_TRANSLATION_JOBS: set[str] = set()
 CAPTION_TRANSLATION_JOB_LOCK = Lock()
 
-app = FastAPI(title="StudyTube AI Service")
+mcp_settings = GatewaySettings.from_environment()
+mcp_server = create_mcp_server(settings=mcp_settings)
+mcp_application = create_streamable_http_app(
+    mcp_server,
+    path="/mcp",
+    host=os.getenv("MCP_BIND_HOST", "127.0.0.1").strip() or "127.0.0.1",
+    allowed_hosts=mcp_settings.allowed_hosts,
+)
 
 
-@dataclass
-class BoardPost:
-    id: int
-    title: str
-    video_url: str
-    thumbnail_url: str
-    channel_name: str
-    summary: str
-    translated_notes: str
-    tags: list[str]
+@asynccontextmanager
+async def application_lifespan(_app: FastAPI):
+    require_production_internal_key()
+    async with mcp_server.session_manager.run():
+        yield
 
 
-DEMO_POSTS = [
-    BoardPost(
-        id=1,
-        title="React Hooks Course - All React Hooks Explained",
-        video_url="https://www.youtube.com/watch?v=LlvBzyy-558",
-        thumbnail_url="https://i.ytimg.com/vi/LlvBzyy-558/hqdefault.jpg",
-        channel_name="freeCodeCamp.org",
-        summary=(
-            "A practical React hooks lesson covering useState, useEffect, "
-            "useMemo, useCallback, and custom hooks through small examples."
-        ),
-        translated_notes=(
-            "useState, useEffect, useMemo, useCallback, 커스텀 훅을 작은 예제로 "
-            "익히는 React 훅 실습 영상입니다."
-        ),
-        tags=["react", "frontend", "hooks"],
-    ),
-    BoardPost(
-        id=2,
-        title="React Query Crash Course",
-        video_url="https://www.youtube.com/watch?v=novnyCaa7To",
-        thumbnail_url="https://i.ytimg.com/vi/novnyCaa7To/hqdefault.jpg",
-        channel_name="The Net Ninja",
-        summary=(
-            "Explains server state, caching, refetching, query keys, and "
-            "mutation flows for React applications."
-        ),
-        translated_notes=(
-            "React 앱에서 서버 상태, 캐싱, 재조회, 쿼리 키, mutation 흐름을 설명합니다."
-        ),
-        tags=["react", "query", "frontend"],
-    ),
-    BoardPost(
-        id=3,
-        title="FastAPI Full Course",
-        video_url="https://www.youtube.com/watch?v=7t2alSnE2-I",
-        thumbnail_url="https://i.ytimg.com/vi/7t2alSnE2-I/hqdefault.jpg",
-        channel_name="freeCodeCamp.org",
-        summary=(
-            "Builds Python APIs with routing, validation, dependency injection, "
-            "authentication, and database access."
-        ),
-        translated_notes=(
-            "라우팅, 검증, 의존성 주입, 인증, 데이터베이스 접근으로 Python API를 만드는 강의입니다."
-        ),
-        tags=["fastapi", "python", "backend"],
-    ),
-    BoardPost(
-        id=4,
-        title="PostgreSQL Tutorial for Beginners",
-        video_url="https://www.youtube.com/watch?v=qw--VYLpxG4",
-        thumbnail_url="https://i.ytimg.com/vi/qw--VYLpxG4/hqdefault.jpg",
-        channel_name="Programming with Mosh",
-        summary=(
-            "Introduces relational tables, filtering, joins, indexes, and durable "
-            "data modeling."
-        ),
-        translated_notes=(
-            "관계형 테이블, 필터링, 조인, 인덱스, 안정적인 데이터 모델 설계를 소개합니다."
-        ),
-        tags=["postgresql", "database", "backend"],
-    ),
-]
+app = FastAPI(title="StudyTube AI Service", lifespan=application_lifespan)
+
+
+def require_production_internal_key() -> None:
+    if os.getenv("NODE_ENV", "").strip().lower() != "production":
+        return
+
+    key = os.getenv("INTERNAL_AI_API_KEY", "").strip()
+    normalized = key.casefold()
+    if len(key) < 32 or any(
+        marker in normalized
+        for marker in ("change-me", "replace-with", "example", "placeholder")
+    ):
+        raise RuntimeError(
+            "INTERNAL_AI_API_KEY must be a non-placeholder secret of at least "
+            "32 characters in production"
+        )
+
+
+class EmbeddingProviderUnavailable(RuntimeError):
+    pass
+
+
+@app.middleware("http")
+async def require_internal_service_key(request: Request, call_next):
+    expected = os.getenv("INTERNAL_AI_API_KEY", "").strip()
+    if expected and request.method != "GET" and not is_mcp_protocol_path(
+        request.url.path
+    ):
+        provided = request.headers.get("x-internal-api-key", "")
+        if not hmac.compare_digest(provided, expected):
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Internal service authentication required"},
+            )
+    return await call_next(request)
+
+
+def is_mcp_protocol_path(path: str) -> bool:
+    return path == "/mcp" or path.startswith("/mcp/")
 
 
 AGENT_TOOLS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "retrieve_posts",
-            "description": "Retrieve board posts related to the learner goal.",
-            "parameters": {
-                "type": "object",
-                "properties": {"query": {"type": "string"}},
-                "required": ["query"],
-            },
-        },
-    },
     {
         "type": "function",
         "function": {
@@ -285,13 +273,13 @@ def database_health():
         }
 
 
-@app.post("/rag/recommend")
-def rag_recommend_endpoint(payload: dict[str, Any]):
-    return rag_recommend(payload)
+@app.post("/embeddings")
+def embeddings_endpoint(payload: dict[str, Any]):
+    return create_embedding_response(payload)
 
 
-@app.post("/mcp")
-def mcp_endpoint(payload: dict[str, Any]):
+@app.post("/youtube/lookup")
+def youtube_lookup_endpoint(payload: dict[str, Any]):
     return handle_mcp_request(payload)
 
 
@@ -310,29 +298,87 @@ def study_plan_endpoint(payload: dict[str, Any]):
     return build_study_plan(payload)
 
 
-def rag_recommend(payload: dict[str, Any]) -> dict[str, Any]:
-    query = str(payload.get("query") or payload.get("title") or "").strip()
-    limit = int(payload.get("limit") or 3)
-    posts = load_board_posts()
-    ranked = rank_posts(query, posts)
-    related = [
-        post_to_response(post, score)
-        for post, score in ranked[:limit]
-        if score > 0
-    ]
-    answer = summarize_related_posts(query, related)
+@app.post("/quiz/generate")
+def quiz_generation_endpoint(payload: dict[str, Any]):
+    return build_quiz_response(payload)
 
-    return {
-        "mode": "rag",
-        "query": query,
-        "answer": answer,
-        "relatedPosts": related,
-        "embedding": {
-            "provider": embedding_provider(),
-            "dimensions": EMBEDDING_DIMENSIONS,
-            "vectorDb": "PostgreSQL pgvector with deterministic fallback",
-        },
+
+def create_embedding_response(payload: dict[str, Any]) -> dict[str, Any]:
+    text = str(payload.get("input") or "").strip()
+    if not text or len(text) > 12000:
+        raise ValueError("Embedding input must contain between 1 and 12000 characters")
+    if not os.getenv("OPENAI_API_KEY") or OpenAI is None:
+        raise EmbeddingProviderUnavailable("Embedding provider is unavailable")
+    model = os.getenv("EMBEDDING_MODEL", RETRIEVAL_EMBEDDING_MODEL)
+    if model != RETRIEVAL_EMBEDDING_MODEL:
+        raise EmbeddingProviderUnavailable(
+            "Embedding provider must use text-embedding-3-small"
+        )
+    cache_key = hashlib.sha256(f"{model}\0{text}".encode("utf-8")).hexdigest()
+    cached = read_embedding_response_cache(cache_key)
+    if cached is not None:
+        return cached
+
+    try:
+        client = OpenAI(timeout=15.0, max_retries=2)
+        response = client.embeddings.create(
+            model=model,
+            input=text,
+            dimensions=EMBEDDING_DIMENSIONS,
+            encoding_format="float",
+        )
+        embedding = [float(value) for value in response.data[0].embedding]
+        usage = getattr(response, "usage", None)
+        input_tokens = max(0, int(getattr(usage, "prompt_tokens", 0) or 0))
+    except Exception as exc:
+        raise EmbeddingProviderUnavailable(
+            "Embedding provider is unavailable"
+        ) from exc
+
+    if len(embedding) != EMBEDDING_DIMENSIONS or any(
+        not math.isfinite(value) for value in embedding
+    ):
+        raise EmbeddingProviderUnavailable("Embedding response is invalid")
+    result = {
+        "model": model,
+        "dimensions": EMBEDDING_DIMENSIONS,
+        "embedding": embedding,
+        "cacheHit": False,
+        "inputTokens": input_tokens,
+        "estimatedCostUsd": round(
+            input_tokens * EMBEDDING_INPUT_USD_PER_MILLION_TOKENS / 1_000_000,
+            12,
+        ),
     }
+    write_embedding_response_cache(cache_key, result)
+    return result
+
+
+def read_embedding_response_cache(cache_key: str) -> dict[str, Any] | None:
+    cached = EMBEDDING_RESPONSE_CACHE.get(cache_key)
+    if cached is None:
+        return None
+    created_at, response = cached
+    if time.time() - created_at > EMBEDDING_RESPONSE_CACHE_TTL_SECONDS:
+        EMBEDDING_RESPONSE_CACHE.pop(cache_key, None)
+        return None
+    result = copy.deepcopy(response)
+    result["cacheHit"] = True
+    result["estimatedCostUsd"] = 0
+    return result
+
+
+def write_embedding_response_cache(
+    cache_key: str,
+    response: dict[str, Any],
+) -> None:
+    while len(EMBEDDING_RESPONSE_CACHE) >= EMBEDDING_RESPONSE_CACHE_MAX_SIZE:
+        oldest_key = min(
+            EMBEDDING_RESPONSE_CACHE,
+            key=lambda key: EMBEDDING_RESPONSE_CACHE[key][0],
+        )
+        EMBEDDING_RESPONSE_CACHE.pop(oldest_key, None)
+    EMBEDDING_RESPONSE_CACHE[cache_key] = (time.time(), copy.deepcopy(response))
 
 
 def handle_mcp_request(payload: dict[str, Any]) -> dict[str, Any]:
@@ -362,7 +408,6 @@ def build_study_plan(payload: dict[str, Any]) -> dict[str, Any]:
         "goal": goal,
         "language": language,
         "interests": interests,
-        "retrieved": [],
         "external": None,
         "trace": [],
     }
@@ -378,11 +423,7 @@ def build_study_plan(payload: dict[str, Any]) -> dict[str, Any]:
         )
 
         try:
-            if tool_name == "retrieve_posts":
-                state["retrieved"] = rag_recommend({"query": goal, "limit": 3})[
-                    "relatedPosts"
-                ]
-            elif tool_name == "search_video":
+            if tool_name == "search_video":
                 state["external"] = lookup_youtube({"query": goal, "limit": 5})
             elif tool_name == "create_playlist_draft":
                 break
@@ -408,96 +449,111 @@ def build_study_plan(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def load_board_posts() -> list[BoardPost]:
-    if psycopg is None:
-        return DEMO_POSTS
+def build_quiz_response(payload: dict[str, Any]) -> dict[str, Any]:
+    title = clean_text(str(payload.get("title") or "")).strip()
+    source_url = str(payload.get("sourceUrl") or "").strip()
+    parsed_source = urlparse(source_url)
+    allowed_hosts = {
+        "youtube.com",
+        "www.youtube.com",
+        "m.youtube.com",
+        "youtu.be",
+        "www.youtu.be",
+    }
+    if not title or len(title) > 500:
+        raise ValueError("Quiz title is required")
+    if (
+        parsed_source.scheme != "https"
+        or (parsed_source.hostname or "").lower() not in allowed_hosts
+    ):
+        raise ValueError("Quiz source must be an allowed YouTube URL")
 
-    database_url = os.getenv("DATABASE_URL", DEFAULT_DATABASE_URL)
+    timestamp_seconds = int(payload.get("timestampSeconds") or 0)
+    duration_seconds = int(
+        payload.get("durationSeconds") or DEFAULT_FALLBACK_CAPTION_DURATION_SECONDS
+    )
+    if timestamp_seconds < 0 or duration_seconds <= 0:
+        raise ValueError("Quiz citation range is invalid")
 
-    try:
-        with psycopg.connect(database_url, connect_timeout=3) as conn:
-            with conn.cursor() as cursor:
-                cursor.execute(
-                    """
-                    SELECT p.id, p.title, p.video_url, p.thumbnail_url, p.channel_name,
-                           p.summary, p.translated_notes,
-                           COALESCE(array_agg(t.name) FILTER (WHERE t.name IS NOT NULL), '{}') AS tags
-                    FROM posts p
-                    LEFT JOIN post_tags pt ON pt.post_id = p.id
-                    LEFT JOIN tags t ON t.id = pt.tag_id
-                    GROUP BY p.id
-                    ORDER BY p.updated_at DESC
-                    """
-                )
-                rows = cursor.fetchall()
+    window_start = max(0, timestamp_seconds - 15)
+    window_end = min(duration_seconds, timestamp_seconds + 240)
+    if window_end <= window_start:
+        window_end = window_start + 1
+    caption_response = load_translated_captions(
+        {
+            "sourceUrl": source_url,
+            "targetLanguage": "ko",
+            "allowFallback": False,
+            "translateFallback": True,
+            "durationSeconds": duration_seconds,
+            "startSeconds": window_start,
+            "endSeconds": window_end,
+        }
+    )
+    segments = normalize_caption_segments(
+        caption_response.get("segments")
+        if isinstance(caption_response.get("segments"), list)
+        else []
+    )
+    cited = [
+        segment
+        for segment in segments
+        if segment["end"] > window_start and segment["start"] < window_end
+    ]
+    if len(cited) < 5:
+        raise ValueError("Quiz generation requires at least five cited captions")
 
-        if not rows:
-            return DEMO_POSTS
-
-        return [
-            BoardPost(
-                id=row[0],
-                title=row[1],
-                video_url=row[2],
-                thumbnail_url=row[3],
-                channel_name=row[4],
-                summary=row[5],
-                translated_notes=row[6],
-                tags=list(row[7]),
-            )
-            for row in rows
-        ]
-    except Exception:
-        return DEMO_POSTS
-
-
-def rank_posts(query: str, posts: list[BoardPost]) -> list[tuple[BoardPost, float]]:
-    if not query.strip():
-        return []
-
-    query_vector = deterministic_embedding(query)
-    query_tokens = tokenize(query)
-    scored: list[tuple[BoardPost, float]] = []
-
-    for post in posts:
-        transcript_document = " ".join(
-            [
-                post.summary,
-                post.translated_notes,
-            ]
+    anchors = [
+        cited[round(index * (len(cited) - 1) / 4)] for index in range(5)
+    ]
+    questions = []
+    for index, anchor in enumerate(anchors):
+        correct = clean_text(str(anchor["text"])).strip()[:220]
+        distractors = []
+        for candidate in anchors[index + 1 :] + anchors[:index]:
+            text = clean_text(str(candidate["text"])).strip()[:220]
+            if text and text != correct and text not in distractors:
+                distractors.append(text)
+            if len(distractors) == 3:
+                break
+        while len(distractors) < 3:
+            distractors.append(f"근거 구간에 없는 설명 {len(distractors) + 1}")
+        correct_index = index % 4
+        choices = distractors[:]
+        choices.insert(correct_index, correct)
+        source_start = max(0, int(math.floor(float(anchor["start"]))))
+        source_end = max(
+            source_start + 1,
+            int(math.ceil(float(anchor["end"]))),
         )
-        metadata = " ".join([post.title, post.channel_name, " ".join(post.tags)])
-        semantic_score = cosine_similarity(
-            query_vector,
-            deterministic_embedding(f"{post.title} {transcript_document}"),
-        )
-        transcript_token_score = token_overlap(
-            query_tokens,
-            tokenize(transcript_document),
-        )
-        metadata_token_score = token_overlap(query_tokens, tokenize(metadata))
-        phrase_score = (
-            1.0 if query.lower() in transcript_document.lower() else 0.0
-        )
-
-        if transcript_token_score == 0 and metadata_token_score == 0 and phrase_score == 0:
-            scored.append((post, 0.0))
-            continue
-
-        scored.append(
-            (
-                post,
-                round(
-                    (semantic_score * 0.15)
-                    + (transcript_token_score * 0.62)
-                    + (metadata_token_score * 0.08)
-                    + (phrase_score * 0.15),
-                    4,
+        questions.append(
+            {
+                "prompt": (
+                    f"'{title}'의 {source_start}초 근거 구간에서 설명한 내용은 "
+                    "무엇인가요?"
                 ),
-            )
+                "choices": choices,
+                "correctChoiceIndex": correct_index,
+                "explanation": (
+                    f"{source_start}초부터 {source_end}초까지의 자막에 "
+                    f"'{correct}'라고 제시되어 있습니다."
+                ),
+                "sourceUrl": source_url,
+                "sourceStartSeconds": source_start,
+                "sourceEndSeconds": source_end,
+            }
         )
 
-    return sorted(scored, key=lambda item: item[1], reverse=True)
+    return {
+        "schemaVersion": 1,
+        "generatorVersion": "caption-grounded-v1",
+        "questions": questions,
+        "usage": {
+            "model": "deterministic-caption-grounded",
+            "totalTokens": 0,
+            "estimatedCostUsd": 0,
+        },
+    }
 
 
 def lookup_youtube(params: dict[str, Any]) -> dict[str, Any]:
@@ -4010,9 +4066,7 @@ def choose_agent_tool(state: dict[str, Any], iteration: int) -> str:
     if llm_choice:
         return llm_choice
 
-    if iteration == 0:
-        return "retrieve_posts"
-    if iteration == 1 and not state.get("external"):
+    if iteration == 0 and not state.get("external"):
         return "search_video"
     return "create_playlist_draft"
 
@@ -4030,8 +4084,8 @@ def choose_tool_with_llm(state: dict[str, Any]) -> str | None:
                     "role": "system",
                     "content": (
                         "Choose the next StudyTube agent tool. "
-                        "Use retrieve_posts first, search_video when external context is missing, "
-                        "and create_playlist_draft when enough evidence exists."
+                        "Use search_video to gather read-only YouTube metadata, then "
+                        "create_playlist_draft when enough evidence exists."
                     ),
                 },
                 {"role": "user", "content": str(state)},
@@ -4043,7 +4097,7 @@ def choose_tool_with_llm(state: dict[str, Any]) -> str | None:
 
         if tool_calls:
             name = tool_calls[0].function.name
-            if name in {"retrieve_posts", "search_video", "create_playlist_draft"}:
+            if name in {"search_video", "create_playlist_draft"}:
                 return name
     except Exception:
         return None
@@ -4053,17 +4107,6 @@ def choose_tool_with_llm(state: dict[str, Any]) -> str | None:
 
 def create_playlist_recommendations(state: dict[str, Any]) -> list[dict[str, Any]]:
     recommendations = []
-
-    for item in state.get("retrieved", [])[:3]:
-        recommendations.append(
-            {
-                "title": item["title"],
-                "url": item["videoUrl"],
-                "thumbnailUrl": item["thumbnailUrl"],
-                    "source": "board-analysis",
-                    "why": f"AI 영상 분석 매칭 점수 {item['score']}점으로 목표와 연결됩니다. 요약: {item.get('evidenceSnippet', item['summary'])}",
-            }
-        )
 
     external = state.get("external")
     if external:
@@ -4081,45 +4124,6 @@ def create_playlist_recommendations(state: dict[str, Any]) -> list[dict[str, Any
     return recommendations
 
 
-def post_to_response(post: BoardPost, score: float) -> dict[str, Any]:
-    evidence = best_evidence_snippet(post)
-
-    return {
-        "id": post.id,
-        "title": post.title,
-        "videoUrl": post.video_url,
-        "thumbnailUrl": post.thumbnail_url,
-        "channelName": post.channel_name,
-        "summary": post.summary,
-        "translatedNotes": post.translated_notes,
-        "evidenceSource": "video_analysis",
-        "evidenceSnippet": evidence,
-        "tags": post.tags,
-        "score": score,
-    }
-
-
-def summarize_related_posts(query: str, related: list[dict[str, Any]]) -> str:
-    if not related:
-        return "관련 영상 분석 요약을 찾지 못했습니다. 다른 키워드로 검색해 보세요."
-
-    top = related[0]
-    return (
-        f"'{query or top['title']}' 질문에는 {top['title']}의 AI 영상 분석 요약이 가장 가깝습니다. "
-        f"요약: {top.get('evidenceSnippet') or top['summary']} "
-        f"관련 태그는 {', '.join(top['tags'][:3])}입니다."
-    )
-
-
-def best_evidence_snippet(post: BoardPost) -> str:
-    transcript = clean_text(post.translated_notes or post.summary)
-
-    if len(transcript) <= 180:
-        return transcript
-
-    return f"{transcript[:177]}..."
-
-
 def create_playlist_title(goal: str, language: str) -> str:
     if language.lower().startswith("ko"):
         return f"{goal} 맞춤 학습 코스"
@@ -4134,12 +4138,12 @@ def create_agent_rationale(
 
     if language.lower().startswith("ko"):
         return (
-            f"목표 '{goal}'에 대해 기존 영상 분석 요약과 MCP 영상 메타데이터를 함께 사용해 "
+            f"목표 '{goal}'에 대해 읽기 전용 YouTube 메타데이터를 사용해 "
             f"{count}개의 학습 코스 단계를 만들었습니다."
         )
 
     return (
-        f"The agent combined existing video analysis summaries and MCP video metadata to create "
+        f"The agent used read-only YouTube metadata to create "
         f"{count} learning steps for '{goal}'."
     )
 
@@ -4161,35 +4165,6 @@ def suggest_tags(
     return sorted(useful)[:6]
 
 
-def deterministic_embedding(text: str) -> list[float]:
-    digest = hashlib.sha256(text.encode("utf-8")).digest()
-    values = []
-
-    for index in range(EMBEDDING_DIMENSIONS):
-        byte = digest[index % len(digest)]
-        values.append((byte / 255.0) * 2.0 - 1.0)
-
-    return values
-
-
-def cosine_similarity(left: list[float], right: list[float]) -> float:
-    dot = sum(a * b for a, b in zip(left, right))
-    left_norm = math.sqrt(sum(a * a for a in left))
-    right_norm = math.sqrt(sum(b * b for b in right))
-
-    if left_norm == 0 or right_norm == 0:
-        return 0.0
-
-    return (dot / (left_norm * right_norm) + 1.0) / 2.0
-
-
-def token_overlap(left: set[str], right: set[str]) -> float:
-    if not left or not right:
-        return 0.0
-
-    return len(left.intersection(right)) / len(left.union(right))
-
-
 def tokenize(text: str) -> set[str]:
     return set(re.findall(r"[a-zA-Z0-9가-힣]+", text.lower()))
 
@@ -4200,16 +4175,8 @@ def extract_video_hint(url: str) -> str | None:
     return match.group(1) if match else None
 
 
-def embedding_provider() -> str:
-    if os.getenv("OPENAI_API_KEY"):
-        return os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
-
-    return "deterministic-local-hash"
-
-
 def tool_reason(tool_name: str) -> str:
     return {
-        "retrieve_posts": "영상별 AI 분석 요약을 먼저 검색합니다.",
         "search_video": "외부 YouTube 메타데이터로 추천 후보를 보강합니다.",
         "create_playlist_draft": "수집한 근거를 학습 코스 초안으로 정리합니다.",
     }[tool_name]
@@ -4224,3 +4191,6 @@ def json_rpc_error(request_id: Any, code: int, message: str) -> dict[str, Any]:
             "message": message,
         },
     }
+
+
+app.mount("/", mcp_application)

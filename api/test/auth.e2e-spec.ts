@@ -10,6 +10,12 @@ import {
   rateLimitSubjectDigest,
   reconstructVerificationToken,
 } from '../src/auth/auth-token';
+import { VerificationEmailOutboxWorker } from '../src/auth/verification-email-outbox.worker';
+import { PostgresVerificationEmailOutboxRepository } from '../src/auth/verification-email-outbox.repository';
+import type {
+  VerificationEmailMessage,
+  VerificationEmailSender,
+} from '../src/auth/verification-email-sender';
 
 const DATABASE_URL =
   process.env.DATABASE_URL ?? 'postgresql://app:app@localhost:5432/app_dev';
@@ -110,6 +116,350 @@ describe('cookie authentication with PostgreSQL (e2e)', () => {
     expect(JSON.stringify(response.body)).not.toMatch(
       /password|verification|enrollment|session|token|digest/iu,
     );
+  });
+
+  it('claims, delivers, and acknowledges the durable verification email', async () => {
+    const email = testEmail('delivery');
+    const delivered: VerificationEmailMessage[] = [];
+    const sender: VerificationEmailSender = {
+      send: jest.fn((message: VerificationEmailMessage) => {
+        delivered.push(message);
+        return Promise.resolve({ providerMessageId: 'e2e-provider-message' });
+      }),
+    };
+    trackedEmails.add(email);
+
+    await signup(request.agent(app.getHttpServer()), email);
+    const pending = await latestPending(pool, email);
+    const verificationToken = reconstructVerificationToken(
+      pending.pendingId,
+      databaseKeyVersion(pending.keyVersion),
+      VERIFICATION_PEPPER,
+    );
+    await pool.query(
+      `
+          UPDATE verification_email_outbox
+          SET available_at = '2000-01-01T00:00:00.000Z'
+          WHERE pending_registration_id = $1
+        `,
+      [pending.pendingId],
+    );
+    const worker = new VerificationEmailOutboxWorker(
+      new PostgresVerificationEmailOutboxRepository(pool),
+      sender,
+      {
+        verificationPepper: VERIFICATION_PEPPER,
+        clock: () => new Date(),
+        random: () => 0.5,
+        pollIntervalMs: 1_000,
+        leaseMs: 30_000,
+        sendTimeoutMs: 10_000,
+        maxAttempts: 5,
+        retryBaseMs: 1_000,
+        retryMaxMs: 60_000,
+      },
+    );
+
+    await expect(worker.deliverOnce()).resolves.toBe('sent');
+
+    expect(delivered).toHaveLength(1);
+    expect(delivered[0]?.verificationUrl).toContain(
+      `/signup/verify#verification=${verificationToken}`,
+    );
+    expect(delivered[0]?.verificationUrl).not.toContain('?verification=');
+
+    const persisted = await pool.query<{
+      attempts: number;
+      lastErrorCode: string | null;
+      providerMessageId: string;
+      sent: boolean;
+      storedFields: string;
+    }>(
+      `
+          SELECT o.attempts,
+                 o.last_error_code AS "lastErrorCode",
+                 o.provider_message_id AS "providerMessageId",
+                 o.sent_at IS NOT NULL AS sent,
+                 concat_ws('|',
+                   o.recipient,
+                   o.idempotency_key,
+                   o.sender,
+                   o.public_origin,
+                   o.template_version,
+                   o.locale,
+                   o.subject,
+                   encode(o.payload_hash, 'hex')
+                 ) AS "storedFields"
+          FROM verification_email_outbox o
+          WHERE o.pending_registration_id = $1
+        `,
+      [pending.pendingId],
+    );
+    expect(persisted.rows).toEqual([
+      {
+        attempts: 1,
+        lastErrorCode: null,
+        providerMessageId: 'e2e-provider-message',
+        sent: true,
+        storedFields: expect.any(String) as unknown,
+      },
+    ]);
+    expect(JSON.stringify(persisted.rows)).not.toContain(verificationToken);
+  });
+
+  it('coalesces concurrent resend and preserves the live single-use token', async () => {
+    const email = testEmail('resend-race');
+    const browser = request.agent(app.getHttpServer());
+    const barrierClient = await pool.connect();
+    let transactionOpen = false;
+    let resendRequests: Array<Promise<ResponseShape>> = [];
+    trackedEmails.add(email);
+
+    try {
+      await signup(browser, email);
+      const pending = await latestPending(pool, email);
+      const verificationToken = reconstructVerificationToken(
+        pending.pendingId,
+        databaseKeyVersion(pending.keyVersion),
+        VERIFICATION_PEPPER,
+      );
+      const original = await pool.query<{ payloadHash: Buffer }>(
+        `
+          UPDATE verification_email_outbox
+          SET attempts = 1,
+              provider_message_id = 'e2e-delivered-message',
+              sent_at = statement_timestamp()
+          WHERE pending_registration_id = $1
+          RETURNING payload_hash AS "payloadHash"
+        `,
+        [pending.pendingId],
+      );
+
+      await barrierClient.query('BEGIN');
+      transactionOpen = true;
+      await barrierClient.query(
+        `
+          SELECT pg_advisory_xact_lock(
+            hashtextextended('auth-registration:' || $1, 0)
+          )
+        `,
+        [email],
+      );
+      resendRequests = [0, 1].map(() =>
+        request(app.getHttpServer())
+          .post('/auth/email-verifications/resend')
+          .set('Origin', WEB_ORIGIN)
+          .send({ email })
+          .then((response) => response),
+      );
+
+      await waitForBlockedStatements(
+        pool,
+        '%pg_advisory_xact_lock%auth-registration:%',
+        2,
+      );
+      await barrierClient.query('COMMIT');
+      transactionOpen = false;
+
+      const responses = await Promise.all(resendRequests);
+      expect(responses.map(({ status }) => status)).toEqual([202, 202]);
+      const state = await pool.query<{
+        pendingCount: number;
+        outboxCount: number;
+        liveOutboxCount: number;
+        payloadHashesMatch: boolean;
+      }>(
+        `
+          SELECT count(DISTINCT pending.id)::integer AS "pendingCount",
+                 count(outbox.id)::integer AS "outboxCount",
+                 count(outbox.id) FILTER (
+                   WHERE outbox.sent_at IS NULL AND outbox.failed_at IS NULL
+                 )::integer AS "liveOutboxCount",
+                 bool_and(outbox.payload_hash = $2::bytea)
+                   AS "payloadHashesMatch"
+          FROM pending_registrations AS pending
+          JOIN verification_email_outbox AS outbox
+            ON outbox.pending_registration_id = pending.id
+          WHERE pending.email_canonical = $1
+        `,
+        [email, original.rows[0]?.payloadHash],
+      );
+      expect(state.rows[0]).toEqual({
+        pendingCount: 1,
+        outboxCount: 2,
+        liveOutboxCount: 1,
+        payloadHashesMatch: true,
+      });
+
+      await browser
+        .post('/auth/email-verifications/consume')
+        .set('Origin', WEB_ORIGIN)
+        .send({ verificationToken })
+        .expect(204);
+
+      const replay = await request(app.getHttpServer())
+        .post('/auth/email-verifications/consume')
+        .set('Origin', WEB_ORIGIN)
+        .send({ verificationToken })
+        .expect(401);
+      expect(setCookieLines(replay)).toEqual([]);
+    } finally {
+      if (transactionOpen) {
+        await barrierClient.query('ROLLBACK');
+      }
+      await Promise.allSettled(resendRequests);
+      barrierClient.release();
+    }
+  });
+
+  it('requeues the preserved token after final-attempt lease expiry', async () => {
+    const email = testEmail('resend-final');
+    const browser = request.agent(app.getHttpServer());
+    trackedEmails.add(email);
+
+    await signup(browser, email);
+    const pending = await latestPending(pool, email);
+    const verificationToken = reconstructVerificationToken(
+      pending.pendingId,
+      databaseKeyVersion(pending.keyVersion),
+      VERIFICATION_PEPPER,
+    );
+    const exhausted = await pool.query<{ id: string; payloadHash: Buffer }>(
+      `
+        UPDATE verification_email_outbox
+        SET attempts = 5,
+            lease_token = $2,
+            lease_expires_at = statement_timestamp() - interval '1 second'
+        WHERE pending_registration_id = $1
+        RETURNING id, payload_hash AS "payloadHash"
+      `,
+      [pending.pendingId, randomUUID()],
+    );
+    expect(exhausted.rows).toHaveLength(1);
+
+    await browser
+      .post('/auth/email-verifications/resend')
+      .set('Origin', WEB_ORIGIN)
+      .send({ email })
+      .expect(202, { status: 'accepted' });
+
+    const state = await pool.query<{
+      outboxCount: number;
+      terminalizedCount: number;
+      liveOutboxCount: number;
+      payloadHashesMatch: boolean;
+    }>(
+      `
+        SELECT count(*)::integer AS "outboxCount",
+               count(*) FILTER (
+                 WHERE failed_at IS NOT NULL
+                   AND last_error_code = 'delivery_attempts_exhausted'
+               )::integer AS "terminalizedCount",
+               count(*) FILTER (
+                 WHERE sent_at IS NULL AND failed_at IS NULL
+               )::integer AS "liveOutboxCount",
+               bool_and(payload_hash = $2::bytea) AS "payloadHashesMatch"
+        FROM verification_email_outbox
+        WHERE pending_registration_id = $1
+      `,
+      [pending.pendingId, exhausted.rows[0]?.payloadHash],
+    );
+    expect(state.rows).toEqual([
+      {
+        outboxCount: 2,
+        terminalizedCount: 1,
+        liveOutboxCount: 1,
+        payloadHashesMatch: true,
+      },
+    ]);
+
+    await browser
+      .post('/auth/email-verifications/consume')
+      .set('Origin', WEB_ORIGIN)
+      .send({ verificationToken })
+      .expect(204);
+  });
+
+  it('issues a fresh full-window intent near expiry without revoking the old token', async () => {
+    const email = testEmail('resend-near-expiry');
+    const browser = request.agent(app.getHttpServer());
+    trackedEmails.add(email);
+
+    await signup(browser, email);
+    const oldPending = await latestPending(pool, email);
+    const oldToken = reconstructVerificationToken(
+      oldPending.pendingId,
+      databaseKeyVersion(oldPending.keyVersion),
+      VERIFICATION_PEPPER,
+    );
+    await pool.query(
+      `
+        UPDATE pending_registrations
+        SET verification_expires_at = statement_timestamp() + interval '1 minute'
+        WHERE id = $1
+      `,
+      [oldPending.pendingId],
+    );
+
+    await browser
+      .post('/auth/email-verifications/resend')
+      .set('Origin', WEB_ORIGIN)
+      .send({ email })
+      .expect(202, { status: 'accepted' });
+
+    const pending = await pool.query<{ count: number }>(
+      `
+        SELECT count(*)::integer AS count
+        FROM pending_registrations
+        WHERE email_canonical = $1
+      `,
+      [email],
+    );
+    expect(pending.rows).toEqual([{ count: 2 }]);
+    await browser
+      .post('/auth/email-verifications/consume')
+      .set('Origin', WEB_ORIGIN)
+      .send({ verificationToken: oldToken })
+      .expect(204);
+  });
+
+  it('does not create another token while a verified enrollment remains live', async () => {
+    const email = testEmail('resend-verified');
+    const browser = request.agent(app.getHttpServer());
+    trackedEmails.add(email);
+
+    await signup(browser, email);
+    const verified = await consumeVerification(browser, email);
+    await pool.query(
+      `
+        UPDATE pending_registrations
+        SET verification_expires_at = verified_at
+        WHERE id = $1
+      `,
+      [verified.pendingId],
+    );
+
+    await browser
+      .post('/auth/email-verifications/resend')
+      .set('Origin', WEB_ORIGIN)
+      .send({ email })
+      .expect(202, { status: 'accepted' });
+
+    const state = await pool.query<{
+      pendingCount: number;
+      outboxCount: number;
+    }>(
+      `
+        SELECT count(DISTINCT pending.id)::integer AS "pendingCount",
+               count(outbox.id)::integer AS "outboxCount"
+        FROM pending_registrations AS pending
+        JOIN verification_email_outbox AS outbox
+          ON outbox.pending_registration_id = pending.id
+        WHERE pending.email_canonical = $1
+      `,
+      [email],
+    );
+    expect(state.rows).toEqual([{ pendingCount: 1, outboxCount: 1 }]);
   });
 
   it('consumes verification and completes a digest-only Argon2id registration', async () => {

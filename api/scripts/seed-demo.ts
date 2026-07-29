@@ -9,6 +9,8 @@ import {
   requireSafeDatabaseTarget,
 } from './database-script-guards';
 
+// Fixed non-secret SHA-256 fixture used only to find legacy demo rows so the
+// seed can replace their obsolete credential with the disabled login marker.
 const LEGACY_DEMO_PASSWORD_HASH =
   '47f65a9430b5f109208eea5ad01ce9f5c8335244bfab3626eb91aea9a7b97b87';
 

@@ -120,7 +120,7 @@ export function courseSummaryFromPosts(posts: StudyPost[]) {
   return posts
     .slice(0, 3)
     .map((post, index) => `${index + 1}. ${post.title}`)
-    .join(' · ');
+    .join(' / ');
 }
 
 function tokenizeForMatch(value: string) {

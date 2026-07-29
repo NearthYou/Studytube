@@ -38,6 +38,45 @@ describe('ClientAddressResolver', () => {
     );
   });
 
+  it('restores one canonical forwarded address from the configured production Unix socket', () => {
+    const resolver = new ClientAddressResolver({
+      trustProxyOneHop: true,
+      environment: 'production',
+      trustedProxySocketPath: '/run/studytube/api.sock',
+    });
+
+    expect(resolver.resolve(request(undefined, '203.0.113.90'))).toBe(
+      '203.0.113.90',
+    );
+  });
+
+  it.each([undefined, '', '203.0.113.1, 203.0.113.2', ['203.0.113.1']])(
+    'fails closed for a missing or malformed Unix-proxy address: %p',
+    (forwarded) => {
+      const resolver = new ClientAddressResolver({
+        trustProxyOneHop: true,
+        environment: 'production',
+        trustedProxySocketPath: '/run/studytube/api.sock',
+      });
+
+      expect(() => resolver.resolve(request(undefined, forwarded))).toThrow(
+        ClientAddressResolutionError,
+      );
+    },
+  );
+
+  it('rejects a TCP peer when configured for the production Unix socket', () => {
+    const resolver = new ClientAddressResolver({
+      trustProxyOneHop: true,
+      environment: 'production',
+      trustedProxySocketPath: '/run/studytube/api.sock',
+    });
+
+    expect(() =>
+      resolver.resolve(request('127.0.0.1', '203.0.113.90')),
+    ).toThrow(/transport/i);
+  });
+
   it.each([
     '203.0.113.1, 203.0.113.2',
     '203.0.113.1:8080',
@@ -100,6 +139,31 @@ describe('ClientAddressResolver', () => {
     ).toThrow(/loopback.*bind/i);
   });
 
+  it.each(['/tmp/api.sock', '/run/studytube/../api.sock', 'relative.sock'])(
+    'rejects an unsafe trusted proxy socket path: %p',
+    (socketPath) => {
+      expect(
+        () =>
+          new ClientAddressResolver({
+            trustProxyOneHop: true,
+            environment: 'production',
+            trustedProxySocketPath: socketPath,
+          }),
+      ).toThrow(/socket/i);
+    },
+  );
+
+  it('rejects a production Unix listener without explicit proxy trust', () => {
+    expect(
+      () =>
+        new ClientAddressResolver({
+          trustProxyOneHop: false,
+          environment: 'production',
+          trustedProxySocketPath: '/run/studytube/api.sock',
+        }),
+    ).toThrow(/socket.*proxy trust/i);
+  });
+
   it.each(['development', 'test'] as const)(
     'allows explicit %s one-hop policy only with a loopback bind',
     (environment) => {
@@ -119,7 +183,10 @@ describe('ClientAddressResolver', () => {
   });
 });
 
-function request(remoteAddress: string, forwarded?: string | string[]) {
+function request(
+  remoteAddress: string | undefined,
+  forwarded?: string | string[],
+) {
   return {
     socket: { remoteAddress },
     headers: {

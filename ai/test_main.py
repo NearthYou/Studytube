@@ -1,20 +1,195 @@
+import asyncio
 import json
 import os
 import tempfile
 import time
 import unittest
+from unittest import mock
 from urllib.parse import parse_qsl, urlparse
 
 import main
 from main import (
+    build_quiz_response,
     build_study_plan,
     handle_mcp_request,
     load_translated_captions,
-    rag_recommend,
 )
 
 
+class ProductionSecretConfigTest(unittest.TestCase):
+    def test_production_rejects_a_missing_or_placeholder_internal_key(self):
+        for key in ("", "change-me", "replace-with-a-production-secret"):
+            with self.subTest(key=key):
+                with mock.patch.dict(
+                    os.environ,
+                    {"NODE_ENV": "production", "INTERNAL_AI_API_KEY": key},
+                    clear=True,
+                ):
+                    with self.assertRaisesRegex(
+                        RuntimeError, "INTERNAL_AI_API_KEY"
+                    ):
+                        main.require_production_internal_key()
+
+    def test_production_accepts_a_long_non_placeholder_internal_key(self):
+        with mock.patch.dict(
+            os.environ,
+            {
+                "NODE_ENV": "production",
+                "INTERNAL_AI_API_KEY": "a" * 32,
+            },
+            clear=True,
+        ):
+            main.require_production_internal_key()
+
+    def test_non_production_does_not_require_an_internal_key(self):
+        with mock.patch.dict(os.environ, {"NODE_ENV": "test"}, clear=True):
+            main.require_production_internal_key()
+
+
 class AiServiceTest(unittest.TestCase):
+    def test_internal_youtube_lookup_route_preserves_the_json_rpc_contract(self):
+        original_handler = main.handle_mcp_request
+        captured = []
+        main.handle_mcp_request = lambda payload: captured.append(payload) or {
+            "jsonrpc": "2.0",
+            "id": payload.get("id"),
+            "result": {"provider": "youtube-test", "videos": []},
+        }
+        request = {
+            "jsonrpc": "2.0",
+            "id": "nest-proxy",
+            "method": "youtube.lookup",
+            "params": {"query": "react hooks"},
+        }
+        try:
+            response = main.youtube_lookup_endpoint(request)
+        finally:
+            main.handle_mcp_request = original_handler
+
+        self.assertEqual(captured, [request])
+        self.assertEqual(response["jsonrpc"], "2.0")
+        self.assertEqual(response["id"], "nest-proxy")
+        self.assertEqual(response["result"]["provider"], "youtube-test")
+
+    def test_runtime_mounts_the_official_mcp_app_without_the_legacy_handler(self):
+        legacy_endpoints = [
+            getattr(route, "endpoint", None)
+            for route in main.app.routes
+            if getattr(route, "path", None) == "/mcp"
+        ]
+        mcp_route_paths = [route.path for route in main.mcp_application.routes]
+
+        self.assertNotIn(main.handle_mcp_request, legacy_endpoints)
+        self.assertIn("/mcp", mcp_route_paths)
+        self.assertNotIn(
+            "/.well-known/oauth-protected-resource/mcp",
+            mcp_route_paths,
+        )
+
+    def test_internal_key_middleware_exempts_only_mcp_protocol_routes(self):
+        original_key = os.environ.get("INTERNAL_AI_API_KEY")
+        os.environ["INTERNAL_AI_API_KEY"] = "internal-test-key"
+
+        async def invoke(path, internal_key=None):
+            headers = []
+            if internal_key is not None:
+                headers.append(
+                    (b"x-internal-api-key", internal_key.encode("ascii"))
+                )
+            request = main.Request(
+                {
+                    "type": "http",
+                    "http_version": "1.1",
+                    "method": "POST",
+                    "scheme": "http",
+                    "path": path,
+                    "raw_path": path.encode("ascii"),
+                    "query_string": b"",
+                    "headers": headers,
+                    "client": ("127.0.0.1", 1),
+                    "server": ("127.0.0.1", 8000),
+                }
+            )
+
+            async def allowed(_request):
+                return main.JSONResponse({"accepted": True})
+
+            return await main.require_internal_service_key(request, allowed)
+
+        try:
+            self.assertEqual(asyncio.run(invoke("/mcp")).status_code, 200)
+            self.assertEqual(
+                asyncio.run(
+                    invoke("/.well-known/oauth-protected-resource/mcp")
+                ).status_code,
+                401,
+            )
+            self.assertEqual(asyncio.run(invoke("/quiz/generate")).status_code, 401)
+            self.assertEqual(asyncio.run(invoke("/youtube/lookup")).status_code, 401)
+            self.assertEqual(
+                asyncio.run(
+                    invoke("/youtube/lookup", internal_key="internal-test-key")
+                ).status_code,
+                200,
+            )
+        finally:
+            if original_key is None:
+                os.environ.pop("INTERNAL_AI_API_KEY", None)
+            else:
+                os.environ["INTERNAL_AI_API_KEY"] = original_key
+
+    def test_fastapi_lifespan_runs_the_mcp_session_manager(self):
+        async def enter_runtime_lifespan():
+            async with main.app.router.lifespan_context(main.app):
+                self.assertIsNotNone(main.mcp_server.session_manager)
+
+        asyncio.run(enter_runtime_lifespan())
+
+    def test_quiz_generation_uses_five_cited_caption_ranges(self):
+        original_loader = main.load_translated_captions
+        main.load_translated_captions = lambda _payload: {
+            "segments": [
+                {"start": index * 10, "end": index * 10 + 8, "text": f"근거 문장 {index}"}
+                for index in range(8)
+            ]
+        }
+        try:
+            response = build_quiz_response(
+                {
+                    "title": "트랜잭션 격리 수준",
+                    "sourceUrl": "https://www.youtube.com/watch?v=example",
+                    "timestampSeconds": 10,
+                    "durationSeconds": 120,
+                }
+            )
+        finally:
+            main.load_translated_captions = original_loader
+
+        self.assertEqual(response["schemaVersion"], 1)
+        self.assertEqual(len(response["questions"]), 5)
+        for question in response["questions"]:
+            self.assertEqual(len(question["choices"]), 4)
+            self.assertGreaterEqual(question["correctChoiceIndex"], 0)
+            self.assertLess(question["correctChoiceIndex"], 4)
+            self.assertEqual(
+                question["sourceUrl"],
+                "https://www.youtube.com/watch?v=example",
+            )
+            self.assertGreater(
+                question["sourceEndSeconds"], question["sourceStartSeconds"]
+            )
+
+    def test_quiz_generation_rejects_non_youtube_sources(self):
+        with self.assertRaisesRegex(ValueError, "allowed YouTube"):
+            build_quiz_response(
+                {
+                    "title": "unsafe",
+                    "sourceUrl": "https://example.com/video",
+                    "timestampSeconds": 0,
+                    "durationSeconds": 60,
+                }
+            )
+
     def test_health_reports_caption_runtime_configuration_without_secret_values(self):
         original_env = {
             name: os.environ.get(name)
@@ -2832,43 +3007,117 @@ Second subtitle line
         self.assertEqual(response["segments"][1]["end"], 10.0)
         self.assertIn("리액트", response["segments"][0]["text"])
 
-    def test_rag_recommend_returns_related_posts_and_summary(self):
-        original_load_board_posts = main.load_board_posts
-        main.load_board_posts = lambda: main.DEMO_POSTS
+    def test_embedding_response_uses_text_embedding_3_small_without_hash_fallback(self):
+        original_openai = main.OpenAI
+        original_key = os.environ.get("OPENAI_API_KEY")
+        captured = {}
 
+        class FakeEmbeddings:
+            def create(self, **kwargs):
+                captured.update(kwargs)
+                item = type("EmbeddingItem", (), {"embedding": [0.01] * 1536})()
+                return type("EmbeddingResponse", (), {"data": [item]})()
+
+        class FakeClient:
+            embeddings = FakeEmbeddings()
+
+        os.environ["OPENAI_API_KEY"] = "sk-test"
+        main.OpenAI = lambda **_kwargs: FakeClient()
         try:
-            response = rag_recommend({"query": "react hooks for beginners", "limit": 2})
+            response = main.create_embedding_response(
+                {"input": "PostgreSQL isolation"}
+            )
         finally:
-            main.load_board_posts = original_load_board_posts
+            main.OpenAI = original_openai
+            if original_key is None:
+                os.environ.pop("OPENAI_API_KEY", None)
+            else:
+                os.environ["OPENAI_API_KEY"] = original_key
 
-        self.assertEqual(len(response["relatedPosts"]), 2)
-        self.assertIn("react", response["answer"].lower())
-        self.assertEqual(
-            response["relatedPosts"][0]["evidenceSource"],
-            "video_analysis",
-        )
-        self.assertTrue(response["relatedPosts"][0]["evidenceSnippet"])
+        self.assertEqual(captured["model"], "text-embedding-3-small")
+        self.assertEqual(captured["dimensions"], 1536)
+        self.assertEqual(response["dimensions"], 1536)
+        self.assertEqual(len(response["embedding"]), 1536)
+        self.assertNotIn("hash", json.dumps(response).lower())
 
-    def test_rag_recommend_returns_empty_when_query_has_no_overlap(self):
-        original_load_board_posts = main.load_board_posts
-        main.load_board_posts = lambda: main.DEMO_POSTS
+    def test_embedding_response_reuses_cached_vector_and_reports_cost(self):
+        original_openai = main.OpenAI
+        original_key = os.environ.get("OPENAI_API_KEY")
+        main.EMBEDDING_RESPONSE_CACHE.clear()
 
+        class FakeEmbeddings:
+            calls = 0
+
+            def create(self, **_kwargs):
+                FakeEmbeddings.calls += 1
+                item = type("EmbeddingItem", (), {"embedding": [0.01] * 1536})()
+                usage = type("EmbeddingUsage", (), {"prompt_tokens": 25})()
+                return type(
+                    "EmbeddingResponse",
+                    (),
+                    {"data": [item], "usage": usage},
+                )()
+
+        class FakeClient:
+            embeddings = FakeEmbeddings()
+
+        os.environ["OPENAI_API_KEY"] = "sk-test"
+        main.OpenAI = lambda **_kwargs: FakeClient()
         try:
-            response = rag_recommend({"query": "zzzz-no-board-topic", "limit": 2})
+            cold = main.create_embedding_response({"input": "격리 수준"})
+            warm = main.create_embedding_response({"input": "격리 수준"})
         finally:
-            main.load_board_posts = original_load_board_posts
+            main.OpenAI = original_openai
+            main.EMBEDDING_RESPONSE_CACHE.clear()
+            if original_key is None:
+                os.environ.pop("OPENAI_API_KEY", None)
+            else:
+                os.environ["OPENAI_API_KEY"] = original_key
 
-        self.assertEqual(response["relatedPosts"], [])
-        self.assertIn("찾지 못했", response["answer"])
+        self.assertEqual(FakeEmbeddings.calls, 1)
+        self.assertFalse(cold["cacheHit"])
+        self.assertTrue(warm["cacheHit"])
+        self.assertEqual(cold["inputTokens"], 25)
+        self.assertEqual(warm["estimatedCostUsd"], 0)
+        self.assertGreater(cold["estimatedCostUsd"], 0)
+
+    def test_embedding_response_fails_explicitly_without_provider_credentials(self):
+        original_key = os.environ.pop("OPENAI_API_KEY", None)
+        try:
+            with self.assertRaisesRegex(
+                main.EmbeddingProviderUnavailable,
+                "Embedding provider is unavailable",
+            ):
+                main.create_embedding_response({"input": "no fallback"})
+        finally:
+            if original_key is not None:
+                os.environ["OPENAI_API_KEY"] = original_key
 
     def test_agent_stops_with_playlist_and_trace(self):
-        response = build_study_plan(
-            {
-                "goal": "React hooks를 공부하고 싶어",
-                "language": "ko",
-                "interests": ["frontend"],
-            }
-        )
+        original_lookup = main.lookup_youtube
+        main.lookup_youtube = lambda _payload: {
+            "provider": "youtube-test",
+            "summary": "테스트 영상",
+            "videos": [
+                {
+                    "title": "React hooks",
+                    "sourceUrl": "https://youtu.be/hooks",
+                    "thumbnailUrl": "https://i.ytimg.com/vi/hooks/hqdefault.jpg",
+                    "provider": "youtube-test",
+                    "summary": "Hooks for beginners",
+                }
+            ],
+        }
+        try:
+            response = build_study_plan(
+                {
+                    "goal": "React hooks를 공부하고 싶어",
+                    "language": "ko",
+                    "interests": ["frontend"],
+                }
+            )
+        finally:
+            main.lookup_youtube = original_lookup
 
         self.assertLessEqual(len(response["trace"]), 4)
         self.assertGreaterEqual(len(response["recommendations"]), 1)

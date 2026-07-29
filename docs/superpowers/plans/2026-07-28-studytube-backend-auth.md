@@ -26,7 +26,7 @@
 - Keep `#11` limited to real HTTPS, reverse proxy, and browser Secure-cookie verification. Do not add Terraform.
 - Do not deploy `#7` to the current HTTP service. `#11` owns the maintenance cutover, verified `pg_dump`, restore rehearsal, and cache invalidation.
 
-## Portfolio-core finish line
+## Production finish line
 
 This section overrides later task detail when the two conflict. The earlier detail remains as a follow-up backlog, not as the completion gate for this cut.
 

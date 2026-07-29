@@ -14,6 +14,9 @@ import { AuthModule } from './auth/auth.module';
 import { CourseCutoverPolicy } from './course/course-cutover.policy';
 import { CourseModule } from './course/course.module';
 import { WorkModule } from './work/work.module';
+import { ObservabilityModule } from './observability';
+import { LearningModule } from './learning/learning.module';
+import { McpModule } from './mcp/mcp.module';
 
 @Module({
   imports: [
@@ -21,6 +24,9 @@ import { WorkModule } from './work/work.module';
       isGlobal: true,
       envFilePath: ['api/.env', '.env'],
     }),
+    ObservabilityModule,
+    LearningModule,
+    McpModule,
     AuthModule,
     CourseModule,
     WorkModule,

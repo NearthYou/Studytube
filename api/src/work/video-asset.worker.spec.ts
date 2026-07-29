@@ -1,6 +1,6 @@
 import type { StudyPost } from '../study-board.types';
 import type { VideoAsset } from '../video-asset.types';
-import type { JobResult } from './work.types';
+import type { AppendOutboxEvent, JobResult } from './work.types';
 import type { WorkQueueJob } from './work.queue';
 import { VideoAssetJobHandler } from './video-asset.worker';
 
@@ -45,12 +45,20 @@ const JOB: WorkQueueJob = {
   eventType: 'video_asset.requested',
   handlerVersion: 'video-asset-v1',
   payloadSchemaVersion: 1,
-  payload: { postId: POST.id },
+  payload: { postId: POST.id, courseStepId: '24' },
 };
 
 class MemoryResults {
   result: JobResult | null = null;
   deadLetter: Record<string, unknown> | null = null;
+  appendedEvents: AppendOutboxEvent[] = [];
+
+  appendOutboxEvent(event: AppendOutboxEvent): Promise<void> {
+    if (!this.appendedEvents.some((existing) => existing.id === event.id)) {
+      this.appendedEvents.push(event);
+    }
+    return Promise.resolve();
+  }
 
   findJobResult(): Promise<JobResult | null> {
     return Promise.resolve(this.result);
@@ -105,6 +113,22 @@ describe('VideoAssetJobHandler', () => {
     ).resolves.toEqual({ assetId: 9, postId: 42, status: 'ready' });
 
     expect(preparations).toBe(1);
+    expect(results.appendedEvents).toHaveLength(2);
+    expect(results.appendedEvents[0]).toMatchObject({
+      eventType: 'retrieval_embedding.requested',
+      aggregateId: '42',
+      payload: { postId: 42 },
+    });
+    expect(results.appendedEvents[1]).toMatchObject({
+      eventType: 'retrieval_embedding.requested',
+      aggregateType: 'course_step',
+      aggregateId: '24',
+      payload: {
+        sourceKind: 'course_step',
+        sourceId: '24',
+        courseStepId: '24',
+      },
+    });
   });
 
   it('records a terminal typed failure for an unsupported payload schema', async () => {

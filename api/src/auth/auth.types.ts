@@ -89,6 +89,7 @@ export type RateLimitResult =
   | { allowed: false; retryAfterSeconds: number };
 
 export type PendingRegistrationCommand = {
+  action: 'signup' | 'resend';
   pendingRegistrationId: string;
   emailCanonical: string;
   recipient: string;

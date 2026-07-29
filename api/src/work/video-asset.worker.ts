@@ -3,6 +3,7 @@ import type { BoardRepository, StudyPost } from '../study-board.types';
 import type { VideoAsset } from '../video-asset.types';
 import type { WorkRepository } from './work.repository';
 import type { WorkQueueJob } from './work.queue';
+import { deterministicWorkUuid } from './deterministic-work-id';
 
 type PostReader = Pick<BoardRepository, 'findPost'>;
 type VideoAssetPreparer = {
@@ -10,7 +11,7 @@ type VideoAssetPreparer = {
 };
 type JobResultStore = Pick<
   WorkRepository,
-  'findJobResult' | 'recordJobResult' | 'recordDeadLetter'
+  'appendOutboxEvent' | 'findJobResult' | 'recordJobResult' | 'recordDeadLetter'
 >;
 
 export class VideoAssetJobHandler {
@@ -44,7 +45,8 @@ export class VideoAssetJobHandler {
     }
 
     const postId = this.positiveInteger(job.payload.postId);
-    if (!postId) {
+    const courseStepId = this.positiveIntegerString(job.payload.courseStepId);
+    if (!postId || (job.payload.courseStepId !== undefined && !courseStepId)) {
       return this.terminal(job, 'INVALID_VIDEO_ASSET_PAYLOAD');
     }
     const post = await this.posts.findPost(postId);
@@ -62,6 +64,34 @@ export class VideoAssetJobHandler {
       postId: asset.postId,
       status: asset.status,
     };
+    await this.results.appendOutboxEvent({
+      id: deterministicWorkUuid(job.eventId, 'retrieval_embedding.requested'),
+      eventType: 'retrieval_embedding.requested',
+      aggregateType: 'post',
+      aggregateId: String(post.id),
+      aggregateVersion: 1,
+      payloadSchemaVersion: 1,
+      payload: { postId: post.id, causeEventId: job.eventId },
+    });
+    if (courseStepId) {
+      await this.results.appendOutboxEvent({
+        id: deterministicWorkUuid(
+          job.eventId,
+          `retrieval_embedding.course_step.${courseStepId}`,
+        ),
+        eventType: 'retrieval_embedding.requested',
+        aggregateType: 'course_step',
+        aggregateId: courseStepId,
+        aggregateVersion: 1,
+        payloadSchemaVersion: 1,
+        payload: {
+          sourceKind: 'course_step',
+          sourceId: courseStepId,
+          courseStepId,
+          causeEventId: job.eventId,
+        },
+      });
+    }
     await this.results.recordJobResult({
       id: randomUUID(),
       eventId: job.eventId,
@@ -124,6 +154,15 @@ export class VideoAssetJobHandler {
   private positiveInteger(value: unknown): number | null {
     const number = Number(value);
     return Number.isInteger(number) && number > 0 ? number : null;
+  }
+
+  private positiveIntegerString(value: unknown): string | null {
+    if (typeof value === 'number') {
+      return Number.isSafeInteger(value) && value > 0 ? String(value) : null;
+    }
+    return typeof value === 'string' && /^[1-9][0-9]*$/u.test(value)
+      ? value
+      : null;
   }
 }
 

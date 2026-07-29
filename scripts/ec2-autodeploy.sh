@@ -13,15 +13,39 @@ if ! flock -n 9; then
   exit 0
 fi
 
+load_deployment_environment() {
+  local path="$1"
+  local line key value
+  while IFS= read -r line || [ -n "$line" ]; do
+    [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+    if [[ "$line" == *$'\r'* ]] ||
+       [[ ! "$line" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; then
+      echo "Deployment environment must contain only Unix KEY=value entries" >&2
+      return 1
+    fi
+    key="${line%%=*}"
+    value="${line#*=}"
+    case "$key" in
+      BASH_ENV|BASHOPTS|CDPATH|ENV|GLOBIGNORE|HOME|IFS|PATH|PROMPT_COMMAND|PS4|SHELLOPTS|NODE_OPTIONS|PYTHONHOME|PYTHONPATH|PERL5OPT|RUBYOPT|LD_PRELOAD|LD_LIBRARY_PATH|NPM_CONFIG_USERCONFIG|GIT_CONFIG_COUNT|GIT_CONFIG_KEY_*|GIT_CONFIG_VALUE_*|DYLD_*)
+        echo "Deployment environment contains forbidden process-control variable $key" >&2
+        return 1
+        ;;
+    esac
+    if [[ "$value" == *"'"* || "$value" == *'"'* || "$value" == *\\* ]]; then
+      echo "Deployment environment values must use portable unquoted literals" >&2
+      return 1
+    fi
+    export "$key=$value"
+  done <"$path"
+}
+
 cd "$app_dir"
 
 if [ -f .env ]; then
-  # shellcheck disable=SC1091
-  source ./.env
+  load_deployment_environment ./.env
 fi
 if [ -f api/.env ]; then
-  # shellcheck disable=SC1091
-  source ./api/.env
+  load_deployment_environment ./api/.env
 fi
 
 git fetch origin "$deploy_branch"

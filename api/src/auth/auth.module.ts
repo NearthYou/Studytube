@@ -9,6 +9,10 @@ import { PasswordHasher } from './password-hasher';
 import { RequestIdMiddleware } from './request-id.middleware';
 import { SessionGuard } from './session.guard';
 import { AuthService } from './auth.service';
+import {
+  resolveVerificationEmailConfig,
+  resolveVerificationPepper,
+} from './verification-email.config';
 
 @Module({
   imports: [ConfigModule],
@@ -32,6 +36,10 @@ import { AuthService } from './auth.service';
           trustProxyOneHop: process.env.AUTH_TRUST_PROXY_ONE_HOP === 'true',
           environment: environment(),
           bindAddress: process.env.HOST,
+          trustedProxySocketPath:
+            process.env.NODE_ENV === 'production'
+              ? process.env.API_SOCKET_PATH
+              : undefined,
         }),
     },
     {
@@ -39,18 +47,16 @@ import { AuthService } from './auth.service';
       useFactory: async (
         repository: DatabaseService,
         passwordHasher: PasswordHasher,
-      ) =>
-        new AuthService({
+      ) => {
+        const email = resolveVerificationEmailConfig(process.env);
+        return new AuthService({
           repository,
           passwordHasher,
           dummyPasswordHash: await passwordHasher.createDummyHash(),
           clock: () => new Date(),
           sleep: (milliseconds) =>
             new Promise((resolve) => setTimeout(resolve, milliseconds)),
-          verificationPepper: secret(
-            'AUTH_VERIFICATION_PEPPER',
-            'development-verification-pepper',
-          ),
+          verificationPepper: resolveVerificationPepper(process.env),
           rateLimitPepper: secret(
             'AUTH_RATE_LIMIT_PEPPER',
             'development-rate-limit-pepper',
@@ -62,11 +68,11 @@ import { AuthService } from './auth.service';
             ),
           },
           delivery: {
-            sender: process.env.AUTH_EMAIL_SENDER ?? 'no-reply@studytube.local',
-            publicOrigin: process.env.WEB_ORIGIN ?? 'http://localhost:5173',
-            templateVersion: 'v1',
-            locale: 'en',
-            subject: 'Verify your StudyTube email',
+            sender: email.sender,
+            publicOrigin: email.publicOrigin,
+            templateVersion: 'v2',
+            locale: 'ko',
+            subject: 'StudyTube 이메일을 인증해 주세요',
           },
           rateLimit: {
             windowSeconds: integerEnvironment(
@@ -75,7 +81,8 @@ import { AuthService } from './auth.service';
             ),
             maxAttempts: integerEnvironment('AUTH_RATE_LIMIT_MAX_ATTEMPTS', 5),
           },
-        }),
+        });
+      },
       inject: [DatabaseService, PasswordHasher],
     },
     SessionGuard,

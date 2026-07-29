@@ -15,10 +15,18 @@ import type {
   RetryResult,
   WorkFailure,
   WorkSqlClient,
+  OutboxHealthSnapshot,
 } from './work.types';
+import {
+  observabilityRuntime,
+  type ObservabilityRuntime,
+} from '../observability/runtime';
 
 export class PostgresWorkRepository implements WorkRepository {
-  constructor(private readonly pool: Pool) {}
+  constructor(
+    private readonly pool: Pool,
+    private readonly observability: ObservabilityRuntime = observabilityRuntime,
+  ) {}
 
   async appendOutboxEvent(
     event: AppendOutboxEvent,
@@ -34,16 +42,18 @@ export class PostgresWorkRepository implements WorkRepository {
           aggregate_version,
           payload_schema_version,
           payload,
+          trace_context,
           occurred_at,
           available_at,
           max_attempts
         )
         VALUES (
-          $1, $2, $3, $4, $5, $6, $7,
-          COALESCE($8, statement_timestamp()),
+          $1, $2, $3, $4, $5, $6, $7, $8,
           COALESCE($9, statement_timestamp()),
-          $10
+          COALESCE($10, statement_timestamp()),
+          $11
         )
+        ON CONFLICT (id) DO NOTHING
       `,
       [
         event.id,
@@ -53,6 +63,7 @@ export class PostgresWorkRepository implements WorkRepository {
         event.aggregateVersion,
         event.payloadSchemaVersion,
         event.payload,
+        event.traceContext ?? this.currentTraceContext(event.id),
         event.occurredAt ?? null,
         event.availableAt ?? null,
         event.maxAttempts ?? 8,
@@ -98,6 +109,7 @@ export class PostgresWorkRepository implements WorkRepository {
           event.aggregate_version AS "aggregateVersion",
           event.payload_schema_version AS "payloadSchemaVersion",
           event.payload,
+          event.trace_context AS "traceContext",
           event.occurred_at AS "occurredAt",
           event.attempt_count AS "attemptCount",
           event.max_attempts AS "maxAttempts",
@@ -295,6 +307,7 @@ export class PostgresWorkRepository implements WorkRepository {
             event.aggregate_version,
             event.payload_schema_version,
             event.payload,
+            event.trace_context,
             event.max_attempts
           FROM work_dead_letters AS dead_letter
           JOIN work_outbox_events AS event ON event.id = dead_letter.event_id
@@ -310,6 +323,7 @@ export class PostgresWorkRepository implements WorkRepository {
             aggregate_version,
             payload_schema_version,
             payload,
+            trace_context,
             max_attempts
           )
           SELECT
@@ -320,6 +334,7 @@ export class PostgresWorkRepository implements WorkRepository {
             aggregate_version,
             payload_schema_version,
             payload || jsonb_build_object('replayOf', original_event_id),
+            trace_context,
             max_attempts
           FROM locked
           RETURNING id
@@ -355,5 +370,37 @@ export class PostgresWorkRepository implements WorkRepository {
 
   private safeFailureMessage(message: string): string {
     return message.replace(/\s+/g, ' ').trim().slice(0, 1000);
+  }
+
+  async readOutboxHealthSnapshot(): Promise<OutboxHealthSnapshot> {
+    const result = await this.pool.query<{
+      pending: number | string;
+      oldestAgeSeconds: number | string;
+    }>(`
+      SELECT count(*)::integer AS pending,
+             COALESCE(
+               EXTRACT(EPOCH FROM (
+                 statement_timestamp() - min(occurred_at)
+               )),
+               0
+             ) AS "oldestAgeSeconds"
+      FROM work_outbox_events
+      WHERE published_at IS NULL AND terminal_at IS NULL
+    `);
+    return {
+      pending: Number(result.rows[0]?.pending ?? 0),
+      oldestAgeSeconds: Math.max(
+        0,
+        Number(result.rows[0]?.oldestAgeSeconds ?? 0),
+      ),
+    };
+  }
+
+  private currentTraceContext(eventId: string): Record<string, string> {
+    try {
+      return this.observability.traces.injectJob(eventId);
+    } catch {
+      return { 'x-studytube-job-id': eventId };
+    }
   }
 }

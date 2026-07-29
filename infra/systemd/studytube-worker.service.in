@@ -13,7 +13,7 @@ Group=@APP_GROUP@
 WorkingDirectory=@APP_DIR@
 EnvironmentFile=-@APP_DIR@/.env
 EnvironmentFile=-@APP_DIR@/api/.env
-ExecStart=/usr/bin/env NODE_ENV=production COURSE_CUTOVER_MODE=@COURSE_CUTOVER_MODE@ @NODE_BIN@ api/dist/worker.js
+ExecStart=/usr/bin/env NODE_ENV=production COURSE_CUTOVER_MODE=@COURSE_CUTOVER_MODE@ @NODE_BIN@ api/dist/src/worker.js
 Restart=on-failure
 RestartSec=3
 TimeoutStopSec=60

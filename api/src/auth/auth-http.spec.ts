@@ -54,6 +54,7 @@ describe('authentication HTTP boundary', () => {
     listPublicPosts: jest.fn(),
     createPost,
   };
+  const recommend = jest.fn();
 
   beforeAll(async () => {
     const module = await Test.createTestingModule({
@@ -78,7 +79,7 @@ describe('authentication HTTP boundary', () => {
         },
         {
           provide: AiProxyService,
-          useValue: { recommend: jest.fn() },
+          useValue: { recommend },
         },
         {
           provide: AuthCookiePolicy,
@@ -325,6 +326,22 @@ describe('authentication HTTP boundary', () => {
       expect.objectContaining({ title: 'Auth boundaries' }),
     );
     expect(Object.isFrozen(createPost.mock.calls[0][0])).toBe(true);
+  });
+
+  it('derives retrieval ownership from the cookie principal', async () => {
+    recommend.mockResolvedValue({ mode: 'hybrid', sources: [] });
+
+    await request(app.getHttpServer())
+      .post('/ai/rag/recommend')
+      .set('Origin', WEB_ORIGIN)
+      .set('Cookie', `studytube_session=${SESSION_TOKEN}`)
+      .send({ query: 'private learning notes', ownerId: 999 })
+      .expect(201);
+
+    expect(recommend).toHaveBeenCalledWith(
+      { query: 'private learning notes', ownerId: 999 },
+      user.id,
+    );
   });
 
   it('exposes registration readiness only through the enrollment cookie', async () => {

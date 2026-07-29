@@ -1,6 +1,6 @@
 # StudyTube API
 
-StudyTube의 포트폴리오 핵심인 NestJS 백엔드다. PostgreSQL을 authoritative store로 사용하고, Course aggregate의 순서, 생명주기, 동시성, migration cutover를 애플리케이션과 데이터베이스 경계에서 함께 보장한다.
+StudyTube의 핵심 NestJS 백엔드다. PostgreSQL을 authoritative store로 사용하고, Course aggregate의 순서, 생명주기, 동시성, migration cutover를 애플리케이션과 데이터베이스 경계에서 함께 보장한다.
 
 ## 핵심 설계
 
@@ -93,4 +93,4 @@ freeze에서 같은 명령을 실행하면 backfill이 exclusive advisory lock�
 
 ## 범위
 
-이 API는 백엔드 포트폴리오의 핵심 증적에 집중한다. Terraform, Kubernetes, cloud provisioning은 포함하지 않는다. 인프라 역량은 PostgreSQL migration, CI의 실제 데이터베이스 검증, SHA 고정 배포, readiness gate, 안전한 cutover runbook으로 보여 준다.
+이 API는 백엔드 동작의 핵심 검증 근거에 집중한다. Terraform, Kubernetes, cloud provisioning은 포함하지 않는다. 인프라 역량은 PostgreSQL migration, CI의 실제 데이터베이스 검증, SHA 고정 배포, readiness gate, 안전한 cutover runbook으로 보여 준다.

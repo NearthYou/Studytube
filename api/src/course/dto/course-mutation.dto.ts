@@ -1,4 +1,5 @@
 import { Type } from 'class-transformer';
+import { ApiHideProperty } from '@nestjs/swagger';
 import {
   ArrayMaxSize,
   IsArray,
@@ -49,6 +50,7 @@ export class UpdateCourseDto extends CourseVersionDto {
   description?: string;
 
   @Validate(CourseMetadataPatchConstraint)
+  @ApiHideProperty()
   private readonly metadataPatch?: never;
 }
 

@@ -1,7 +1,14 @@
 import { HttpService } from '@nestjs/axios';
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { firstValueFrom } from 'rxjs';
+import { DatabaseService } from './database.service';
+import type { EmbeddingResponse } from './retrieval/retrieval.types';
+import {
+  injectTraceContext,
+  observabilityRuntime,
+  type ObservabilityRuntime,
+} from './observability';
 
 @Injectable()
 export class AiProxyService {
@@ -10,6 +17,9 @@ export class AiProxyService {
   constructor(
     private readonly configService: ConfigService,
     private readonly httpService: HttpService,
+    @Optional() private readonly databaseService?: DatabaseService,
+    @Optional()
+    private readonly observability: ObservabilityRuntime = observabilityRuntime,
   ) {
     this.aiServiceUrl =
       this.configService.get<string>('AI_SERVICE_URL') ??
@@ -24,17 +34,136 @@ export class AiProxyService {
     });
   }
 
-  recommend(body: unknown): Promise<unknown> {
-    return this.post('/rag/recommend', body, {
-      mode: 'ai-service-unavailable',
-      answer: 'AI service is offline, so RAG recommendations are unavailable.',
-      relatedPosts: [],
-    });
+  async recommend(body: unknown, ownerId?: number): Promise<unknown> {
+    const input = body && typeof body === 'object' ? body : {};
+    const query =
+      'query' in input && typeof input.query === 'string'
+        ? input.query.trim().slice(0, 500)
+        : '';
+    const requestedLimit =
+      'limit' in input && Number.isFinite(Number(input.limit))
+        ? Math.trunc(Number(input.limit))
+        : 3;
+    const limit = Math.max(1, Math.min(requestedLimit, 10));
+    if (!query || !ownerId || !this.databaseService) {
+      return {
+        mode: 'hybrid-unavailable',
+        query,
+        answer: 'Hybrid retrieval requires an authenticated user and query.',
+        relatedPosts: [],
+        sources: [],
+      };
+    }
+
+    let embedded: EmbeddingResponse;
+    try {
+      embedded = await this.embedding({ input: query });
+    } catch (error) {
+      if (!(error instanceof AiEmbeddingUnavailableError)) {
+        throw error;
+      }
+      return {
+        mode: 'embedding-unavailable',
+        query,
+        answer: 'Semantic retrieval is temporarily unavailable.',
+        relatedPosts: [],
+        sources: [],
+        embedding: {
+          provider: 'unavailable',
+          dimensions: 1536,
+        },
+      };
+    }
+    const sources = await this.databaseService
+      .getRetrievalRepository()
+      .hybridSearch({
+        ownerId,
+        query,
+        model: embedded.model,
+        embedding: embedded.embedding,
+        limit,
+      });
+    const relatedPosts = sources
+      .filter((source) => source.sourceKind === 'post')
+      .map((source) => ({
+        id: Number(source.sourceId),
+        title: source.title,
+        summary:
+          typeof source.content === 'string'
+            ? source.content.slice(0, 500)
+            : '',
+        videoUrl: source.citation.sourceUrl,
+        score: source.score,
+        citation: source.citation,
+      }));
+    return {
+      mode: 'hybrid',
+      query,
+      answer:
+        sources.length > 0
+          ? `Found ${sources.length} cited learning sources.`
+          : 'No sufficiently grounded sources were found.',
+      relatedPosts,
+      sources,
+      embedding: {
+        provider: embedded.model,
+        dimensions: embedded.dimensions,
+      },
+      retrieval: {
+        lexical: 'pg_trgm',
+        semantic: 'pgvector-cosine',
+        fusion: 'rrf-k60',
+      },
+      usage: {
+        model: embedded.model,
+        totalTokens: embedded.inputTokens ?? 0,
+        estimatedCostUsd: embedded.estimatedCostUsd ?? 0,
+      },
+    };
+  }
+
+  async embedding(input: { input: string }): Promise<EmbeddingResponse> {
+    const startedAt = performance.now();
+    let data: unknown;
+    try {
+      data = await this.postStrict(
+        '/embeddings',
+        input,
+        Number(this.configService.get<string>('AI_EMBEDDING_TIMEOUT_MS')) ||
+          15_000,
+      );
+    } catch {
+      this.recordAiRequest(
+        'embedding',
+        'text-embedding-3-small',
+        'failed',
+        startedAt,
+      );
+      throw new AiEmbeddingUnavailableError();
+    }
+    if (!isEmbeddingResponse(data)) {
+      this.recordAiRequest(
+        'embedding',
+        'text-embedding-3-small',
+        'failed',
+        startedAt,
+      );
+      throw new AiEmbeddingUnavailableError();
+    }
+    this.recordAiRequest(
+      'embedding',
+      data.model,
+      'succeeded',
+      startedAt,
+      data.inputTokens,
+      data.estimatedCostUsd,
+    );
+    return data;
   }
 
   lookupYoutube(body: unknown): Promise<unknown> {
     return this.post(
-      '/mcp',
+      '/youtube/lookup',
       {
         jsonrpc: '2.0',
         id: 'nest-proxy',
@@ -93,6 +222,30 @@ export class AiProxyService {
     );
   }
 
+  async generateQuiz(body: unknown): Promise<unknown> {
+    const startedAt = performance.now();
+    try {
+      const data = await this.postStrict(
+        '/quiz/generate',
+        body,
+        Number(this.configService.get<string>('AI_QUIZ_TIMEOUT_MS')) || 120_000,
+      );
+      const usage = aiUsage(data);
+      this.recordAiRequest(
+        'quiz_generation',
+        usage.model,
+        'succeeded',
+        startedAt,
+        usage.tokens,
+        usage.costUsd,
+      );
+      return data;
+    } catch (error) {
+      this.recordAiRequest('quiz_generation', 'unknown', 'failed', startedAt);
+      throw error;
+    }
+  }
+
   private async get(path: string, fallback: unknown): Promise<unknown> {
     try {
       const response = await firstValueFrom(
@@ -115,6 +268,7 @@ export class AiProxyService {
     fallback: unknown,
     timeout = 7000,
   ): Promise<unknown> {
+    const startedAt = performance.now();
     try {
       const response = await firstValueFrom(
         this.httpService.post<unknown>(`${this.aiServiceUrl}${path}`, body, {
@@ -123,17 +277,66 @@ export class AiProxyService {
         }),
       );
       const data: unknown = response.data;
+      const usage = aiUsage(data);
+      this.recordAiRequest(
+        path,
+        usage.model,
+        'succeeded',
+        startedAt,
+        usage.tokens,
+        usage.costUsd,
+      );
 
       return data;
     } catch {
+      this.recordAiRequest(path, 'unknown', 'failed', startedAt);
       return fallback;
     }
   }
 
+  private async postStrict(
+    path: string,
+    body: unknown,
+    timeout: number,
+  ): Promise<unknown> {
+    const response = await firstValueFrom(
+      this.httpService.post<unknown>(`${this.aiServiceUrl}${path}`, body, {
+        headers: this.internalHeaders(),
+        timeout,
+      }),
+    );
+    return response.data;
+  }
+
   private internalHeaders() {
     const apiKey = this.configService.get<string>('INTERNAL_AI_API_KEY');
+    const headers: Record<string, string> = {};
+    if (apiKey) {
+      headers['X-INTERNAL-API-KEY'] = apiKey;
+    }
+    const trace = this.observability.traces.current();
+    if (trace) {
+      injectTraceContext(trace, headers);
+    }
+    return Object.keys(headers).length > 0 ? headers : undefined;
+  }
 
-    return apiKey ? { 'X-INTERNAL-API-KEY': apiKey } : undefined;
+  private recordAiRequest(
+    operation: string,
+    model: string,
+    outcome: 'succeeded' | 'failed',
+    startedAt: number,
+    tokens = 0,
+    costUsd = 0,
+  ): void {
+    this.observability.metrics.aiRequest(
+      operation,
+      model,
+      outcome,
+      performance.now() - startedAt,
+      nonNegativeFinite(tokens),
+      nonNegativeFinite(costUsd),
+    );
   }
 
   private captionFallback(body: unknown) {
@@ -186,4 +389,52 @@ export class AiProxyService {
         'FastAPI summary service did not respond before the proxy timeout.',
     };
   }
+}
+
+export class AiEmbeddingUnavailableError extends Error {
+  constructor() {
+    super('Embedding provider is unavailable');
+  }
+}
+
+function isEmbeddingResponse(value: unknown): value is EmbeddingResponse {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const candidate = value as Partial<EmbeddingResponse>;
+  return (
+    candidate.model === 'text-embedding-3-small' &&
+    candidate.dimensions === 1536 &&
+    Array.isArray(candidate.embedding) &&
+    candidate.embedding.length === 1536 &&
+    candidate.embedding.every(
+      (dimension) =>
+        typeof dimension === 'number' && Number.isFinite(dimension),
+    )
+  );
+}
+
+function aiUsage(value: unknown): {
+  model: string;
+  tokens: number;
+  costUsd: number;
+} {
+  if (!value || typeof value !== 'object') {
+    return { model: 'unknown', tokens: 0, costUsd: 0 };
+  }
+  const row = value as Record<string, unknown>;
+  const usage =
+    row.usage && typeof row.usage === 'object'
+      ? (row.usage as Record<string, unknown>)
+      : row;
+  return {
+    model: typeof row.model === 'string' ? row.model.slice(0, 128) : 'unknown',
+    tokens: nonNegativeFinite(usage.totalTokens ?? usage.inputTokens),
+    costUsd: nonNegativeFinite(usage.estimatedCostUsd ?? row.estimatedCostUsd),
+  };
+}
+
+function nonNegativeFinite(value: unknown): number {
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
 }

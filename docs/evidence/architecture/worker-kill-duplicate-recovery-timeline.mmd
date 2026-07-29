@@ -1,0 +1,46 @@
+sequenceDiagram
+  autonumber
+  participant PG as PostgreSQL
+  participant RelayA as Relay A
+  participant RelayB as Relay B
+  participant Queue as BullMQ on Valkey
+  participant WorkerA as Worker process A
+  participant Systemd as systemd
+  participant WorkerB as Worker process B
+  participant Handler as Durable handler
+
+  PG->>RelayA: Claim unpublished event with lease token
+  RelayA->>Queue: Add deterministic jobId
+  Queue-->>RelayA: Job accepted
+  Note over RelayA,PG: Crash window: relay dies before outbox acknowledgement
+  RelayA--xPG: No acknowledgement
+  PG->>PG: Lease expires and event becomes claimable
+  PG->>RelayB: Claim the same event with a new lease token
+  RelayB->>Queue: Add the same deterministic jobId
+  Queue-->>RelayB: Converge on one retained job
+  RelayB->>PG: Acknowledge with the current lease token
+
+  Queue->>WorkerA: Deliver eventId and handlerVersion
+  WorkerA->>Handler: Look up persisted job result
+  Handler->>PG: SELECT result by eventId and handlerVersion
+  Systemd-xWorkerA: SIGKILL main process
+  Queue->>Queue: Active lock expires or the job is retried
+  Systemd->>WorkerB: Restart service with a different process ID
+  Queue->>WorkerB: Deliver the same logical job again
+  WorkerB->>Handler: Handle duplicate delivery
+  Handler->>PG: Look up persisted job result
+
+  alt Result was committed before the kill
+    PG-->>Handler: Existing succeeded or terminal result
+    Handler-->>WorkerB: Return it without repeating the side effect
+  else No result was committed before the kill
+    PG-->>Handler: No result
+    Handler->>Handler: Retry under the handler's duplicate-safety contract
+    Handler->>PG: INSERT result with unique eventId and handlerVersion
+    PG-->>Handler: One canonical result wins
+  end
+
+  WorkerB-->>Systemd: Active after restart
+  Systemd->>PG: Verify result-key uniqueness
+  Note over Systemd,PG: This proves at-least-once convergence, not exactly-once external side effects
+  Note over PG,Handler: The separate PostgreSQL-polled verification email path does not use BullMQ.<br/>A provider accepted-before-ack retry may resend the same expiring single-use token<br/>with the same non-secret correlation tag

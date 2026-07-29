@@ -31,6 +31,7 @@ import { WORK_REPOSITORY, type WorkRepository } from './work.repository';
         const logger = new Logger(OutboxRelayService.name);
         return new OutboxRelayService(repository, queue, {
           pollIntervalMs: resolveOutboxPollInterval(config),
+          publishTimeoutMs: resolveOutboxPublishTimeout(config),
           onError: (error) =>
             logger.error(
               error instanceof Error
@@ -60,6 +61,13 @@ export function resolveValkeyUrl(config: ConfigService): string {
 export function resolveOutboxPollInterval(config: ConfigService): number {
   const value = Number(config.get<string>('OUTBOX_POLL_INTERVAL_MS'));
   return Number.isInteger(value) && value > 0 ? value : 1000;
+}
+
+export function resolveOutboxPublishTimeout(config: ConfigService): number {
+  const value = Number(config.get<string>('OUTBOX_PUBLISH_TIMEOUT_MS'));
+  return Number.isInteger(value) && value > 0 && value < 30_000
+    ? value
+    : 20_000;
 }
 
 function safeMessage(message: string): string {

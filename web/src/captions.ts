@@ -260,7 +260,7 @@ export function captionStatusText({
 
   if (isCaptionLoading) {
     return shouldUseNativeCaptionFallback
-      ? 'YouTube 기본 자막 사용 중 · AI 번역 자막 생성 중'
+      ? 'YouTube 기본 자막 사용 중 / AI 번역 자막 생성 중'
       : 'AI 번역 자막 생성 중';
   }
 
@@ -271,12 +271,12 @@ export function captionStatusText({
     });
 
     if (hasLiveCaptionResponse) {
-      return `AI 번역 자막 · ${captionResponse.sourceLanguage} → ${captionResponse.language}`;
+      return `AI 번역 자막 / ${captionResponse.sourceLanguage} → ${captionResponse.language}`;
     }
 
     if (sourceTranslationPending) {
       return shouldUseNativeCaptionFallback
-        ? 'YouTube 기본 자막 사용 중 · AI 번역 자막 생성 중'
+        ? 'YouTube 기본 자막 사용 중 / AI 번역 자막 생성 중'
         : 'AI 번역 자막 생성 중';
     }
 
@@ -286,7 +286,7 @@ export function captionStatusText({
         captionResponse.provider,
       )
     ) {
-      return `YouTube 기본 자막 사용 중 · ${captionResponse.sourceLanguage} 원문`;
+      return `YouTube 기본 자막 사용 중 / ${captionResponse.sourceLanguage} 원문`;
     }
 
     if (shouldUseNativeCaptionFallback) {
@@ -303,7 +303,7 @@ export function captionStatusText({
   return (
     captionError ||
     (shouldUseNativeCaptionFallback
-      ? 'YouTube 기본 자막 사용 중 · AI 번역 자막 불러오는 중'
+      ? 'YouTube 기본 자막 사용 중 / AI 번역 자막 불러오는 중'
       : '실시간 번역 자막 불러오는 중')
   );
 }

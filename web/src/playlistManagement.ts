@@ -29,7 +29,7 @@ export function buildPlaylistAddTargets({
       id: playlistDraftTargetId(draft.id),
       kind: 'draft' as const,
       title: draft.title.trim() || '이름 없는 내 플레이리스트',
-      description: `${draft.videos.length}개 영상 · 비공개 · 공개 안 함`,
+      description: `${draft.videos.length}개 영상 / 비공개 / 공개 안 함`,
       draftId: draft.id,
     }));
 }

@@ -1,0 +1,24 @@
+flowchart TB
+  Expand["Expand schema additively<br/>courses, steps, feedback, audit checkpoints"]
+  Legacy["legacy mode<br/>legacy writers only<br/>shared advisory transaction lease"]
+  Initial["Initial backfill<br/>lock one playlist and transform one aggregate per transaction"]
+  Compare{"Current source and target<br/>fingerprints match the audit?"}
+  Skip["Skip an already verified aggregate"]
+  Rebuild["Rebuild Course snapshots<br/>preserve IDs, owner, order, feedback, timestamps"]
+  Audit["Write source and target fingerprints<br/>plus ordering strategy"]
+  Verify["Exact shadow verifier<br/>root counts, ordered snapshots, feedback, sequences"]
+  Stop["Stop before native Course activation"]
+  Freeze["Deploy the same release in freeze mode<br/>reject every new mutation family"]
+  Drain["Acquire exclusive advisory lock<br/>wait for all admitted shared writer leases to drain"]
+  Delta["Fingerprint-aware delta backfill<br/>then final exact verification"]
+  Activate["course mode<br/>Course writers enabled<br/>legacy mutation routes retired"]
+  Contract["Contract phase<br/>legacy tables retained for audit<br/>rollback bounded to the pre-native-write window"]
+  Recovery["After activation, recovery is freeze and roll forward<br/>no automatic legacy overwrite of native edits"]
+
+  Expand --> Legacy --> Initial --> Compare
+  Compare -->|yes| Skip --> Verify
+  Compare -->|no| Rebuild --> Audit --> Verify
+  Verify -->|mismatch| Stop
+  Verify -->|match| Freeze --> Drain --> Delta
+  Delta -->|mismatch| Stop
+  Delta -->|match| Activate --> Contract --> Recovery

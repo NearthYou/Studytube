@@ -1,4 +1,5 @@
 import { Type } from 'class-transformer';
+import { ApiHideProperty } from '@nestjs/swagger';
 import {
   ArrayMaxSize,
   IsArray,
@@ -52,6 +53,7 @@ export class CourseLoopStateDto {
   end!: number;
 
   @Validate(IncreasingTimeRangeConstraint)
+  @ApiHideProperty()
   private readonly rangeInvariant?: never;
 }
 
@@ -82,6 +84,7 @@ export class CourseLearningMarkDto {
   createdAt!: string;
 
   @Validate(IncreasingTimeRangeConstraint)
+  @ApiHideProperty()
   private readonly rangeInvariant?: never;
 }
 

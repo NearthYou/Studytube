@@ -1,6 +1,10 @@
 import { UnrecoverableError, Worker } from 'bullmq';
 import { WORK_QUEUE_NAME, type WorkQueueJob } from './work.queue';
 import { WorkJobTerminalError } from './video-asset.worker';
+import {
+  observabilityRuntime,
+  type ObservabilityRuntime,
+} from '../observability/runtime';
 
 export type BullMqJob = {
   data: WorkQueueJob;
@@ -50,6 +54,7 @@ export class BullMqVideoAssetWorker {
     private readonly valkeyUrl: string,
     private readonly handler: DurableJobHandler,
     private readonly workerFactory: BullMqWorkerFactory = createWorker,
+    private readonly observability: ObservabilityRuntime = observabilityRuntime,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -69,14 +74,51 @@ export class BullMqVideoAssetWorker {
   }
 
   private async process(job: BullMqJob): Promise<unknown> {
-    try {
-      return await this.handler.handle(job.data);
-    } catch (error) {
-      if (error instanceof WorkJobTerminalError) {
-        throw new UnrecoverableError(error.message);
+    const carrier = {
+      ...job.data.telemetry,
+      'x-studytube-job-id': job.data.eventId,
+    };
+    return this.observability.traces.runJob(carrier, async () => {
+      const startedAt = performance.now();
+      this.observability.logger.info('worker_job_started', {
+        event_id: job.data.eventId,
+        event_type: job.data.eventType,
+      });
+      try {
+        const result = await this.handler.handle(job.data);
+        this.recordJobMetric(job.data, 'succeeded', startedAt);
+        return result;
+      } catch (error) {
+        const terminal = error instanceof WorkJobTerminalError;
+        this.recordJobMetric(
+          job.data,
+          terminal ? 'failed' : 'retry',
+          startedAt,
+        );
+        this.observability.logger.error('worker_job_failed', error, {
+          event_id: job.data.eventId,
+          event_type: job.data.eventType,
+          terminal,
+        });
+        if (terminal) {
+          throw new UnrecoverableError(error.message);
+        }
+        throw error;
       }
-      throw error;
-    }
+    });
+  }
+
+  private recordJobMetric(
+    job: WorkQueueJob,
+    outcome: 'succeeded' | 'failed' | 'retry',
+    startedAt: number,
+  ): void {
+    this.observability.metrics.workerJob(
+      WORK_QUEUE_NAME,
+      job.eventType,
+      outcome,
+      performance.now() - startedAt,
+    );
   }
 
   private recordExhaustedFailure(

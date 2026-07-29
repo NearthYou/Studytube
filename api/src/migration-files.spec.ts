@@ -357,6 +357,82 @@ describe('database migration files', () => {
     expect(migration).not.toMatch(/DROP TABLE\s+(users|posts|courses)/i);
   });
 
+  it('keeps one current embedding per source and model', async () => {
+    const migrationPath = join(
+      process.cwd(),
+      'migrations',
+      '1753660805000_retrieval-source-model-key.cjs',
+    );
+    expect(existsSync(migrationPath)).toBe(true);
+    if (!existsSync(migrationPath)) {
+      return;
+    }
+
+    const migration = await readFile(migrationPath, 'utf8');
+    expect(migration).toContain('UNIQUE (source_kind, source_id, model)');
+    expect(migration).toContain('retrieval source model rollback refused');
+  });
+
+  it('backfills durable retrieval work for existing posts exactly once', async () => {
+    const migrationPath = join(
+      process.cwd(),
+      'migrations',
+      '1753660806000_retrieval-backfill-events.cjs',
+    );
+    expect(existsSync(migrationPath)).toBe(true);
+    if (!existsSync(migrationPath)) {
+      return;
+    }
+
+    const migration = await readFile(migrationPath, 'utf8');
+    expect(migration).toContain("'retrieval_embedding.requested'");
+    expect(migration).toContain("'text-embedding-3-small'");
+    expect(migration).toContain('NOT EXISTS');
+    expect(migration).toContain("jsonb_build_object('postId', post.id)");
+    expect(migration).toContain('retrieval backfill rollback refused');
+  });
+
+  it('backfills current retrieval work for existing posts and Course steps exactly once', async () => {
+    const migrationPath = join(
+      process.cwd(),
+      'migrations',
+      '1753660807000_retrieval-chunks-and-source-version.cjs',
+    );
+    expect(existsSync(migrationPath)).toBe(true);
+    if (!existsSync(migrationPath)) {
+      return;
+    }
+
+    const migration = await readFile(migrationPath, 'utf8');
+    expect(migration).toContain("'course_step'");
+    expect(migration).toContain(
+      'INNER JOIN courses AS course ON course.id = step.course_id',
+    );
+    expect(migration).toContain("'courseStepId', step.id::text");
+    expect(migration).toContain("'sourceVersion', course.version::text");
+    expect(migration).toContain("event.aggregate_type = 'course_step'");
+    expect(migration).toContain("retrieval.source_kind = 'course_step'");
+  });
+
+  it('adds an ordered last-used index for bounded embedding cache retention', async () => {
+    const migrationPath = join(
+      process.cwd(),
+      'migrations',
+      '1753660810000_retrieval-embedding-cache-retention.cjs',
+    );
+    expect(existsSync(migrationPath)).toBe(true);
+    if (!existsSync(migrationPath)) {
+      return;
+    }
+
+    const migration = await readFile(migrationPath, 'utf8');
+    expect(migration).toContain('pgm.noTransaction()');
+    expect(migration).toContain('CREATE INDEX CONCURRENTLY');
+    expect(migration).toContain('retrieval_embedding_cache_last_used_at_idx');
+    expect(migration).toContain('(last_used_at, model, content_hash)');
+    expect(migration).not.toMatch(/DELETE FROM|DROP TABLE/i);
+  });
+
   it('checks in a complete legacy runtime fixture with data and sequence state', async () => {
     const fixturePath = join(
       process.cwd(),

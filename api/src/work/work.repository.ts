@@ -6,6 +6,7 @@ import type {
   ReplayDeadLetter,
   ReplayResult,
   RetryResult,
+  OutboxHealthSnapshot,
   WorkFailure,
   WorkSqlClient,
 } from './work.types';
@@ -36,6 +37,7 @@ export interface WorkRepository {
   recordJobResult(result: JobResult): Promise<boolean>;
   recordDeadLetter(input: RecordDeadLetter): Promise<boolean>;
   replayDeadLetter(command: ReplayDeadLetter): Promise<ReplayResult>;
+  readOutboxHealthSnapshot?(): Promise<OutboxHealthSnapshot>;
 }
 
 export class WorkLeaseLostError extends Error {

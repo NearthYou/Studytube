@@ -1,38 +1,29 @@
 import { resolveRuntimeListener } from './runtime-listener';
 
 describe('runtime listener', () => {
-  it('binds the production API to the configured loopback address', () => {
+  it('binds the production API to a permissioned Unix socket', () => {
     expect(
       resolveRuntimeListener({
         NODE_ENV: 'production',
-        HOST: '127.0.0.1',
-        PORT: '3100',
+        API_SOCKET_PATH: '/run/studytube/api.sock',
       }),
-    ).toEqual({ host: '127.0.0.1', port: 3100 });
+    ).toEqual({ socketPath: '/run/studytube/api.sock' });
   });
 
-  it('accepts the IPv6 loopback address in production', () => {
-    expect(
+  it.each([
+    undefined,
+    '',
+    'api.sock',
+    '/tmp/api.sock',
+    '/run/studytube/../api.sock',
+  ])('rejects an unsafe production socket path: %p', (socketPath) => {
+    expect(() =>
       resolveRuntimeListener({
         NODE_ENV: 'production',
-        HOST: '::1',
-        PORT: '3000',
+        API_SOCKET_PATH: socketPath,
       }),
-    ).toEqual({ host: '::1', port: 3000 });
+    ).toThrow(/production.*socket/i);
   });
-
-  it.each([undefined, '0.0.0.0', '192.0.2.10'])(
-    'rejects a production bind outside loopback: %p',
-    (host) => {
-      expect(() =>
-        resolveRuntimeListener({
-          NODE_ENV: 'production',
-          HOST: host,
-          PORT: '3000',
-        }),
-      ).toThrow(/production.*loopback/i);
-    },
-  );
 
   it.each(['0', '65536', '3000.5', 'not-a-number'])(
     'rejects an invalid API port: %p',

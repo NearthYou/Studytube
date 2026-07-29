@@ -1,5 +1,9 @@
 import { ConfigService } from '@nestjs/config';
-import { resolveOutboxPollInterval, resolveValkeyUrl } from './work.module';
+import {
+  resolveOutboxPollInterval,
+  resolveOutboxPublishTimeout,
+  resolveValkeyUrl,
+} from './work.module';
 
 function config(values: Record<string, string | undefined>): ConfigService {
   return {
@@ -35,5 +39,18 @@ describe('work runtime configuration', () => {
     expect(
       resolveOutboxPollInterval(config({ OUTBOX_POLL_INTERVAL_MS: '0' })),
     ).toBe(1000);
+  });
+
+  it('keeps queue publish timeout positive and below the database lease', () => {
+    expect(
+      resolveOutboxPublishTimeout(
+        config({ OUTBOX_PUBLISH_TIMEOUT_MS: '15000' }),
+      ),
+    ).toBe(15_000);
+    expect(
+      resolveOutboxPublishTimeout(
+        config({ OUTBOX_PUBLISH_TIMEOUT_MS: '30000' }),
+      ),
+    ).toBe(20_000);
   });
 });

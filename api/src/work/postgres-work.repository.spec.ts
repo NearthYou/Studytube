@@ -86,6 +86,9 @@ describe('PostgresWorkRepository', () => {
       1,
       1,
       { postId: 42, videoUrl: 'https://youtu.be/example' },
+      {
+        'x-studytube-job-id': '11111111-1111-4111-8111-111111111111',
+      },
       null,
       null,
       8,

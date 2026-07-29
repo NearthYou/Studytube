@@ -77,6 +77,7 @@ class MemoryQueue implements WorkQueuePublisher {
     { name: string; data: WorkQueueJob; options: WorkQueueOptions }
   >();
   failure: Error | null = null;
+  pending = false;
   closed = false;
 
   add(
@@ -86,6 +87,9 @@ class MemoryQueue implements WorkQueuePublisher {
   ): Promise<void> {
     if (this.failure) {
       return Promise.reject(this.failure);
+    }
+    if (this.pending) {
+      return new Promise<void>(() => undefined);
     }
     if (!this.jobs.has(options.jobId)) {
       this.jobs.set(options.jobId, { name, data, options });
@@ -125,6 +129,9 @@ describe('OutboxRelayService', () => {
           handlerVersion: 'video-asset-v1',
           payloadSchemaVersion: 1,
           payload: { postId: 42 },
+          telemetry: {
+            'x-studytube-job-id': EVENT.id,
+          },
         },
         options: {
           jobId: `${EVENT.id}-video-asset-v1`,
@@ -166,6 +173,28 @@ describe('OutboxRelayService', () => {
 
     expect(repository.acked).toBe(false);
     expect(repository.retryResult).toBe('retry_scheduled');
+  });
+
+  it('times out a stalled queue publish before its database lease expires', async () => {
+    jest.useFakeTimers();
+    try {
+      const repository = new MemoryWorkRepository();
+      const queue = new MemoryQueue();
+      queue.pending = true;
+      const relay = new OutboxRelayService(repository, queue, {
+        pollIntervalMs: 10,
+        publishTimeoutMs: 25,
+      });
+
+      const publishing = (relay as unknown as RelayContract).publishOnce();
+      await jest.advanceTimersByTimeAsync(25);
+
+      await expect(publishing).resolves.toBe(0);
+      expect(repository.acked).toBe(false);
+      expect(repository.retryResult).toBe('retry_scheduled');
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('polls on startup and closes the queue after in-flight work on shutdown', async () => {

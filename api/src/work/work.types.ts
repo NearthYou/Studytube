@@ -12,6 +12,7 @@ export type AppendOutboxEvent = {
   aggregateVersion: number;
   payloadSchemaVersion: number;
   payload: OutboxEventPayload;
+  traceContext?: Record<string, string>;
   occurredAt?: Date;
   availableAt?: Date;
   maxAttempts?: number;
@@ -29,6 +30,7 @@ export type ClaimedOutboxEvent = Required<
     | 'payload'
   >
 > & {
+  traceContext?: Record<string, string>;
   occurredAt: Date;
   attemptCount: number;
   maxAttempts: number;
@@ -71,3 +73,8 @@ export type ReplayResult = {
 };
 
 export type RetryResult = 'retry_scheduled' | 'dead_lettered';
+
+export type OutboxHealthSnapshot = {
+  pending: number;
+  oldestAgeSeconds: number;
+};

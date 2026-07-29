@@ -1,36 +1,54 @@
 {$STUDYTUBE_SITE_ADDRESS} {
-    encode zstd gzip
+	encode zstd gzip
 
-    log {
-        output stdout
-        format console
-    }
+	log {
+		output stdout
+		format console
+	}
 
-    header {
-        -Server
-        Referrer-Policy "strict-origin-when-cross-origin"
-        X-Content-Type-Options "nosniff"
-    }
+	header {
+		-Server
+		Content-Security-Policy "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; script-src 'self' https://www.youtube.com https://s.ytimg.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' https://www.youtube.com; frame-src https://www.youtube.com https://www.youtube-nocookie.com; media-src 'self' blob:; worker-src 'self' blob:; manifest-src 'self'; upgrade-insecure-requests"
+		Cross-Origin-Opener-Policy "same-origin-allow-popups"
+		Cross-Origin-Resource-Policy "same-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		X-XSS-Protection "0"
+	}
 
-    handle_path /api/* {
-        reverse_proxy 127.0.0.1:3000 {
-            transport http {
-                dial_timeout 2s
-                response_header_timeout 185s
-            }
-        }
-    }
+	@private_api path /api/health/ready /api/health/ai /api/health/db /api/internal /api/internal/* /mcp /mcp/* /.well-known/oauth-protected-resource /.well-known/oauth-protected-resource/*
+	header @private_api Cache-Control "no-store"
+	respond @private_api 404
 
-    handle {
-        root * /var/www/studytube/current
+	handle_path /api/* {
+		header Cache-Control "no-store"
+		reverse_proxy unix//run/studytube/api.sock {
+			header_up -X-Forwarded-For
+			header_up -X-Forwarded-Proto
+			header_up -X-Forwarded-Host
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+			header_up X-Forwarded-Host {host}
+			transport http {
+				dial_timeout 2s
+				response_header_timeout 185s
+			}
+		}
+	}
 
-        @assets path /assets/*
-        header @assets Cache-Control "public, max-age=31536000, immutable"
+	handle {
+		root * /var/www/studytube/current
 
-        @documents not path /assets/*
-        header @documents Cache-Control "no-store"
+		@assets path /assets/*
+		header @assets Cache-Control "public, max-age=31536000, immutable"
 
-        try_files {path} /index.html
-        file_server
-    }
+		@documents not path /assets/*
+		header @documents Cache-Control "no-store"
+
+		try_files {path} /index.html
+		file_server
+	}
 }

@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - Do not modify `docs/presentation`.
-- Do not use the Korean term `포트폴리오` in GitHub issues or README.
+- Keep GitHub issues and README focused on implementation evidence rather than promotional framing.
 - Do not claim measured performance or reliability without a committed reproducible artifact.
 - Store no plaintext session, verification, internal API, or provider token in application persistence, logs, tests, or evidence artifacts.
 - Keep browser traffic on one HTTPS origin and expose no application or database port publicly.

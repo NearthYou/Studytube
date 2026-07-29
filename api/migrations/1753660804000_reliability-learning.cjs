@@ -2,6 +2,9 @@
 
 exports.up = (pgm) => {
   pgm.sql(String.raw`
+    SET LOCAL lock_timeout = '5s';
+    SET LOCAL statement_timeout = '120s';
+
     CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
     CREATE TABLE work_outbox_events (

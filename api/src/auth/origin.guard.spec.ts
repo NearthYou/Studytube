@@ -113,6 +113,48 @@ describe('OriginGuard', () => {
     ).toThrow(UnsupportedMediaTypeException);
   });
 
+  it.each(['/internal/mcp/search', '/internal/mcp/tool-calls'])(
+    'allows a JSON service assertion request without a browser Origin on %s',
+    (path) => {
+      expect(
+        guard.canActivate(
+          contextFor({
+            method: 'POST',
+            path,
+            contentType: 'application/json',
+            contentLength: '2',
+          }),
+        ),
+      ).toBe(true);
+    },
+  );
+
+  it('keeps JSON content-type enforcement on the MCP service boundary', () => {
+    expect(() =>
+      guard.canActivate(
+        contextFor({
+          method: 'POST',
+          path: '/internal/mcp/search',
+          contentType: 'text/plain',
+          contentLength: '2',
+        }),
+      ),
+    ).toThrow(UnsupportedMediaTypeException);
+  });
+
+  it('does not broaden the Origin exception beyond the two MCP routes', () => {
+    expect(() =>
+      guard.canActivate(
+        contextFor({
+          method: 'POST',
+          path: '/internal/mcp/other',
+          contentType: 'application/json',
+          contentLength: '2',
+        }),
+      ),
+    ).toThrow(ForbiddenException);
+  });
+
   it('permits the bodyless logout content-type exception only', () => {
     expect(
       guard.canActivate(

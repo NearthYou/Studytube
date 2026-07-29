@@ -49,6 +49,13 @@ describe('EC2 deployment script', () => {
     resolve(__dirname, '../../infra/Caddyfile'),
     'utf8',
   );
+  const apiProxyBlock = caddyfile.slice(
+    caddyfile.indexOf('handle_path /api/* {'),
+    caddyfile.indexOf(
+      '\n\thandle {',
+      caddyfile.indexOf('handle_path /api/* {'),
+    ),
+  );
   const apiUnit = readFileSync(
     resolve(__dirname, '../../infra/systemd/studytube-api.service.in'),
     'utf8',
@@ -61,6 +68,16 @@ describe('EC2 deployment script', () => {
     resolve(__dirname, '../../infra/systemd/studytube-worker.service.in'),
     'utf8',
   );
+  const validProductionEnvironment = {
+    AUTH_EMAIL_AWS_REGION: 'ap-northeast-2',
+    AUTH_EMAIL_PROVIDER: 'ses',
+    AUTH_EMAIL_SENDER: 'no-reply@studytube.test',
+    AUTH_RATE_LIMIT_PEPPER: 'c'.repeat(32),
+    AUTH_VERIFICATION_PEPPER: 'b'.repeat(32),
+    INTERNAL_AI_API_KEY: 'a'.repeat(32),
+    POSTGRES_PASSWORD: 'p'.repeat(32),
+    STUDYTUBE_PUBLIC_URL: 'https://studytube.test',
+  };
 
   it('prepares the verified release and database before stopping managed services', () => {
     const immutableCheckout = script.indexOf(
@@ -71,9 +88,8 @@ describe('EC2 deployment script', () => {
     );
     const webBuild = script.indexOf('npm --prefix web run build');
     const apiBuild = script.indexOf('npm --prefix api run build');
-    const aiInstall = script.indexOf(
-      'ai/.venv/bin/python -m pip install -r ai/requirements.txt',
-    );
+    const aiInstall = script.indexOf('ai/.venv/bin/python -m pip install');
+    const aiInstallBlock = script.slice(aiInstall, aiInstall + 240);
     const postgresStart = script.indexOf(
       'docker compose -f infra/production.compose.yml up -d --wait postgres',
     );
@@ -84,7 +100,9 @@ describe('EC2 deployment script', () => {
     const processStart = script.indexOf(
       'systemctl restart studytube-ai.service studytube-api.service',
     );
-    const authGuards = [...script.matchAll(/^require_auth_cutover_backup$/gm)];
+    const migrationGuards = [
+      ...script.matchAll(/^require_irreversible_migration_backup$/gm),
+    ];
     const staleDeploymentGuard = script.indexOf(
       'if [ "$fetched_sha" != "$deploy_sha" ]',
     );
@@ -94,20 +112,22 @@ describe('EC2 deployment script', () => {
     expect(cleanCheckout).toBeGreaterThan(immutableCheckout);
     expect(webBuild).toBeGreaterThan(immutableCheckout);
     expect(apiBuild).toBeGreaterThan(immutableCheckout);
+    expect(aiInstallBlock).toContain('--require-hashes');
+    expect(aiInstallBlock).toContain('-r ai/requirements.txt');
     expect(postgresStart).toBeGreaterThan(cleanCheckout);
     expect(postgresStart).toBeLessThan(webBuild);
     expect(postgresStart).toBeLessThan(apiBuild);
-    expect(authGuards).toHaveLength(2);
-    expect(authGuards[0]?.index).toBeGreaterThan(postgresStart);
-    expect(authGuards[0]?.index).toBeLessThan(webBuild);
-    expect(serviceStop).toBeGreaterThan(authGuards[0]?.index ?? -1);
+    expect(migrationGuards).toHaveLength(2);
+    expect(migrationGuards[0]?.index).toBeGreaterThan(postgresStart);
+    expect(migrationGuards[0]?.index).toBeLessThan(webBuild);
+    expect(serviceStop).toBeGreaterThan(migrationGuards[0]?.index ?? -1);
     expect(serviceStop).toBeGreaterThan(webBuild);
     expect(serviceStop).toBeGreaterThan(apiBuild);
     expect(serviceStop).toBeGreaterThan(aiInstall);
-    expect(authGuards[1]?.index).toBeGreaterThan(serviceStop);
+    expect(migrationGuards[1]?.index).toBeGreaterThan(serviceStop);
     expect(migration).toBeGreaterThan(webBuild);
     expect(migration).toBeGreaterThan(apiBuild);
-    expect(migration).toBeGreaterThan(authGuards[1]?.index ?? -1);
+    expect(migration).toBeGreaterThan(migrationGuards[1]?.index ?? -1);
     expect(processStart).toBeGreaterThan(migration);
   });
 
@@ -127,10 +147,10 @@ describe('EC2 deployment script', () => {
 
   it('gates deployment on API readiness instead of liveness', () => {
     expect(script).toContain(
-      'wait_for_url http://127.0.0.1:3000/health/ready api',
+      'wait_for_unix_url /run/studytube/api.sock http://localhost/health/ready api',
     );
     expect(script).not.toContain(
-      'wait_for_url http://127.0.0.1:3000/health api',
+      'wait_for_url http://127.0.0.1:3000/health/ready api',
     );
   });
 
@@ -156,35 +176,79 @@ describe('EC2 deployment script', () => {
     expect(productionCompose).toContain('network_mode: host');
     expect(productionCompose).not.toMatch(/(?:^|["'])3000:3000/mu);
     expect(productionCompose).not.toMatch(/(?:^|["'])8000:8000/mu);
-    expect(apiUnit).toContain('HOST=127.0.0.1 PORT=3000');
+    expect(apiUnit).toContain('API_SOCKET_PATH=/run/studytube/api.sock');
+    expect(apiUnit).toContain(
+      'NODE_ENV=production AUTH_TRUST_PROXY_ONE_HOP=true',
+    );
+    expect(apiUnit).toContain('RuntimeDirectory=studytube');
+    expect(apiUnit).not.toContain('HOST=127.0.0.1 PORT=3000');
+    expect(productionCompose).toContain('/run/studytube:/run/studytube:ro');
     expect(aiUnit).toContain('--host 127.0.0.1 --port 8000 --workers 1');
+  });
+
+  it('preserves the Caddy bind-mounted runtime directory while the API is stopped', () => {
+    expect(apiUnit).toContain('RuntimeDirectoryPreserve=yes');
   });
 
   it('runs API and AI under restartable production systemd units', () => {
     expect(apiUnit).toContain('NODE_ENV=production');
-    expect(apiUnit).toContain('api/dist/main.js');
+    expect(apiUnit).toContain('api/dist/src/main.js');
     expect(apiUnit).toContain('Restart=on-failure');
     expect(aiUnit).toContain('-m uvicorn main:app');
     expect(aiUnit).not.toContain('--reload');
     expect(aiUnit).toContain('Restart=on-failure');
   });
 
-  it('routes only the API prefix to Nest and serves an atomic web release', () => {
+  it('routes the API, denies internal MCP at the edge, and serves an atomic web release', () => {
     const caddyValidation = script.lastIndexOf(
       'docker compose -f infra/production.compose.yml run --rm --no-deps caddy',
     );
     const webPublication = script.lastIndexOf('\npublish_web_release\n');
 
     expect(caddyfile).toContain('handle_path /api/*');
-    expect(caddyfile).toContain('reverse_proxy 127.0.0.1:3000');
-    expect(caddyfile).not.toContain('8000');
+    expect(caddyfile).toContain('reverse_proxy unix//run/studytube/api.sock');
+    expect(caddyfile).toContain('/mcp /mcp/*');
+    expect(caddyfile).toContain('/.well-known/oauth-protected-resource/*');
+    expect(caddyfile).toContain('header @private_api Cache-Control "no-store"');
+    expect(caddyfile).toContain('respond @private_api 404');
+    expect(caddyfile).not.toContain('reverse_proxy 127.0.0.1:8000');
+    expect(caddyfile).not.toContain('flush_interval -1');
     expect(caddyfile).toContain('root * /var/www/studytube/current');
     expect(caddyfile).toContain('max-age=31536000, immutable');
     expect(caddyfile).toContain('Cache-Control "no-store"');
+    expect(caddyfile.match(/header Cache-Control "no-store"/gu)).toHaveLength(
+      1,
+    );
+    expect(caddyfile).toContain('header @documents Cache-Control "no-store"');
     expect(script).toContain('sudo mv -Tf -- "$temporary_link"');
     expect(script).toContain('write_deploy_success_marker');
     expect(caddyValidation).toBeGreaterThanOrEqual(0);
     expect(caddyValidation).toBeLessThan(webPublication);
+  });
+
+  it('keeps readiness private and rebuilds one trusted forwarding hop', () => {
+    expect(caddyfile).toContain('@private_api path /api/health/ready');
+    expect(caddyfile).toContain('/api/internal/*');
+    expect(caddyfile).toContain('respond @private_api 404');
+    expect(apiProxyBlock).toContain(
+      'reverse_proxy unix//run/studytube/api.sock',
+    );
+    expect(apiProxyBlock.match(/header_up -X-Forwarded-For/gu)).toHaveLength(1);
+    expect(
+      apiProxyBlock.match(/header_up X-Forwarded-For \{remote_host\}/gu),
+    ).toHaveLength(1);
+    expect(caddyfile).toContain(
+      'Strict-Transport-Security "max-age=31536000; includeSubDomains"',
+    );
+    expect(caddyfile).toContain("Content-Security-Policy \"default-src 'self'");
+    expect(caddyfile).toContain('Permissions-Policy "camera=()');
+    expect(caddyfile).toContain('X-Frame-Options "DENY"');
+    expect(script).toContain(
+      'wait_for_url "$public_base_url/api/health/live" public-api',
+    );
+    expect(script).not.toContain(
+      'wait_for_url "$public_base_url/api/health/ready" public-api',
+    );
   });
 
   it('requires one HTTPS origin for the edge and public smoke checks', () => {
@@ -231,14 +295,15 @@ source '${deployScript}'
         encoding: 'utf8',
         env: {
           ...process.env,
+          ...validProductionEnvironment,
           APP_DIR: shellPath(workspace),
           COMMAND_LOG: shellPath(commandLog),
           COURSE_CUTOVER_MODE: 'legacy',
           DATABASE_URL: 'postgresql://unused.invalid/stubbed',
           DEPLOY_SHA: '0123456789abcdef0123456789abcdef01234567',
           POSTGRES_USER: 'app',
-          POSTGRES_PASSWORD: 'app',
           POSTGRES_DB: 'app',
+          STUDYTUBE_PUBLIC_URL: 'https://studytube.example.test',
           STUDYTUBE_SITE_ADDRESS: 'http://studytube.example.test',
           WEB_ORIGIN: 'https://studytube.example.test',
         },
@@ -267,18 +332,23 @@ source '${deployScript}'
     expect(script).not.toContain('/tmp/studytube-healthcheck.out');
   });
 
-  it('runs the fetched deploy script before the workflow mutates watched source', () => {
-    expect(workflow).toContain(
-      'git show "$DEPLOY_SHA:scripts/deploy-ec2.sh" >"$deploy_script"',
+  it('deploys the exact verified artifact through short-lived AWS credentials and SSM', () => {
+    expect(workflow).toMatch(
+      /aws-actions\/configure-aws-credentials@[0-9a-f]{40} # v\d+\.\d+\.\d+/u,
     );
+    expect(workflow).not.toMatch(
+      /aws-actions\/configure-aws-credentials@v\d+/u,
+    );
+    expect(workflow).toContain('id-token: write');
+    expect(workflow).toContain('scripts/build-release-artifact.sh');
+    expect(workflow).toContain('scripts/send-ssm-deployment.sh');
     expect(workflow).toContain('DEPLOY_SHA: ${{ github.sha }}');
-    expect(workflow).toContain('if [ "$fetched_sha" != "$DEPLOY_SHA" ]');
-    expect(workflow).not.toContain('git checkout "$DEPLOY_BRANCH"');
-    expect(workflow).not.toContain(
-      'git pull --ff-only origin "$DEPLOY_BRANCH"',
-    );
+    expect(workflow).toContain('AWS_SSM_INSTANCE_ID');
+    expect(workflow).toContain('AWS_RELEASE_BUCKET');
+    expect(workflow).not.toContain('EC2_SSH_KEY');
+    expect(workflow).not.toContain('ssh-keyscan');
     expect(workflow).toContain('cancel-in-progress: false');
-    expect(workflow).toContain('timeout-minutes: 30');
+    expect(workflow).toContain('timeout-minutes: 60');
   });
 
   it('syntax-checks every production runtime script independently', () => {
@@ -318,9 +388,9 @@ source '${deployScript}'
     );
   });
 
-  it('refuses a pending irreversible auth cutover without a verified backup marker', () => {
+  it('refuses pending irreversible migrations without a matching verified backup marker', () => {
     const guardInvocations = [
-      ...script.matchAll(/^require_auth_cutover_backup$/gm),
+      ...script.matchAll(/^require_irreversible_migration_backup$/gm),
     ];
     const guard = guardInvocations[0]?.index ?? -1;
     const finalGuard = guardInvocations[1]?.index ?? -1;
@@ -329,16 +399,32 @@ source '${deployScript}'
     );
     const migration = script.indexOf('npm --prefix api run db:migrate:up');
 
-    expect(script).toContain('auth_migration="1753660802000_auth-hardening"');
-    expect(script).toContain('AUTH_CUTOVER_VERIFIED_BACKUP_MARKER');
+    expect(script).toContain('"1753660802000_auth-hardening"');
+    expect(script).toContain('"1753660805000_retrieval-source-model-key"');
+    expect(script).toContain('IRREVERSIBLE_MIGRATIONS_VERIFIED_BACKUP_MARKER');
     expect(script).toContain('backup_verified=true');
     expect(script).toContain('pgmigrations');
-    expect(script).toContain('Refusing irreversible auth migration');
+    expect(script).toContain('Refusing irreversible migration');
     expect(guardInvocations).toHaveLength(2);
     expect(guard).toBeLessThan(migration);
     expect(guard).toBeLessThan(processShutdown);
     expect(finalGuard).toBeGreaterThan(processShutdown);
     expect(finalGuard).toBeLessThan(migration);
+  });
+
+  it('records the destructive retrieval survivor count and requires zero duplicates afterward', () => {
+    const migration = script.indexOf('npm --prefix api run db:migrate:up');
+    const before = script.indexOf('retrieval_duplicate_rows_before=%s');
+    const after = script.indexOf('retrieval_duplicate_rows_after=%s');
+
+    expect(script).toContain('GROUP BY source_kind, source_id, model');
+    expect(script).toContain('HAVING count(*) > 1');
+    expect(script).toContain(
+      'Retrieval duplicate verification failed after migration',
+    );
+    expect(before).toBeGreaterThanOrEqual(0);
+    expect(before).toBeLessThan(migration);
+    expect(after).toBeGreaterThan(migration);
   });
 
   it('treats a regular marker named --help as a filename and refuses its invalid contents', () => {
@@ -395,14 +481,15 @@ source '${deployScript}'
         encoding: 'utf8',
         env: {
           ...process.env,
+          ...validProductionEnvironment,
           APP_DIR: shellPath(appDirectory),
-          AUTH_CUTOVER_VERIFIED_BACKUP_MARKER: '--help',
+          IRREVERSIBLE_MIGRATIONS_VERIFIED_BACKUP_MARKER: '--help',
           COMMAND_LOG: shellPath(commandLog),
           DATABASE_URL: 'postgresql://unused.invalid/stubbed',
           DEPLOY_SHA: '0123456789abcdef0123456789abcdef01234567',
           POSTGRES_USER: 'app',
-          POSTGRES_PASSWORD: 'app',
           POSTGRES_DB: 'app',
+          STUDYTUBE_PUBLIC_URL: 'https://studytube.example.test',
           STUDYTUBE_SITE_ADDRESS: 'studytube.example.test',
           WEB_ORIGIN: 'https://studytube.example.test',
         },
@@ -413,7 +500,7 @@ source '${deployScript}'
 
       expect(result.status).not.toBe(0);
       expect(result.stderr).toContain(
-        'Refusing irreversible auth migration: the verified backup marker does not match',
+        'Refusing irreversible migration: the verified backup marker does not match',
       );
       expect(commands).not.toContain('pkill');
       expect(commands).not.toContain('npm');
@@ -456,12 +543,22 @@ source '${deployScript}'
     );
   });
 
+  it('loads deployment values literally and rejects process-control environment names', () => {
+    expect(script).toContain('load_deployment_environment ./.env');
+    expect(script).toContain('load_deployment_environment ./api/.env');
+    expect(script).toContain('export "$key=$value"');
+    expect(script).toContain('BASH_ENV|BASHOPTS|CDPATH|ENV');
+    expect(script).toContain('NODE_OPTIONS|PYTHONHOME|PYTHONPATH');
+    expect(script).not.toContain('source ./.env');
+    expect(script).not.toContain('source ./api/.env');
+  });
+
   it('records frozen parity and requires the same release SHA before first Course activation', () => {
     const frozenStart = script.indexOf(
       'systemctl restart studytube-ai.service studytube-api.service',
     );
     const readiness = script.lastIndexOf(
-      'wait_for_url http://127.0.0.1:3000/health/ready api',
+      'wait_for_unix_url /run/studytube/api.sock http://localhost/health/ready api',
     );
     const deltaBackfill = script.indexOf(
       'npm --prefix api run db:course:backfill',
@@ -554,7 +651,7 @@ source '${deployScript}'
     expect(autoDeployScript).toContain(
       'systemctl is-active --quiet studytube-worker.service',
     );
-    expect(workerUnit).toContain('api/dist/worker.js');
+    expect(workerUnit).toContain('api/dist/src/worker.js');
     expect(workerUnit).toContain('NODE_ENV=production');
   });
 });

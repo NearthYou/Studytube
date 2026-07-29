@@ -149,8 +149,14 @@ describe('database migration files', () => {
     const lowercase = preflight.indexOf(`lower(btrim(email, ' ') COLLATE "C")`);
     const collisionCheck = preflight.indexOf('canonical_collision');
 
-    expect(preflight).toContain('invalid legacy email user IDs');
-    expect(preflight).toContain('unknown password representation user IDs');
+    expect(preflight).toContain('invalid legacy email records');
+    expect(preflight).toContain('unknown password representation records');
+    expect(preflight).toContain('AUTH_INVALID_LEGACY_EMAIL');
+    expect(preflight).toContain('AUTH_CANONICAL_EMAIL_COLLISION');
+    expect(preflight).toContain('AUTH_UNKNOWN_PASSWORD_REPRESENTATION');
+    expect(preflight).not.toContain('user IDs');
+    expect(preflight).not.toContain('collision_details');
+    expect(preflight).not.toContain('string_agg');
     expect(preflight).toContain("password_hash !~ '^[0-9a-f]{64}$'");
     expect(printableAsciiCheck).toBeGreaterThanOrEqual(0);
     expect(asciiSpaceTrim).toBeGreaterThan(printableAsciiCheck);

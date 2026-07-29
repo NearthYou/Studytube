@@ -6,23 +6,26 @@ exports.up = (pgm) => {
   pgm.sql(String.raw`
     DO $auth_preflight$
     DECLARE
-      invalid_user_ids INTEGER[];
-      collision_details TEXT;
-      unknown_password_user_ids INTEGER[];
+      invalid_email_count INTEGER;
+      collision_group_count INTEGER;
+      unknown_password_count INTEGER;
     BEGIN
-      SELECT array_agg(id ORDER BY id)
-      INTO invalid_user_ids
+      SELECT count(*)::INTEGER
+      INTO invalid_email_count
       FROM users
       WHERE email COLLATE "C" !~ '^[ -~]+$';
 
-      IF invalid_user_ids IS NOT NULL THEN
-        RAISE EXCEPTION
-          'Auth migration aborted: invalid legacy email user IDs (non-ASCII or control characters): %',
-          invalid_user_ids;
+      IF invalid_email_count > 0 THEN
+        RAISE EXCEPTION USING
+          MESSAGE = format(
+            'Auth migration aborted: invalid legacy email records: %s',
+            invalid_email_count
+          ),
+          DETAIL = 'remediation_code=AUTH_INVALID_LEGACY_EMAIL';
       END IF;
 
-      SELECT array_agg(id ORDER BY id)
-      INTO invalid_user_ids
+      SELECT count(*)::INTEGER
+      INTO invalid_email_count
       FROM users
       WHERE btrim(email, ' ') = ''
          OR /* invalid_email_grammar */
@@ -30,42 +33,46 @@ exports.up = (pgm) => {
          OR btrim(email, ' ') COLLATE "C" !~
             '^[A-Za-z0-9!#$%&''*+/=?^_{|}~-]+(\.[A-Za-z0-9!#$%&''*+/=?^_{|}~-]+)*@[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$';
 
-      IF invalid_user_ids IS NOT NULL THEN
-        RAISE EXCEPTION
-          'Auth migration aborted: invalid legacy email user IDs (after ASCII-space trim and explicit grammar validation): %',
-          invalid_user_ids;
+      IF invalid_email_count > 0 THEN
+        RAISE EXCEPTION USING
+          MESSAGE = format(
+            'Auth migration aborted: invalid legacy email records: %s',
+            invalid_email_count
+          ),
+          DETAIL = 'remediation_code=AUTH_INVALID_LEGACY_EMAIL';
       END IF;
 
-      SELECT string_agg(
-               format('%s -> user IDs %s', email_canonical, user_ids),
-               '; '
-               ORDER BY email_canonical
-             )
-      INTO collision_details
+      SELECT count(*)::INTEGER
+      INTO collision_group_count
       FROM (
-        SELECT lower(btrim(email, ' ') COLLATE "C") AS email_canonical,
-               array_agg(id ORDER BY id) AS user_ids
+        SELECT lower(btrim(email, ' ') COLLATE "C") AS email_canonical
         FROM users
         GROUP BY lower(btrim(email, ' ') COLLATE "C")
         HAVING count(*) > 1
       ) AS canonical_collision_rows; /* canonical_collision */
 
-      IF collision_details IS NOT NULL THEN
-        RAISE EXCEPTION
-          'Auth migration aborted: canonical email collisions: %',
-          collision_details;
+      IF collision_group_count > 0 THEN
+        RAISE EXCEPTION USING
+          MESSAGE = format(
+            'Auth migration aborted: canonical email collision groups: %s',
+            collision_group_count
+          ),
+          DETAIL = 'remediation_code=AUTH_CANONICAL_EMAIL_COLLISION';
       END IF;
 
-      SELECT array_agg(id ORDER BY id)
-      INTO unknown_password_user_ids
+      SELECT count(*)::INTEGER
+      INTO unknown_password_count
       FROM users
       WHERE password_hash <> 'disabled:demo-seed-login'
         AND password_hash !~ '^[0-9a-f]{64}$';
 
-      IF unknown_password_user_ids IS NOT NULL THEN
-        RAISE EXCEPTION
-          'Auth migration aborted: unknown password representation user IDs: %',
-          unknown_password_user_ids;
+      IF unknown_password_count > 0 THEN
+        RAISE EXCEPTION USING
+          MESSAGE = format(
+            'Auth migration aborted: unknown password representation records: %s',
+            unknown_password_count
+          ),
+          DETAIL = 'remediation_code=AUTH_UNKNOWN_PASSWORD_REPRESENTATION';
       END IF;
     END
     $auth_preflight$;

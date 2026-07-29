@@ -473,6 +473,7 @@ async function expectAuthMigrationFailure(
   description: string,
   prepare: () => Promise<void>,
   expected: RegExp,
+  forbidden: RegExp[] = [],
 ): Promise<void> {
   const originalRows = await readLegacyAuthRows(client);
 
@@ -489,6 +490,15 @@ async function expectAuthMigrationFailure(
     if (!(failure instanceof Error) || !expected.test(failure.message)) {
       throw new Error(
         `Expected ${description} to abort auth migration, received ${failure instanceof Error ? failure.message : 'no error'}`,
+      );
+    }
+
+    const leakedDiagnostic = forbidden.find((pattern) =>
+      pattern.test(failure.message),
+    );
+    if (leakedDiagnostic) {
+      throw new Error(
+        `${description} exposed a legacy identifier in deployment diagnostics`,
       );
     }
 
@@ -519,7 +529,8 @@ async function verifyAuthPreflightFailures(
     connectionString,
     'unknown password representation',
     () => Promise.resolve(),
-    /unknown password representation user IDs.*\{41,42\}/i,
+    /unknown password representation records: 2[\s\S]*AUTH_UNKNOWN_PASSWORD_REPRESENTATION/i,
+    [/\b41\b/, /\b42\b/, /user IDs/i],
   );
 
   await expectAuthMigrationFailure(
@@ -531,7 +542,8 @@ async function verifyAuthPreflightFailures(
         "UPDATE users SET email = 'légacy@example.test' WHERE id = 41",
       );
     },
-    /invalid legacy email user IDs.*41/i,
+    /invalid legacy email records: 1[\s\S]*AUTH_INVALID_LEGACY_EMAIL/i,
+    [/légacy@example\.test/i, /\b41\b/, /user IDs/i],
   );
 
   await expectAuthMigrationFailure(
@@ -543,7 +555,8 @@ async function verifyAuthPreflightFailures(
         'legacy\nowner@example.test',
       ]);
     },
-    /invalid legacy email user IDs.*41/i,
+    /invalid legacy email records: 1[\s\S]*AUTH_INVALID_LEGACY_EMAIL/i,
+    [/legacy\s+owner@example\.test/i, /\b41\b/, /user IDs/i],
   );
 
   await expectAuthMigrationFailure(
@@ -562,7 +575,8 @@ async function verifyAuthPreflightFailures(
         `,
       );
     },
-    /canonical email collisions.*41.*42/i,
+    /canonical email collision groups: 1[\s\S]*AUTH_CANONICAL_EMAIL_COLLISION/i,
+    [/shared@example\.test/i, /\b41\b/, /\b42\b/, /user IDs/i],
   );
 }
 

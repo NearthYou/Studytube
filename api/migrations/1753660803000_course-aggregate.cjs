@@ -16,10 +16,6 @@ exports.up = (pgm) => {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       published_at TIMESTAMPTZ,
       archived_at TIMESTAMPTZ,
-      CONSTRAINT courses_title_valid
-        CHECK (length(btrim(title)) BETWEEN 1 AND 200),
-      CONSTRAINT courses_description_valid
-        CHECK (length(description) <= 4000),
       CONSTRAINT courses_version_positive
         CHECK (version >= 1),
       CONSTRAINT courses_status_visibility_valid
@@ -70,10 +66,6 @@ exports.up = (pgm) => {
       owner_learning_state JSONB NOT NULL DEFAULT '{}'::jsonb,
       CONSTRAINT course_steps_position_positive
         CHECK (position >= 1),
-      CONSTRAINT course_steps_title_snapshot_valid
-        CHECK (length(btrim(title_snapshot)) BETWEEN 1 AND 200),
-      CONSTRAINT course_steps_video_url_snapshot_valid
-        CHECK (length(btrim(video_url_snapshot)) > 0),
       CONSTRAINT course_steps_owner_learning_state_object
         CHECK (jsonb_typeof(owner_learning_state) = 'object'),
       CONSTRAINT course_steps_course_position_key
@@ -88,9 +80,7 @@ exports.up = (pgm) => {
       body TEXT NOT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       CONSTRAINT course_feedback_rating_valid
-        CHECK (rating BETWEEN 1 AND 5),
-      CONSTRAINT course_feedback_body_valid
-        CHECK (length(btrim(body)) BETWEEN 1 AND 2000)
+        CHECK (rating BETWEEN 1 AND 5)
     );
 
     CREATE TABLE course_backfill_audits (

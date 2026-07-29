@@ -22,6 +22,8 @@
     "db:migrate:status": "node-pg-migrate up --dry-run --migrations-dir migrations",
     "db:migrate:setup-legacy-fixture": "ts-node scripts/setup-legacy-fixture.ts",
     "db:migrate:test-adoption": "ts-node scripts/verify-migration-adoption.ts",
+    "db:course:backfill": "ts-node scripts/backfill-courses.ts",
+    "db:course:verify": "ts-node scripts/verify-course-backfill.ts",
     "db:seed": "ts-node scripts/seed-demo.ts",
     "db:seed:verify": "ts-node scripts/verify-demo-seed.ts",
     "auth:benchmark-password": "ts-node scripts/benchmark-password-hash.ts",

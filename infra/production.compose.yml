@@ -11,6 +11,8 @@ services:
       POSTGRES_DB: "${POSTGRES_DB:?POSTGRES_DB is required}"
     ports:
       - "127.0.0.1:5432:5432"
+    networks:
+      - postgres_data
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -27,6 +29,8 @@ services:
     command: ["valkey-server", "--appendonly", "yes", "--appendfsync", "everysec"]
     ports:
       - "127.0.0.1:6379:6379"
+    networks:
+      - valkey_data
     volumes:
       - valkeydata:/data
     healthcheck:
@@ -39,8 +43,21 @@ services:
   caddy:
     image: caddy:2.11.4-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
     container_name: studytube-caddy
-    restart: unless-stopped
-    network_mode: host
+    restart: "no"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    networks:
+      - edge
+    group_add:
+      - "${STUDYTUBE_API_SOCKET_GID:-0}"
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
     read_only: true
     environment:
       STUDYTUBE_SITE_ADDRESS: "${STUDYTUBE_SITE_ADDRESS:?STUDYTUBE_SITE_ADDRESS is required}"
@@ -58,3 +75,11 @@ volumes:
   valkeydata:
   caddy_data:
   caddy_config:
+
+networks:
+  edge:
+    driver: bridge
+  postgres_data:
+    driver: bridge
+  valkey_data:
+    driver: bridge

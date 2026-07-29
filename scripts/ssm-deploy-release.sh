@@ -6,11 +6,24 @@ readonly DEFAULT_DEPLOY_ROOT='/opt/studytube'
 readonly DEFAULT_CONFIG_FILE='/etc/studytube/deployment.env'
 readonly DEFAULT_RETAIN_RELEASES='5'
 readonly DEFAULT_MINIMUM_FREE_BYTES='3221225472'
+readonly DEFAULT_DEPLOYMENT_GUARD_PATH='/run/studytube-deploy/resume-active'
+readonly DEPLOYMENT_GUARD_SERVICE='studytube-deploy-resume-guard.service'
+readonly DEPLOYMENT_WATCHDOG_SERVICE='studytube-deployment-watchdog.service'
+readonly DEPLOYMENT_WATCHDOG_TIMEOUT_SECONDS='8700'
+readonly COURSE_ACTIVATION_MARKER='/var/lib/studytube/course-cutover/course-activated'
+readonly -a APPLICATION_UNITS=(
+  studytube-api.service
+  studytube-ai.service
+  studytube-worker.service
+  studytube-caddy.service
+)
 readonly -a RELEASE_TRANSIENT_UNITS=(
   studytube-release-web-dependencies.service
   studytube-release-api-dependencies.service
   studytube-release-web-build.service
   studytube-release-api-build.service
+  studytube-release-web-prune.service
+  studytube-release-api-prune.service
   studytube-release-ai-venv.service
   studytube-release-ai-dependencies.service
   studytube-release-migration.service
@@ -23,6 +36,8 @@ usage() {
 Usage:
   ssm-deploy-release.sh deploy [options]
   ssm-deploy-release.sh resume [--deploy-root PATH]
+  ssm-deploy-release.sh watch-deployment --deploy-root PATH \
+    --deploy-sha SHA --lease-file PATH
   ssm-deploy-release.sh validate-config-content --config-file PATH
   ssm-deploy-release.sh verify-artifact --artifact-file PATH \
     --artifact-sha256 SHA256 --deploy-sha SHA
@@ -88,9 +103,769 @@ stop_release_transient_units() {
       systemctl kill --kill-whom=all --signal=KILL "$unit_name" >/dev/null 2>&1 || true
       systemctl stop "$unit_name" >/dev/null 2>&1 || true
     fi
-    release_transient_unit_is_quiescent "$unit_name" ||
+    release_transient_unit_is_quiescent "$unit_name" || {
       fail "release transient unit did not stop before recovery: $unit_name"
+      return 1
+    }
     systemctl reset-failed "$unit_name" >/dev/null 2>&1 || true
+  done
+}
+
+stop_deployment_watchdog() {
+  if ! release_transient_unit_is_quiescent "$DEPLOYMENT_WATCHDOG_SERVICE"; then
+    systemctl kill --kill-whom=all --signal=KILL "$DEPLOYMENT_WATCHDOG_SERVICE" \
+      >/dev/null 2>&1 || true
+    systemctl stop "$DEPLOYMENT_WATCHDOG_SERVICE" >/dev/null 2>&1 || true
+  fi
+  release_transient_unit_is_quiescent "$DEPLOYMENT_WATCHDOG_SERVICE" || {
+    fail 'deployment watchdog did not stop before recovery'
+    return 1
+  }
+  systemctl reset-failed "$DEPLOYMENT_WATCHDOG_SERVICE" >/dev/null 2>&1 || true
+  deployment_watchdog_started='false'
+}
+
+arm_deployment_guard() {
+  local guard_directory
+  guard_directory="$(dirname -- "$deployment_guard_path")"
+  install -d -o root -g root -m 0700 "$guard_directory"
+  if [[ -e "$pending_file" || -L "$pending_file" ]]; then
+    install -o root -g root -m 0600 /dev/null "$deployment_guard_path"
+    wait_for_public_edge_inspection
+    [[ -f "$pending_file" && ! -L "$pending_file" ]] || {
+      fail 'pending deployment state is not a regular file'
+      return 1
+    }
+  else
+    rm -f -- "$deployment_guard_path"
+  fi
+}
+
+wait_for_public_edge_inspection() {
+  local retry_count=0
+  until stop_public_edge; do
+    retry_count=$((retry_count + 1))
+    if ((retry_count == 1 || retry_count % 20 == 0)); then
+      printf 'ssm-deploy-release: Docker is not inspectable; interrupted recovery remains sealed (retry %s)\n' \
+        "$retry_count" >&2
+    fi
+    sleep 3
+  done
+}
+
+deployment_guard_state() {
+  if [[ ! -e "$deployment_guard_path" && ! -L "$deployment_guard_path" ]]; then
+    printf 'absent\n'
+    return 0
+  fi
+  if [[ ! -f "$deployment_guard_path" || -L "$deployment_guard_path" ]] ||
+    [[ "$(stat -c '%u' "$deployment_guard_path" 2>/dev/null)" != '0' ]]; then
+    printf 'invalid\n'
+    return 0
+  fi
+  local mode
+  mode="$(stat -c '%a' "$deployment_guard_path" 2>/dev/null)" || {
+    printf 'invalid\n'
+    return 0
+  }
+  if (( (8#$mode & 0077) != 0 )); then
+    printf 'invalid\n'
+    return 0
+  fi
+  printf 'present\n'
+}
+
+seal_deployment_guard() {
+  local guard_directory unit_name unit_state seal_status=0
+  if [[ ! -e "$pending_file" && ! -L "$pending_file" ]]; then
+    rm -f -- "$deployment_guard_path"
+    return 0
+  fi
+  guard_directory="$(dirname -- "$deployment_guard_path")"
+  install -d -o root -g root -m 0700 "$guard_directory" || seal_status=$?
+  install -o root -g root -m 0600 /dev/null "$deployment_guard_path" || seal_status=$?
+  timeout --signal=TERM --kill-after=5s 30s \
+    systemctl stop "${APPLICATION_UNITS[@]}" >/dev/null 2>&1 || true
+  stop_public_edge || seal_status=$?
+  for unit_name in "${APPLICATION_UNITS[@]}"; do
+    unit_state="$(application_unit_state "$unit_name")" || {
+      seal_status=1
+      continue
+    }
+    if [[ "$unit_state" != 'inactive' && "$unit_state" != 'failed' ]]; then
+      printf 'ssm-deploy-release: application unit did not stop after recovery failure: %s (%s)\n' \
+        "$unit_name" "$unit_state" >&2
+      seal_status=1
+    fi
+  done
+  return "$seal_status"
+}
+
+application_unit_state() {
+  local load_state load_status=0 unit_state
+  load_state="$(
+    timeout --signal=TERM --kill-after=5s 15s \
+      systemctl show "$1" --property=LoadState --value 2>/dev/null
+  )" || load_status=$?
+  if [[ "$load_state" == 'not-found' ]]; then
+    printf 'inactive\n'
+    return 0
+  fi
+  if ((load_status != 0)) || [[ "$load_state" != 'loaded' ]]; then
+    fail "could not inspect application unit load state: $1"
+    return 1
+  fi
+  unit_state="$(
+    timeout --signal=TERM --kill-after=5s 15s \
+      systemctl show "$1" --property=ActiveState --value 2>/dev/null
+  )" || {
+    fail "could not inspect application unit active state: $1"
+    return 1
+  }
+  case "$unit_state" in
+    active|activating|deactivating|inactive|failed) printf '%s\n' "$unit_state" ;;
+    *)
+      fail "application unit returned an invalid active state: $1"
+      return 1
+      ;;
+  esac
+}
+
+stop_public_edge() {
+  timeout --signal=TERM --kill-after=5s 30s \
+    systemctl stop studytube-caddy.service >/dev/null 2>&1 || true
+  local container_state
+  container_state="$(public_edge_container_state)" || return 1
+  if [[ "$container_state" == 'running' ]]; then
+    timeout --signal=TERM --kill-after=5s 20s \
+      docker stop --time 10 studytube-caddy >/dev/null || return 1
+  fi
+  container_state="$(public_edge_container_state)" || return 1
+  [[ "$container_state" == 'stopped' || "$container_state" == 'absent' ]] || {
+    fail 'public edge remained active after deployment was sealed'
+    return 1
+  }
+}
+
+public_edge_container_state() {
+  local inspect_output inspect_status=0
+  inspect_output="$(
+    timeout --signal=TERM --kill-after=5s 15s \
+      docker inspect --format '{{.State.Running}}' studytube-caddy 2>&1
+  )" || inspect_status=$?
+  if ((inspect_status != 0)); then
+    case "$inspect_output" in
+      *'No such object: studytube-caddy'*|*'No such container: studytube-caddy'*)
+        printf 'absent\n'
+        return 0
+        ;;
+    esac
+    fail 'could not verify the public edge container state'
+    return 1
+  fi
+  case "$inspect_output" in
+    true) printf 'running\n' ;;
+    false) printf 'stopped\n' ;;
+    *)
+      fail 'public edge container returned an invalid state'
+      return 1
+      ;;
+  esac
+}
+
+verify_deployment_watchdog_active() {
+  systemctl is-active --quiet "$DEPLOYMENT_WATCHDOG_SERVICE" || {
+    fail 'deployment watchdog is not active'
+    return 1
+  }
+  [[ ! -e "$deployment_watchdog_trip_path" && ! -L "$deployment_watchdog_trip_path" ]] || {
+    fail 'deployment watchdog has tripped; recovery must remain sealed'
+    return 1
+  }
+  [[ ! -e "$deployment_watchdog_cancel_path" && ! -L "$deployment_watchdog_cancel_path" ]] || {
+    fail 'deployment watchdog has cancelled this release; recovery must remain sealed'
+    return 1
+  }
+  validate_watchdog_file "$deployment_watchdog_armed_path" DEPLOYMENT_WATCHDOG_ARMED || return 1
+  local watchdog_main_pid
+  watchdog_main_pid="$(systemctl show "$DEPLOYMENT_WATCHDOG_SERVICE" \
+    --property=MainPID --value)" || return 1
+  [[ "$watchdog_main_pid" =~ ^[1-9][0-9]*$ ]] || {
+    fail 'deployment watchdog has no live main process'
+    return 1
+  }
+  if [[ "$(wc -l <"$deployment_watchdog_armed_path")" -ne 3 ]] ||
+    ! grep -Fqx -- 'STUDYTUBE_WATCHDOG_ARMED_FORMAT=1' "$deployment_watchdog_armed_path" ||
+    ! grep -Fqx -- "DEPLOY_SHA=$deploy_sha" "$deployment_watchdog_armed_path" ||
+    ! grep -Fqx -- "WATCHDOG_PID=$watchdog_main_pid" "$deployment_watchdog_armed_path"; then
+    fail 'deployment watchdog armed marker does not match its live process'
+    return 1
+  fi
+}
+
+verify_deployment_owner_lease_held() {
+  [[ "$deployment_owner_lease_held" == 'true' ]] || {
+    fail 'deployment owner lease is not held by this process tree'
+    return 1
+  }
+  local inherited_lease_target inherited_proof_target
+  inherited_lease_target="$(readlink -f -- "/proc/$$/fd/200" 2>/dev/null || true)"
+  inherited_proof_target="$(readlink -f -- "/proc/$$/fd/201" 2>/dev/null || true)"
+  [[ -n "$inherited_lease_target" &&
+      "$inherited_lease_target" == "$(readlink -f -- "$deployment_lease_file")" ]] || {
+    fail 'deployment owner lease descriptor targets an unexpected file'
+    return 1
+  }
+  if (
+    exec 198<>"$deployment_lease_file"
+    flock -n 198
+  ); then
+    fail 'deployment owner lease is not locked'
+    return 1
+  fi
+  [[ -n "$inherited_proof_target" &&
+      "$inherited_proof_target" == "$(readlink -f -- "$deployment_owner_proof_file")" ]] || {
+    fail 'deployment owner proof descriptor targets an unexpected file'
+    return 1
+  }
+  if (
+    exec 197<>"$deployment_owner_proof_file"
+    flock -n 197
+  ); then
+    fail 'deployment owner proof is not locked'
+    return 1
+  fi
+}
+
+run_controlled_watchdog_mutation() {
+  (
+    exec 199<>"$deployment_watchdog_control_path"
+    flock -w 30 199 || exit 1
+    verify_deployment_owner_lease_held || exit 1
+    verify_deployment_watchdog_active || exit 1
+    "$@"
+  )
+}
+
+release_deployment_guard() {
+  [[ -f "$deployment_watchdog_control_path" && ! -L "$deployment_watchdog_control_path" ]] || {
+    fail 'deployment watchdog control lock is invalid'
+    return 1
+  }
+  (
+    exec 199<>"$deployment_watchdog_control_path"
+    flock -w 30 199 || exit 1
+    verify_deployment_owner_lease_held || exit 1
+    verify_deployment_watchdog_active || exit 1
+    timeout --signal=TERM --kill-after=5s 30s \
+      systemctl start "$DEPLOYMENT_GUARD_SERVICE" || exit 1
+    timeout --signal=TERM --kill-after=5s 15s \
+      systemctl is-active --quiet "$DEPLOYMENT_GUARD_SERVICE" || {
+      fail 'deployment guard service is not active'
+      exit 1
+    }
+    rm -f -- "$deployment_guard_path" || exit 1
+  )
+}
+
+validate_watchdog_state_path() {
+  local path="$1"
+  local expected="$2"
+  local label="$3"
+  validate_absolute_path "$path" "$label" || return 1
+  [[ "$path" == "$expected" ]] || {
+    fail "$label does not match the immutable deployment state"
+    return 1
+  }
+}
+
+validate_watchdog_file() {
+  local path="$1"
+  local label="$2"
+  [[ -f "$path" && ! -L "$path" ]] || {
+    fail "$label must be a regular non-symlink file"
+    return 1
+  }
+  [[ "$(stat -c '%u' "$path")" == '0' ]] || {
+    fail "$label must be owned by root"
+    return 1
+  }
+  local mode
+  mode="$(stat -c '%a' "$path")" || return 1
+  (( (8#$mode & 0077) == 0 )) || {
+    fail "$label must only be accessible by root"
+    return 1
+  }
+}
+
+prepare_deployment_watchdog_interlock() {
+  local path
+  for path in \
+    "$deployment_lease_file" \
+    "$deployment_owner_proof_file" \
+    "$deployment_watchdog_control_path" \
+    "$deployment_watchdog_decision_path"; do
+    if [[ -e "$path" || -L "$path" ]]; then
+      validate_watchdog_file "$path" DEPLOYMENT_WATCHDOG_STATE || return 1
+    else
+      install -o root -g root -m 0600 /dev/null "$path" || return 1
+    fi
+  done
+
+  exec 200<>"$deployment_lease_file"
+  flock -n 200 || {
+    fail 'another deployment owner still holds the watchdog lease'
+    return 1
+  }
+  exec 201<>"$deployment_owner_proof_file"
+  flock -n 201 || {
+    fail 'another deployment owner still holds the ownership proof'
+    return 1
+  }
+  deployment_owner_lease_held='true'
+
+  (
+    exec 199<>"$deployment_watchdog_control_path"
+    flock -w 30 199 || exit 1
+    rm -f -- \
+      "$deployment_watchdog_trip_path" \
+      "$deployment_watchdog_cancel_path" \
+      "$deployment_watchdog_armed_path" || exit 1
+    sync -f "$state_dir" || exit 1
+  )
+}
+
+start_deployment_watchdog() {
+  local activation_mode="${1:-recovery}"
+  [[ "$activation_mode" == 'deploy' || "$activation_mode" == 'recovery' ]] || {
+    fail 'deployment watchdog activation mode must be deploy or recovery'
+    return 1
+  }
+  if [[ "$deployment_watchdog_started" == 'true' ]]; then
+    verify_deployment_watchdog_active
+    return
+  fi
+  [[ -f "$pending_file" && ! -L "$pending_file" ]] || {
+    fail 'deployment watchdog requires regular pending state'
+    return 1
+  }
+  [[ "$(state_value "$pending_file" DEPLOY_SHA)" == "$deploy_sha" ]] || {
+    fail 'deployment watchdog pending state belongs to another release'
+    return 1
+  }
+  case "$activation_mode" in
+    deploy)
+      [[ "$(deployment_guard_state)" == 'absent' ]] || {
+        fail 'normal deployment watchdog must start while the current release is live'
+        return 1
+      }
+      ;;
+    recovery)
+      [[ "$(deployment_guard_state)" == 'present' ]] || {
+        fail 'recovery watchdog must start while application activation is sealed'
+        return 1
+      }
+      ;;
+  esac
+
+  prepare_deployment_watchdog_interlock || return 1
+  release_transient_unit_is_quiescent "$DEPLOYMENT_WATCHDOG_SERVICE" || {
+    fail 'refusing to overlap an active deployment watchdog'
+    return 1
+  }
+  systemctl reset-failed "$DEPLOYMENT_WATCHDOG_SERVICE" >/dev/null 2>&1 || true
+
+  local installed_script="$deploy_root/deploy-tools/ssm-deploy-release.sh"
+  [[ -f "$installed_script" && ! -L "$installed_script" ]] || {
+    fail 'installed deployment watchdog runner is missing'
+    return 1
+  }
+  systemd-run \
+    --quiet \
+    --no-block \
+    --collect \
+    --service-type=exec \
+    --unit="$DEPLOYMENT_WATCHDOG_SERVICE" \
+    --uid=root \
+    --gid=root \
+    --property=NoNewPrivileges=yes \
+    --property=PrivateDevices=yes \
+    --property=PrivateTmp=yes \
+    --property=ProtectHome=yes \
+    --property=ProtectSystem=strict \
+    --property=ProtectKernelTunables=yes \
+    --property=ProtectKernelModules=yes \
+    --property=ProtectControlGroups=yes \
+    --property=RestrictAddressFamilies=AF_UNIX \
+    --property=UMask=0077 \
+    --property=RuntimeMaxSec=155min \
+    --property=TimeoutStopSec=30s \
+    --property=KillMode=control-group \
+    --property=Restart=on-failure \
+    --property=RestartSec=1s \
+    --property="ReadWritePaths=$state_dir $(dirname -- "$deployment_guard_path")" \
+    -- "$installed_script" watch-deployment \
+      --deploy-root "$deploy_root" \
+      --deploy-sha "$deploy_sha" \
+      --lease-file "$deployment_lease_file" || return 1
+
+  local attempt
+  for ((attempt = 1; attempt <= 50; attempt++)); do
+    if verify_deployment_watchdog_active >/dev/null 2>&1; then
+      deployment_watchdog_started='true'
+      return 0
+    fi
+    sleep 0.1
+  done
+  fail 'deployment watchdog did not become active'
+}
+
+arm_deployment_watchdog() {
+  local temporary_armed
+  temporary_armed="$(mktemp "$state_dir/.${deploy_sha}.watchdog-armed.XXXXXX")" || return 1
+  if ! printf '%s\n' \
+      'STUDYTUBE_WATCHDOG_ARMED_FORMAT=1' \
+      "DEPLOY_SHA=$deploy_sha" \
+      "WATCHDOG_PID=$$" >"$temporary_armed"; then
+    rm -f -- "$temporary_armed"
+    return 1
+  fi
+  chmod 0600 "$temporary_armed" || {
+    rm -f -- "$temporary_armed"
+    return 1
+  }
+  (
+    exec 199<>"$deployment_watchdog_control_path"
+    flock -w 30 199 || exit 1
+    mv -f -- "$temporary_armed" "$deployment_watchdog_armed_path" || exit 1
+  ) || {
+    rm -f -- "$temporary_armed"
+    return 1
+  }
+}
+
+mark_deployment_watchdog_cancelled() {
+  (
+    exec 202<>"$deployment_watchdog_decision_path"
+    flock -w 30 202 || exit 1
+    if [[ ! -e "$pending_file" && ! -L "$pending_file" ]]; then
+      exit 0
+    fi
+    if [[ -f "$pending_file" && ! -L "$pending_file" ]]; then
+      local pending_sha=''
+      pending_sha="$(state_value "$pending_file" DEPLOY_SHA 2>/dev/null || true)"
+      if [[ "$pending_sha" =~ ^[0-9a-f]{40}$ && "$pending_sha" != "$deploy_sha" ]]; then
+        exit 0
+      fi
+    fi
+    if [[ -e "$deployment_watchdog_cancel_path" || -L "$deployment_watchdog_cancel_path" ]]; then
+      validate_watchdog_file "$deployment_watchdog_cancel_path" \
+        DEPLOYMENT_WATCHDOG_CANCEL || exit 1
+      if [[ "$(wc -l <"$deployment_watchdog_cancel_path")" -ne 2 ]] ||
+        ! grep -Fqx -- 'STUDYTUBE_WATCHDOG_CANCEL_FORMAT=1' "$deployment_watchdog_cancel_path" ||
+        ! grep -Fqx -- "DEPLOY_SHA=$deploy_sha" "$deployment_watchdog_cancel_path"; then
+        fail 'deployment watchdog cancellation marker is invalid'
+        exit 1
+      fi
+      exit 0
+    fi
+
+    local temporary_cancel
+    temporary_cancel="$(mktemp "$state_dir/.${deploy_sha}.watchdog-cancelled.XXXXXX")" || exit 1
+    if ! printf '%s\n' \
+        'STUDYTUBE_WATCHDOG_CANCEL_FORMAT=1' \
+        "DEPLOY_SHA=$deploy_sha" >"$temporary_cancel"; then
+      rm -f -- "$temporary_cancel"
+      exit 1
+    fi
+    chmod 0600 "$temporary_cancel" || {
+      rm -f -- "$temporary_cancel"
+      exit 1
+    }
+    sync -f "$temporary_cancel" || {
+      rm -f -- "$temporary_cancel"
+      exit 1
+    }
+    if ! mv -f -- "$temporary_cancel" "$deployment_watchdog_cancel_path"; then
+      rm -f -- "$temporary_cancel"
+      exit 1
+    fi
+    sync -f "$state_dir" || exit 1
+  )
+}
+
+trip_deployment_watchdog() {
+  (
+    exec 199<>"$deployment_watchdog_control_path"
+    flock -w 30 199 || exit 1
+    if [[ ! -e "$pending_file" && ! -L "$pending_file" ]]; then
+      exit 0
+    fi
+    if [[ -f "$pending_file" && ! -L "$pending_file" ]]; then
+      local pending_sha=''
+      pending_sha="$(state_value "$pending_file" DEPLOY_SHA 2>/dev/null || true)"
+      if [[ "$pending_sha" =~ ^[0-9a-f]{40}$ && "$pending_sha" != "$deploy_sha" ]]; then
+        exit 0
+      fi
+    fi
+    if [[ -e "$deployment_watchdog_trip_path" || -L "$deployment_watchdog_trip_path" ]]; then
+      if [[ ! -f "$deployment_watchdog_trip_path" || -L "$deployment_watchdog_trip_path" ]]; then
+        rm -f -- "$deployment_watchdog_trip_path" || exit 1
+        install -o root -g root -m 0600 /dev/null "$deployment_watchdog_trip_path" || exit 1
+      else
+        validate_watchdog_file "$deployment_watchdog_trip_path" \
+          DEPLOYMENT_WATCHDOG_TRIP || exit 1
+      fi
+    else
+      install -o root -g root -m 0600 /dev/null "$deployment_watchdog_trip_path" || exit 1
+    fi
+    local trip_status=0
+    seal_deployment_guard || trip_status=$?
+    stop_public_edge || trip_status=$?
+    stop_release_transient_units || trip_status=$?
+    exit "$trip_status"
+  )
+}
+
+watch_deployment_lease() {
+  ((EUID == 0)) || {
+    fail 'deployment watchdog must run as root'
+    return 1
+  }
+  validate_sha "$deploy_sha" || return 1
+  validate_absolute_path "$deploy_root" DEPLOY_ROOT || return 1
+  state_dir="$deploy_root/deployment-state"
+  pending_file="$state_dir/pending.env"
+  deployment_lease_file="$state_dir/$deploy_sha-watchdog.lease"
+  deployment_watchdog_control_path="$state_dir/$deploy_sha-watchdog-control.lock"
+  deployment_watchdog_decision_path="$state_dir/$deploy_sha-watchdog-decision.lock"
+  deployment_watchdog_trip_path="$state_dir/$deploy_sha-watchdog-tripped"
+  deployment_watchdog_cancel_path="$state_dir/$deploy_sha-watchdog-cancelled"
+  deployment_watchdog_armed_path="$state_dir/$deploy_sha-watchdog-armed"
+  validate_watchdog_state_path "$watchdog_requested_lease_file" \
+    "$deployment_lease_file" DEPLOYMENT_WATCHDOG_LEASE || return 1
+  validate_watchdog_file "$deployment_lease_file" DEPLOYMENT_WATCHDOG_LEASE || return 1
+  validate_watchdog_file "$deployment_watchdog_control_path" \
+    DEPLOYMENT_WATCHDOG_CONTROL || return 1
+  validate_watchdog_file "$deployment_watchdog_decision_path" \
+    DEPLOYMENT_WATCHDOG_DECISION || return 1
+  require_command flock
+  require_command systemctl
+  require_command docker
+  require_command timeout
+
+  exec 200<>"$deployment_lease_file"
+  arm_deployment_watchdog || return 1
+  if [[ -e "$deployment_watchdog_trip_path" || -L "$deployment_watchdog_trip_path" ||
+        -e "$deployment_watchdog_cancel_path" || -L "$deployment_watchdog_cancel_path" ]]; then
+    trip_deployment_watchdog
+    return
+  fi
+  local lease_acquired='true'
+  if ! flock -w "$DEPLOYMENT_WATCHDOG_TIMEOUT_SECONDS" 200; then
+    lease_acquired='false'
+  fi
+
+  if [[ "$lease_acquired" == 'false' ]]; then
+    mark_deployment_watchdog_cancelled || return 1
+  fi
+
+  if [[ ! -e "$pending_file" && ! -L "$pending_file" ]]; then
+    return 0
+  fi
+  if [[ "$lease_acquired" == 'true' && -f "$pending_file" && ! -L "$pending_file" ]]; then
+    local pending_sha=''
+    pending_sha="$(state_value "$pending_file" DEPLOY_SHA 2>/dev/null || true)"
+    if [[ "$pending_sha" =~ ^[0-9a-f]{40}$ && "$pending_sha" != "$deploy_sha" ]]; then
+      printf 'Deployment watchdog %s was superseded by %s.\n' "$deploy_sha" "$pending_sha"
+      return 0
+    fi
+  fi
+
+  if [[ "$lease_acquired" == 'true' ]]; then
+    mark_deployment_watchdog_cancelled || return 1
+  fi
+
+  printf 'Deployment watchdog sealed incomplete activation for %s.\n' "$deploy_sha" >&2
+  trip_deployment_watchdog
+}
+
+verify_application_units_active() {
+  local unit_name unit_state
+  for unit_name in "${APPLICATION_UNITS[@]}"; do
+    unit_state="$(application_unit_state "$unit_name")" || return 1
+    [[ "$unit_state" == 'active' ]] || {
+      fail "recovered application unit is not active: $unit_name"
+      return 1
+    }
+  done
+  [[ "$(public_edge_container_state)" == 'running' ]] || {
+    fail 'recovered public edge container is not running'
+    return 1
+  }
+}
+
+public_edge_unit_load_state() {
+  local load_state load_status=0
+  load_state="$(
+    timeout --signal=TERM --kill-after=5s 15s \
+      systemctl show studytube-caddy.service --property=LoadState --value 2>/dev/null
+  )" || load_status=$?
+  ((load_status == 0)) || {
+    fail 'could not inspect the public edge systemd unit'
+    return 1
+  }
+  case "$load_state" in
+    loaded|not-found) printf '%s\n' "$load_state" ;;
+    *)
+      fail 'public edge systemd unit returned an invalid load state'
+      return 1
+      ;;
+  esac
+}
+
+verify_legacy_public_edge_active() {
+  [[ "$(public_edge_container_state)" == 'running' ]] || {
+    fail 'legacy public edge container is not running'
+    return 1
+  }
+  local restart_policy
+  restart_policy="$(
+    timeout --signal=TERM --kill-after=5s 15s \
+      docker inspect --format '{{.HostConfig.RestartPolicy.Name}}' studytube-caddy 2>/dev/null
+  )" || {
+    fail 'could not verify the legacy public edge restart policy'
+    return 1
+  }
+  [[ "$restart_policy" == 'unless-stopped' || "$restart_policy" == 'always' ]] || {
+    fail 'legacy public edge has no reboot-safe restart policy'
+    return 1
+  }
+}
+
+prepare_previous_release_public_edge() {
+  local load_state unit_state container_state
+  load_state="$(public_edge_unit_load_state)" || return 1
+  if [[ "$load_state" == 'not-found' ]]; then
+    verify_legacy_public_edge_active
+    return
+  fi
+
+  timeout --signal=TERM --kill-after=5s 30s \
+    systemctl enable studytube-caddy.service >/dev/null || return 1
+  unit_state="$(application_unit_state studytube-caddy.service)" || return 1
+  if [[ "$unit_state" == 'active' ]]; then
+    verify_application_units_active
+    return
+  fi
+  container_state="$(public_edge_container_state)" || return 1
+  if [[ "$container_state" == 'running' ]]; then
+    timeout --signal=TERM --kill-after=5s 20s \
+      docker stop --time 10 studytube-caddy >/dev/null || return 1
+  elif [[ "$container_state" != 'stopped' ]]; then
+    fail 'cannot adopt a missing legacy public edge container'
+    return 1
+  fi
+  timeout --signal=TERM --kill-after=5s 15s \
+    docker update --restart=no studytube-caddy >/dev/null || return 1
+  timeout --signal=TERM --kill-after=5s 15s \
+    systemctl reset-failed studytube-caddy.service >/dev/null 2>&1 || true
+  timeout --signal=TERM --kill-after=5s 30s \
+    systemctl start studytube-caddy.service || return 1
+}
+
+verify_previous_release_units_active() {
+  local unit_name unit_state load_state
+  for unit_name in \
+    studytube-api.service \
+    studytube-ai.service \
+    studytube-worker.service; do
+    unit_state="$(application_unit_state "$unit_name")" || return 1
+    [[ "$unit_state" == 'active' ]] || {
+      fail "recovered application unit is not active: $unit_name"
+      return 1
+    }
+  done
+  load_state="$(public_edge_unit_load_state)" || return 1
+  if [[ "$load_state" == 'loaded' ]]; then
+    unit_state="$(application_unit_state studytube-caddy.service)" || return 1
+    [[ "$unit_state" == 'active' ]] || {
+      fail 'recovered public edge systemd unit is not active'
+      return 1
+    }
+    [[ "$(public_edge_container_state)" == 'running' ]] || {
+      fail 'recovered public edge container is not running'
+      return 1
+    }
+    return 0
+  fi
+  verify_legacy_public_edge_active
+}
+
+deployment_config_value() {
+  local path="$1"
+  local expected_key="$2"
+  local line key value=''
+  local found='false'
+  validate_config_content "$path" || return 1
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+    key="${line%%=*}"
+    if [[ "$key" == "$expected_key" ]]; then
+      value="${line#*=}"
+      found='true'
+    fi
+  done <"$path"
+  [[ "$found" == 'true' ]] || return 1
+  printf '%s\n' "$value"
+}
+
+verify_release_public_endpoints() {
+  local snapshot_path="$1"
+  local web_origin public_origin
+  validate_config_file "$snapshot_path" || return 1
+  web_origin="$(deployment_config_value "$snapshot_path" WEB_ORIGIN)" || {
+    fail 'release snapshot has no WEB_ORIGIN for public recovery verification'
+    return 1
+  }
+  public_origin="$(deployment_config_value "$snapshot_path" STUDYTUBE_PUBLIC_URL 2>/dev/null || true)"
+  public_origin="${public_origin:-$web_origin}"
+  web_origin="${web_origin%/}"
+  public_origin="${public_origin%/}"
+  if [[ ! "$public_origin" =~ ^https://[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]{1,5})?$ ]] ||
+     [[ "$public_origin" != "$web_origin" ]]; then
+    fail 'release snapshot public origin is not a matching HTTPS origin'
+    return 1
+  fi
+
+  local curl_path timeout_path env_path
+  curl_path="$(command -v curl)" || {
+    fail 'curl is required to verify the recovered public edge'
+    return 1
+  }
+  timeout_path="$(command -v timeout)" || return 1
+  env_path="$(command -v env)" || return 1
+  local deadline endpoint label ready
+  for endpoint in /api/health/live /; do
+    deadline=$((SECONDS + 60))
+    label="${endpoint#/}"
+    label="${label:-public web root}"
+    ready='false'
+    while ((SECONDS < deadline)); do
+      if "$env_path" -i PATH=/usr/bin:/bin \
+        "$timeout_path" --signal=TERM --kill-after=2s 7s \
+        "$curl_path" --fail --silent --show-error --noproxy '*' \
+        --proto '=https' --connect-timeout 2 --max-time 5 \
+        --output /dev/null "$public_origin$endpoint" 2>/dev/null; then
+        ready='true'
+        break
+      fi
+      sleep 1
+    done
+    [[ "$ready" == 'true' ]] || {
+      fail "recovered public edge did not become ready: $label"
+      return 1
+    }
   done
 }
 
@@ -105,9 +880,15 @@ validate_digest() {
 validate_absolute_path() {
   local value="$1"
   local label="$2"
-  [[ "$value" =~ ^/[A-Za-z0-9._/-]+$ ]] || fail "$label must be a simple absolute path"
+  [[ "$value" =~ ^/[A-Za-z0-9._/-]+$ ]] || {
+    fail "$label must be a simple absolute path"
+    return 1
+  }
   [[ "$value" != '/' && "$value" != *'/../'* && "$value" != */.. && "$value" != *'//'* ]] ||
-    fail "$label is too broad or contains traversal"
+    {
+      fail "$label is too broad or contains traversal"
+      return 1
+    }
 }
 
 validate_positive_integer() {
@@ -134,12 +915,18 @@ verify_archive_members() {
   local members
   members="$(tar -tzf "$artifact_path")" || return 1
   [[ "$members" == $'manifest.env\nrepository.bundle' ]] ||
-    fail 'release artifact contains an unexpected path or member order'
+    {
+      fail 'release artifact contains an unexpected path or member order'
+      return 1
+    }
 
   local listing
   listing="$(tar -tvzf "$artifact_path")" || return 1
   while IFS= read -r entry; do
-    [[ "${entry:0:1}" == '-' ]] || fail 'release artifact members must be regular files'
+    [[ "${entry:0:1}" == '-' ]] || {
+      fail 'release artifact members must be regular files'
+      return 1
+    }
   done <<<"$listing"
 }
 
@@ -193,50 +980,76 @@ verify_artifact() {
 
 validate_config_file() {
   local path="$1"
-  [[ -f "$path" && ! -L "$path" ]] || fail 'deployment config must be a regular non-symlink file'
-  [[ "$(stat -c '%u' "$path")" == '0' ]] || fail 'deployment config must be owned by root'
+  [[ -f "$path" && ! -L "$path" ]] || {
+    fail 'deployment config must be a regular non-symlink file'
+    return 1
+  }
+  [[ "$(stat -c '%u' "$path")" == '0' ]] || {
+    fail 'deployment config must be owned by root'
+    return 1
+  }
+  [[ "$(stat -c '%g' "$path")" == '0' ]] || {
+    fail 'deployment config must use the root group'
+    return 1
+  }
 
   local mode
-  mode="$(stat -c '%a' "$path")"
-  (( (8#$mode & 0037) == 0 )) ||
-    fail 'deployment config may only be readable by root and its group'
+  mode="$(stat -c '%a' "$path")" || return 1
+  (( (8#$mode & 0077) == 0 )) ||
+    {
+      fail 'deployment config must only be accessible by root'
+      return 1
+    }
 
-  validate_config_content "$path"
+  validate_config_content "$path" || return 1
 }
 
 validate_config_content() {
   local path="$1"
-  [[ -f "$path" ]] || fail 'deployment config content must be a regular file'
+  [[ -f "$path" ]] || {
+    fail 'deployment config content must be a regular file'
+    return 1
+  }
 
   local line key value
   while IFS= read -r line || [[ -n "$line" ]]; do
     [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
     [[ "$line" != *$'\r'* ]] ||
-      fail 'deployment config must use Unix line endings'
+      {
+        fail 'deployment config must use Unix line endings'
+        return 1
+      }
     [[ "$line" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] ||
-      fail 'deployment config must contain only KEY=value entries'
+      {
+        fail 'deployment config must contain only KEY=value entries'
+        return 1
+      }
     key="${line%%=*}"
     value="${line#*=}"
     case "$key" in
-      BASH_ENV|BASHOPTS|CDPATH|ENV|GLOBIGNORE|HOME|IFS|PATH|PROMPT_COMMAND|PS4|SHELLOPTS|NODE_OPTIONS|PYTHONHOME|PYTHONPATH|PERL5OPT|RUBYOPT|LD_PRELOAD|LD_LIBRARY_PATH|NPM_CONFIG_USERCONFIG|GIT_CONFIG_COUNT|GIT_CONFIG_KEY_*|GIT_CONFIG_VALUE_*|DYLD_*)
+      BASH_ENV|BASHOPTS|CDPATH|ENV|GLOBIGNORE|HOME|IFS|PATH|PROMPT_COMMAND|PS4|SHELLOPTS|NODE_OPTIONS|PYTHONHOME|PYTHONPATH|PERL5OPT|RUBYOPT|LD_PRELOAD|LD_LIBRARY_PATH|NPM_CONFIG_USERCONFIG|GIT_CONFIG_COUNT|GIT_CONFIG_KEY_*|GIT_CONFIG_VALUE_*|DYLD_*|STUDYTUBE_DEPLOYMENT_GUARD_PATH|STUDYTUBE_DEPLOYMENT_OWNER_SHA|STUDYTUBE_SCHEMA_BARRIER_PATH|STUDYTUBE_CUTOVER_STARTED_PATH|STUDYTUBE_WATCHDOG_LEASE_PATH|STUDYTUBE_OWNER_PROOF_PATH|STUDYTUBE_WATCHDOG_CONTROL_PATH|STUDYTUBE_WATCHDOG_TRIP_PATH|STUDYTUBE_WATCHDOG_CANCEL_PATH|STUDYTUBE_WATCHDOG_ARMED_PATH|STUDYTUBE_LEGACY_COURSE_STATE_DIR|STUDYTUBE_RELEASE_EXECUTION_MODE)
         fail "deployment config contains forbidden process-control variable $key"
+        return 1
         ;;
     esac
     [[ "$value" != *"'"* && "$value" != *'"'* && "$value" != *\\* ]] ||
-      fail 'deployment config values must use portable unquoted literals'
+      {
+        fail 'deployment config values must use portable unquoted literals'
+        return 1
+      }
   done <"$path"
 }
 
 load_config_file() {
   local path="$1"
-  validate_config_content "$path"
+  validate_config_content "$path" || return 1
 
   local line key value
   while IFS= read -r line || [[ -n "$line" ]]; do
     [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
     key="${line%%=*}"
     value="${line#*=}"
-    export "$key=$value"
+    export "$key=$value" || return 1
   done <"$path"
 }
 
@@ -244,9 +1057,16 @@ atomic_symlink() {
   local target="$1"
   local link_path="$2"
   local temporary_link="${link_path}.incoming.$$"
-  rm -f -- "$temporary_link"
-  ln -s -- "$target" "$temporary_link"
-  mv -Tf -- "$temporary_link" "$link_path"
+  rm -f -- "$temporary_link" || return 1
+  if ! ln -s -- "$target" "$temporary_link"; then
+    rm -f -- "$temporary_link"
+    return 1
+  fi
+  if ! mv -Tf -- "$temporary_link" "$link_path"; then
+    rm -f -- "$temporary_link"
+    return 1
+  fi
+  sync -f "$(dirname -- "$link_path")" || return 1
 }
 
 safe_release_target() {
@@ -274,8 +1094,8 @@ link_release_config() {
     fail "refusing to replace tracked environment path $root_environment_path"
     return 1
   fi
-  rm -f -- "$root_environment_path"
-  ln -s -- "$snapshot_path" "$root_environment_path"
+  rm -f -- "$root_environment_path" || return 1
+  ln -s -- "$snapshot_path" "$root_environment_path" || return 1
 
   local legacy_environment_path
   for legacy_environment_path in \
@@ -285,7 +1105,7 @@ link_release_config() {
       fail "refusing to replace tracked environment path $legacy_environment_path"
       return 1
     fi
-    rm -f -- "$legacy_environment_path"
+    rm -f -- "$legacy_environment_path" || return 1
   done
 }
 
@@ -344,11 +1164,39 @@ download_artifact() {
   artifact_file="$cache_path"
 }
 
+persist_config_snapshot() {
+  local source_path="$1"
+  local destination_path="$2"
+  local temporary_snapshot
+  temporary_snapshot="$(mktemp "$config_snapshots_dir/.config.XXXXXX")" || return 1
+  if ! install -o root -g root -m 0600 "$source_path" "$temporary_snapshot"; then
+    rm -f -- "$temporary_snapshot"
+    return 1
+  fi
+  sync -f "$temporary_snapshot" || {
+    rm -f -- "$temporary_snapshot"
+    return 1
+  }
+  if ! mv -f -- "$temporary_snapshot" "$destination_path"; then
+    rm -f -- "$temporary_snapshot"
+    return 1
+  fi
+  sync -f "$config_snapshots_dir"
+}
+
 snapshot_config() {
   if [[ -n "$config_snapshot" ]]; then
+    if [[ ! -e "$config_snapshot" && ! -L "$config_snapshot" ]]; then
+      validate_config_file "$config_file" || return 1
+      [[ "$(sha256sum "$config_file" | awk '{print $1}')" == "$config_fingerprint" ]] ||
+        fail 'deployment config no longer matches the missing saved snapshot'
+      persist_config_snapshot "$config_file" "$config_snapshot" || return 1
+    fi
     validate_config_file "$config_snapshot"
     [[ "$(sha256sum "$config_snapshot" | awk '{print $1}')" == "$config_fingerprint" ]] ||
       fail 'saved config snapshot fingerprint does not match deployment state'
+    sync -f "$config_snapshot" || return 1
+    sync -f "$config_snapshots_dir" || return 1
     return 0
   fi
 
@@ -360,14 +1208,20 @@ snapshot_config() {
     [[ "$(sha256sum "$config_snapshot" | awk '{print $1}')" == "$config_fingerprint" ]] ||
       fail 'existing config snapshot has unexpected content'
   else
-    install -o root -g root -m 0600 "$config_file" "$config_snapshot"
+    persist_config_snapshot "$config_file" "$config_snapshot" || return 1
   fi
+  sync -f "$config_snapshot" || return 1
+  sync -f "$config_snapshots_dir" || return 1
 }
 
 write_state() {
-  local temporary_state
-  temporary_state="$(mktemp "$state_dir/.${deploy_sha}.state.XXXXXX")"
-  printf '%s\n' \
+  local temporary_state temporary_pending
+  temporary_state="$(mktemp "$state_dir/.${deploy_sha}.state.XXXXXX")" || return 1
+  temporary_pending="$(mktemp "$state_dir/.pending.XXXXXX")" || {
+    rm -f -- "$temporary_state"
+    return 1
+  }
+  if ! printf '%s\n' \
     'STUDYTUBE_DEPLOY_STATE_FORMAT=1' \
     "PHASE=$phase" \
     "DEPLOY_SHA=$deploy_sha" \
@@ -382,10 +1236,40 @@ write_state() {
     "MINIMUM_FREE_BYTES=$minimum_free_bytes" \
     "PREVIOUS_RELEASE=$previous_release" \
     "LEGACY_RUNTIME_SNAPSHOT=$legacy_runtime_snapshot" \
-    >"$temporary_state"
-  chmod 0600 "$temporary_state"
-  mv -f -- "$temporary_state" "$state_file"
-  install -o root -g root -m 0600 "$state_file" "$pending_file"
+    "COURSE_ACTIVATION_BASELINE=$course_activation_baseline" \
+    >"$temporary_state"; then
+    rm -f -- "$temporary_state" "$temporary_pending"
+    return 1
+  fi
+  chmod 0600 "$temporary_state" || {
+    rm -f -- "$temporary_state" "$temporary_pending"
+    return 1
+  }
+  if ! install -o root -g root -m 0600 "$temporary_state" "$temporary_pending"; then
+    rm -f -- "$temporary_state" "$temporary_pending"
+    return 1
+  fi
+  sync -f "$temporary_state" || {
+    rm -f -- "$temporary_state" "$temporary_pending"
+    return 1
+  }
+  sync -f "$temporary_pending" || {
+    rm -f -- "$temporary_state" "$temporary_pending"
+    return 1
+  }
+  if ! mv -f -- "$temporary_state" "$state_file"; then
+    rm -f -- "$temporary_state" "$temporary_pending"
+    return 1
+  fi
+  sync -f "$state_dir" || {
+    rm -f -- "$temporary_pending"
+    return 1
+  }
+  if ! mv -f -- "$temporary_pending" "$pending_file"; then
+    rm -f -- "$temporary_pending"
+    return 1
+  fi
+  sync -f "$state_dir" || return 1
 }
 
 load_pending_state() {
@@ -405,11 +1289,23 @@ load_pending_state() {
   minimum_free_bytes="$(state_value "$pending_file" MINIMUM_FREE_BYTES)"
   previous_release="$(state_value "$pending_file" PREVIOUS_RELEASE)"
   legacy_runtime_snapshot="$(state_value "$pending_file" LEGACY_RUNTIME_SNAPSHOT)"
+  course_activation_baseline="$(
+    state_value "$pending_file" COURSE_ACTIVATION_BASELINE 2>/dev/null || true
+  )"
 }
 
 clear_pending_state() {
-  if [[ -f "$pending_file" ]] && [[ "$(state_value "$pending_file" DEPLOY_SHA)" == "$deploy_sha" ]]; then
-    rm -f -- "$pending_file"
+  if [[ -e "$pending_file" || -L "$pending_file" ]]; then
+    [[ -f "$pending_file" && ! -L "$pending_file" ]] || {
+      fail 'pending deployment state is not a regular file'
+      return 1
+    }
+    [[ "$(state_value "$pending_file" DEPLOY_SHA)" == "$deploy_sha" ]] || {
+      fail 'refusing to clear a different pending deployment'
+      return 1
+    }
+    rm -f -- "$pending_file" || return 1
+    sync -f "$state_dir" || return 1
   fi
 }
 
@@ -423,30 +1319,83 @@ install_resume_service() {
     install -o root -g root -m 0755 "$source_script" "$installed_script"
   fi
 
-  local unit_path='/etc/systemd/system/studytube-deploy-resume.service'
-  local temporary_unit
-  temporary_unit="$(mktemp "$state_dir/.resume-unit.XXXXXX")"
+  local guard_unit_path="/etc/systemd/system/$DEPLOYMENT_GUARD_SERVICE"
+  local resume_unit_path='/etc/systemd/system/studytube-deploy-resume.service'
+  local temporary_guard_unit temporary_resume_unit temporary_dropin unit_name
+  temporary_guard_unit="$(mktemp "$state_dir/.resume-guard-unit.XXXXXX")"
+  temporary_resume_unit="$(mktemp "$state_dir/.resume-unit.XXXXXX")"
+  temporary_dropin="$(mktemp "$state_dir/.resume-dropin.XXXXXX")"
+
+  printf '%s\n' \
+    '[Unit]' \
+    'Description=Seal StudyTube application startup before interrupted recovery' \
+    'After=docker.service' \
+    'Wants=docker.service' \
+    'StartLimitIntervalSec=0' \
+    'Before=studytube-deploy-resume.service studytube-api.service studytube-ai.service studytube-worker.service studytube-caddy.service' \
+    '' \
+    '[Service]' \
+    'Type=oneshot' \
+    "ExecStart=$installed_script arm-resume-guard --deploy-root $deploy_root" \
+    'TimeoutStartSec=infinity' \
+    'RemainAfterExit=yes' \
+    'Restart=on-failure' \
+    'RestartSec=3' \
+    'RuntimeDirectory=studytube-deploy' \
+    'RuntimeDirectoryMode=0700' \
+    'RuntimeDirectoryPreserve=yes' \
+    'UMask=0077' \
+    'NoNewPrivileges=true' \
+    'PrivateTmp=true' \
+    'ProtectSystem=strict' \
+    'RestrictAddressFamilies=AF_UNIX' \
+    'ReadWritePaths=/run/studytube-deploy' \
+    '' \
+    '[Install]' \
+    'WantedBy=multi-user.target' \
+    >"$temporary_guard_unit"
+
   printf '%s\n' \
     '[Unit]' \
     'Description=Resume or roll back an interrupted StudyTube deployment' \
-    'After=network-online.target docker.service' \
-    'Before=studytube-api.service studytube-ai.service studytube-worker.service' \
-    'Wants=network-online.target' \
+    "After=network-online.target docker.service $DEPLOYMENT_GUARD_SERVICE" \
+    "Requires=$DEPLOYMENT_GUARD_SERVICE" \
+    'Wants=network-online.target docker.service' \
+    'StartLimitIntervalSec=0' \
     "ConditionPathExists=$pending_file" \
     '' \
     '[Service]' \
     'Type=oneshot' \
     "ExecStart=$installed_script resume --deploy-root $deploy_root" \
-    'TimeoutStartSec=45min' \
+    "ExecStopPost=$installed_script seal-resume-guard --deploy-root $deploy_root" \
+    'Restart=on-failure' \
+    'RestartSec=10' \
+    'TimeoutStartSec=160min' \
+    'TimeoutStopSec=2min' \
     'UMask=0077' \
     'NoNewPrivileges=true' \
     '' \
     '[Install]' \
     'WantedBy=multi-user.target' \
-    >"$temporary_unit"
-  install -o root -g root -m 0644 "$temporary_unit" "$unit_path"
-  rm -f -- "$temporary_unit"
+    >"$temporary_resume_unit"
+
+  printf '%s\n' \
+    '[Unit]' \
+    "Requires=$DEPLOYMENT_GUARD_SERVICE" \
+    "After=$DEPLOYMENT_GUARD_SERVICE" \
+    "ConditionPathExists=!$deployment_guard_path" \
+    >"$temporary_dropin"
+
+  install -o root -g root -m 0644 "$temporary_guard_unit" "$guard_unit_path"
+  install -o root -g root -m 0644 "$temporary_resume_unit" "$resume_unit_path"
+  for unit_name in "${APPLICATION_UNITS[@]}"; do
+    install -d -o root -g root -m 0755 "/etc/systemd/system/$unit_name.d"
+    install -o root -g root -m 0644 \
+      "$temporary_dropin" "/etc/systemd/system/$unit_name.d/90-studytube-deployment-guard.conf"
+  done
+  rm -f -- "$temporary_guard_unit" "$temporary_resume_unit" "$temporary_dropin"
   systemctl daemon-reload
+  systemctl enable --now "$DEPLOYMENT_GUARD_SERVICE" >/dev/null
   systemctl enable studytube-deploy-resume.service >/dev/null
 }
 
@@ -460,6 +1409,15 @@ initialize_paths() {
   last_known_good_link="$deploy_root/last-known-good"
   state_file="$state_dir/$deploy_sha.env"
   pending_file="$state_dir/pending.env"
+  schema_barrier_path="$state_dir/$deploy_sha-schema-barrier"
+  cutover_started_path="$state_dir/$deploy_sha-cutover-started"
+  deployment_lease_file="$state_dir/$deploy_sha-watchdog.lease"
+  deployment_owner_proof_file="$state_dir/$deploy_sha-owner-proof.lock"
+  deployment_watchdog_control_path="$state_dir/$deploy_sha-watchdog-control.lock"
+  deployment_watchdog_decision_path="$state_dir/$deploy_sha-watchdog-decision.lock"
+  deployment_watchdog_trip_path="$state_dir/$deploy_sha-watchdog-tripped"
+  deployment_watchdog_cancel_path="$state_dir/$deploy_sha-watchdog-cancelled"
+  deployment_watchdog_armed_path="$state_dir/$deploy_sha-watchdog-armed"
   mkdir -p -- \
     "$releases_dir" \
     "$artifacts_dir" \
@@ -471,6 +1429,7 @@ initialize_paths() {
 }
 
 start_diagnostic_log() {
+  [[ "$diagnostics_initialized" == 'false' ]] || return 0
   diagnostic_log="$diagnostics_dir/deploy.log"
   touch "$diagnostic_log"
   chmod 0600 "$diagnostic_log"
@@ -491,11 +1450,13 @@ collect_diagnostics() {
     systemctl --no-pager --full status \
       studytube-api.service \
       studytube-ai.service \
-      studytube-worker.service || true
+      studytube-worker.service \
+      studytube-caddy.service || true
     journalctl --no-pager -n 160 \
       -u studytube-api.service \
       -u studytube-ai.service \
-      -u studytube-worker.service || true
+      -u studytube-worker.service \
+      -u studytube-caddy.service || true
     local diagnostic_release
     diagnostic_release="$(current_release_target "$current_link" 2>/dev/null || true)"
     if [[ -n "$diagnostic_release" && -f "$diagnostic_release/source/infra/production.compose.yml" ]]; then
@@ -510,6 +1471,20 @@ collect_diagnostics() {
 exit_handler() {
   local exit_code="$1"
   if ((exit_code != 0)); then
+    if [[ "$command_name" == 'resume' && -n "$pending_file" &&
+          ( -e "$pending_file" || -L "$pending_file" ) ]]; then
+      seal_deployment_guard || true
+      stop_public_edge || true
+    else
+      case "$phase" in
+        activating|rollback_required|rolling_back)
+          if [[ -n "$pending_file" && ( -e "$pending_file" || -L "$pending_file" ) ]]; then
+            seal_deployment_guard || true
+            stop_public_edge || true
+          fi
+          ;;
+      esac
+    fi
     collect_diagnostics || true
   fi
 }
@@ -573,7 +1548,7 @@ prepare_release() {
     cd -- "$source_dir"
     docker compose -f infra/production.compose.yml config --quiet
     docker compose -f infra/production.compose.yml run --rm --no-deps caddy \
-      validate --config /etc/caddy/Caddyfile --adapter caddyfile
+      caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
   )
 
   [[ -z "$(git -C "$source_dir" status --porcelain --untracked-files=all)" ]] ||
@@ -620,8 +1595,83 @@ disable_legacy_pull_deployment() {
   fi
 }
 
+validate_legacy_runtime_path_owner() {
+  local path="$1"
+  local legacy_app_uid="$2"
+  local forbidden_mode_mask="$3"
+  local label="$4"
+  local owner_uid mode
+  owner_uid="$(stat -c '%u' "$path")" || return 1
+  [[ "$owner_uid" == '0' || "$owner_uid" == "$legacy_app_uid" ]] || {
+    fail "$label is not owned by root or the legacy service user"
+    return 1
+  }
+  mode="$(stat -c '%a' "$path")" || return 1
+  (( (8#$mode & forbidden_mode_mask) == 0 )) || {
+    fail "$label has unsafe legacy permissions"
+    return 1
+  }
+}
+
+snapshot_legacy_course_state() {
+  local legacy_app_dir="$1"
+  local snapshot_dir="$2"
+  local legacy_app_uid="$3"
+  validate_absolute_path "$legacy_app_dir" LEGACY_APP_DIR || return 1
+  [[ -d "$legacy_app_dir" && ! -L "$legacy_app_dir" ]] || {
+    fail 'legacy runtime working directory is not a regular directory'
+    return 1
+  }
+  validate_legacy_runtime_path_owner \
+    "$legacy_app_dir" "$legacy_app_uid" 8#0022 'legacy runtime working directory' || return 1
+  [[ -f "$legacy_app_dir/infra/production.compose.yml" &&
+     ! -L "$legacy_app_dir/infra/production.compose.yml" ]] || {
+    fail 'legacy runtime working directory cannot be classified safely'
+    return 1
+  }
+  validate_legacy_runtime_path_owner \
+    "$legacy_app_dir/infra/production.compose.yml" "$legacy_app_uid" 8#0022 \
+    'legacy production Compose file' || return 1
+
+  printf 'APP_DIR=%s\n' "$legacy_app_dir" >"$snapshot_dir/runtime.env"
+  chmod 0600 "$snapshot_dir/runtime.env"
+  sync -f "$snapshot_dir/runtime.env" || return 1
+
+  local source_dir="$legacy_app_dir/.studytube-deploy-state"
+  local course_snapshot_dir="$snapshot_dir/course-state"
+  install -o root -g root -m 0700 -d "$course_snapshot_dir" || return 1
+  if [[ -e "$source_dir" || -L "$source_dir" ]]; then
+    [[ -d "$source_dir" && ! -L "$source_dir" ]] || {
+      fail 'legacy Course state path cannot be classified safely'
+      return 1
+    }
+    validate_legacy_runtime_path_owner \
+      "$source_dir" "$legacy_app_uid" 8#0022 'legacy Course state directory' || return 1
+  fi
+
+  local marker_name source_marker
+  for marker_name in course-activated course-freeze-verified; do
+    source_marker="$source_dir/$marker_name"
+    if [[ ! -e "$source_marker" && ! -L "$source_marker" ]]; then
+      continue
+    fi
+    [[ -f "$source_marker" && ! -L "$source_marker" ]] || {
+      fail "legacy Course marker must be a regular non-symlink file: $marker_name"
+      return 1
+    }
+    validate_legacy_runtime_path_owner \
+      "$source_marker" "$legacy_app_uid" 8#0077 "legacy Course marker $marker_name" || return 1
+    install -o root -g root -m 0600 \
+      "$source_marker" "$course_snapshot_dir/$marker_name" || return 1
+    sync -f "$course_snapshot_dir/$marker_name" || return 1
+  done
+  sync -f "$course_snapshot_dir" || return 1
+  sync -f "$snapshot_dir" || return 1
+}
+
 snapshot_legacy_runtime() {
   [[ -z "$previous_release" ]] || return 0
+  [[ -z "$legacy_runtime_snapshot" ]] || return 0
   local snapshot_dir="$state_dir/$deploy_sha-legacy-runtime"
   mkdir -p -- "$snapshot_dir"
   chmod 0700 "$snapshot_dir"
@@ -648,16 +1698,23 @@ snapshot_legacy_runtime() {
     fi
   fi
 
-  local legacy_app_dir
-  legacy_app_dir="$(systemctl show studytube-api.service --property=WorkingDirectory --value 2>/dev/null || true)"
-  if [[ "$legacy_app_dir" =~ ^/[A-Za-z0-9._/-]+$ &&
-        "$legacy_app_dir" != '/' &&
-        -f "$legacy_app_dir/infra/production.compose.yml" ]]; then
-    printf 'APP_DIR=%s\n' "$legacy_app_dir" >"$snapshot_dir/runtime.env"
-    chmod 0600 "$snapshot_dir/runtime.env"
-  fi
-
   if ((captured_units > 0)); then
+    local legacy_app_dir legacy_app_uid
+    legacy_app_dir="$(systemctl show studytube-api.service --property=WorkingDirectory --value 2>/dev/null)" || {
+      fail 'could not inspect the legacy runtime working directory'
+      return 1
+    }
+    [[ -d "$legacy_app_dir" && ! -L "$legacy_app_dir" ]] || {
+      fail 'legacy runtime working directory is not a regular directory'
+      return 1
+    }
+    legacy_app_uid="$(stat -c '%u' "$legacy_app_dir")" || return 1
+    [[ "$legacy_app_uid" =~ ^[0-9]+$ ]] || {
+      fail 'legacy runtime working directory owner is invalid'
+      return 1
+    }
+    snapshot_legacy_course_state \
+      "$legacy_app_dir" "$snapshot_dir" "$legacy_app_uid" || return 1
     legacy_runtime_snapshot="$snapshot_dir"
   else
     rmdir -- "$snapshot_dir" 2>/dev/null || true
@@ -665,53 +1722,148 @@ snapshot_legacy_runtime() {
   fi
 }
 
-rollback_legacy_runtime() {
-  [[ -n "$legacy_runtime_snapshot" ]] || fail 'no legacy runtime snapshot is available'
-  validate_absolute_path "$legacy_runtime_snapshot" LEGACY_RUNTIME_SNAPSHOT
-  [[ "$legacy_runtime_snapshot" == "$state_dir"/* && -d "$legacy_runtime_snapshot" && ! -L "$legacy_runtime_snapshot" ]] ||
-    fail 'legacy runtime snapshot is outside the deployment state directory'
-
-  phase='rolling_back'
-  write_state
-  local unit_name restored_units=0
-  for unit_name in studytube-api.service studytube-ai.service studytube-worker.service; do
-    if [[ -f "$legacy_runtime_snapshot/$unit_name" && ! -L "$legacy_runtime_snapshot/$unit_name" ]]; then
-      install -o root -g root -m 0644 \
-        "$legacy_runtime_snapshot/$unit_name" "/etc/systemd/system/$unit_name"
-      restored_units=$((restored_units + 1))
-    fi
-  done
-  ((restored_units > 0)) || fail 'legacy runtime snapshot contains no systemd units'
-  systemctl daemon-reload
-  for unit_name in studytube-api.service studytube-ai.service studytube-worker.service; do
-    if [[ -f "$legacy_runtime_snapshot/$unit_name.active" ]]; then
-      systemctl restart "$unit_name"
-    fi
-  done
-
-  if [[ -f "$legacy_runtime_snapshot/web.env" ]]; then
-    local legacy_web_target
-    legacy_web_target="$(state_value "$legacy_runtime_snapshot/web.env" WEB_TARGET)"
-    [[ "$legacy_web_target" == /var/www/studytube/releases/* && -d "$legacy_web_target" ]] ||
-      fail 'legacy web release target is invalid'
-    atomic_symlink "$legacy_web_target" /var/www/studytube/current
+legacy_course_state_snapshot_dir() {
+  if [[ -z "$legacy_runtime_snapshot" ]]; then
+    printf '\n'
+    return 0
   fi
-  if [[ -f "$legacy_runtime_snapshot/runtime.env" ]]; then
-    local legacy_app_dir
-    legacy_app_dir="$(state_value "$legacy_runtime_snapshot/runtime.env" APP_DIR)"
-    validate_absolute_path "$legacy_app_dir" LEGACY_APP_DIR
-    [[ -f "$legacy_app_dir/infra/production.compose.yml" ]] ||
-      fail 'legacy runtime Compose model is missing'
-    (
-      cd -- "$legacy_app_dir"
-      docker compose -f infra/production.compose.yml up -d caddy
-      docker compose -f infra/production.compose.yml exec -T caddy \
-        caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
-    )
+  local expected_snapshot="$state_dir/$deploy_sha-legacy-runtime"
+  [[ "$legacy_runtime_snapshot" == "$expected_snapshot" &&
+     -d "$legacy_runtime_snapshot" && ! -L "$legacy_runtime_snapshot" ]] || {
+    fail 'legacy runtime snapshot is outside immutable deployment state'
+    return 1
+  }
+  local course_state_dir="$legacy_runtime_snapshot/course-state"
+  [[ -d "$course_state_dir" && ! -L "$course_state_dir" ]] || {
+    fail 'legacy Course state was not classified before immutable cutover'
+    return 1
+  }
+  [[ "$(stat -c '%u' "$course_state_dir")" == '0' ]] || {
+    fail 'legacy Course state snapshot must be owned by root'
+    return 1
+  }
+  local mode
+  mode="$(stat -c '%a' "$course_state_dir")" || return 1
+  (( (8#$mode & 0077) == 0 )) || {
+    fail 'legacy Course state snapshot must only be accessible by root'
+    return 1
+  }
+  printf '%s\n' "$course_state_dir"
+}
+
+schema_compatibility_barrier_state() {
+  if [[ ! -e "$schema_barrier_path" && ! -L "$schema_barrier_path" ]]; then
+    printf 'absent\n'
+    return 0
   fi
-  phase='rolled_back'
-  write_state
-  clear_pending_state
+  if ! validate_watchdog_file "$schema_barrier_path" SCHEMA_COMPATIBILITY_BARRIER; then
+    printf 'invalid\n'
+    return 0
+  fi
+  if [[ "$(wc -l <"$schema_barrier_path")" -ne 3 ]] ||
+    ! grep -Fqx -- 'STUDYTUBE_SCHEMA_BARRIER_FORMAT=1' "$schema_barrier_path" ||
+    ! grep -Fqx -- "DEPLOY_SHA=$deploy_sha" "$schema_barrier_path" ||
+    ! grep -Fqx -- 'IRREVERSIBLE_MIGRATION_PENDING=true' "$schema_barrier_path"; then
+    printf 'invalid\n'
+    return 0
+  fi
+  printf 'present\n'
+}
+
+cutover_started_state() {
+  if [[ ! -e "$cutover_started_path" && ! -L "$cutover_started_path" ]]; then
+    printf 'absent\n'
+    return 0
+  fi
+  if ! validate_watchdog_file "$cutover_started_path" CUTOVER_STARTED_MARKER; then
+    printf 'invalid\n'
+    return 0
+  fi
+  if [[ "$(wc -l <"$cutover_started_path")" -ne 2 ]] ||
+    ! grep -Fqx -- 'STUDYTUBE_CUTOVER_STARTED_FORMAT=1' "$cutover_started_path" ||
+    ! grep -Fqx -- "DEPLOY_SHA=$deploy_sha" "$cutover_started_path"; then
+    printf 'invalid\n'
+    return 0
+  fi
+  printf 'present\n'
+}
+
+course_activation_marker_state() {
+  local marker_path="$1"
+  if [[ ! -e "$marker_path" && ! -L "$marker_path" ]]; then
+    printf 'absent\n'
+    return 0
+  fi
+  if ! validate_watchdog_file "$marker_path" COURSE_ACTIVATION_MARKER ||
+     [[ "$(wc -l <"$marker_path")" -ne 3 ]] ||
+     ! grep -Fqx -- 'course_activated=true' "$marker_path" ||
+     ! grep -Eq '^first_deploy_sha=[0-9a-f]{40}$' "$marker_path" ||
+     ! grep -Eq '^database_identity=.+$' "$marker_path"; then
+    printf 'invalid\n'
+    return 0
+  fi
+  printf 'present\n'
+}
+
+course_activation_boundary_state() {
+  course_activation_marker_state "$COURSE_ACTIVATION_MARKER"
+}
+
+previous_release_course_activation_state() {
+  if [[ -z "$previous_release" ]]; then
+    printf 'absent\n'
+    return 0
+  fi
+  safe_release_target "$previous_release" || {
+    fail 'cannot inspect Course activation state from an unsafe previous release'
+    return 1
+  }
+  local previous_state_dir="$previous_release/source/.studytube-deploy-state"
+  if [[ -e "$previous_state_dir" || -L "$previous_state_dir" ]]; then
+    if [[ ! -d "$previous_state_dir" || -L "$previous_state_dir" ]]; then
+      printf 'invalid\n'
+      return 0
+    fi
+  fi
+  course_activation_marker_state "$previous_state_dir/course-activated"
+}
+
+record_course_activation_baseline() {
+  local baseline_state legacy_marker previous_release_state
+  baseline_state="$(course_activation_boundary_state)" || return 1
+  if [[ "$baseline_state" == 'absent' ]]; then
+    previous_release_state="$(previous_release_course_activation_state)" || return 1
+    baseline_state="$previous_release_state"
+  fi
+  if [[ "$baseline_state" == 'absent' && -n "$legacy_runtime_snapshot" ]]; then
+    legacy_marker="$legacy_runtime_snapshot/course-state/course-activated"
+    baseline_state="$(course_activation_marker_state "$legacy_marker")" || return 1
+  fi
+  case "$baseline_state" in
+    absent|present) course_activation_baseline="$baseline_state" ;;
+    invalid)
+      fail 'cannot record an invalid Course activation baseline'
+      return 1
+      ;;
+    *)
+      fail 'Course activation baseline returned an unknown state'
+      return 1
+      ;;
+  esac
+}
+
+course_activation_transition_state() {
+  local current_state
+  current_state="$(course_activation_boundary_state)" || return 1
+  case "$course_activation_baseline:$current_state" in
+    absent:absent|present:present) printf 'unchanged\n' ;;
+    absent:present) printf 'crossed\n' ;;
+    absent:invalid|present:absent|present:invalid) printf 'invalid\n' ;;
+    *)
+      fail 'Course activation baseline is unavailable or invalid'
+      return 1
+      ;;
+  esac
 }
 
 write_release_success_metadata() {
@@ -720,86 +1872,400 @@ write_release_success_metadata() {
   local fingerprint="$3"
   local metadata_path="$release_path/deploy-success.env"
   local temporary_metadata
-  temporary_metadata="$(mktemp "$release_path/.deploy-success.XXXXXX")"
-  printf '%s\n' \
+  temporary_metadata="$(mktemp "$release_path/.deploy-success.XXXXXX")" || return 1
+  if ! printf '%s\n' \
     'STUDYTUBE_DEPLOY_SUCCESS_FORMAT=1' \
     "DEPLOY_SHA=$(basename -- "$release_path")" \
     "CONFIG_FINGERPRINT=$fingerprint" \
     "CONFIG_SNAPSHOT=$snapshot_path" \
-    >"$temporary_metadata"
-  chmod 0600 "$temporary_metadata"
-  mv -f -- "$temporary_metadata" "$metadata_path"
+    >"$temporary_metadata"; then
+    rm -f -- "$temporary_metadata"
+    return 1
+  fi
+  chmod 0600 "$temporary_metadata" || {
+    rm -f -- "$temporary_metadata"
+    return 1
+  }
+  if ! mv -f -- "$temporary_metadata" "$metadata_path"; then
+    rm -f -- "$temporary_metadata"
+    return 1
+  fi
+  sync -f "$metadata_path" || return 1
+  sync -f "$release_path" || return 1
+}
+
+clear_schema_compatibility_barrier() {
+  local barrier_state
+  barrier_state="$(schema_compatibility_barrier_state)" || return 1
+  case "$barrier_state" in
+    absent) return 0 ;;
+    present) ;;
+    invalid)
+      fail 'refusing to clear an invalid schema compatibility barrier'
+      return 1
+      ;;
+    *)
+      fail 'schema compatibility barrier returned an unknown state'
+      return 1
+      ;;
+  esac
+  rm -f -- "$schema_barrier_path" || return 1
+  sync -f "$state_dir" || return 1
+}
+
+clear_cutover_started_marker() {
+  local cutover_state
+  cutover_state="$(cutover_started_state)" || return 1
+  case "$cutover_state" in
+    absent) return 0 ;;
+    present) ;;
+    invalid)
+      fail 'refusing to clear an invalid cutover-started marker'
+      return 1
+      ;;
+    *)
+      fail 'cutover-started marker returned an unknown state'
+      return 1
+      ;;
+  esac
+  rm -f -- "$cutover_started_path" || return 1
+  sync -f "$state_dir" || return 1
+}
+
+finalize_successful_activation() {
+  (
+    exec 199<>"$deployment_watchdog_control_path"
+    flock -w 30 199 || exit 1
+    exec 202<>"$deployment_watchdog_decision_path"
+    flock -w 30 202 || exit 1
+    verify_deployment_owner_lease_held || exit 1
+    verify_deployment_watchdog_active || exit 1
+    verify_application_units_active || exit 1
+    write_release_success_metadata \
+      "$release_dir" "$config_snapshot" "$config_fingerprint" || exit 1
+    atomic_symlink "$release_dir" "$current_link" || exit 1
+    if [[ ! -L "$last_known_good_link" ]]; then
+      atomic_symlink "$release_dir" "$last_known_good_link" || exit 1
+    fi
+    phase='complete'
+    write_state || exit 1
+    clear_schema_compatibility_barrier || exit 1
+    clear_cutover_started_marker || exit 1
+    clear_pending_state || exit 1
+  ) || return 1
+  phase='complete'
+}
+
+finalize_previous_release_rollback() {
+  (
+    exec 199<>"$deployment_watchdog_control_path"
+    flock -w 30 199 || exit 1
+    exec 202<>"$deployment_watchdog_decision_path"
+    flock -w 30 202 || exit 1
+    verify_deployment_owner_lease_held || exit 1
+    verify_deployment_watchdog_active || exit 1
+    verify_previous_release_units_active || exit 1
+    verify_release_public_endpoints "$previous_snapshot" || exit 1
+    atomic_symlink "$previous_release" "$current_link" || exit 1
+    atomic_symlink "$previous_release" "$last_known_good_link" || exit 1
+    phase='rolled_back'
+    write_state || exit 1
+    clear_cutover_started_marker || exit 1
+    clear_pending_state || exit 1
+  ) || return 1
+  phase='rolled_back'
+}
+
+finalize_completed_recovery() {
+  (
+    exec 199<>"$deployment_watchdog_control_path"
+    flock -w 30 199 || exit 1
+    exec 202<>"$deployment_watchdog_decision_path"
+    flock -w 30 202 || exit 1
+    verify_deployment_owner_lease_held || exit 1
+    verify_deployment_watchdog_active || exit 1
+    verify_application_units_active || exit 1
+    [[ ! -e "$deployment_guard_path" && ! -L "$deployment_guard_path" ]] || {
+      fail 'completed recovery remains sealed'
+      exit 1
+    }
+    if [[ "$phase" == 'complete' ]]; then
+      clear_schema_compatibility_barrier || exit 1
+    fi
+    clear_cutover_started_marker || exit 1
+    clear_pending_state || exit 1
+  )
+}
+
+finalize_pre_cutover_failure() {
+  (
+    exec 199<>"$deployment_watchdog_control_path"
+    flock -w 30 199 || exit 1
+    exec 202<>"$deployment_watchdog_decision_path"
+    flock -w 30 202 || exit 1
+    verify_deployment_owner_lease_held || exit 1
+    verify_deployment_watchdog_active || exit 1
+    [[ "$(cutover_started_state)" == 'absent' ]] || {
+      fail 'pre-cutover failure cannot be finalized after cutover started'
+      exit 1
+    }
+    [[ "$(schema_compatibility_barrier_state)" == 'absent' ]] || {
+      fail 'pre-cutover failure crossed the schema compatibility boundary'
+      exit 1
+    }
+    stop_release_transient_units || exit 1
+    if [[ -n "$previous_release" ]]; then
+      verify_previous_release_units_active || exit 1
+    fi
+    phase='pre_cutover_failed'
+    write_state || exit 1
+    clear_pending_state || exit 1
+  ) || return 1
+  phase='pre_cutover_failed'
 }
 
 invoke_release_deploy() {
   local release_path="$1"
   local release_sha="$2"
   local snapshot_path="$3"
-  link_release_config "$release_path" "$snapshot_path"
+  local runtime_limit="${4:-110m}"
+  local execution_mode="${5:-activate}"
+  case "$execution_mode" in
+    activate|reactivate-prepared) ;;
+    *)
+      fail 'release execution mode must be activate or reactivate-prepared'
+      return 1
+      ;;
+  esac
+  local legacy_course_state_dir
+  legacy_course_state_dir="$(legacy_course_state_snapshot_dir)" || return 1
+  local release_schema_barrier_path="$state_dir/$release_sha-schema-barrier"
   (
-    load_config_file "$snapshot_path"
-    cd -- "$release_path/source"
+    load_config_file "$snapshot_path" || exit 1
+    cd -- "$release_path/source" || exit 1
     DEPLOY_SHA="$release_sha" \
       DEPLOY_BRANCH=release \
       APP_DIR="$release_path/source" \
-      bash scripts/deploy-ec2.sh release
+      STUDYTUBE_DEPLOYMENT_GUARD_PATH="$deployment_guard_path" \
+      STUDYTUBE_DEPLOYMENT_OWNER_SHA="$deploy_sha" \
+      STUDYTUBE_SCHEMA_BARRIER_PATH="$release_schema_barrier_path" \
+      STUDYTUBE_CUTOVER_STARTED_PATH="$cutover_started_path" \
+      STUDYTUBE_WATCHDOG_LEASE_PATH="$deployment_lease_file" \
+      STUDYTUBE_OWNER_PROOF_PATH="$deployment_owner_proof_file" \
+      STUDYTUBE_WATCHDOG_CONTROL_PATH="$deployment_watchdog_control_path" \
+      STUDYTUBE_WATCHDOG_TRIP_PATH="$deployment_watchdog_trip_path" \
+      STUDYTUBE_WATCHDOG_CANCEL_PATH="$deployment_watchdog_cancel_path" \
+      STUDYTUBE_WATCHDOG_ARMED_PATH="$deployment_watchdog_armed_path" \
+      STUDYTUBE_LEGACY_COURSE_STATE_DIR="$legacy_course_state_dir" \
+      STUDYTUBE_RELEASE_EXECUTION_MODE="$execution_mode" \
+      timeout --signal=TERM --kill-after=30s "$runtime_limit" \
+        bash scripts/deploy-ec2.sh release
   )
 }
 
+release_supports_prepared_reactivation() {
+  local release_path="$1"
+  local deploy_script="$release_path/source/scripts/deploy-ec2.sh"
+  [[ -f "$deploy_script" && ! -L "$deploy_script" ]] || return 1
+  grep -Fq 'STUDYTUBE_WATCHDOG_CANCEL_PATH' "$deploy_script" &&
+    grep -Fq 'release_deployment_guard' "$deploy_script" &&
+    grep -Fq 'assert_deployment_mutation_allowed' "$deploy_script" &&
+    grep -Fq 'reactivate-prepared' "$deploy_script" &&
+    grep -Fq 'verify_prepared_release_for_reactivation' "$deploy_script"
+}
+
+invoke_interlocked_release_deploy() {
+  local release_path="$1"
+  local release_sha="$2"
+  local snapshot_path="$3"
+  local runtime_limit="${4:-110m}"
+  local execution_mode="${5:-activate}"
+  run_controlled_watchdog_mutation \
+    link_release_config "$release_path" "$snapshot_path" || return 1
+  invoke_release_deploy \
+    "$release_path" "$release_sha" "$snapshot_path" "$runtime_limit" "$execution_mode"
+}
+
+invoke_prepared_release_reactivation() {
+  local release_path="$1"
+  local release_sha="$2"
+  local snapshot_path="$3"
+  release_supports_prepared_reactivation "$release_path" || {
+    fail 'previous release does not support bounded prepared reactivation; recovery remains sealed'
+    return 1
+  }
+  invoke_interlocked_release_deploy \
+    "$release_path" "$release_sha" "$snapshot_path" 25m reactivate-prepared
+}
+
 rollback_previous_release() {
-  safe_release_target "$previous_release" || fail 'recorded previous release is not safe to roll back to'
+  local cutover_state course_transition_state barrier_state
+  cutover_state="$(cutover_started_state)" || return 1
+  case "$cutover_state" in
+    absent) ;;
+    present)
+      course_transition_state="$(course_activation_transition_state)" || return 1
+      case "$course_transition_state" in
+        unchanged) ;;
+        crossed)
+          fail 'refusing previous-release rollback after durable Course activation; roll forward in freeze mode'
+          return 1
+          ;;
+        invalid)
+          fail 'refusing previous-release rollback because the Course activation transition is invalid'
+          return 1
+          ;;
+        *)
+          fail 'Course activation transition returned an unknown state'
+          return 1
+          ;;
+      esac
+      ;;
+    invalid)
+      fail 'refusing previous-release rollback because the cutover-started marker is invalid'
+      return 1
+      ;;
+    *)
+      fail 'cutover-started marker returned an unknown state'
+      return 1
+      ;;
+  esac
+  barrier_state="$(schema_compatibility_barrier_state)" || return 1
+  [[ "$barrier_state" == 'absent' ]] || {
+    fail "refusing previous-release rollback because schema barrier is $barrier_state"
+    return 1
+  }
+  safe_release_target "$previous_release" || {
+    fail 'recorded previous release is not safe to roll back to'
+    return 1
+  }
   local previous_metadata="$previous_release/deploy-success.env"
   [[ -f "$previous_metadata" && ! -L "$previous_metadata" ]] ||
-    fail 'previous release has no successful deployment metadata'
+    {
+      fail 'previous release has no successful deployment metadata'
+      return 1
+    }
   [[ "$(state_value "$previous_metadata" STUDYTUBE_DEPLOY_SUCCESS_FORMAT)" == '1' ]] ||
-    fail 'previous release success metadata is invalid'
+    {
+      fail 'previous release success metadata is invalid'
+      return 1
+    }
 
   local previous_sha previous_snapshot previous_fingerprint
-  previous_sha="$(state_value "$previous_metadata" DEPLOY_SHA)"
-  previous_snapshot="$(state_value "$previous_metadata" CONFIG_SNAPSHOT)"
-  previous_fingerprint="$(state_value "$previous_metadata" CONFIG_FINGERPRINT)"
-  validate_sha "$previous_sha"
-  validate_config_file "$previous_snapshot"
+  previous_sha="$(state_value "$previous_metadata" DEPLOY_SHA)" || return 1
+  previous_snapshot="$(state_value "$previous_metadata" CONFIG_SNAPSHOT)" || return 1
+  previous_fingerprint="$(state_value "$previous_metadata" CONFIG_FINGERPRINT)" || return 1
+  validate_sha "$previous_sha" || return 1
+  validate_config_file "$previous_snapshot" || return 1
   [[ "$(sha256sum "$previous_snapshot" | awk '{print $1}')" == "$previous_fingerprint" ]] ||
-    fail 'previous release config snapshot fingerprint is invalid'
+    {
+      fail 'previous release config snapshot fingerprint is invalid'
+      return 1
+    }
 
   phase='rolling_back'
-  write_state
-  invoke_release_deploy "$previous_release" "$previous_sha" "$previous_snapshot"
-  atomic_symlink "$previous_release" "$current_link"
-  atomic_symlink "$previous_release" "$last_known_good_link"
-  phase='rolled_back'
-  write_state
-  clear_pending_state
+  write_state || return 1
+  local rollback_status=0
+  invoke_prepared_release_reactivation \
+    "$previous_release" "$previous_sha" "$previous_snapshot" || rollback_status=$?
+  if ((rollback_status != 0)); then
+    seal_deployment_guard || true
+    return 1
+  fi
+  run_controlled_watchdog_mutation prepare_previous_release_public_edge || {
+    seal_deployment_guard || true
+    return 1
+  }
+  verify_previous_release_units_active || {
+    seal_deployment_guard || true
+    return 1
+  }
+  finalize_previous_release_rollback || {
+    seal_deployment_guard || true
+    stop_public_edge || true
+    return 1
+  }
 }
 
 activate_release() {
+  local activation_mode="$1"
+  [[ "$activation_mode" == 'deploy' || "$activation_mode" == 'recovery' ]] || {
+    fail 'activation mode must be deploy or recovery'
+    return 1
+  }
+  [[ "$course_activation_baseline" == 'absent' ||
+     "$course_activation_baseline" == 'present' ]] || {
+    fail 'Course activation baseline must be recorded before activation'
+    return 1
+  }
   if [[ -n "$previous_release" ]]; then
     atomic_symlink "$previous_release" "$last_known_good_link"
   fi
 
   phase='activating'
   write_state
-  if ! invoke_release_deploy "$release_dir" "$deploy_sha" "$config_snapshot"; then
+  if [[ "$activation_mode" == 'recovery' ]]; then
+    seal_deployment_guard || return 1
+  fi
+  start_deployment_watchdog "$activation_mode" || return 1
+  if ! invoke_interlocked_release_deploy "$release_dir" "$deploy_sha" "$config_snapshot"; then
+    local cutover_state barrier_state course_transition_state
+    cutover_state="$(cutover_started_state)" || return 1
+    if [[ "$cutover_state" == 'absent' ]]; then
+      finalize_pre_cutover_failure || {
+        seal_deployment_guard || true
+        return 1
+      }
+      fail 'release preparation failed before cutover; the current release remains active'
+      return 1
+    elif [[ "$cutover_state" == 'invalid' ]]; then
+      fail 'cutover-started marker became invalid during activation'
+    fi
     phase='rollback_required'
     write_state
+    seal_deployment_guard || return 1
     stop_release_transient_units || return 1
-    if [[ -n "$previous_release" ]]; then
-      rollback_previous_release || return 1
-    elif [[ -n "$legacy_runtime_snapshot" ]]; then
-      rollback_legacy_runtime || return 1
-    fi
+    course_transition_state="$(course_activation_transition_state)" || return 1
+    case "$course_transition_state" in
+      crossed)
+        fail 'activation crossed durable Course activation; recover by rolling forward the same release'
+        return 1
+        ;;
+      invalid)
+        fail 'Course activation transition is invalid; recovery remains sealed'
+        return 1
+        ;;
+      unchanged) ;;
+      *)
+        fail 'Course activation transition returned an unknown state'
+        return 1
+        ;;
+    esac
+    barrier_state="$(schema_compatibility_barrier_state)" || return 1
+    case "$barrier_state" in
+      absent)
+        if [[ -n "$previous_release" ]]; then
+          rollback_previous_release || return 1
+        else
+          fail 'first immutable activation failed; automatic legacy downgrade is forbidden'
+        fi
+        ;;
+      present)
+        fail 'activation crossed an irreversible schema boundary; recover by rolling forward the same release'
+        ;;
+      invalid)
+        fail 'schema compatibility barrier is invalid; recovery remains sealed'
+        ;;
+      *) fail 'schema compatibility barrier returned an unknown state' ;;
+    esac
     return 1
   fi
 
-  write_release_success_metadata "$release_dir" "$config_snapshot" "$config_fingerprint"
-  atomic_symlink "$release_dir" "$current_link"
-  if [[ ! -L "$last_known_good_link" ]]; then
-    atomic_symlink "$release_dir" "$last_known_good_link"
-  fi
-  phase='complete'
-  write_state
-  clear_pending_state
+  finalize_successful_activation || {
+    seal_deployment_guard || true
+    stop_public_edge || true
+    return 1
+  }
 }
 
 prune_releases() {
@@ -822,7 +2288,21 @@ prune_releases() {
     -name '[0-9a-f][0-9a-f]*' -printf '%T@ %p\n' | sort -rn | cut -d' ' -f2-)
 }
 
+acquire_deployment_lock() {
+  [[ "$deployment_lock_held" == 'false' ]] || return 0
+  exec 9>"$state_dir/deployment.lock"
+  flock -n 9 || {
+    fail 'another immutable deployment is already running'
+    return 1
+  }
+  deployment_lock_held='true'
+}
+
 run_deployment() {
+  local deployment_mode="${1:-deploy}"
+  local recovery_phase="$phase"
+  [[ "$deployment_mode" == 'deploy' || "$deployment_mode" == 'recovery' ]] ||
+    fail 'deployment mode must be deploy or recovery'
   validate_sha "$deploy_sha"
   validate_digest "$artifact_sha256"
   validate_absolute_path "$deploy_root" DEPLOY_ROOT
@@ -833,20 +2313,37 @@ run_deployment() {
   [[ "$aws_region" =~ ^[a-z]{2}(-gov)?-[a-z]+-[0-9]+$ ]] || fail 'AWS region is invalid'
 
   ((EUID == 0)) || fail 'deploy and resume must run as root'
-  for command_name in aws git tar sha256sum stat df flock systemctl npm python3 docker getent id; do
+  for command_name in aws git tar sha256sum stat df flock sync systemctl systemd-run npm python3 docker getent id timeout; do
     require_command "$command_name"
   done
 
   mkdir -p -- "$deploy_root"
   initialize_paths
+  if [[ "$deployment_mode" == 'deploy' && "$(cutover_started_state)" != 'absent' ]]; then
+    fail 'refusing a new deployment with unresolved cutover state'
+    return 1
+  fi
+  acquire_deployment_lock
+  if [[ "$deployment_mode" == 'deploy' && ( -e "$pending_file" || -L "$pending_file" ) ]]; then
+    seal_deployment_guard || true
+    stop_public_edge || true
+    fail 'refusing to replace an unresolved deployment; run resume first'
+  fi
+  if [[ "$deployment_mode" == 'recovery' ]]; then
+    [[ -f "$pending_file" && ! -L "$pending_file" ]] ||
+      fail 'recovery requires regular pending deployment state'
+    [[ "$(state_value "$pending_file" DEPLOY_SHA)" == "$deploy_sha" ]] ||
+      fail 'recovery pending state belongs to another release'
+  else
+    release_transient_unit_is_quiescent "$DEPLOYMENT_WATCHDOG_SERVICE" ||
+      fail 'refusing to overlap an active deployment watchdog'
+  fi
+  assert_release_transient_units_quiescent
+
   start_diagnostic_log
   install_resume_service
   snapshot_config
   state_file="$state_dir/$deploy_sha.env"
-
-  exec 9>"$state_dir/deployment.lock"
-  flock -n 9 || fail 'another immutable deployment is already running'
-  assert_release_transient_units_quiescent
 
   if [[ -z "$previous_release" ]]; then
     previous_release="$(current_release_target "$current_link" 2>/dev/null || true)"
@@ -867,10 +2364,28 @@ run_deployment() {
   prepare_release
   disable_legacy_pull_deployment
   snapshot_legacy_runtime
+  case "$course_activation_baseline" in
+    '')
+      if [[ "$deployment_mode" == 'deploy' ||
+         "$recovery_phase" == 'initialized' ||
+         "$recovery_phase" == 'artifact_verified' ||
+         "$recovery_phase" == 'release_staged' ]]; then
+        record_course_activation_baseline
+      else
+        fail 'pending activation state has no durable Course activation baseline'
+        return 1
+      fi
+      ;;
+    absent|present) ;;
+    *)
+      fail 'persisted Course activation baseline is invalid'
+      return 1
+      ;;
+  esac
   phase='prepared'
   write_state
 
-  activate_release
+  activate_release "$deployment_mode"
   prune_releases
   printf 'deployed_sha=%s\nartifact_sha256=%s\nconfig_fingerprint=%s\n' \
     "$deploy_sha" "$artifact_sha256" "$config_fingerprint"
@@ -892,10 +2407,12 @@ config_file="$DEFAULT_CONFIG_FILE"
 deploy_root="$DEFAULT_DEPLOY_ROOT"
 retain_releases="$DEFAULT_RETAIN_RELEASES"
 minimum_free_bytes="$DEFAULT_MINIMUM_FREE_BYTES"
+deployment_guard_path="$DEFAULT_DEPLOYMENT_GUARD_PATH"
 config_fingerprint=''
 config_snapshot=''
 previous_release=''
 legacy_runtime_snapshot=''
+course_activation_baseline=''
 phase='new'
 artifact_bucket=''
 artifact_key=''
@@ -911,6 +2428,19 @@ pending_file=''
 release_dir=''
 diagnostic_log=''
 diagnostics_initialized='false'
+schema_barrier_path=''
+cutover_started_path=''
+deployment_lease_file=''
+deployment_owner_proof_file=''
+deployment_watchdog_control_path=''
+deployment_watchdog_decision_path=''
+deployment_watchdog_trip_path=''
+deployment_watchdog_cancel_path=''
+deployment_watchdog_armed_path=''
+deployment_watchdog_started='false'
+deployment_owner_lease_held='false'
+deployment_lock_held='false'
+watchdog_requested_lease_file=''
 
 while (($# > 0)); do
   case "$1" in
@@ -949,6 +2479,11 @@ while (($# > 0)); do
       deploy_root="$2"
       shift 2
       ;;
+    --lease-file)
+      (($# >= 2)) || { fail '--lease-file requires a value'; exit 2; }
+      watchdog_requested_lease_file="$2"
+      shift 2
+      ;;
     --retain-releases)
       (($# >= 2)) || { fail '--retain-releases requires a value'; exit 2; }
       retain_releases="$2"
@@ -973,6 +2508,27 @@ done
 trap 'exit_handler $?' EXIT
 
 case "$command_name" in
+  arm-resume-guard)
+    validate_absolute_path "$deploy_root" DEPLOY_ROOT
+    ((EUID == 0)) || { fail 'deployment guard must run as root'; exit 1; }
+    require_command docker
+    require_command sleep
+    require_command systemctl
+    require_command timeout
+    state_dir="$deploy_root/deployment-state"
+    pending_file="$state_dir/pending.env"
+    arm_deployment_guard
+    ;;
+  seal-resume-guard)
+    validate_absolute_path "$deploy_root" DEPLOY_ROOT
+    ((EUID == 0)) || { fail 'deployment guard must run as root'; exit 1; }
+    require_command systemctl
+    require_command docker
+    require_command timeout
+    state_dir="$deploy_root/deployment-state"
+    pending_file="$state_dir/pending.env"
+    seal_deployment_guard
+    ;;
   validate-config-content)
     load_config_file "$config_file"
     printf 'deployment config content is safe to load\n'
@@ -988,48 +2544,143 @@ case "$command_name" in
     verify_artifact "$artifact_file" "$artifact_sha256" "$deploy_sha"
     printf 'verified_sha=%s\nartifact_sha256=%s\n' "$deploy_sha" "$artifact_sha256"
     ;;
+  watch-deployment)
+    [[ -n "$deploy_sha" && -n "$watchdog_requested_lease_file" ]] || {
+      fail 'watch-deployment requires --deploy-sha and --lease-file'
+      exit 2
+    }
+    watch_deployment_lease
+    ;;
   deploy)
     [[ -n "$artifact_uri" && -n "$artifact_sha256" && -n "$deploy_sha" && -n "$aws_region" ]] || {
       fail 'deploy requires --artifact-uri, --artifact-sha256, --deploy-sha, and --region'
       exit 2
     }
-    run_deployment
+    run_deployment deploy
     ;;
   resume)
     validate_absolute_path "$deploy_root" DEPLOY_ROOT
     ((EUID == 0)) || { fail 'resume must run as root'; exit 1; }
+    require_command flock
+    require_command systemctl
+    require_command docker
+    require_command timeout
     releases_dir="$deploy_root/releases"
     state_dir="$deploy_root/deployment-state"
     pending_file="$state_dir/pending.env"
-    if [[ ! -f "$pending_file" ]]; then
+    if [[ ! -e "$pending_file" && ! -L "$pending_file" ]]; then
       printf 'No interrupted StudyTube deployment is pending.\n'
       exit 0
     fi
+    resume_requested_deploy_root="$deploy_root"
+    acquire_deployment_lock
+    if [[ ! -e "$pending_file" && ! -L "$pending_file" ]]; then
+      printf 'No interrupted StudyTube deployment is pending.\n'
+      exit 0
+    fi
+    seal_deployment_guard
+    stop_public_edge
+    stop_deployment_watchdog || exit 1
+    stop_release_transient_units || exit 1
+    [[ -f "$pending_file" && ! -L "$pending_file" ]] || {
+      fail 'pending deployment state is not a regular file'
+      exit 1
+    }
     load_pending_state
+    [[ "$deploy_root" == "$resume_requested_deploy_root" ]] || {
+      fail 'pending deployment root does not match the requested recovery root'
+      exit 1
+    }
     validate_absolute_path "$deploy_root" DEPLOY_ROOT
     initialize_paths
     start_diagnostic_log
     state_file="$state_dir/$deploy_sha.env"
-    exec 9>"$state_dir/deployment.lock"
-    flock -n 9 || { fail 'another immutable deployment is already running'; exit 1; }
-    stop_release_transient_units || exit 1
-    if [[ "$phase" == 'complete' || "$phase" == 'rolled_back' ]]; then
-      clear_pending_state
+    install_resume_service
+    start_deployment_watchdog
+    if [[ "$phase" == 'complete' ]]; then
+      release_dir="$releases_dir/$deploy_sha"
+      safe_release_target "$release_dir" || {
+        fail 'completed deployment release is not safe to recover'
+        exit 1
+      }
+      invoke_interlocked_release_deploy "$release_dir" "$deploy_sha" "$config_snapshot"
+      finalize_completed_recovery
       printf 'Recovered completed deployment state for %s.\n' "$deploy_sha"
       exit 0
     fi
-    if [[ "$phase" == 'activating' || "$phase" == 'rollback_required' || "$phase" == 'rolling_back' ]]; then
-      if [[ -n "$previous_release" ]]; then
-        rollback_previous_release
-        printf 'Interrupted deployment rolled back to %s.\n' "$(basename -- "$previous_release")"
-        exit 0
-      elif [[ -n "$legacy_runtime_snapshot" ]]; then
-        rollback_legacy_runtime
-        printf 'Interrupted deployment rolled back to the captured legacy runtime.\n'
-        exit 0
-      fi
+    if [[ "$phase" == 'rolled_back' ]]; then
+      [[ -n "$previous_release" ]] || {
+        fail 'rolled-back deployment has no previous immutable release'
+        exit 1
+      }
+      rollback_previous_release
+      printf 'Recovered rolled-back deployment state for %s.\n' "$deploy_sha"
+      exit 0
     fi
-    run_deployment
+    if [[ "$phase" == 'activating' || "$phase" == 'rollback_required' || "$phase" == 'rolling_back' ]]; then
+      cutover_state="$(cutover_started_state)"
+      case "$cutover_state" in
+        absent)
+          if [[ -n "$previous_release" ]]; then
+            rollback_previous_release
+            printf 'Interrupted pre-cutover deployment restored %s.\n' \
+              "$(basename -- "$previous_release")"
+            exit 0
+          fi
+          ;;
+        present) ;;
+        invalid)
+          fail 'cutover-started marker is invalid; recovery remains sealed'
+          exit 1
+          ;;
+        *)
+          fail 'cutover-started marker returned an unknown state'
+          exit 1
+          ;;
+      esac
+      course_transition_state="$(course_activation_transition_state)"
+      case "$course_transition_state" in
+        crossed)
+          printf 'Interrupted deployment crossed durable Course activation; rolling forward %s.\n' "$deploy_sha"
+          run_deployment recovery
+          printf 'Interrupted deployment rolled forward release %s.\n' "$deploy_sha"
+          exit 0
+          ;;
+        invalid)
+          fail 'Course activation transition is invalid; recovery remains sealed'
+          exit 1
+          ;;
+        unchanged) ;;
+        *)
+          fail 'Course activation transition returned an unknown state'
+          exit 1
+          ;;
+      esac
+      barrier_state="$(schema_compatibility_barrier_state)"
+      case "$barrier_state" in
+        present)
+          run_deployment recovery
+          printf 'Interrupted deployment rolled forward release %s.\n' "$deploy_sha"
+          exit 0
+          ;;
+        invalid)
+          fail 'schema compatibility barrier is invalid; recovery remains sealed'
+          exit 1
+          ;;
+        absent)
+          if [[ -n "$previous_release" ]]; then
+            rollback_previous_release
+            printf 'Interrupted deployment rolled back to %s.\n' "$(basename -- "$previous_release")"
+            exit 0
+          fi
+          ;;
+        *)
+          fail 'schema compatibility barrier returned an unknown state'
+          exit 1
+          ;;
+      esac
+    fi
+    run_deployment recovery
     ;;
   *)
     usage >&2

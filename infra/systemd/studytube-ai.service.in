@@ -1,10 +1,8 @@
 [Unit]
 Description=StudyTube AI service
-After=network-online.target docker.service studytube-deploy-resume.service
+After=network-online.target docker.service
 Wants=network-online.target
-Requires=docker.service
-StartLimitIntervalSec=60
-StartLimitBurst=5
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -13,6 +11,10 @@ Group=@AI_USER@
 SupplementaryGroups=@SOCKET_GROUP@ @RUNTIME_GROUP@
 WorkingDirectory=@APP_DIR@
 EnvironmentFile=@RUNTIME_CONFIG_DIR@/ai.env
+CacheDirectory=studytube-ai
+CacheDirectoryMode=0700
+Environment=HOME=/var/cache/studytube-ai
+Environment=XDG_CACHE_HOME=/var/cache/studytube-ai
 Environment=NODE_ENV=production
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=PYTHONUNBUFFERED=1
@@ -25,6 +27,8 @@ KillSignal=SIGTERM
 UMask=0077
 NoNewPrivileges=true
 PrivateTmp=true
+ProtectProc=invisible
+ProcSubset=pid
 ProtectSystem=full
 IPAddressDeny=169.254.169.254/32
 IPAddressDeny=fd00:ec2::254/128

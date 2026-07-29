@@ -97,7 +97,7 @@ COURSE_CUTOVER_MODE=legacy npm run db:course:verify
 ```dotenv
 NODE_ENV=production
 COURSE_CUTOVER_MODE=freeze
-COURSE_CUTOVER_STATE_DIR=.studytube-deploy-state
+COURSE_CUTOVER_STATE_DIR=/var/lib/studytube/course-cutover
 ```
 
 CI가 검증한 커밋을 고정해서 배포한다.
@@ -131,7 +131,7 @@ COURSE_CUTOVER_MODE=freeze npm run db:course:verify
 ```dotenv
 NODE_ENV=production
 COURSE_CUTOVER_MODE=course
-COURSE_CUTOVER_STATE_DIR=.studytube-deploy-state
+COURSE_CUTOVER_STATE_DIR=/var/lib/studytube/course-cutover
 ```
 
 ```bash

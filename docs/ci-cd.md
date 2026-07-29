@@ -216,7 +216,11 @@ Release는 `/opt/studytube/releases/<sha>`에 보존한다. 기본적으로 최�
 
 ## 실패, resume, rollback
 
-SSM runner는 deployment phase와 이전 성공 release를 `/opt/studytube/deployment-state`에 기록한다. 재부팅으로 staging이 끊기면 `studytube-deploy-resume.service`가 준비 단계를 계속한다. activation 중 끊겼거나 health gate가 실패하면 이전 last known good release를 다시 배포한다. 최초 immutable release 전환 중 실패하면 기록해 둔 legacy runtime을 복구한다.
+SSM runner는 deployment phase, cutover 시작 여부, Course 활성화 기준값, 이전 성공 release를 `/opt/studytube/deployment-state`에 기록한다. cutover 전에 준비가 실패하면 현재 release와 public edge를 계속 유지한다. 재부팅으로 준비 단계가 끊기면 `studytube-deploy-resume.service`가 같은 release를 이어서 처리한다.
+
+cutover 이후 health gate가 실패했고 schema barrier와 Course 활성화 경계를 넘지 않았다면, runner는 이미 빌드와 검증을 마친 이전 release를 재활성화한다. 이 경로는 dependency install, build, migration, Course backfill을 다시 실행하지 않는다. 이전 release가 이 bounded reactivation 계약을 지원하지 않으면 서비스를 sealed 상태로 두고 같은 release를 roll forward한다. 최초 immutable 전환은 자동 legacy downgrade를 하지 않으며, 보존한 legacy snapshot은 진단과 수동 복구 판단을 위한 증거로만 사용한다.
+
+시간 상한은 신규 activation 110분, prepared reactivation 25분, 마무리 5분, watchdog lease 145분, SSM 160분, CI deploy job 175분 순서로 잡는다. 시간 초과 시 watchdog가 application과 public edge를 sealed 상태로 전환한다.
 
 자동 rollback은 application release를 복원하지만 적용한 database migration을 자동으로 down하지 않는다. migration은 이전 application과 함께 동작하도록 additive하게 작성하고 schema 문제는 roll forward한다. 운영자가 `current` symlink나 state 파일을 수동 수정하지 않는다.
 

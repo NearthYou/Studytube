@@ -1,6 +1,8 @@
 import asyncio
 import json
 import os
+import shutil
+import subprocess
 import tempfile
 import time
 import unittest
@@ -2203,6 +2205,7 @@ class AiServiceTest(unittest.TestCase):
 
         try:
             args = main.yt_dlp_recovery_args()
+            sensitive_args = main.yt_dlp_sensitive_recovery_args()
         finally:
             for key, value in original_env.items():
                 if value is None:
@@ -2218,13 +2221,17 @@ class AiServiceTest(unittest.TestCase):
         self.assertIn(r"C:\captions\cookies.txt", args)
         self.assertIn("--cookies-from-browser", args)
         self.assertIn("edge", args)
-        self.assertIn("--proxy", args)
-        self.assertIn("http://127.0.0.1:8888", args)
-        self.assertIn("--extractor-args", args)
+        self.assertNotIn("TEST_TOKEN", " ".join(args))
+        self.assertNotIn("TEST_VISITOR", " ".join(args))
+        self.assertNotIn("http://127.0.0.1:8888", args)
+        self.assertIn("--proxy", sensitive_args)
+        self.assertIn("http://127.0.0.1:8888", sensitive_args)
+        self.assertIn("--extractor-args", sensitive_args)
         youtube_extractor_args = [
-            args[index + 1]
-            for index, arg in enumerate(args[:-1])
-            if arg == "--extractor-args" and args[index + 1].startswith("youtube:")
+            sensitive_args[index + 1]
+            for index, arg in enumerate(sensitive_args[:-1])
+            if arg == "--extractor-args"
+            and sensitive_args[index + 1].startswith("youtube:")
         ]
         self.assertTrue(youtube_extractor_args)
         self.assertIn("po_token=web.subs+TEST_TOKEN", youtube_extractor_args[0])
@@ -2282,15 +2289,146 @@ class AiServiceTest(unittest.TestCase):
         self.assertEqual(query["potc"], "1")
         self.assertEqual(query["c"], "WEB")
 
-    def test_sanitized_caption_exception_redacts_po_token_query_values(self):
+    def test_sanitized_caption_exception_never_exposes_upstream_details(self):
         error = main.sanitized_caption_exception(
             RuntimeError(
-                "HTTP 429 for https://www.youtube.com/api/timedtext?v=abc&pot=SECRET&potc=1"
+                "yt-dlp --extractor-args youtube:po_token=SECRET;visitor_data=VISITOR "
+                "--proxy http://user:password@proxy.example "
+                "https://www.youtube.com/api/timedtext?v=abc&pot=QUERY_SECRET"
             )
         )
 
-        self.assertNotIn("SECRET", str(error))
-        self.assertIn("pot=[REDACTED]", str(error))
+        self.assertEqual(str(error), "youtube-caption-upstream-failed")
+
+    def test_yt_dlp_secrets_are_loaded_from_a_private_config_not_argv(self):
+        captured: dict[str, object] = {}
+
+        def fake_run(command, **_kwargs):
+            captured["command"] = list(command)
+            captured["environment"] = dict(_kwargs["env"])
+            config_index = command.index("--config-locations")
+            config_path = command[config_index + 1]
+            captured["config_path"] = config_path
+            with open(config_path, encoding="utf-8") as config_file:
+                captured["config"] = config_file.read()
+            return main.subprocess.CompletedProcess(
+                command,
+                0,
+                stdout="{}",
+                stderr="",
+            )
+
+        env_updates = {
+            "YOUTUBE_PO_TOKEN": "web.subs+PO_SECRET",
+            "YOUTUBE_VISITOR_DATA": "VISITOR_SECRET",
+            "YOUTUBE_PROXY_URL": "http://user:PROXY_SECRET@proxy.example",
+            "OPENAI_API_KEY": "OPENAI_SHOULD_NOT_REACH_YT_DLP",
+        }
+        with mock.patch.dict(os.environ, env_updates, clear=False):
+            with mock.patch.object(main, "yt_dlp_commands", return_value=[["yt-dlp"]]):
+                with mock.patch.object(main.subprocess, "run", side_effect=fake_run):
+                    metadata, error = main.fetch_yt_dlp_metadata("abc123")
+
+        self.assertEqual(metadata, {})
+        self.assertIsNone(error)
+        command_text = " ".join(captured["command"])
+        self.assertNotIn("PO_SECRET", command_text)
+        self.assertNotIn("VISITOR_SECRET", command_text)
+        self.assertNotIn("PROXY_SECRET", command_text)
+        self.assertIn("PO_SECRET", captured["config"])
+        self.assertIn("VISITOR_SECRET", captured["config"])
+        self.assertIn("PROXY_SECRET", captured["config"])
+        self.assertNotIn("OPENAI_API_KEY", captured["environment"])
+        self.assertFalse(os.path.exists(captured["config_path"]))
+
+    def test_bgutil_proxy_credentials_are_passed_by_environment_not_argv(self):
+        captured: dict[str, object] = {}
+
+        def fake_run(command, **kwargs):
+            captured["command"] = list(command)
+            captured["env"] = dict(kwargs["env"])
+            return main.subprocess.CompletedProcess(
+                command,
+                0,
+                stdout='{"poToken":"GENERATED_TOKEN"}\n',
+                stderr="",
+            )
+
+        with tempfile.TemporaryDirectory() as server_home:
+            build_directory = os.path.join(server_home, "build")
+            os.makedirs(build_directory)
+            with open(
+                os.path.join(build_directory, "generate_once.js"),
+                "w",
+                encoding="utf-8",
+            ) as script_file:
+                script_file.write("// fixture\n")
+
+            proxy_url = "http://user:BGUTIL_SECRET@proxy.example"
+            with mock.patch.dict(
+                os.environ,
+                {"YOUTUBE_PROXY_URL": proxy_url},
+                clear=False,
+            ):
+                with mock.patch.object(
+                    main,
+                    "youtube_bgutil_server_home",
+                    return_value=server_home,
+                ):
+                    with mock.patch.object(
+                        main,
+                        "youtube_node_runtime_path",
+                        return_value="node",
+                    ):
+                        with mock.patch.object(
+                            main.subprocess,
+                            "run",
+                            side_effect=fake_run,
+                        ):
+                            token = main.generate_bgutil_subtitle_po_token("abc123")
+
+        self.assertEqual(token, "GENERATED_TOKEN")
+        self.assertNotIn("BGUTIL_SECRET", " ".join(captured["command"]))
+        self.assertEqual(captured["env"]["HTTPS_PROXY"], proxy_url)
+        self.assertEqual(captured["env"]["HTTP_PROXY"], proxy_url)
+
+    def test_bgutil_subprocess_can_initialize_its_managed_cache(self):
+        node_path = shutil.which("node")
+        self.assertIsNotNone(node_path)
+
+        with tempfile.TemporaryDirectory() as cache_home:
+            with mock.patch.dict(
+                os.environ,
+                {"HOME": cache_home, "XDG_CACHE_HOME": cache_home},
+                clear=False,
+            ):
+                environment = main.youtube_subprocess_environment()
+
+            cache_directory = os.path.join(
+                cache_home,
+                ".cache",
+                "bgutil-ytdlp-pot-provider",
+            )
+            result = subprocess.run(
+                [
+                    node_path,
+                    "-e",
+                    (
+                        "const fs = require('node:fs'); "
+                        "const path = require('node:path'); "
+                        "fs.mkdirSync(path.join(process.env.HOME, '.cache', "
+                        "'bgutil-ytdlp-pot-provider'), { recursive: true });"
+                    ),
+                ],
+                env=environment,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(os.path.isdir(cache_directory))
+            self.assertEqual(environment["XDG_CACHE_HOME"], cache_home)
 
     def test_fetch_caption_segments_uses_recovery_url_and_proxy(self):
         class FakeResponse:

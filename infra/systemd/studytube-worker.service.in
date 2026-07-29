@@ -1,10 +1,8 @@
 [Unit]
 Description=StudyTube durable work processor
-After=network-online.target docker.service studytube-deploy-resume.service
+After=network-online.target docker.service
 Wants=network-online.target
-Requires=docker.service
-StartLimitIntervalSec=60
-StartLimitBurst=5
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -13,6 +11,7 @@ Group=@WORKER_USER@
 SupplementaryGroups=@RUNTIME_GROUP@
 WorkingDirectory=@APP_DIR@
 EnvironmentFile=@RUNTIME_CONFIG_DIR@/worker.env
+Environment=AWS_EC2_METADATA_V1_DISABLED=true
 ExecStart=/usr/bin/env NODE_ENV=production COURSE_CUTOVER_MODE=@COURSE_CUTOVER_MODE@ @NODE_BIN@ api/dist/src/worker.js
 Restart=on-failure
 RestartSec=3
@@ -21,6 +20,8 @@ KillSignal=SIGTERM
 UMask=0077
 NoNewPrivileges=true
 PrivateTmp=true
+ProtectProc=invisible
+ProcSubset=pid
 ProtectSystem=full
 
 [Install]

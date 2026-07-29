@@ -4,13 +4,14 @@ import {
 } from './verification-email.config';
 
 describe('verification email configuration', () => {
-  it('uses instance-role SES in production and requires its deployment identity', () => {
+  it('uses the EC2 instance role for SES in production', () => {
     expect(
       resolveVerificationEmailConfig({
         NODE_ENV: 'production',
         WEB_ORIGIN: 'https://studytube.example',
         AUTH_EMAIL_SENDER: 'no-reply@studytube.example',
         AWS_REGION: 'ap-northeast-2',
+        AUTH_EMAIL_AWS_CREDENTIAL_SOURCE: 'instance-role',
         AUTH_EMAIL_SES_CONFIGURATION_SET: 'studytube-transactional',
       }),
     ).toMatchObject({
@@ -18,6 +19,7 @@ describe('verification email configuration', () => {
       sender: 'no-reply@studytube.example',
       publicOrigin: 'https://studytube.example',
       region: 'ap-northeast-2',
+      sesCredentialSource: 'instance-role',
       configurationSetName: 'studytube-transactional',
     });
 
@@ -28,6 +30,7 @@ describe('verification email configuration', () => {
           NODE_ENV: 'production',
           WEB_ORIGIN: 'https://studytube.example',
           AWS_REGION: 'ap-northeast-2',
+          AUTH_EMAIL_AWS_CREDENTIAL_SOURCE: 'instance-role',
         },
       ],
       [
@@ -36,6 +39,7 @@ describe('verification email configuration', () => {
           NODE_ENV: 'production',
           WEB_ORIGIN: 'https://studytube.example',
           AUTH_EMAIL_SENDER: 'no-reply@studytube.example',
+          AUTH_EMAIL_AWS_CREDENTIAL_SOURCE: 'instance-role',
         },
       ],
       [
@@ -44,11 +48,39 @@ describe('verification email configuration', () => {
           NODE_ENV: 'production',
           AUTH_EMAIL_SENDER: 'no-reply@studytube.example',
           AWS_REGION: 'ap-northeast-2',
+          AUTH_EMAIL_AWS_CREDENTIAL_SOURCE: 'instance-role',
         },
       ],
     ] as const) {
       expect(() => resolveVerificationEmailConfig(environment)).toThrow(name);
     }
+  });
+
+  it('rejects missing, unknown, or static SES credential sources', () => {
+    const baseEnvironment = {
+      NODE_ENV: 'production',
+      WEB_ORIGIN: 'https://studytube.example',
+      AUTH_EMAIL_SENDER: 'no-reply@studytube.example',
+      AWS_REGION: 'ap-northeast-2',
+    };
+
+    expect(() => resolveVerificationEmailConfig(baseEnvironment)).toThrow(
+      /AUTH_EMAIL_AWS_CREDENTIAL_SOURCE/u,
+    );
+    expect(() =>
+      resolveVerificationEmailConfig({
+        ...baseEnvironment,
+        AUTH_EMAIL_AWS_CREDENTIAL_SOURCE: 'default-chain',
+      }),
+    ).toThrow(/instance-role/u);
+    expect(() =>
+      resolveVerificationEmailConfig({
+        ...baseEnvironment,
+        AUTH_EMAIL_AWS_CREDENTIAL_SOURCE: 'instance-role',
+        AUTH_EMAIL_AWS_ACCESS_KEY_ID: 'fixture-access-key-id',
+        AUTH_EMAIL_AWS_SECRET_ACCESS_KEY: 'fixture-secret-access-key',
+      }),
+    ).toThrow(/static SES credentials.*forbidden/i);
   });
 
   it('rejects capture and insecure origins in production', () => {
@@ -58,6 +90,7 @@ describe('verification email configuration', () => {
         AUTH_EMAIL_PROVIDER: 'capture',
         AUTH_EMAIL_SENDER: 'no-reply@studytube.example',
         AWS_REGION: 'ap-northeast-2',
+        AUTH_EMAIL_AWS_CREDENTIAL_SOURCE: 'instance-role',
         WEB_ORIGIN: 'https://studytube.example',
       }),
     ).toThrow(/capture.*production/i);
@@ -66,6 +99,7 @@ describe('verification email configuration', () => {
         NODE_ENV: 'production',
         AUTH_EMAIL_SENDER: 'no-reply@studytube.example',
         AWS_REGION: 'ap-northeast-2',
+        AUTH_EMAIL_AWS_CREDENTIAL_SOURCE: 'instance-role',
         WEB_ORIGIN: 'http://studytube.example',
       }),
     ).toThrow(/https/i);
@@ -101,6 +135,7 @@ describe('verification email configuration', () => {
         NODE_ENV: 'production',
         AUTH_EMAIL_SENDER: 'no-reply@studytube.example',
         AWS_REGION: 'ap-northeast-2',
+        AUTH_EMAIL_AWS_CREDENTIAL_SOURCE: 'instance-role',
         WEB_ORIGIN: 'https://studytube.example',
         AUTH_EMAIL_SES_CONFIGURATION_SET: 'invalid configuration set',
       }),

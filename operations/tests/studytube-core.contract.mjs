@@ -7,9 +7,9 @@ import vm from 'node:vm';
 const testDirectory = dirname(fileURLToPath(import.meta.url));
 const workloadPath = resolve(testDirectory, '../load/studytube-core.js');
 const passwordCanary = 'CANARY_password_not_retained';
-const sessionCanary = 'CANARY_cookie_not_retained';
+const sessionCanaries = ['CANARY_cookie_one_not_retained', 'CANARY_cookie_two_not_retained'];
 const emailCanary = 'CANARY_email_not_retained@example.com';
-const sessionCookie = `__Host-studytube_session=${sessionCanary}`;
+const sessionCookies = sessionCanaries.map((value) => `__Host-studytube_session=${value}`);
 const readinessUrl = 'https://approved.example.com/api/health/live';
 const baseEnvironment = {
   K6_BASE_URL: 'https://approved.example.com/api',
@@ -18,7 +18,7 @@ const baseEnvironment = {
   K6_ACKNOWLEDGE_TARGET: 'https://approved.example.com/api',
   K6_LOGIN_EMAIL: emailCanary,
   K6_LOGIN_PASSWORD: passwordCanary,
-  K6_SESSION_COOKIE: sessionCookie,
+  K6_SESSION_COOKIE_POOL: JSON.stringify(sessionCookies),
   K6_RUN_ID: 'load-contract',
 };
 
@@ -40,9 +40,10 @@ const executable = `
   };
 `;
 
-function loadWorkload(environment, http) {
+function loadWorkload(environment, http, virtualUserId = 1) {
   const context = vm.createContext({
     __ENV: environment,
+    __VU: virtualUserId,
     __test: {
       http,
       check(value, predicates) {
@@ -103,8 +104,9 @@ const calls = [];
 const workload = loadWorkload(baseEnvironment, recordingHttp(calls));
 const setupData = workload.setup();
 const virtualUsers = [
-  loadWorkload(baseEnvironment, recordingHttp(calls)),
-  loadWorkload(baseEnvironment, recordingHttp(calls)),
+  loadWorkload(baseEnvironment, recordingHttp(calls), 1),
+  loadWorkload(baseEnvironment, recordingHttp(calls), 2),
+  loadWorkload(baseEnvironment, recordingHttp(calls), 3),
 ];
 for (const virtualUser of virtualUsers) {
   virtualUser.defaultFlow(setupData);
@@ -121,12 +123,13 @@ assert.equal(readinessCalls[0].url, readinessUrl, 'setup must use K6_READINESS_U
 const authenticatedCalls = calls.filter(
   (call) => call.method === 'GET' && ['posts', 'courses', 'search'].includes(call.params.tags?.flow),
 );
-assert.equal(authenticatedCalls.length, 12, 'both isolated VUs must execute two complete authenticated iterations');
-for (const call of authenticatedCalls) {
+assert.equal(authenticatedCalls.length, 18, 'three isolated VUs must execute two complete authenticated iterations');
+for (const [index, call] of authenticatedCalls.entries()) {
+  const virtualUserIndex = Math.floor(index / 6);
   assert.equal(
     call.params.headers?.Cookie,
-    sessionCookie,
-    'each VU iteration must reuse the pre-provisioned session without relying on a setup cookie jar',
+    sessionCookies[virtualUserIndex % sessionCookies.length],
+    'each VU must reuse its assigned pool session without relying on a setup cookie jar',
   );
 }
 
@@ -137,7 +140,7 @@ const authenticationMutations = calls.filter(
 assert.deepEqual(
   {
     authenticationMutationCount: authenticationMutations.length,
-    setupRetainsCookie: setupText.includes(sessionCanary),
+    setupRetainsCookie: sessionCanaries.some((value) => setupText.includes(value)),
     setupRetainsEmail: setupText.includes(emailCanary),
     setupRetainsPassword: setupText.includes(passwordCanary),
   },
@@ -160,10 +163,11 @@ const summary = workload.handleSummary({
 });
 const evidenceText = summary.stdout;
 const evidence = JSON.parse(evidenceText);
-for (const canary of [passwordCanary, sessionCanary, emailCanary]) {
+for (const canary of [passwordCanary, ...sessionCanaries, emailCanary]) {
   assert.equal(evidenceText.includes(canary), false, `evidence must not retain ${canary}`);
 }
 assert.equal(evidence.configuration.authentication, 'preprovisioned-session');
+assert.equal(evidence.configuration.sessionPoolSize, sessionCookies.length);
 assert.equal(evidence.configuration.readinessUrl, readinessUrl);
 assert.deepEqual(
   evidence.retention,
@@ -181,7 +185,11 @@ for (const invalidCookie of [
   '__Host-studytube_session=value\r\n',
 ]) {
   const invalidWorkload = loadWorkload(
-    { ...baseEnvironment, K6_SESSION_COOKIE: invalidCookie },
+    {
+      ...baseEnvironment,
+      K6_SESSION_COOKIE_POOL: '',
+      K6_SESSION_COOKIE: invalidCookie,
+    },
     recordingHttp([]),
   );
   let error;
@@ -193,5 +201,26 @@ for (const invalidCookie of [
   assert.match(String(error), /K6_SESSION_COOKIE/, 'invalid session cookies must be rejected');
   assert.equal(String(error).includes(invalidCookie), false, 'validation errors must not echo the cookie value');
 }
+
+const duplicatePoolCookie = '__Host-studytube_session=CANARY_duplicate_not_retained';
+const duplicatePoolWorkload = loadWorkload(
+  {
+    ...baseEnvironment,
+    K6_SESSION_COOKIE_POOL: JSON.stringify([duplicatePoolCookie, duplicatePoolCookie]),
+  },
+  recordingHttp([]),
+);
+let duplicatePoolError;
+try {
+  duplicatePoolWorkload.setup();
+} catch (caught) {
+  duplicatePoolError = caught;
+}
+assert.match(String(duplicatePoolError), /K6_SESSION_COOKIE_POOL/, 'duplicate pool sessions must be rejected');
+assert.equal(
+  String(duplicatePoolError).includes(duplicatePoolCookie),
+  false,
+  'duplicate pool validation must not echo a session cookie',
+);
 
 console.log('k6 workload contract passed: readiness, pre-provisioned session reuse, and evidence retention.');

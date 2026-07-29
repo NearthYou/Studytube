@@ -21,6 +21,7 @@ import { LearningService } from '../learning/learning.service';
 import { QuizGenerationJobHandler } from '../learning/quiz-generation.worker';
 import { AgentRunProcessor } from '../learning/agent-run.processor';
 import { SESv2Client } from '@aws-sdk/client-sesv2';
+import { fromInstanceMetadata } from '@smithy/credential-provider-imds';
 import {
   resolveVerificationEmailConfig,
   resolveVerificationPepper,
@@ -193,8 +194,18 @@ import { runtimeConfigOptions } from '../runtime-environment-files';
         if (!config.region) {
           throw new RangeError('AWS_REGION is required for SES email');
         }
+        if (config.sesCredentialSource !== 'instance-role') {
+          throw new RangeError('EC2 instance role is required for SES email');
+        }
         return new SesV2VerificationEmailSender(
-          new SESv2Client({ region: config.region }),
+          new SESv2Client({
+            region: config.region,
+            credentials: fromInstanceMetadata({
+              ec2MetadataV1Disabled: true,
+              maxRetries: 3,
+              timeout: 1_000,
+            }),
+          }),
           config.sendTimeoutMs,
           config.configurationSetName,
         );

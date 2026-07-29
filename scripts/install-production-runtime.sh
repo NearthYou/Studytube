@@ -18,6 +18,15 @@ migration_user="${MIGRATION_USER:-studytube-migrate}"
 runtime_config_dir="${RUNTIME_CONFIG_DIR:-/etc/studytube/runtime}"
 systemd_unit_dir="${SYSTEMD_UNIT_DIR:-/etc/systemd/system}"
 web_release_root="${WEB_RELEASE_ROOT:-/var/www/studytube}"
+deployment_guard_path='/run/studytube-deploy/resume-active'
+deployment_guard_service='studytube-deploy-resume-guard.service'
+deployment_watchdog_service='studytube-deployment-watchdog.service'
+deployment_watchdog_control_path="${STUDYTUBE_WATCHDOG_CONTROL_PATH:-}"
+deployment_watchdog_trip_path="${STUDYTUBE_WATCHDOG_TRIP_PATH:-}"
+deployment_watchdog_cancel_path="${STUDYTUBE_WATCHDOG_CANCEL_PATH:-}"
+deployment_watchdog_armed_path="${STUDYTUBE_WATCHDOG_ARMED_PATH:-}"
+deployment_owner_sha="${STUDYTUBE_DEPLOYMENT_OWNER_SHA:-}"
+deployment_control_enabled=false
 build_tree_delegated=false
 build_tree_trusted_owner=''
 declare -a build_tree_paths=()
@@ -70,6 +79,121 @@ validate_install_path "$build_home" BUILD_HOME
 validate_install_path "$runtime_config_dir" RUNTIME_CONFIG_DIR
 validate_install_path "$systemd_unit_dir" SYSTEMD_UNIT_DIR
 validate_install_path "$web_release_root" WEB_RELEASE_ROOT
+
+initialize_deployment_control() {
+  if [[ -z "$deployment_watchdog_control_path" &&
+        -z "$deployment_watchdog_trip_path" &&
+        -z "$deployment_watchdog_cancel_path" &&
+        -z "$deployment_watchdog_armed_path" &&
+        -z "$deployment_owner_sha" ]]; then
+    return 0
+  fi
+  [[ -n "$deployment_watchdog_control_path" &&
+      -n "$deployment_watchdog_trip_path" &&
+      -n "$deployment_watchdog_cancel_path" &&
+      -n "$deployment_watchdog_armed_path" &&
+      -n "$deployment_owner_sha" ]] ||
+    fail "deployment watchdog control, trip, cancellation, armed, and owner values must be provided together"
+  [[ "$deployment_owner_sha" =~ ^[0-9a-f]{40}$ ]] ||
+    fail "deployment watchdog owner must be a lowercase full commit SHA"
+  validate_install_path "$deployment_watchdog_control_path" STUDYTUBE_WATCHDOG_CONTROL_PATH
+  validate_install_path "$deployment_watchdog_trip_path" STUDYTUBE_WATCHDOG_TRIP_PATH
+  validate_install_path "$deployment_watchdog_cancel_path" STUDYTUBE_WATCHDOG_CANCEL_PATH
+  validate_install_path "$deployment_watchdog_armed_path" STUDYTUBE_WATCHDOG_ARMED_PATH
+  [[ "$deployment_watchdog_control_path" == */deployment-state/*-watchdog-control.lock ]] ||
+    fail "deployment watchdog control path is outside immutable deployment state"
+  local control_prefix="${deployment_watchdog_control_path%-watchdog-control.lock}"
+  [[ "$control_prefix" != "$deployment_watchdog_control_path" &&
+      "$deployment_watchdog_trip_path" == "$control_prefix-watchdog-tripped" &&
+      "$deployment_watchdog_cancel_path" == "$control_prefix-watchdog-cancelled" ]] ||
+    fail "deployment watchdog stop-marker paths do not match the control lock"
+  [[ "$deployment_watchdog_armed_path" == "$control_prefix-watchdog-armed" &&
+      "$control_prefix" == *"/$deployment_owner_sha" ]] ||
+    fail "deployment watchdog armed path does not match its owner"
+  [[ -f "$deployment_watchdog_control_path" && ! -L "$deployment_watchdog_control_path" ]] ||
+    fail "deployment watchdog control lock must be a regular non-symlink file"
+  [[ "$(stat -c '%u' "$deployment_watchdog_control_path")" == '0' ]] ||
+    fail "deployment watchdog control lock must be owned by root"
+  local control_mode
+  control_mode="$(stat -c '%a' "$deployment_watchdog_control_path")" ||
+    fail "could not inspect deployment watchdog control lock"
+  (( (8#$control_mode & 0077) == 0 )) ||
+    fail "deployment watchdog control lock must only be accessible by root"
+  [[ -f "$deployment_watchdog_armed_path" && ! -L "$deployment_watchdog_armed_path" ]] ||
+    fail "deployment watchdog armed marker must be a regular non-symlink file"
+  [[ "$(stat -c '%u' "$deployment_watchdog_armed_path")" == '0' ]] ||
+    fail "deployment watchdog armed marker must be owned by root"
+  local armed_mode
+  armed_mode="$(stat -c '%a' "$deployment_watchdog_armed_path")" ||
+    fail "could not inspect deployment watchdog armed marker"
+  (( (8#$armed_mode & 0077) == 0 )) ||
+    fail "deployment watchdog armed marker must only be accessible by root"
+  local command_name
+  for command_name in flock sudo systemctl; do
+    command -v "$command_name" >/dev/null 2>&1 ||
+      fail "$command_name is required for controlled deployment work"
+  done
+  deployment_control_enabled=true
+}
+
+validate_deployment_trip_marker() {
+  [[ "$deployment_control_enabled" == true ]] || return 0
+  local marker_path marker_label marker_mode
+  for marker_path in \
+    "$deployment_watchdog_trip_path" \
+    "$deployment_watchdog_cancel_path"; do
+    [[ -e "$marker_path" || -L "$marker_path" ]] || continue
+    if [[ "$marker_path" == "$deployment_watchdog_trip_path" ]]; then
+      marker_label='trip'
+    else
+      marker_label='cancellation'
+    fi
+    [[ -f "$marker_path" && ! -L "$marker_path" ]] ||
+      fail "deployment watchdog $marker_label marker is invalid"
+    [[ "$(stat -c '%u' "$marker_path")" == '0' ]] ||
+      fail "deployment watchdog $marker_label marker must be owned by root"
+    marker_mode="$(stat -c '%a' "$marker_path")" ||
+      fail "could not inspect deployment watchdog $marker_label marker"
+    (( (8#$marker_mode & 0077) == 0 )) ||
+      fail "deployment watchdog $marker_label marker must only be accessible by root"
+    if [[ "$marker_label" == 'trip' ]]; then
+      fail "deployment watchdog has tripped; refusing a new release mutation"
+    fi
+    fail "deployment watchdog has cancelled this release; refusing a new release mutation"
+  done
+}
+
+verify_live_deployment_watchdog() {
+  [[ "$deployment_control_enabled" == true ]] || return 0
+  sudo systemctl is-active --quiet "$deployment_watchdog_service" ||
+    fail "deployment watchdog is not active"
+  local watchdog_main_pid
+  watchdog_main_pid="$(sudo systemctl show "$deployment_watchdog_service" \
+    --property=MainPID --value)" || fail "could not inspect deployment watchdog"
+  [[ "$watchdog_main_pid" =~ ^[1-9][0-9]*$ ]] ||
+    fail "deployment watchdog has no live main process"
+  if [[ "$(wc -l <"$deployment_watchdog_armed_path")" -ne 3 ]] ||
+    ! grep -Fqx -- 'STUDYTUBE_WATCHDOG_ARMED_FORMAT=1' "$deployment_watchdog_armed_path" ||
+    ! grep -Fqx -- "DEPLOY_SHA=$deployment_owner_sha" "$deployment_watchdog_armed_path" ||
+    ! grep -Fqx -- "WATCHDOG_PID=$watchdog_main_pid" "$deployment_watchdog_armed_path"; then
+    fail "deployment watchdog armed marker does not match its live process"
+  fi
+}
+
+acquire_deployment_control() {
+  [[ "$deployment_control_enabled" == true ]] || return 0
+  exec 196<>"$deployment_watchdog_control_path"
+  flock -w 30 196 || fail "timed out waiting for deployment watchdog control"
+  validate_deployment_trip_marker
+  verify_live_deployment_watchdog
+}
+
+release_deployment_control() {
+  [[ "$deployment_control_enabled" == true ]] || return 0
+  exec 196>&-
+}
+
+initialize_deployment_control
 case "$course_cutover_mode" in
   legacy|freeze|course) ;;
   *) fail "COURSE_CUTOVER_MODE must be legacy, freeze, or course" ;;
@@ -123,7 +247,8 @@ write_runtime_environment() {
   local service_user="$1"
   local output_path="$2"
   shift 2
-  local temporary_path="$temporary_dir/$(basename -- "$output_path")"
+  local temporary_path
+  temporary_path="$temporary_dir/$(basename -- "$output_path")"
   : >"$temporary_path"
 
   local key value
@@ -186,11 +311,19 @@ cleanup_active_transient_unit() {
 }
 
 run_isolated_build_command() {
-  local unit_name="$1"
-  local command_path="$2"
-  shift 2
+  local network_mode="$1"
+  local unit_name="$2"
+  local command_path="$3"
+  shift 3
+  local -a network_properties=()
+  case "$network_mode" in
+    offline) network_properties+=(--property=PrivateNetwork=yes) ;;
+    online) ;;
+    *) fail "unsupported build network mode: $network_mode" ;;
+  esac
   local system_path='/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
   assert_transient_unit_inactive "$unit_name"
+  acquire_deployment_control
   active_transient_unit="$unit_name"
   local run_status=0 cleanup_status=0
   sudo env -i "PATH=$system_path" systemd-run \
@@ -211,11 +344,17 @@ run_isolated_build_command() {
     --property=ProtectKernelTunables=yes \
     --property=ProtectKernelModules=yes \
     --property=ProtectControlGroups=yes \
+    --property=ProtectProc=invisible \
+    --property=ProcSubset=pid \
     --property=RestrictSUIDSGID=yes \
     --property=UMask=0022 \
+    --property=RuntimeMaxSec=20min \
     --property=RestrictAddressFamilies='AF_UNIX AF_INET AF_INET6' \
+    --property=IPAddressDeny=127.0.0.1/32 \
+    --property=IPAddressDeny=::1/128 \
     --property=IPAddressDeny=169.254.169.254/32 \
     --property=IPAddressDeny=fd00:ec2::254/128 \
+    "${network_properties[@]}" \
     --property="ReadWritePaths=$app_dir/web $app_dir/api $app_dir/ai $build_home" \
     -- /usr/bin/env -i \
       "HOME=$build_home" \
@@ -231,6 +370,7 @@ run_isolated_build_command() {
       PIP_NO_INPUT=1 \
       "$command_path" "$@" || run_status=$?
   cleanup_active_transient_unit || cleanup_status=$?
+  release_deployment_control
   ((run_status == 0)) || return "$run_status"
   return "$cleanup_status"
 }
@@ -292,31 +432,43 @@ prepare_release() {
   done
 
   local build_status=0
-  run_isolated_build_command studytube-release-web-dependencies.service \
+  run_isolated_build_command online studytube-release-web-dependencies.service \
     "$npm_bin" ci --prefix web --no-audit --fund=false --ignore-scripts ||
     build_status=$?
   if ((build_status == 0)); then
-    run_isolated_build_command studytube-release-api-dependencies.service \
+    run_isolated_build_command online studytube-release-api-dependencies.service \
       "$npm_bin" ci --prefix api --no-audit --fund=false --ignore-scripts ||
       build_status=$?
   fi
   if ((build_status == 0)); then
-    run_isolated_build_command studytube-release-web-build.service \
+    run_isolated_build_command offline studytube-release-web-build.service \
       "$npm_bin" --prefix web run build --ignore-scripts ||
       build_status=$?
   fi
   if ((build_status == 0)); then
-    run_isolated_build_command studytube-release-api-build.service \
+    run_isolated_build_command offline studytube-release-api-build.service \
       "$npm_bin" --prefix api run build --ignore-scripts ||
       build_status=$?
   fi
   if ((build_status == 0)); then
-    run_isolated_build_command studytube-release-ai-venv.service \
+    run_isolated_build_command offline studytube-release-web-prune.service \
+      "$npm_bin" prune --prefix web --omit=dev --ignore-scripts \
+      --no-audit --fund=false ||
+      build_status=$?
+  fi
+  if ((build_status == 0)); then
+    run_isolated_build_command offline studytube-release-api-prune.service \
+      "$npm_bin" prune --prefix api --omit=dev --ignore-scripts \
+      --no-audit --fund=false ||
+      build_status=$?
+  fi
+  if ((build_status == 0)); then
+    run_isolated_build_command offline studytube-release-ai-venv.service \
       "$python_bin" -m venv ai/.venv ||
       build_status=$?
   fi
   if ((build_status == 0)); then
-    run_isolated_build_command studytube-release-ai-dependencies.service \
+    run_isolated_build_command online studytube-release-ai-dependencies.service \
       "$app_dir/ai/.venv/bin/python" -m pip install \
       --disable-pip-version-check \
       --no-cache-dir \
@@ -339,23 +491,27 @@ prepare_release() {
 run_isolated_migration_command() {
   local unit_name="$1"
   local allow_course_backfill="$2"
-  shift 2
+  local command_path="$3"
+  shift 3
   local command_name
-  for command_name in npm sudo systemctl systemd-run; do
+  for command_name in sudo systemctl systemd-run; do
     command -v "$command_name" >/dev/null 2>&1 || fail "$command_name is required"
   done
   local migration_environment="$runtime_config_dir/migration.env"
   [[ -f "$migration_environment" && ! -L "$migration_environment" ]] ||
     fail "migration runtime environment is missing"
 
-  local npm_bin system_path
-  npm_bin="$(command -v npm)"
-  [[ "$npm_bin" == /* ]] || fail "npm must resolve to an absolute path"
+  [[ "$command_path" == /* && -x "$command_path" ]] ||
+    fail "migration command must resolve to an executable absolute path"
+  local system_path
   system_path='/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
 
   local executor
+  # The isolated child shell expands these positional and allowlisted variables.
+  # shellcheck disable=SC2016
   executor='exec /usr/bin/env -i HOME=/nonexistent PATH="$1" LANG=C.UTF-8 LC_ALL=C.UTF-8 NODE_ENV=production DATABASE_URL="$DATABASE_URL" COURSE_CUTOVER_MODE="${COURSE_CUTOVER_MODE:-}" REQUIRED_MIGRATIONS_DIR="${REQUIRED_MIGRATIONS_DIR:-}" ALLOW_COURSE_BACKFILL="$2" "${@:3}"'
   assert_transient_unit_inactive "$unit_name"
+  acquire_deployment_control
   trap cleanup_active_transient_unit EXIT
   trap 'exit 130' INT
   trap 'exit 143' TERM
@@ -379,15 +535,22 @@ run_isolated_migration_command() {
     --property=ProtectKernelTunables=yes \
     --property=ProtectKernelModules=yes \
     --property=ProtectControlGroups=yes \
+    --property=ProtectProc=invisible \
+    --property=ProcSubset=pid \
     --property=RestrictSUIDSGID=yes \
     --property=UMask=0077 \
+    --property=RuntimeMaxSec=15min \
+    --property=TimeoutStopSec=30s \
+    --property=KillMode=control-group \
+    --property=SendSIGKILL=yes \
     --property=RestrictAddressFamilies='AF_UNIX AF_INET AF_INET6' \
     --property=IPAddressDeny=169.254.169.254/32 \
     --property=IPAddressDeny=fd00:ec2::254/128 \
     --property="EnvironmentFile=$migration_environment" \
     -- /usr/bin/bash -c "$executor" migration-runtime \
-      "$system_path" "$allow_course_backfill" "$npm_bin" "$@" || run_status=$?
+      "$system_path" "$allow_course_backfill" "$command_path" "$@" || run_status=$?
   cleanup_active_transient_unit || cleanup_status=$?
+  release_deployment_control
   ((cleanup_status == 0)) || return "$cleanup_status"
   trap - EXIT INT TERM
   return "$run_status"
@@ -400,22 +563,24 @@ case "$installer_command" in
     ;;
   run-migration)
     run_isolated_migration_command studytube-release-migration.service \
-      false --prefix api run db:migrate:up
+      false "$(command -v npm)" --prefix api run db:migrate:up
     exit 0
     ;;
   run-course-backfill)
     run_isolated_migration_command studytube-release-course-backfill.service \
-      true --prefix api run db:course:backfill
+      true "$(command -v node)" api/dist/scripts/backfill-courses.js
     exit 0
     ;;
   run-course-verify)
     run_isolated_migration_command studytube-release-course-verify.service \
-      false --prefix api run db:course:verify
+      false "$(command -v node)" api/dist/scripts/verify-course-backfill.js
     exit 0
     ;;
   install-runtime) ;;
   *) fail "unknown installer command: $installer_command" ;;
 esac
+
+acquire_deployment_control
 
 for command_name in docker getent node sudo systemctl; do
   command -v "$command_name" >/dev/null 2>&1 || fail "$command_name is required"
@@ -432,8 +597,17 @@ template_dir="$app_dir/infra/systemd"
 temporary_dir="$(mktemp -d "${TMPDIR:-/tmp}/studytube-units.XXXXXX")"
 cleanup() {
   rm -rf -- "$temporary_dir"
+  release_deployment_control
 }
 trap cleanup EXIT
+
+deployment_guard_dropin="$temporary_dir/90-studytube-deployment-guard.conf"
+printf '%s\n' \
+  '[Unit]' \
+  "Requires=$deployment_guard_service" \
+  "After=$deployment_guard_service" \
+  "ConditionPathExists=!$deployment_guard_path" \
+  >"$deployment_guard_dropin"
 
 render_unit() {
   local template_path="$1"
@@ -465,6 +639,7 @@ api_environment_keys=(
   OUTBOX_PUBLISH_TIMEOUT_MS
   DB_INIT_ATTEMPTS
   DB_INIT_RETRY_DELAY_MS
+  DB_QUERY_TIMEOUT_MS
   WEB_ORIGIN
   AI_SERVICE_URL
   AI_EMBEDDING_TIMEOUT_MS
@@ -482,6 +657,7 @@ api_environment_keys=(
   AUTH_EMAIL_PROVIDER
   AUTH_EMAIL_SENDER
   AUTH_EMAIL_CAPTURE_DIR
+  AUTH_EMAIL_AWS_CREDENTIAL_SOURCE
   AUTH_EMAIL_AWS_REGION
   AUTH_EMAIL_SES_CONFIGURATION_SET
   AUTH_EMAIL_POLL_INTERVAL_MS
@@ -493,10 +669,23 @@ api_environment_keys=(
   COURSE_CUTOVER_STATE_DIR
   IRREVERSIBLE_MIGRATIONS_VERIFIED_BACKUP_MARKER
   REQUIRED_MIGRATIONS_DIR
+  OTEL_SERVICE_NAME
   OTEL_SDK_DISABLED
   OTEL_TRACES_EXPORTER
   OTEL_EXPORTER_OTLP_ENDPOINT
   OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+  OTEL_EXPORTER_OTLP_HEADERS
+  OTEL_EXPORTER_OTLP_TRACES_HEADERS
+  OTEL_EXPORTER_OTLP_PROTOCOL
+  OTEL_EXPORTER_OTLP_TRACES_PROTOCOL
+  OTEL_EXPORTER_OTLP_TIMEOUT
+  OTEL_EXPORTER_OTLP_TRACES_TIMEOUT
+  OTEL_EXPORTER_OTLP_CERTIFICATE
+  OTEL_EXPORTER_OTLP_TRACES_CERTIFICATE
+  OTEL_EXPORTER_OTLP_CLIENT_KEY
+  OTEL_EXPORTER_OTLP_TRACES_CLIENT_KEY
+  OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE
+  OTEL_EXPORTER_OTLP_TRACES_CLIENT_CERTIFICATE
 )
 ai_environment_keys=(
   DATABASE_URL
@@ -534,6 +723,7 @@ worker_environment_keys=(
   OUTBOX_PUBLISH_TIMEOUT_MS
   DB_INIT_ATTEMPTS
   DB_INIT_RETRY_DELAY_MS
+  DB_QUERY_TIMEOUT_MS
   WEB_ORIGIN
   AI_SERVICE_URL
   AI_EMBEDDING_TIMEOUT_MS
@@ -550,6 +740,7 @@ worker_environment_keys=(
   AUTH_EMAIL_PROVIDER
   AUTH_EMAIL_SENDER
   AUTH_EMAIL_CAPTURE_DIR
+  AUTH_EMAIL_AWS_CREDENTIAL_SOURCE
   AUTH_EMAIL_AWS_REGION
   AUTH_EMAIL_SES_CONFIGURATION_SET
   AUTH_EMAIL_POLL_INTERVAL_MS
@@ -568,10 +759,23 @@ worker_environment_keys=(
   RETRIEVAL_EMBEDDING_CACHE_MAINTENANCE_INTERVAL_MS
   RETRIEVAL_EMBEDDING_CACHE_PRUNE_BATCH_SIZE
   RETRIEVAL_EMBEDDING_CACHE_RETENTION_DAYS
+  OTEL_SERVICE_NAME
   OTEL_SDK_DISABLED
   OTEL_TRACES_EXPORTER
   OTEL_EXPORTER_OTLP_ENDPOINT
   OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+  OTEL_EXPORTER_OTLP_HEADERS
+  OTEL_EXPORTER_OTLP_TRACES_HEADERS
+  OTEL_EXPORTER_OTLP_PROTOCOL
+  OTEL_EXPORTER_OTLP_TRACES_PROTOCOL
+  OTEL_EXPORTER_OTLP_TIMEOUT
+  OTEL_EXPORTER_OTLP_TRACES_TIMEOUT
+  OTEL_EXPORTER_OTLP_CERTIFICATE
+  OTEL_EXPORTER_OTLP_TRACES_CERTIFICATE
+  OTEL_EXPORTER_OTLP_CLIENT_KEY
+  OTEL_EXPORTER_OTLP_TRACES_CLIENT_KEY
+  OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE
+  OTEL_EXPORTER_OTLP_TRACES_CLIENT_CERTIFICATE
 )
 migration_environment_keys=(
   DATABASE_URL
@@ -605,6 +809,9 @@ render_unit \
 render_unit \
   "$template_dir/studytube-worker.service.in" \
   "$temporary_dir/studytube-worker.service"
+render_unit \
+  "$template_dir/studytube-caddy.service.in" \
+  "$temporary_dir/studytube-caddy.service"
 
 sudo install -o root -g root -m 644 \
   "$temporary_dir/studytube-api.service" \
@@ -615,8 +822,19 @@ sudo install -o root -g root -m 644 \
 sudo install -o root -g root -m 644 \
   "$temporary_dir/studytube-worker.service" \
   "$systemd_unit_dir/studytube-worker.service"
+sudo install -o root -g root -m 644 \
+  "$temporary_dir/studytube-caddy.service" \
+  "$systemd_unit_dir/studytube-caddy.service"
+for service_name in api ai worker caddy; do
+  sudo install -d -o root -g root -m 0755 \
+    "$systemd_unit_dir/studytube-$service_name.service.d"
+  sudo install -o root -g root -m 0644 \
+    "$deployment_guard_dropin" \
+    "$systemd_unit_dir/studytube-$service_name.service.d/90-studytube-deployment-guard.conf"
+done
 sudo systemctl daemon-reload
 sudo systemctl enable \
   studytube-api.service \
   studytube-ai.service \
-  studytube-worker.service
+  studytube-worker.service \
+  studytube-caddy.service

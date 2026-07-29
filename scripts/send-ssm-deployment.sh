@@ -24,7 +24,7 @@ Optional deployment settings:
   --retain-releases NUMBER    Default: 5
   --minimum-free-bytes BYTES  Default: 3221225472
   --object-lock-days NUMBER   Default: 30
-  --timeout-seconds NUMBER    Default: 2700
+  --timeout-seconds NUMBER    Default: 9600
   --diagnostics-dir PATH      Default: .deployment-diagnostics
   --cloudwatch-log-group NAME Also stream Run Command output to CloudWatch.
 EOF
@@ -73,7 +73,7 @@ deploy_root='/opt/studytube'
 retain_releases='5'
 minimum_free_bytes='3221225472'
 object_lock_days='30'
-timeout_seconds='2700'
+timeout_seconds='9600'
 diagnostics_dir='.deployment-diagnostics'
 cloudwatch_log_group=''
 
@@ -268,7 +268,8 @@ invocation_path="$diagnostics_dir/command-invocation.json"
 invocation_error_path="$diagnostics_dir/command-invocation.stderr"
 wait_exit=0
 command_status='Pending'
-deadline=$((SECONDS + timeout_seconds))
+local_wait_buffer_seconds=60
+deadline=$((SECONDS + timeout_seconds + local_wait_buffer_seconds))
 while ((SECONDS < deadline)); do
   if aws ssm get-command-invocation \
     --command-id "$command_id" \
@@ -284,6 +285,17 @@ while ((SECONDS < deadline)); do
   fi
   sleep 10
 done
+
+# The remote execution timeout starts after SSM accepts and schedules the command,
+# so the local waiter has a small buffer and performs one final authoritative read.
+if aws ssm get-command-invocation \
+  --command-id "$command_id" \
+  --instance-id "$instance_id" \
+  --region "$region" \
+  >"$invocation_path.tmp" 2>"$invocation_error_path"; then
+  mv -f -- "$invocation_path.tmp" "$invocation_path"
+  command_status="$(jq -r '.Status // "Unknown"' "$invocation_path")"
+fi
 if [[ "$command_status" == 'Pending' || "$command_status" == 'InProgress' || "$command_status" == 'Delayed' ]]; then
   wait_exit=1
   printf 'Timed out waiting for SSM command %s while status=%s\n' \

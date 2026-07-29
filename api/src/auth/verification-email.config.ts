@@ -3,6 +3,7 @@ export type VerificationEmailConfig = Readonly<{
   sender: string;
   publicOrigin: string;
   region?: string;
+  sesCredentialSource?: 'instance-role';
   configurationSetName?: string;
   captureDirectory?: string;
   pollIntervalMs: number;
@@ -49,6 +50,8 @@ export function resolveVerificationEmailConfig(
   if (provider === 'ses' && !region) {
     throw new RangeError('AWS_REGION must be configured for SES email');
   }
+  const sesCredentialSource =
+    provider === 'ses' ? resolveSesCredentialSource(environment) : undefined;
   const configurationSetName = firstValue(
     environment.AUTH_EMAIL_SES_CONFIGURATION_SET,
   );
@@ -82,6 +85,7 @@ export function resolveVerificationEmailConfig(
     sender,
     publicOrigin: parsedOrigin.origin,
     ...(region ? { region } : {}),
+    ...(sesCredentialSource ? { sesCredentialSource } : {}),
     ...(configurationSetName ? { configurationSetName } : {}),
     ...(provider === 'capture'
       ? {
@@ -113,6 +117,32 @@ export function resolveVerificationEmailConfig(
       'AUTH_EMAIL_RETRY_MAX_MS',
     ),
   });
+}
+
+function resolveSesCredentialSource(
+  environment: NodeJS.ProcessEnv,
+): NonNullable<VerificationEmailConfig['sesCredentialSource']> {
+  if (
+    firstValue(
+      environment.AUTH_EMAIL_AWS_ACCESS_KEY_ID,
+      environment.AUTH_EMAIL_AWS_SECRET_ACCESS_KEY,
+      environment.AUTH_EMAIL_AWS_SESSION_TOKEN,
+      environment.AWS_ACCESS_KEY_ID,
+      environment.AWS_SECRET_ACCESS_KEY,
+      environment.AWS_SESSION_TOKEN,
+    )
+  ) {
+    throw new RangeError(
+      'Static SES credentials are forbidden; use the EC2 instance role',
+    );
+  }
+  const source = firstValue(environment.AUTH_EMAIL_AWS_CREDENTIAL_SOURCE);
+  if (source !== 'instance-role') {
+    throw new RangeError(
+      'AUTH_EMAIL_AWS_CREDENTIAL_SOURCE must be instance-role for SES email',
+    );
+  }
+  return source;
 }
 
 export function resolveVerificationPepper(

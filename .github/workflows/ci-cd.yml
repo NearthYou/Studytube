@@ -176,7 +176,8 @@ jobs:
             ../scripts/install-production-runtime.sh \
             ../scripts/send-ssm-deployment.sh \
             ../scripts/ssm-deploy-release.sh \
-            ../scripts/tests/immutable-deploy-contract.sh; do
+            ../scripts/tests/immutable-deploy-contract.sh \
+            ../scripts/tests/production-compose-loopback-contract.sh; do
             bash -n "$script"
           done
 
@@ -190,6 +191,9 @@ jobs:
           POSTGRES_DB: app_test
           STUDYTUBE_SITE_ADDRESS: http://localhost
         run: docker compose -f ../infra/production.compose.yml config --quiet
+
+      - name: Verify production Compose loopback connectivity
+        run: bash ../scripts/tests/production-compose-loopback-contract.sh
 
       - name: Validate Caddy edge configuration
         run: >-
@@ -514,7 +518,7 @@ jobs:
   deploy:
     name: Deploy immutable release with SSM
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 175
     needs:
       - security
       - web

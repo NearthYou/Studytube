@@ -6,9 +6,12 @@ const BASE_URL = (__ENV.K6_BASE_URL || 'http://127.0.0.1:3000').replace(/\/+$/, 
 const READINESS_URL = (__ENV.K6_READINESS_URL || `${BASE_URL}/health/live`).replace(/\/+$/, '');
 const SEARCH_TERM = __ENV.K6_SEARCH_TERM || '학습';
 const SESSION_COOKIE = __ENV.K6_SESSION_COOKIE || '';
+const SESSION_COOKIE_POOL = __ENV.K6_SESSION_COOKIE_POOL || '';
 const RUN_ID = __ENV.K6_RUN_ID || `load-${new Date().toISOString().replace(/[-:.]/g, '')}`;
 const EVIDENCE_PATH = __ENV.K6_EVIDENCE_PATH || `docs/evidence/operations/results/${RUN_ID}.json`;
 const flowErrors = new Rate('flow_errors');
+const sessionCookiePattern = /^(?:__Host-)?studytube_session=[^\s;]+$/;
+let cachedSessionCookies;
 
 function positiveInteger(value, fallback) {
   const parsed = Number(value);
@@ -88,15 +91,48 @@ function assertSafeConfiguration() {
   ) {
     fail('A non-loopback readiness URL on another authority requires an exact K6_ACKNOWLEDGE_READINESS_TARGET match.');
   }
-  if (!/^(?:__Host-)?studytube_session=[^\s;]+$/.test(SESSION_COOKIE)) {
-    fail('K6_SESSION_COOKIE must contain only a StudyTube session cookie name and value.');
+  sessionCookies();
+}
+
+function sessionCookies() {
+  if (cachedSessionCookies) {
+    return cachedSessionCookies;
   }
+  if (SESSION_COOKIE && SESSION_COOKIE_POOL) {
+    fail('Set either K6_SESSION_COOKIE or K6_SESSION_COOKIE_POOL, not both.');
+  }
+
+  let configured;
+  if (SESSION_COOKIE_POOL) {
+    try {
+      configured = JSON.parse(SESSION_COOKIE_POOL);
+    } catch {
+      fail('K6_SESSION_COOKIE_POOL must be a JSON array of StudyTube session cookies.');
+    }
+  } else {
+    configured = SESSION_COOKIE ? [SESSION_COOKIE] : [];
+  }
+
+  if (
+    !Array.isArray(configured) ||
+    configured.length === 0 ||
+    configured.some((cookie) => typeof cookie !== 'string' || !sessionCookiePattern.test(cookie))
+  ) {
+    fail('K6_SESSION_COOKIE or K6_SESSION_COOKIE_POOL must contain only StudyTube session cookie names and values.');
+  }
+  if (new Set(configured).size !== configured.length) {
+    fail('K6_SESSION_COOKIE_POOL must contain distinct StudyTube sessions.');
+  }
+  cachedSessionCookies = configured;
+  return cachedSessionCookies;
 }
 
 function expectStatus(response, flow, expectedStatus) {
   const passed = check(
     response,
-    { [`${flow} returns ${expectedStatus}`]: (item) => item.status === expectedStatus },
+    {
+      [`${flow} returns ${expectedStatus}`]: (item) => item.status === expectedStatus,
+    },
     { flow },
   );
   flowErrors.add(!passed, { flow });
@@ -113,7 +149,9 @@ function get(path, flow, headers) {
 }
 
 function sessionHeaders() {
-  return { Cookie: SESSION_COOKIE };
+  const configured = sessionCookies();
+  const virtualUserId = Number.isInteger(__VU) && __VU > 0 ? __VU : 1;
+  return { Cookie: configured[(virtualUserId - 1) % configured.length] };
 }
 
 export function setup() {
@@ -179,9 +217,10 @@ export function handleSummary(data) {
   const evidence = {
     schemaVersion: 'studytube.load-evidence.v1',
     runId: RUN_ID,
-    status: thresholdMetrics.length > 0 && thresholdMetrics.every((metric) => Object.values(metric).every(Boolean))
-      ? 'passed'
-      : 'failed',
+    status:
+      thresholdMetrics.length > 0 && thresholdMetrics.every((metric) => Object.values(metric).every(Boolean))
+        ? 'passed'
+        : 'failed',
     completedAt: new Date().toISOString(),
     target: {
       baseUrl: BASE_URL,
@@ -190,6 +229,7 @@ export function handleSummary(data) {
     configuration: {
       readinessUrl: READINESS_URL,
       authentication: 'preprovisioned-session',
+      sessionPoolSize: sessionCookies().length,
       startVus: START_VUS,
       targetVus: TARGET_VUS,
       rampDuration: RAMP_DURATION,

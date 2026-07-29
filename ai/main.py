@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import copy
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timezone
 import html as html_lib
 import hashlib
@@ -13,6 +13,7 @@ import math
 import os
 from pathlib import Path
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -2101,36 +2102,41 @@ def fetch_yt_dlp_metadata(video_id: str) -> tuple[dict[str, Any] | None, Excepti
     last_error: Exception | None = None
     url = f"https://www.youtube.com/watch?v={video_id}"
 
-    for command in yt_dlp_commands():
-        try:
-            result = subprocess.run(
-                [
-                    *command,
-                    *yt_dlp_recovery_args(),
-                    *ffmpeg_location_args(),
-                    "--dump-json",
-                    "--skip-download",
-                    "--ignore-no-formats",
-                    "--no-warnings",
-                    "--no-playlist",
-                    url,
-                ],
-                capture_output=True,
-                check=False,
-                text=True,
-                timeout=25,
-            )
+    with yt_dlp_secret_config_args() as secret_config_args:
+        for command in yt_dlp_commands():
+            try:
+                result = subprocess.run(
+                    [
+                        *command,
+                        *yt_dlp_recovery_args(),
+                        *secret_config_args,
+                        *ffmpeg_location_args(),
+                        "--dump-json",
+                        "--skip-download",
+                        "--ignore-no-formats",
+                        "--no-warnings",
+                        "--no-playlist",
+                        url,
+                    ],
+                    capture_output=True,
+                    check=False,
+                    env=youtube_subprocess_environment(),
+                    text=True,
+                    timeout=25,
+                )
 
-            if result.returncode != 0:
-                last_error = RuntimeError(result.stderr.strip() or "yt-dlp failed")
-                continue
+                if result.returncode != 0:
+                    last_error = sanitized_caption_exception(
+                        RuntimeError(result.stderr or "yt-dlp failed")
+                    )
+                    continue
 
-            data = json.loads(result.stdout)
+                data = json.loads(result.stdout)
 
-            if isinstance(data, dict):
-                return data, None
-        except Exception as exc:
-            last_error = exc
+                if isinstance(data, dict):
+                    return data, None
+            except Exception as exc:
+                last_error = sanitized_caption_exception(exc)
 
     return None, last_error or RuntimeError("yt-dlp is not installed")
 
@@ -2147,59 +2153,63 @@ def fetch_yt_dlp_caption_file_segments(
         temp_path = Path(temp_dir)
         output_template = str(temp_path / "%(id)s.%(ext)s")
 
-        for command in yt_dlp_commands():
-            for languages in yt_dlp_subtitle_language_attempts(subtitle_language):
-                try:
-                    cleanup_temp_caption_files(temp_path)
-                    result = subprocess.run(
-                        [
-                            *command,
-                            *yt_dlp_recovery_args(),
-                            *ffmpeg_location_args(),
-                            "--skip-download",
-                            "--ignore-no-formats",
-                            "--write-subs",
-                            "--write-auto-subs",
-                            "--sub-langs",
-                            languages,
-                            "--sub-format",
-                            "json3/vtt/srv3/best",
-                            "--no-warnings",
-                            "--no-playlist",
-                            "-o",
-                            output_template,
-                            url,
-                        ],
-                        capture_output=True,
-                        check=False,
-                        text=True,
-                        timeout=45,
-                    )
-
-                    if result.returncode != 0:
-                        last_error = RuntimeError(
-                            result.stderr.strip()
-                            or "yt-dlp subtitle download failed"
+        with yt_dlp_secret_config_args() as secret_config_args:
+            for command in yt_dlp_commands():
+                for languages in yt_dlp_subtitle_language_attempts(subtitle_language):
+                    try:
+                        cleanup_temp_caption_files(temp_path)
+                        result = subprocess.run(
+                            [
+                                *command,
+                                *yt_dlp_recovery_args(),
+                                *secret_config_args,
+                                *ffmpeg_location_args(),
+                                "--skip-download",
+                                "--ignore-no-formats",
+                                "--write-subs",
+                                "--write-auto-subs",
+                                "--sub-langs",
+                                languages,
+                                "--sub-format",
+                                "json3/vtt/srv3/best",
+                                "--no-warnings",
+                                "--no-playlist",
+                                "-o",
+                                output_template,
+                                url,
+                            ],
+                            capture_output=True,
+                            check=False,
+                            env=youtube_subprocess_environment(),
+                            text=True,
+                            timeout=45,
                         )
-                        continue
 
-                    parsed = parse_best_yt_dlp_subtitle_file(
-                        temp_path,
-                        subtitle_language,
-                    )
+                        if result.returncode != 0:
+                            last_error = sanitized_caption_exception(
+                                RuntimeError(
+                                    result.stderr or "yt-dlp subtitle download failed"
+                                )
+                            )
+                            continue
 
-                    if parsed:
-                        segments, language = parsed
-                        translated_target = target_language or subtitle_language
-
-                        return (
-                            segments,
-                            language,
-                            normalize_language(language) != translated_target,
-                            None,
+                        parsed = parse_best_yt_dlp_subtitle_file(
+                            temp_path,
+                            subtitle_language,
                         )
-                except Exception as exc:
-                    last_error = exc
+
+                        if parsed:
+                            segments, language = parsed
+                            translated_target = target_language or subtitle_language
+
+                            return (
+                                segments,
+                                language,
+                                normalize_language(language) != translated_target,
+                                None,
+                            )
+                    except Exception as exc:
+                        last_error = sanitized_caption_exception(exc)
 
     return [], "", False, last_error or RuntimeError("yt-dlp subtitle download failed")
 
@@ -2308,6 +2318,28 @@ def yt_dlp_recovery_args() -> list[str]:
     if truthy_env("YT_DLP_ALLOW_REMOTE_COMPONENTS"):
         args.extend(["--remote-components", "ejs:github"])
 
+    bgutil_server_home = youtube_bgutil_server_home()
+    if bgutil_server_home:
+        args.extend(
+            [
+                "--extractor-args",
+                f"youtubepot-bgutilscript:server_home={bgutil_server_home}",
+            ]
+        )
+
+    cookies_file = os.getenv("YOUTUBE_COOKIES_FILE", "").strip()
+    if cookies_file:
+        args.extend(["--cookies", cookies_file])
+
+    cookies_browser = os.getenv("YOUTUBE_COOKIES_FROM_BROWSER", "").strip()
+    if cookies_browser:
+        args.extend(["--cookies-from-browser", cookies_browser])
+
+    return args
+
+
+def yt_dlp_sensitive_recovery_args() -> list[str]:
+    args: list[str] = []
     extractor_settings: list[str] = []
     for po_token in split_env_values(os.getenv("YOUTUBE_PO_TOKEN")):
         extractor_settings.append(f"po_token={po_token}")
@@ -2328,28 +2360,40 @@ def yt_dlp_recovery_args() -> list[str]:
     if extractor_settings:
         args.extend(["--extractor-args", f"youtube:{';'.join(extractor_settings)}"])
 
-    bgutil_server_home = youtube_bgutil_server_home()
-    if bgutil_server_home:
-        args.extend(
-            [
-                "--extractor-args",
-                f"youtubepot-bgutilscript:server_home={bgutil_server_home}",
-            ]
-        )
-
-    cookies_file = os.getenv("YOUTUBE_COOKIES_FILE", "").strip()
-    if cookies_file:
-        args.extend(["--cookies", cookies_file])
-
-    cookies_browser = os.getenv("YOUTUBE_COOKIES_FROM_BROWSER", "").strip()
-    if cookies_browser:
-        args.extend(["--cookies-from-browser", cookies_browser])
-
     proxy_url = os.getenv("YOUTUBE_PROXY_URL", "").strip()
     if proxy_url:
         args.extend(["--proxy", proxy_url])
 
     return args
+
+
+@contextmanager
+def yt_dlp_secret_config_args():
+    sensitive_args = yt_dlp_sensitive_recovery_args()
+    if not sensitive_args:
+        yield []
+        return
+
+    descriptor, config_path = tempfile.mkstemp(
+        prefix="studytube-yt-dlp-",
+        suffix=".conf",
+        text=True,
+    )
+    try:
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as config_file:
+            for index in range(0, len(sensitive_args), 2):
+                option = sensitive_args[index]
+                value = sensitive_args[index + 1]
+                config_file.write(f"{option} {shlex.quote(value)}\n")
+            config_file.flush()
+            os.fsync(config_file.fileno())
+        yield ["--config-locations", config_path]
+    finally:
+        try:
+            os.unlink(config_path)
+        except FileNotFoundError:
+            pass
 
 
 def youtube_httpx_request_kwargs(**kwargs: Any) -> dict[str, Any]:
@@ -2365,6 +2409,40 @@ def youtube_httpx_request_kwargs(**kwargs: Any) -> dict[str, Any]:
         kwargs["cookies"] = cookies
 
     return kwargs
+
+
+def youtube_subprocess_environment() -> dict[str, str]:
+    allowed_names = (
+        "PATH",
+        "HOME",
+        "XDG_CACHE_HOME",
+        "LANG",
+        "LC_ALL",
+        "TMPDIR",
+        "TEMP",
+        "TMP",
+        "SSL_CERT_FILE",
+        "SSL_CERT_DIR",
+        "REQUESTS_CA_BUNDLE",
+        "CURL_CA_BUNDLE",
+        "NO_PROXY",
+        "no_proxy",
+        "SYSTEMROOT",
+        "WINDIR",
+        "PATHEXT",
+        "COMSPEC",
+    )
+    environment = {
+        name: value
+        for name in allowed_names
+        if (value := os.getenv(name)) is not None
+    }
+    proxy_url = os.getenv("YOUTUBE_PROXY_URL", "").strip()
+    if proxy_url:
+        environment["HTTP_PROXY"] = proxy_url
+        environment["HTTPS_PROXY"] = proxy_url
+        environment["NODE_USE_ENV_PROXY"] = "1"
+    return environment
 
 
 def youtube_cookie_file_cookies() -> dict[str, str]:
@@ -2494,14 +2572,12 @@ def generate_bgutil_subtitle_po_token(video_id: str) -> str:
         return ""
 
     command = [node_path, str(script_path), "-c", video_id]
-    proxy_url = os.getenv("YOUTUBE_PROXY_URL", "").strip()
-    if proxy_url:
-        command.extend(["-p", proxy_url])
 
     try:
         result = subprocess.run(
             command,
             capture_output=True,
+            env=youtube_subprocess_environment(),
             text=True,
             timeout=45,
             check=False,
@@ -2552,15 +2628,12 @@ def youtube_node_runtime_path() -> str:
 
 
 def sanitized_caption_exception(exc: Exception) -> Exception:
-    return RuntimeError(redact_sensitive_youtube_text(str(exc)))
-
-
-def redact_sensitive_youtube_text(text: str) -> str:
-    return re.sub(
-        r"([?&](?:pot|poToken)=)[^&\s'\"]+",
-        r"\1[REDACTED]",
-        str(text),
-    )
+    message = str(exc)
+    if "429" in message or "Too Many Requests" in message:
+        return RuntimeError("youtube-caption-http-429")
+    if isinstance(exc, subprocess.TimeoutExpired):
+        return RuntimeError("youtube-caption-upstream-timeout")
+    return RuntimeError("youtube-caption-upstream-failed")
 
 
 def split_env_values(value: str | None) -> list[str]:

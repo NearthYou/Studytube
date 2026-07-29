@@ -72,7 +72,10 @@
 | --- | --- | --- |
 | `target.baseUrl` | string | 승인된 테스트 대상, 자격 증명은 없음 |
 | `target.profile` | string | 현재 흐름인 authenticated-read-only |
-| `configuration` | object | readiness URL, preprovisioned-session 인증 방식, VU 수, 각 구간 길이, 고정 검색어 |
+| `configuration.readinessUrl` | string | 공개 Caddy에서도 허용되는 live endpoint |
+| `configuration.authentication` | string | 현재 방식인 preprovisioned-session |
+| `configuration.sessionPoolSize` | integer | Cookie 값을 노출하지 않고 기록한 서로 다른 사전 발급 세션 수 |
+| `configuration` | object | VU 수, 각 구간 길이, 고정 검색어를 포함한 나머지 실행 설정 |
 | `latency.overall` | object | 전체 p50, p95, p99, 평균, 최대, 표본 수 |
 | `latency.publicPosts` | object | 공개 게시물 목록 지연 시간 |
 | `latency.login` | object 또는 null | 스키마 호환 필드. 미리 발급한 세션 흐름에서는 null |
@@ -86,7 +89,7 @@
 | `thresholds` | object | 각 k6 임계값의 통과 여부 |
 | `retention` | object | 자격 증명, 응답 본문, Cookie 미보존 확인 |
 
-세션 cookie는 환경에서 각 VU의 명시적 request header로만 전달되며 setup return이나 k6 cookie jar를 거치지 않습니다. summary에는 readiness URL과 `preprovisioned-session` 방식만 기록하고 session cookie 값과 자격 증명은 기록하지 않습니다. 스크립트가 로그인이나 로그아웃을 호출하지 않으므로 `latency.login`은 null입니다.
+세션 cookie는 환경에서 각 VU의 명시적 request header로만 전달되며 setup return이나 k6 cookie jar를 거치지 않습니다. VU는 번호에 따라 세션 풀을 순환 배정받고 실행 중에는 같은 세션을 재사용합니다. summary에는 readiness URL, `preprovisioned-session` 방식과 풀 크기만 기록하고 session cookie 값과 자격 증명은 기록하지 않습니다. 스크립트가 로그인이나 로그아웃을 호출하지 않으므로 `latency.login`은 null입니다.
 
 ## 실험 기록
 

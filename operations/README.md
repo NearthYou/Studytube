@@ -90,7 +90,7 @@ pwsh ./operations/resilience/Invoke-ServiceFailureDrill.ps1 `
 
 ## k6 핵심 흐름
 
-이 시나리오는 setup에서 안전한 live endpoint의 readiness만 확인합니다. 운영자가 secure store에서 미리 발급받은 읽기 전용 테스트 세션을 `K6_SESSION_COOKIE`로 전달하면 각 VU가 매 iteration 동일한 명시적 Cookie header를 재사용합니다. 스크립트 자체는 로그인이나 로그아웃을 호출하지 않으므로 email/IP 로그인 rate limit을 소진하지 않으며 k6 cookie jar reset에도 의존하지 않습니다. 응답 본문, Cookie와 자격 증명은 setup return이나 증거에 저장하지 않습니다. 테스트 창이 끝나면 운영자가 secure store의 세션을 별도로 폐기합니다.
+이 시나리오는 setup에서 안전한 live endpoint의 readiness만 확인합니다. 운영자는 secure store에서 미리 발급받은 읽기 전용 테스트 세션 하나를 `K6_SESSION_COOKIE`로 전달하거나, 서로 다른 테스트 계정의 세션을 JSON 배열인 `K6_SESSION_COOKIE_POOL`로 전달합니다. 각 VU는 번호를 기준으로 풀의 세션 하나를 선택해 모든 iteration에서 같은 명시적 Cookie header를 재사용합니다. 스크립트 자체는 로그인이나 로그아웃을 호출하지 않으므로 email/IP 로그인 rate limit을 소진하지 않으며 k6 cookie jar reset에도 의존하지 않습니다. 응답 본문, Cookie와 자격 증명은 setup return이나 증거에 저장하지 않습니다. 테스트 창이 끝나면 운영자가 사용한 모든 세션을 별도로 폐기합니다.
 
 로컬 실행 예시는 다음과 같습니다.
 
@@ -108,7 +108,10 @@ k6 run ./operations/load/studytube-core.js
 ```powershell
 $env:K6_BASE_URL = 'https://approved.example.com/api'
 $env:K6_READINESS_URL = 'https://approved.example.com/api/health/live'
-$env:K6_SESSION_COOKIE = '__Host-studytube_session=<value-from-secure-store>'
+$env:K6_SESSION_COOKIE_POOL = (@(
+  '__Host-studytube_session=<test-account-session-1>'
+  '__Host-studytube_session=<test-account-session-2>'
+) | ConvertTo-Json -Compress)
 $env:K6_ACKNOWLEDGE_LOAD = 'true'
 $env:K6_ACKNOWLEDGE_TARGET = $env:K6_BASE_URL
 k6 run ./operations/load/studytube-core.js
@@ -125,9 +128,12 @@ k6 run ./operations/load/studytube-core.js
 | `K6_COOL_DOWN_DURATION` | 30s | 감소 구간 |
 | `K6_READINESS_URL` | `${K6_BASE_URL}/health/live` | setup에서 한 번 확인하는 안전한 live endpoint. 공개 Caddy의 private readiness 경로를 사용하지 않음 |
 | `K6_ACKNOWLEDGE_READINESS_TARGET` | 없음 | readiness가 비루프백의 다른 authority를 사용할 때 URL과 정확히 일치해야 하는 추가 승인값 |
-| `K6_SESSION_COOKIE` | 없음, 필수 | secure store에서 준비한 `studytube_session` 또는 `__Host-studytube_session` 이름과 값. CR/LF와 다른 cookie 이름은 거부 |
+| `K6_SESSION_COOKIE` | 없음 | 단일 세션 실행용 `studytube_session` 또는 `__Host-studytube_session` 이름과 값. pool과 동시에 설정할 수 없음 |
+| `K6_SESSION_COOKIE_POOL` | 없음 | 서로 다른 테스트 세션의 비어 있지 않은 JSON 배열. 중복, CR/LF, 다른 cookie 이름을 거부하며 단일 cookie가 없을 때 필수 |
 | `K6_SEARCH_TERM` | 학습 | 모든 실행에 사용하는 검색어 |
 | `K6_EVIDENCE_PATH` | 실행 ID 기반 JSON 경로 | 결과 저장 경로 |
+
+VU 번호가 풀 크기보다 크면 세션을 순환 배정합니다. 계정별 동시 사용을 피해야 하는 비교 실험은 세션 풀 크기를 `K6_TARGET_VUS` 이상으로 준비하고 결과 JSON의 `configuration.sessionPoolSize`를 확인합니다.
 
 기본 임계값은 전체 오류율 1퍼센트 미만, 전체 p95 1000ms 미만, 전체 p99 2000ms 미만입니다. 게시물과 코스 목록 p95는 800ms입니다. 임계값 변경이 필요하면 코드와 실행 증거에 변경 이유를 함께 남깁니다.
 

@@ -636,6 +636,7 @@ jobs:
         with:
           name: deployment-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
           path: .deployment-diagnostics
+          include-hidden-files: true
           if-no-files-found: warn
           retention-days: 14
 

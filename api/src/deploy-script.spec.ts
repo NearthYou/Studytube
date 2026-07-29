@@ -750,6 +750,9 @@ source '${deployScript}'
     expect(workflow).not.toContain('ssh-keyscan');
     expect(workflow).toContain('cancel-in-progress: false');
     expect(workflow).toContain('timeout-minutes: 175');
+    expect(workflow).toMatch(
+      /name: deployment-diagnostics-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}[\s\S]*?path: \.deployment-diagnostics\s+include-hidden-files: true/u,
+    );
   });
 
   it('syntax-checks every production runtime script independently', () => {

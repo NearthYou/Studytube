@@ -42,7 +42,11 @@ export function startOpenTelemetry(
     serviceName: environment.OTEL_SERVICE_NAME?.trim() || 'studytube-api',
     traceExporter: new OTLPTraceExporter(),
     instrumentations: [
-      new HttpInstrumentation(),
+      new HttpInstrumentation({
+        // Search terms and cursors are user data, not telemetry dimensions.
+        startIncomingSpanHook: (request) =>
+          request.url?.includes('?') ? { 'url.query': '[REDACTED]' } : {},
+      }),
       new ExpressInstrumentation(),
       new NestInstrumentation(),
       new PgInstrumentation(),

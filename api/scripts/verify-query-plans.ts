@@ -5,6 +5,7 @@ import { DatabaseService } from '../src/database.service';
 import {
   assertQueryPlanContract,
   extractExplainPlan,
+  QUERY_PLAN_VERIFICATION_SESSION_SETTINGS,
   type ExplainPlan,
   type QueryPlanContract,
 } from '../src/database-query-plan';
@@ -33,9 +34,9 @@ async function main(): Promise<void> {
   );
   try {
     await client.query('BEGIN');
-    await client.query("SET LOCAL lock_timeout = '5s'");
-    await client.query("SET LOCAL statement_timeout = '90s'");
-    await client.query('SET LOCAL jit = off');
+    for (const setting of QUERY_PLAN_VERIFICATION_SESSION_SETTINGS) {
+      await client.query(setting);
+    }
     const fixture = await installFixture(client);
 
     plans.push({

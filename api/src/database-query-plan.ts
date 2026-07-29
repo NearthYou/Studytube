@@ -10,6 +10,16 @@ export type QueryPlanContract = {
   forbiddenSequentialScanRelations: string[];
 };
 
+// This verifier proves that each protected query shape has a usable indexed
+// access path. PostgreSQL's default choice on a synthetic fixture depends on
+// sampled statistics and is not a production performance measurement.
+export const QUERY_PLAN_VERIFICATION_SESSION_SETTINGS = [
+  "SET LOCAL lock_timeout = '5s'",
+  "SET LOCAL statement_timeout = '90s'",
+  'SET LOCAL jit = off',
+  'SET LOCAL enable_seqscan = off',
+] as const;
+
 export function extractExplainPlan(value: unknown): ExplainPlan {
   const root: unknown = Array.isArray(value)
     ? (value as unknown[])[0]

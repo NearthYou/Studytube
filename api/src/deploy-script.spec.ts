@@ -33,6 +33,10 @@ describe('EC2 deployment script', () => {
     resolve(__dirname, '../../scripts/ec2-autodeploy.sh'),
     'utf8',
   );
+  const environmentExample = readFileSync(
+    resolve(__dirname, '../.env.example'),
+    'utf8',
+  );
 
   it('stops existing processes before updating code and migrates before restart', () => {
     const checkout = script.indexOf('git checkout "$deploy_branch"');
@@ -202,5 +206,85 @@ source '${deployScript}'
     expect(workflow).not.toContain(
       'Rehearse latest concurrent index rollback and reapply',
     );
+  });
+
+  it('fails closed on an unspecified production Course cutover mode before shutdown', () => {
+    const configurationGuard = script.lastIndexOf(
+      '\nrequire_course_cutover_configuration\n',
+    );
+    const processShutdown = script.indexOf("pkill -f '[n]pm run all'");
+
+    expect(environmentExample).toContain('COURSE_CUTOVER_MODE=legacy');
+    expect(script).toContain(
+      'COURSE_CUTOVER_MODE must be explicitly set to legacy, freeze, or course',
+    );
+    expect(configurationGuard).toBeGreaterThanOrEqual(0);
+    expect(configurationGuard).toBeLessThan(processShutdown);
+  });
+
+  it('records frozen parity and requires the same release SHA before first Course activation', () => {
+    const frozenStart = script.indexOf(
+      'COURSE_CUTOVER_MODE="$course_cutover_mode" setsid nohup npm run all',
+    );
+    const readiness = script.lastIndexOf(
+      'wait_for_url http://localhost:3000/health/ready api',
+    );
+    const deltaBackfill = script.indexOf(
+      'npm --prefix api run db:course:backfill',
+    );
+    const exactVerification = script.indexOf(
+      'npm --prefix api run db:course:verify',
+    );
+    const parityMarker = script.lastIndexOf(
+      '\n    write_frozen_parity_marker\n',
+    );
+
+    expect(script).toContain('COURSE_CUTOVER_STATE_DIR');
+    expect(script).toContain('parity_verified=true');
+    expect(script).toContain('deploy_sha=$deploy_sha');
+    expect(script).toContain('database_identity=$course_database_identity');
+    expect(script).toContain(
+      'Refusing Course activation: frozen parity was not verified for DEPLOY_SHA=$deploy_sha',
+    );
+    expect(frozenStart).toBeGreaterThanOrEqual(0);
+    expect(deltaBackfill).toBeGreaterThan(readiness);
+    expect(exactVerification).toBeGreaterThan(deltaBackfill);
+    expect(parityMarker).toBeGreaterThan(exactVerification);
+  });
+
+  it('invalidates stale frozen parity before legacy or replacement freeze traffic starts', () => {
+    const invalidation = script.lastIndexOf(
+      '\n  invalidate_frozen_parity_marker\n',
+    );
+    const processShutdown = script.indexOf("pkill -f '[n]pm run all'");
+
+    expect(invalidation).toBeGreaterThanOrEqual(0);
+    expect(invalidation).toBeLessThan(processShutdown);
+    expect(script).toContain(
+      'if [ "$course_cutover_mode" != "course" ] && [ "$course_already_activated" = "false" ]',
+    );
+  });
+
+  it('keeps post-activation recovery on freeze or Course without replaying legacy backfill', () => {
+    expect(script).toContain('course_already_activated');
+    expect(script).toContain(
+      'Refusing legacy rollback after Course activation; native Course writes may already exist.',
+    );
+    expect(script).toContain(
+      'Post-activation freeze: automatic legacy backfill is disabled; diagnose and roll forward.',
+    );
+    expect(script).toContain('write_course_activation_marker');
+  });
+
+  it('runs explicit Course migration and concurrency evidence in CI', () => {
+    expect(workflow).toContain('Verify Course schema invariants');
+    expect(workflow).toContain('course-schema.e2e-spec.ts');
+    expect(workflow).toContain('Backfill and exactly verify legacy Courses');
+    expect(workflow).toContain('ALLOW_COURSE_BACKFILL: "true"');
+    expect(workflow).toContain('npm run db:course:backfill');
+    expect(workflow).toContain('npm run db:course:verify');
+    expect(workflow).toContain('Verify Course HTTP and concurrency contracts');
+    expect(workflow).toContain('course-http.e2e-spec.ts');
+    expect(workflow).toContain('course-concurrency.e2e-spec.ts');
   });
 });

@@ -5,6 +5,12 @@ deploy_branch="${1:-${DEPLOY_BRANCH:-sw}}"
 deploy_sha="${DEPLOY_SHA:-}"
 app_dir="${APP_DIR:-$(pwd)}"
 auth_migration="1753660802000_auth-hardening"
+course_cutover_mode=""
+course_cutover_state_dir=""
+frozen_parity_marker=""
+course_activation_marker=""
+course_already_activated="false"
+course_database_identity=""
 
 require_auth_cutover_backup() {
   if ! command -v psql >/dev/null 2>&1; then
@@ -49,6 +55,99 @@ require_auth_cutover_backup() {
   fi
 }
 
+require_course_cutover_configuration() {
+  course_cutover_mode="${COURSE_CUTOVER_MODE:-}"
+
+  case "$course_cutover_mode" in
+    legacy|freeze|course) ;;
+    *)
+      echo "COURSE_CUTOVER_MODE must be explicitly set to legacy, freeze, or course" >&2
+      return 1
+      ;;
+  esac
+
+  if [ -z "$deploy_sha" ]; then
+    echo "Refusing unpinned production deployment: DEPLOY_SHA is required." >&2
+    return 1
+  fi
+
+  course_cutover_state_dir="${COURSE_CUTOVER_STATE_DIR:-.studytube-deploy-state}"
+  case "$course_cutover_state_dir" in
+    /*) ;;
+    *) course_cutover_state_dir="$app_dir/$course_cutover_state_dir" ;;
+  esac
+  frozen_parity_marker="$course_cutover_state_dir/course-freeze-verified"
+  course_activation_marker="$course_cutover_state_dir/course-activated"
+
+  if [ -e "$course_activation_marker" ] || [ -L "$course_activation_marker" ]; then
+    if [ ! -f "$course_activation_marker" ] ||
+       [ ! -r "$course_activation_marker" ] ||
+       [ -L "$course_activation_marker" ] ||
+       ! grep -Fqx -- "course_activated=true" "$course_activation_marker"; then
+      echo "Refusing deployment: the Course activation marker is invalid." >&2
+      return 1
+    fi
+    course_already_activated="true"
+  fi
+
+  if [ "$course_already_activated" = "true" ] && [ "$course_cutover_mode" = "legacy" ]; then
+    echo "Refusing legacy rollback after Course activation; native Course writes may already exist. Freeze and roll forward." >&2
+    return 1
+  fi
+
+  if [ "$course_already_activated" = "false" ] && [ "$course_cutover_mode" = "course" ]; then
+    course_database_identity="$(read_course_database_identity)"
+    if [ ! -f "$frozen_parity_marker" ] ||
+       [ ! -r "$frozen_parity_marker" ] ||
+       [ -L "$frozen_parity_marker" ] ||
+       ! grep -Fqx -- "parity_verified=true" "$frozen_parity_marker" ||
+       ! grep -Fqx -- "deploy_sha=$deploy_sha" "$frozen_parity_marker" ||
+       ! grep -Fqx -- "database_identity=$course_database_identity" "$frozen_parity_marker"; then
+      echo "Refusing Course activation: frozen parity was not verified for DEPLOY_SHA=$deploy_sha" >&2
+      return 1
+    fi
+  fi
+}
+
+read_course_database_identity() {
+  psql "$DATABASE_URL" --no-psqlrc --tuples-only --no-align \
+    --set ON_ERROR_STOP=1 \
+    --command "SELECT current_database() || ':' || (SELECT oid::text FROM pg_database WHERE datname = current_database()) || '@' || COALESCE(inet_server_addr()::text, 'local') || ':' || COALESCE(inet_server_port()::text, current_setting('port'))"
+}
+
+invalidate_frozen_parity_marker() {
+  if [ -f "$frozen_parity_marker" ] || [ -L "$frozen_parity_marker" ]; then
+    rm -f -- "$frozen_parity_marker"
+  elif [ -e "$frozen_parity_marker" ]; then
+    echo "Refusing deployment: frozen parity marker path is not a regular file." >&2
+    return 1
+  fi
+}
+
+write_frozen_parity_marker() {
+  install -m 700 -d "$course_cutover_state_dir"
+  local temporary_marker
+  course_database_identity="$(read_course_database_identity)"
+  temporary_marker="$(mktemp "$course_cutover_state_dir/.freeze-verified.XXXXXX")"
+  printf '%s\n' \
+    "parity_verified=true" \
+    "deploy_sha=$deploy_sha" \
+    "database_identity=$course_database_identity" >"$temporary_marker"
+  chmod 600 "$temporary_marker"
+  mv -f -- "$temporary_marker" "$frozen_parity_marker"
+}
+
+write_course_activation_marker() {
+  install -m 700 -d "$course_cutover_state_dir"
+  local temporary_marker
+  temporary_marker="$(mktemp "$course_cutover_state_dir/.course-activated.XXXXXX")"
+  printf '%s\n' \
+    "course_activated=true" \
+    "first_deploy_sha=$deploy_sha" >"$temporary_marker"
+  chmod 600 "$temporary_marker"
+  mv -f -- "$temporary_marker" "$course_activation_marker"
+}
+
 cd "$app_dir"
 
 git fetch origin "$deploy_branch"
@@ -74,6 +173,10 @@ fi
 set +a
 
 require_auth_cutover_backup
+require_course_cutover_configuration
+if [ "$course_cutover_mode" != "course" ] && [ "$course_already_activated" = "false" ]; then
+  invalidate_frozen_parity_marker
+fi
 
 pkill -f '[n]pm run all' || true
 pkill -f '[s]cripts/dev-all.mjs' || true
@@ -124,7 +227,7 @@ ai/.venv/bin/python -m pip install -r ai/requirements.txt
 
 npm --prefix api run db:migrate:up
 
-setsid nohup npm run all > npm-run-all.log 2>&1 < /dev/null &
+COURSE_CUTOVER_MODE="$course_cutover_mode" setsid nohup npm run all > npm-run-all.log 2>&1 < /dev/null &
 
 healthcheck_output="$(mktemp "${TMPDIR:-/tmp}/studytube-healthcheck.XXXXXX")"
 cleanup_healthcheck_output() {
@@ -153,4 +256,18 @@ wait_for_url() {
 wait_for_url http://localhost:3000/health/ready api
 wait_for_url http://localhost:8000/health ai
 wait_for_url http://localhost:5173/ web >/dev/null
+
+if [ "$course_cutover_mode" = "freeze" ]; then
+  if [ "$course_already_activated" = "false" ]; then
+    ALLOW_COURSE_BACKFILL=true COURSE_CUTOVER_MODE=freeze \
+      npm --prefix api run db:course:backfill
+    COURSE_CUTOVER_MODE=freeze npm --prefix api run db:course:verify
+    write_frozen_parity_marker
+  else
+    echo "Post-activation freeze: automatic legacy backfill is disabled; diagnose and roll forward."
+  fi
+elif [ "$course_cutover_mode" = "course" ] && [ "$course_already_activated" = "false" ]; then
+  write_course_activation_marker
+fi
+
 git rev-parse --short HEAD

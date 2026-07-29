@@ -69,6 +69,7 @@ jobs:
       WEB_ORIGIN: https://app.studytube.example.test
       AUTH_VERIFICATION_PEPPER: ci-verification-pepper-change-before-production
       AUTH_RATE_LIMIT_PEPPER: ci-rate-limit-pepper-change-before-production
+      COURSE_CUTOVER_MODE: legacy
       DB_INIT_ATTEMPTS: 3
       DB_INIT_RETRY_DELAY_MS: 100
     defaults:
@@ -94,6 +95,9 @@ jobs:
       - name: Verify migration status
         run: npm run db:migrate:status
 
+      - name: Verify Course schema invariants
+        run: npm run test:e2e -- --runInBand course-schema.e2e-spec.ts
+
       - name: Verify idempotent demo seed
         env:
           ALLOW_DEMO_SEED: "true"
@@ -112,6 +116,20 @@ jobs:
         env:
           ALLOW_MIGRATION_ADOPTION_TEST: "true"
         run: npm run db:migrate:test-adoption
+
+      - name: Backfill and exactly verify legacy Courses
+        env:
+          ALLOW_COURSE_BACKFILL: "true"
+        run: |
+          npm run db:course:backfill
+          npm run db:course:verify
+          second_pass="$(npm run db:course:backfill)"
+          printf '%s\n' "$second_pass"
+          case "$second_pass" in
+            *'"migrated":0,"rebuilt":0'*) ;;
+            *) echo "Course backfill second pass was not a no-op" >&2; exit 1 ;;
+          esac
+          npm run db:course:verify
 
       - name: Rehearse reversible concurrent-index migration
         env:
@@ -140,6 +158,15 @@ jobs:
 
       - name: Verify bounded Argon2 behavior
         run: npm run auth:benchmark-password -- --samples=2 --warmup=0 --concurrency=2 --saturate-queue
+
+      - name: Verify Course HTTP and concurrency contracts
+        env:
+          COURSE_CUTOVER_MODE: course
+        run: >-
+          npm run test:e2e -- --runInBand
+          course-http.e2e-spec.ts
+          course-concurrency.e2e-spec.ts
+          course-cutover.e2e-spec.ts
 
       - name: Test API with PostgreSQL
         run: npm run test:e2e -- --runInBand

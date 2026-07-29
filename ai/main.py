@@ -22,6 +22,8 @@ from typing import Any
 from urllib.parse import parse_qsl, quote_plus, urlencode, urlparse, urlunparse
 from xml.etree import ElementTree
 
+from runtime_environment import load_runtime_environment
+
 try:
     from dotenv import load_dotenv
 except ModuleNotFoundError:  # pragma: no cover - local test fallback
@@ -76,8 +78,7 @@ except ModuleNotFoundError:  # pragma: no cover - optional transcript fallback
 AI_DIR = Path(__file__).resolve().parent
 ROOT_DIR = AI_DIR.parent
 
-load_dotenv(ROOT_DIR / ".env")
-load_dotenv(AI_DIR / ".env", override=True)
+load_runtime_environment(load_dotenv, ai_dir=AI_DIR, root_dir=ROOT_DIR)
 
 DEFAULT_DATABASE_URL = "postgresql://app:app@localhost:5432/app_dev"
 EMBEDDING_DIMENSIONS = 64

@@ -1861,7 +1861,12 @@ class AiServiceTest(unittest.TestCase):
 
         self.assertIsNone(error)
         self.assertEqual(metadata["id"], "caption-only")
-        self.assertIn("--ignore-no-formats", captured_commands[0])
+        yt_dlp_command = next(
+            command
+            for command in captured_commands
+            if isinstance(command, list) and "--dump-json" in command
+        )
+        self.assertIn("--ignore-no-formats", yt_dlp_command)
 
     def test_youtube_captions_reports_rate_limit_from_yt_dlp_metadata(self):
         original_fetch_tracks = main.fetch_youtube_caption_tracks

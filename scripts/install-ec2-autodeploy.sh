@@ -12,7 +12,7 @@ mkdir -p "$unit_dir"
 
 cat > "${unit_dir}/${service_name}" <<EOF
 [Unit]
-Description=Agentic Board pull-based deploy after successful CI
+Description=StudyTube pull-based deploy after successful CI
 
 [Service]
 Type=oneshot
@@ -24,7 +24,7 @@ EOF
 
 cat > "${unit_dir}/${timer_name}" <<EOF
 [Unit]
-Description=Run Agentic Board pull-based deploy regularly
+Description=Run StudyTube pull-based deploy regularly
 
 [Timer]
 OnBootSec=1min

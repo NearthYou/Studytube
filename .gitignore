@@ -60,6 +60,7 @@ htmlcov/
 # Local runtime artifacts
 uploads/
 .playwright-cli/
+.studytube-deploy-state/
 tmp/
 output/
 

@@ -4,6 +4,7 @@ set -euo pipefail
 deploy_branch="${1:-${DEPLOY_BRANCH:-main}}"
 deploy_sha="${DEPLOY_SHA:-}"
 app_dir="${APP_DIR:-$(pwd)}"
+requested_course_cutover_mode="${COURSE_CUTOVER_MODE:-}"
 auth_migration="1753660802000_auth-hardening"
 course_cutover_mode=""
 course_cutover_state_dir=""
@@ -11,6 +12,59 @@ frozen_parity_marker=""
 course_activation_marker=""
 course_already_activated="false"
 course_database_identity=""
+production_web_origin=""
+
+normalize_https_origin() {
+  local value="${1%/}"
+  if [[ ! "$value" =~ ^https://[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]{1,5})?$ ]]; then
+    return 1
+  fi
+
+  printf '%s\n' "$value"
+}
+
+require_production_origins() {
+  if ! production_web_origin="$(normalize_https_origin "$WEB_ORIGIN")"; then
+    echo "WEB_ORIGIN must use https and contain only an origin in production" >&2
+    return 1
+  fi
+
+  local site_origin
+  case "$STUDYTUBE_SITE_ADDRESS" in
+    http://*)
+      echo "STUDYTUBE_SITE_ADDRESS must use HTTPS" >&2
+      return 1
+      ;;
+    https://*)
+      if ! site_origin="$(normalize_https_origin "$STUDYTUBE_SITE_ADDRESS")"; then
+        echo "STUDYTUBE_SITE_ADDRESS must use HTTPS" >&2
+        return 1
+      fi
+      ;;
+    *://*)
+      echo "STUDYTUBE_SITE_ADDRESS must use HTTPS" >&2
+      return 1
+      ;;
+    *)
+      if ! site_origin="$(normalize_https_origin "https://$STUDYTUBE_SITE_ADDRESS")"; then
+        echo "STUDYTUBE_SITE_ADDRESS must use HTTPS" >&2
+        return 1
+      fi
+      ;;
+  esac
+
+  if [ "$site_origin" != "$production_web_origin" ]; then
+    echo "STUDYTUBE_SITE_ADDRESS must match WEB_ORIGIN" >&2
+    return 1
+  fi
+
+  local public_origin
+  if ! public_origin="$(normalize_https_origin "${STUDYTUBE_PUBLIC_URL:-$WEB_ORIGIN}")" ||
+     [ "$public_origin" != "$production_web_origin" ]; then
+    echo "STUDYTUBE_PUBLIC_URL must match WEB_ORIGIN" >&2
+    return 1
+  fi
+}
 
 require_auth_cutover_backup() {
   if ! command -v psql >/dev/null 2>&1; then
@@ -43,7 +97,7 @@ require_auth_cutover_backup() {
   local expected_sha="${deploy_sha:-$(git rev-parse HEAD)}"
 
   if [ -z "$marker_path" ] || [ ! -f "$marker_path" ] || [ ! -r "$marker_path" ] || [ -L "$marker_path" ]; then
-    echo "Refusing irreversible auth migration: AUTH_CUTOVER_VERIFIED_BACKUP_MARKER must name a readable regular non-symlink file created by the #11 backup and restore rehearsal." >&2
+    echo "Refusing irreversible auth migration: AUTH_CUTOVER_VERIFIED_BACKUP_MARKER must name a readable regular non-symlink file created by the backup and restore rehearsal." >&2
     return 1
   fi
 
@@ -154,16 +208,73 @@ write_course_activation_marker() {
   mv -f -- "$temporary_marker" "$course_activation_marker"
 }
 
+write_deploy_success_marker() {
+  install -m 700 -d "$course_cutover_state_dir"
+  local marker_path="$course_cutover_state_dir/deploy-success"
+  local temporary_marker
+  temporary_marker="$(mktemp "$course_cutover_state_dir/.deploy-success.XXXXXX")"
+  printf '%s\n' \
+    "deploy_succeeded=true" \
+    "deploy_sha=$deploy_sha" \
+    "course_cutover_mode=$course_cutover_mode" >"$temporary_marker"
+  chmod 600 "$temporary_marker"
+  mv -f -- "$temporary_marker" "$marker_path"
+}
+
+publish_web_release() {
+  local release_root="${WEB_RELEASE_ROOT:-/var/www/studytube}"
+  if [ "$release_root" != "/var/www/studytube" ]; then
+    echo "WEB_RELEASE_ROOT must be /var/www/studytube" >&2
+    return 1
+  fi
+
+  local releases_dir="$release_root/releases"
+  local release_dir="$releases_dir/$deploy_sha"
+  sudo install -d -o root -g root -m 755 "$releases_dir"
+
+  if sudo test -e "$release_dir" || sudo test -L "$release_dir"; then
+    if ! sudo test -d "$release_dir" || sudo test -L "$release_dir" ||
+       ! sudo test -f "$release_dir/index.html"; then
+      echo "Refusing to reuse an invalid web release at $release_dir" >&2
+      return 1
+    fi
+  else
+    local staging_dir
+    staging_dir="$(sudo mktemp -d "$releases_dir/.${deploy_sha}.XXXXXX")"
+    if ! sudo cp -a "$app_dir/web/dist/." "$staging_dir/"; then
+      sudo rm -rf -- "$staging_dir"
+      return 1
+    fi
+    sudo chown -R root:root "$staging_dir"
+    sudo find "$staging_dir" -type d -exec chmod 755 {} +
+    sudo find "$staging_dir" -type f -exec chmod 644 {} +
+    sudo mv -- "$staging_dir" "$release_dir"
+  fi
+
+  local temporary_link="$release_root/.current.$deploy_sha.$$"
+  sudo ln -s "releases/$deploy_sha" "$temporary_link"
+  sudo mv -Tf -- "$temporary_link" "$release_root/current"
+}
+
 cd "$app_dir"
 
-git fetch origin "$deploy_branch"
+deploy_lock_file="${DEPLOY_LOCK_FILE:-/tmp/studytube-deploy.lock}"
+exec 8>"$deploy_lock_file"
+if ! flock -n 8; then
+  echo "Another StudyTube deployment is already running" >&2
+  exit 1
+fi
 
-if [ -n "$deploy_sha" ]; then
-  fetched_sha="$(git rev-parse "origin/$deploy_branch")"
-  if [ "$fetched_sha" != "$deploy_sha" ]; then
-    echo "Refusing stale deployment: CI verified $deploy_sha but origin/$deploy_branch is $fetched_sha" >&2
-    exit 1
-  fi
+if [[ ! "$deploy_sha" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "Refusing unpinned production deployment: DEPLOY_SHA must be a full commit SHA." >&2
+  exit 1
+fi
+
+git fetch origin "$deploy_branch"
+fetched_sha="$(git rev-parse "origin/$deploy_branch")"
+if [ "$fetched_sha" != "$deploy_sha" ]; then
+  echo "Refusing stale deployment: CI verified $deploy_sha but origin/$deploy_branch is $fetched_sha" >&2
+  exit 1
 fi
 
 # Deployment env files are trusted Bash-compatible key=value files.
@@ -178,40 +289,38 @@ if [ -f api/.env ]; then
 fi
 set +a
 
+if [ -n "$requested_course_cutover_mode" ]; then
+  export COURSE_CUTOVER_MODE="$requested_course_cutover_mode"
+fi
+
+for required_name in \
+  DATABASE_URL \
+  POSTGRES_USER \
+  POSTGRES_PASSWORD \
+  POSTGRES_DB \
+  STUDYTUBE_SITE_ADDRESS \
+  WEB_ORIGIN; do
+  if [ -z "${!required_name:-}" ]; then
+    echo "$required_name is required for production deployment" >&2
+    exit 1
+  fi
+done
+
+require_production_origins
+
+git checkout --detach "$deploy_sha"
+if [ -n "$(git status --porcelain --untracked-files=all)" ]; then
+  echo "Refusing to build a dirty deployment checkout" >&2
+  git status --short >&2
+  exit 1
+fi
+
+docker compose -f infra/production.compose.yml up -d --wait postgres
+
 require_auth_cutover_backup
 require_course_cutover_configuration
 if [ "$course_cutover_mode" != "course" ] && [ "$course_already_activated" = "false" ]; then
   invalidate_frozen_parity_marker
-fi
-
-pkill -f '[n]pm run all' || true
-pkill -f '[s]cripts/dev-all.mjs' || true
-pkill -f '[u]vicorn' || true
-pkill -f '[v]ite' || true
-pkill -f '[n]est start' || true
-pkill -f '[a]pi/dist/main' || true
-
-for port in 3000 5173 8000; do
-  pids="$(sudo lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true)"
-  if [ -n "$pids" ]; then
-    echo "$pids" | xargs -r kill
-  fi
-done
-
-sleep 2
-
-for port in 3000 5173 8000; do
-  pids="$(sudo lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true)"
-  if [ -n "$pids" ]; then
-    echo "$pids" | xargs -r kill -9
-  fi
-done
-
-if [ -n "$deploy_sha" ]; then
-  git checkout --detach "$deploy_sha"
-else
-  git checkout "$deploy_branch"
-  git pull --ff-only origin "$deploy_branch"
 fi
 
 if ! sudo swapon --show --noheadings | grep -q '/swapfile'; then
@@ -226,10 +335,40 @@ fi
 
 npm ci --prefix web --no-audit --fund=false
 npm ci --prefix api --no-audit --fund=false
+npm --prefix web run build
+npm --prefix api run build
 
 python3 -m venv ai/.venv
 ai/.venv/bin/python -m pip install --upgrade pip
 ai/.venv/bin/python -m pip install -r ai/requirements.txt
+
+APP_DIR="$app_dir" COURSE_CUTOVER_MODE="$course_cutover_mode" \
+  bash scripts/install-production-runtime.sh
+
+docker compose -f infra/production.compose.yml run --rm --no-deps caddy \
+  validate --config /etc/caddy/Caddyfile --adapter caddyfile
+
+sudo systemctl stop studytube-api.service studytube-ai.service || true
+
+# One-time cleanup for hosts that used the previous development runtime.
+pkill -f '[s]cripts/dev-all.mjs' || true
+pkill -f '[u]vicorn' || true
+pkill -f '[v]ite' || true
+pkill -f '[n]est start' || true
+pkill -f '[a]pi/dist/main' || true
+sleep 1
+
+for port in 3000 5173 8000; do
+  pids="$(sudo lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true)"
+  if [ -n "$pids" ]; then
+    echo "Refusing deployment while unmanaged process $pids listens on port $port" >&2
+    exit 1
+  fi
+done
+
+# Recheck every database-bound guard immediately before migration.
+require_auth_cutover_backup
+require_course_cutover_configuration
 
 npm --prefix api run db:migrate:up
 
@@ -238,7 +377,7 @@ if [ "$course_cutover_mode" = "course" ] && [ "$course_already_activated" = "fal
   course_already_activated="true"
 fi
 
-COURSE_CUTOVER_MODE="$course_cutover_mode" setsid nohup npm run all > npm-run-all.log 2>&1 < /dev/null &
+sudo systemctl restart studytube-ai.service studytube-api.service
 
 healthcheck_output="$(mktemp "${TMPDIR:-/tmp}/studytube-healthcheck.XXXXXX")"
 cleanup_healthcheck_output() {
@@ -260,13 +399,17 @@ wait_for_url() {
   done
 
   echo "Timed out waiting for $label at $url" >&2
-  tail -120 npm-run-all.log >&2 || true
   return 1
 }
 
-wait_for_url http://localhost:3000/health/ready api
-wait_for_url http://localhost:8000/health ai
-wait_for_url http://localhost:5173/ web >/dev/null
+if ! wait_for_url http://127.0.0.1:3000/health/ready api; then
+  sudo journalctl -u studytube-api.service -n 120 --no-pager >&2 || true
+  exit 1
+fi
+if ! wait_for_url http://127.0.0.1:8000/health ai; then
+  sudo journalctl -u studytube-ai.service -n 120 --no-pager >&2 || true
+  exit 1
+fi
 
 if [ "$course_cutover_mode" = "freeze" ]; then
   if [ "$course_already_activated" = "false" ]; then
@@ -279,4 +422,15 @@ if [ "$course_cutover_mode" = "freeze" ]; then
   fi
 fi
 
+publish_web_release
+
+docker compose -f infra/production.compose.yml up -d caddy
+docker compose -f infra/production.compose.yml exec -T caddy \
+  caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
+
+public_base_url="$production_web_origin"
+wait_for_url "$public_base_url/api/health/ready" public-api >/dev/null
+wait_for_url "$public_base_url/" public-web >/dev/null
+
+write_deploy_success_marker
 git rev-parse --short HEAD

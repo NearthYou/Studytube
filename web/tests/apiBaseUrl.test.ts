@@ -5,27 +5,33 @@ import { resolveApiBaseUrl } from '../src/api.ts';
 test('keeps localhost api base url for local development', () => {
   assert.equal(
     resolveApiBaseUrl('http://localhost:3000', {
-      protocol: 'http:',
       hostname: 'localhost',
     }),
     'http://localhost:3000',
   );
 });
 
-test('rewrites localhost api base url to the deployed host for remote browsers', () => {
+test('uses the same-origin api edge when a remote build has no explicit api url', () => {
+  assert.equal(
+    resolveApiBaseUrl(undefined, {
+      hostname: 'study.example.com',
+    }),
+    '/api',
+  );
+});
+
+test('uses the same-origin api edge when a remote build contains a localhost api url', () => {
   assert.equal(
     resolveApiBaseUrl('http://localhost:3000', {
-      protocol: 'http:',
-      hostname: '15.164.98.162',
+      hostname: 'study.example.com',
     }),
-    'http://15.164.98.162:3000',
+    '/api',
   );
 });
 
 test('preserves an explicitly remote api base url', () => {
   assert.equal(
     resolveApiBaseUrl('https://api.example.com', {
-      protocol: 'https:',
       hostname: 'study.example.com',
     }),
     'https://api.example.com',

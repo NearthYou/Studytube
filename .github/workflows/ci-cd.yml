@@ -87,6 +87,33 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Validate production runtime scripts
+        run: |
+          for script in \
+            ../scripts/deploy-ec2.sh \
+            ../scripts/ec2-autodeploy.sh \
+            ../scripts/install-ec2-autodeploy.sh \
+            ../scripts/install-production-runtime.sh; do
+            bash -n "$script"
+          done
+
+      - name: Validate production Compose model
+        env:
+          POSTGRES_USER: app
+          POSTGRES_PASSWORD: ci-compose-only
+          POSTGRES_DB: app_test
+          STUDYTUBE_SITE_ADDRESS: http://localhost
+        run: docker compose -f ../infra/production.compose.yml config --quiet
+
+      - name: Validate Caddy edge configuration
+        run: >-
+          docker run --rm
+          --entrypoint caddy
+          --env STUDYTUBE_SITE_ADDRESS=http://localhost
+          --volume "${{ github.workspace }}/infra/Caddyfile:/etc/caddy/Caddyfile:ro"
+          caddy:2.11.4-alpine
+          validate --config /etc/caddy/Caddyfile --adapter caddyfile
+
       - name: Fresh migration install
         run: npm run db:migrate:up
 

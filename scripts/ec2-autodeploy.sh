@@ -15,12 +15,38 @@ fi
 
 cd "$app_dir"
 
+if [ -f .env ]; then
+  # shellcheck disable=SC1091
+  source ./.env
+fi
+if [ -f api/.env ]; then
+  # shellcheck disable=SC1091
+  source ./api/.env
+fi
+
 git fetch origin "$deploy_branch"
 remote_sha="$(git rev-parse "origin/$deploy_branch")"
-current_sha="$(git rev-parse HEAD)"
 
-if [ "$remote_sha" = "$current_sha" ]; then
-  echo "already deployed $current_sha"
+state_dir="${COURSE_CUTOVER_STATE_DIR:-.studytube-deploy-state}"
+case "$state_dir" in
+  /*) ;;
+  *) state_dir="$app_dir/$state_dir" ;;
+esac
+success_marker="$state_dir/deploy-success"
+deployed_sha=""
+
+if [ -f "$success_marker" ] && [ -r "$success_marker" ] &&
+   [ ! -L "$success_marker" ] &&
+   grep -Fqx -- "deploy_succeeded=true" "$success_marker"; then
+  deployed_sha="$(sed -n 's/^deploy_sha=//p' "$success_marker")"
+fi
+
+if [ "$remote_sha" = "$deployed_sha" ] &&
+   systemctl is-active --quiet studytube-api.service &&
+   systemctl is-active --quiet studytube-ai.service &&
+   [ "$(docker inspect --format '{{.State.Running}}' studytube-postgres 2>/dev/null || true)" = "true" ] &&
+   [ "$(docker inspect --format '{{.State.Running}}' studytube-caddy 2>/dev/null || true)" = "true" ]; then
+  echo "already deployed $deployed_sha"
   exit 0
 fi
 

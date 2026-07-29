@@ -11,7 +11,7 @@ import type {
   VideoSummaryResponse,
 } from "./types";
 
-type BrowserLocation = Pick<Location, "hostname" | "protocol">;
+type BrowserLocation = Pick<Location, "hostname">;
 
 const viteEnv = (
   import.meta as ImportMeta & {
@@ -36,7 +36,7 @@ export function resolveApiBaseUrl(
 ) {
   const fallbackUrl =
     currentLocation && !isLocalHostname(currentLocation.hostname)
-      ? `${currentLocation.protocol}//${currentLocation.hostname}:3000`
+      ? "/api"
       : "http://localhost:3000";
   const normalizedUrl = configuredUrl?.trim().replace(/\/$/, "") || fallbackUrl;
 
@@ -48,11 +48,7 @@ export function resolveApiBaseUrl(
       isLocalHostname(parsedUrl.hostname) &&
       !isLocalHostname(currentLocation.hostname)
     ) {
-      parsedUrl.protocol = currentLocation.protocol;
-      parsedUrl.hostname = currentLocation.hostname;
-      parsedUrl.port ||= "3000";
-
-      return parsedUrl.toString().replace(/\/$/, "");
+      return "/api";
     }
   } catch {
     return normalizedUrl;

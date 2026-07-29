@@ -1,0 +1,42 @@
+name: studytube
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: studytube-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: "${POSTGRES_USER:?POSTGRES_USER is required}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
+      POSTGRES_DB: "${POSTGRES_DB:?POSTGRES_DB is required}"
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  caddy:
+    image: caddy:2.11.4-alpine
+    container_name: studytube-caddy
+    restart: unless-stopped
+    network_mode: host
+    read_only: true
+    environment:
+      STUDYTUBE_SITE_ADDRESS: "${STUDYTUBE_SITE_ADDRESS:?STUDYTUBE_SITE_ADDRESS is required}"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - /var/www/studytube:/var/www/studytube:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    tmpfs:
+      - /tmp
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

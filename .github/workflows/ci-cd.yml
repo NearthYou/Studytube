@@ -4,11 +4,9 @@ on:
   pull_request:
     branches:
       - main
-      - sw
   push:
     branches:
       - main
-      - sw
   workflow_dispatch:
 
 concurrency:

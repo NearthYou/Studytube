@@ -10,7 +10,7 @@ The workflow at `.github/workflows/ci-cd.yml` runs three jobs in parallel:
 - API: start a pgvector PostgreSQL service, apply migrations, verify the explicit demo seed is idempotent, run unit and database-backed end-to-end tests, lint, and build.
 - AI: install Python dependencies, unittest discovery.
 
-CI runs on pull requests and pushes to `main` and `sw`. Because the repository contains only this application, every change is validated.
+CI runs on pull requests and pushes to `main`. Because the repository contains only this application, every change is validated.
 
 EC2 배포는 CI가 검증한 `github.sha`를 원격 브랜치와 다시 대조한 뒤 해당 SHA의 배포 스크립트와 소스만 사용합니다. 새 push는 진행 중인 배포를 취소하지 않으며, 브랜치가 앞서간 오래된 workflow는 실행 중인 서비스를 중단하기 전에 실패합니다.
 
@@ -18,13 +18,13 @@ EC2 배포는 CI가 검증한 `github.sha`를 원격 브랜치와 다시 대조�
 
 The deploy job runs after all CI jobs pass when:
 
-- code is pushed to `sw`, or
+- code is pushed to `main`, or
 - the workflow is manually started with `workflow_dispatch`.
 
 The deploy job connects to EC2 over SSH, updates the selected branch, installs dependencies, restarts `npm run all`, and checks:
 
-- `http://localhost:3000/health`
-- `http://localhost:3000/health/ai`
+- `http://localhost:3000/health/ready`
+- `http://localhost:8000/health`
 - `http://localhost:5173/`
 
 The EC2 deploy step also ensures a 2GB `/swapfile` is active before installing dependencies. This keeps `npm ci --prefix api` from being killed on small instances.
@@ -33,13 +33,13 @@ Runtime secrets such as `.env`, YouTube cookies, and PO token files stay at the 
 
 ## Pull-Based CD Without GitHub Secrets
 
-If `EC2_SSH_KEY` is not configured in GitHub, EC2 can still deploy automatically by polling GitHub. The script `scripts/ec2-autodeploy.sh` checks `origin/sw`, waits for the matching `CI/CD` workflow run to finish successfully, and then runs `scripts/deploy-ec2.sh`.
+If `EC2_SSH_KEY` is not configured in GitHub, EC2 can still deploy automatically by polling GitHub. The script `scripts/ec2-autodeploy.sh` checks `origin/main`, waits for the matching `CI/CD` workflow run to finish successfully, and then runs `scripts/deploy-ec2.sh`.
 
 Install the EC2 timer once:
 
 ```bash
 cd /home/ubuntu/studytube
-APP_DIR=/home/ubuntu/studytube DEPLOY_BRANCH=sw bash scripts/install-ec2-autodeploy.sh
+APP_DIR=/home/ubuntu/studytube DEPLOY_BRANCH=main bash scripts/install-ec2-autodeploy.sh
 ```
 
 This creates a user systemd timer that checks every two minutes. If user systemd is unavailable, the installer falls back to cron.
@@ -61,7 +61,7 @@ If `EC2_SSH_KEY` is missing, the deploy job succeeds with a notice and skips dep
 
 ## Manual Deploy
 
-Open GitHub Actions, choose `CI/CD`, then run the workflow manually. Use the `sw` branch unless you intentionally want to deploy another branch.
+Open GitHub Actions, choose `CI/CD`, then run the workflow manually from `main`.
 
 ## Manual EC2 Deploy Check
 
@@ -69,5 +69,5 @@ After SSHing into EC2:
 
 ```bash
 cd /home/ubuntu/studytube
-APP_DIR=/home/ubuntu/studytube DEPLOY_BRANCH=sw bash scripts/deploy-ec2.sh sw
+APP_DIR=/home/ubuntu/studytube DEPLOY_BRANCH=main bash scripts/deploy-ec2.sh main
 ```

@@ -33,6 +33,10 @@ describe('EC2 deployment script', () => {
     resolve(__dirname, '../../scripts/ec2-autodeploy.sh'),
     'utf8',
   );
+  const autoDeployInstaller = readFileSync(
+    resolve(__dirname, '../../scripts/install-ec2-autodeploy.sh'),
+    'utf8',
+  );
   const environmentExample = readFileSync(
     resolve(__dirname, '../.env.example'),
     'utf8',
@@ -108,8 +112,12 @@ describe('EC2 deployment script', () => {
     expect(autoDeployScript).toContain(
       'deploy_branch="${DEPLOY_BRANCH:-main}"',
     );
+    expect(autoDeployInstaller).toContain(
+      'deploy_branch="${DEPLOY_BRANCH:-main}"',
+    );
     expect(workflow).toContain("github.ref == 'refs/heads/main'");
     expect(workflow).not.toContain("github.ref == 'refs/heads/sw'");
+    expect(workflow).not.toMatch(/^\s*- sw$/mu);
   });
 
   it('pins pull-based deployments to the exact successful CI commit', () => {

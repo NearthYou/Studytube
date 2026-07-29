@@ -2,7 +2,7 @@
 set -euo pipefail
 
 app_dir="${APP_DIR:-/home/ubuntu/studytube}"
-deploy_branch="${DEPLOY_BRANCH:-sw}"
+deploy_branch="${DEPLOY_BRANCH:-main}"
 interval="${AUTODEPLOY_INTERVAL:-2min}"
 unit_dir="${HOME}/.config/systemd/user"
 service_name="studytube-autodeploy.service"

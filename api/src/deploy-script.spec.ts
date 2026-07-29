@@ -1,5 +1,24 @@
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+
+function shellPath(path: string): string {
+  const normalized = path.replaceAll('\\', '/');
+  const windowsDrive = normalized.match(/^([A-Za-z]):(\/.*)$/);
+
+  return windowsDrive
+    ? `/${windowsDrive[1]?.toLowerCase()}${windowsDrive[2]}`
+    : normalized;
+}
 
 describe('EC2 deployment script', () => {
   const script = readFileSync(
@@ -49,6 +68,13 @@ describe('EC2 deployment script', () => {
     );
   });
 
+  it('checks the AI process directly instead of using the session-protected API proxy', () => {
+    expect(script).toContain('wait_for_url http://localhost:8000/health ai');
+    expect(script).not.toContain(
+      'wait_for_url http://localhost:3000/health/ai ai',
+    );
+  });
+
   it('bounds health-check requests and always cleans their temporary output', () => {
     expect(script).toContain(
       'curl -fsS --connect-timeout 2 --max-time 5 "$url"',
@@ -81,6 +107,100 @@ describe('EC2 deployment script', () => {
     expect(autoDeployScript).toContain('trap \'rm -f "$deploy_script"\' EXIT');
     expect(autoDeployScript).toContain(
       'if run.get("head_sha") == sha and run.get("name") == workflow_name:',
+    );
+  });
+
+  it('refuses a pending irreversible auth cutover without a verified backup marker', () => {
+    const guardInvocations = [
+      ...script.matchAll(/^require_auth_cutover_backup$/gm),
+    ];
+    const guard = guardInvocations[0]?.index ?? -1;
+    const processShutdown = script.indexOf("pkill -f '[n]pm run all'");
+    const migration = script.indexOf('npm --prefix api run db:migrate:up');
+
+    expect(script).toContain('auth_migration="1753660802000_auth-hardening"');
+    expect(script).toContain('AUTH_CUTOVER_VERIFIED_BACKUP_MARKER');
+    expect(script).toContain('backup_verified=true');
+    expect(script).toContain('pgmigrations');
+    expect(script).toContain('Refusing irreversible auth migration');
+    expect(guardInvocations).toHaveLength(1);
+    expect(guard).toBeLessThan(migration);
+    expect(guard).toBeLessThan(processShutdown);
+  });
+
+  it('treats a regular marker named --help as a filename and refuses its invalid contents', () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'studytube-deploy-guard-'));
+    const appDirectory = join(workspace, 'app');
+    const commandLog = join(workspace, 'commands.log');
+    const markerPath = join(appDirectory, '--help');
+    const bash =
+      process.platform === 'win32' &&
+      existsSync('C:\\Program Files\\Git\\bin\\bash.exe')
+        ? 'C:\\Program Files\\Git\\bin\\bash.exe'
+        : 'bash';
+
+    mkdirSync(appDirectory);
+    const virtualenvBin = join(appDirectory, 'ai', '.venv', 'bin');
+    const virtualenvPython = join(virtualenvBin, 'python');
+    mkdirSync(virtualenvBin, { recursive: true });
+    writeFileSync(virtualenvPython, '#!/usr/bin/env bash\nexit 0\n', 'utf8');
+    chmodSync(virtualenvPython, 0o755);
+    writeFileSync(markerPath, 'not-a-verified-backup\n', 'utf8');
+    const deployScript = shellPath(
+      resolve(__dirname, '../../scripts/deploy-ec2.sh'),
+    );
+    const harness = `
+git() { printf '%s\\n' git >>"$COMMAND_LOG"; return 0; }
+psql() {
+  printf '%s\\n' psql >>"$COMMAND_LOG"
+  case "$*" in
+    *to_regclass*) printf '%s\\n' pgmigrations ;;
+    *) printf '%s\\n' f ;;
+  esac
+}
+pkill() { printf '%s\\n' pkill >>"$COMMAND_LOG"; return 0; }
+sudo() { printf '%s\\n' sudo >>"$COMMAND_LOG"; return 0; }
+sleep() { printf '%s\\n' sleep >>"$COMMAND_LOG"; return 0; }
+npm() { printf '%s\\n' npm >>"$COMMAND_LOG"; return 0; }
+python3() { printf '%s\\n' python3 >>"$COMMAND_LOG"; return 0; }
+setsid() { printf '%s\\n' setsid >>"$COMMAND_LOG"; return 0; }
+curl() { printf '%s\\n' curl >>"$COMMAND_LOG"; return 0; }
+source '${deployScript}'
+`;
+
+    try {
+      const result = spawnSync(bash, ['-c', harness], {
+        cwd: appDirectory,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          APP_DIR: shellPath(appDirectory),
+          AUTH_CUTOVER_VERIFIED_BACKUP_MARKER: '--help',
+          COMMAND_LOG: shellPath(commandLog),
+          DATABASE_URL: 'postgresql://unused.invalid/stubbed',
+        },
+      });
+      const commands = existsSync(commandLog)
+        ? readFileSync(commandLog, 'utf8')
+        : '';
+
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain(
+        'Refusing irreversible auth migration: the verified backup marker does not match',
+      );
+      expect(commands).not.toContain('pkill');
+      expect(commands).not.toContain('npm');
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+
+  it('rehearses rollback only for the earlier concurrent-index migration in a disposable database', () => {
+    expect(workflow).toContain('migration_rollback_test');
+    expect(workflow).toContain('db:migrate:up -- 2');
+    expect(workflow).toContain('db:migrate:down -- 1');
+    expect(workflow).not.toContain(
+      'Rehearse latest concurrent index rollback and reapply',
     );
   });
 });

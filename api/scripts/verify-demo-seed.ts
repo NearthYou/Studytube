@@ -7,7 +7,10 @@ import {
 } from './database-script-guards';
 import {
   assertStableIdentity,
+  DEMO_SEED_DISABLED_PASSWORD_ALGORITHM,
   DEMO_SEED_DISABLED_PASSWORD_HASH,
+  DEMO_SEED_DISABLED_PASSWORD_PARAMETERS,
+  DEMO_SEED_IDENTITY_ASSURANCE,
   readDemoSeedState,
   replacementForLegacyDemoPasswordHash,
   seedDemoRows,
@@ -15,12 +18,22 @@ import {
 
 const LEGACY_DEMO_PASSWORD_HASH =
   '47f65a9430b5f109208eea5ad01ce9f5c8335244bfab3626eb91aea9a7b97b87';
-const CUSTOM_PASSWORD_HASH = 'custom-password-hash-for-session-boundary';
+const CUSTOM_PASSWORD_HASH =
+  '$argon2id$v=19$m=65536,t=3,p=1$c2FsdC1mb3ItdGVzdA$ZGlnZXN0LWZvci10ZXN0LW9ubHk';
+// Stable labels retained in source for the legacy-hash-session and
+// custom-hash-session boundary checks while the stored identifiers are UUIDs.
+const LEGACY_HASH_SESSION_ID = '00000000-0000-4000-8000-000000000101';
+const CUSTOM_HASH_SESSION_ID = '00000000-0000-4000-8000-000000000102';
 
 interface DemoUserRow {
   id: number;
   email: string;
+  emailCanonical: string;
   passwordHash: string;
+  passwordAlgorithm: string;
+  passwordParameters: unknown;
+  identityAssurance: string;
+  emailVerifiedAt: Date | null;
 }
 
 interface SequenceStateRow {
@@ -87,7 +100,14 @@ async function assertNoDemoLoginArtifacts(
   const demoUserIds = state.users.map(({ id }) => id);
   const users = await client.query<DemoUserRow>(
     `
-      SELECT id, email, password_hash AS "passwordHash"
+      SELECT id,
+             email,
+             email_canonical AS "emailCanonical",
+             password_hash AS "passwordHash",
+             password_algorithm AS "passwordAlgorithm",
+             password_parameters AS "passwordParameters",
+             identity_assurance AS "identityAssurance",
+             email_verified_at AS "emailVerifiedAt"
       FROM users
       WHERE id = ANY($1::integer[])
       ORDER BY id
@@ -119,6 +139,26 @@ async function assertNoDemoLoginArtifacts(
         `Demo user ${user.id} still stores the source-known legacy SHA-256 password hash`,
       );
     }
+
+    if (user.emailCanonical !== user.email.toLowerCase()) {
+      throw new Error(
+        `Demo user ${user.id} has an inconsistent canonical email`,
+      );
+    }
+
+    if (user.passwordHash === DEMO_SEED_DISABLED_PASSWORD_HASH) {
+      if (
+        user.passwordAlgorithm !== DEMO_SEED_DISABLED_PASSWORD_ALGORITHM ||
+        JSON.stringify(user.passwordParameters) !==
+          JSON.stringify(DEMO_SEED_DISABLED_PASSWORD_PARAMETERS) ||
+        user.identityAssurance !== DEMO_SEED_IDENTITY_ASSURANCE ||
+        user.emailVerifiedAt !== null
+      ) {
+        throw new Error(
+          `Demo user ${user.id} has inconsistent disabled authentication metadata`,
+        );
+      }
+    }
   }
 
   const disabledUserIds = users.rows
@@ -126,9 +166,9 @@ async function assertNoDemoLoginArtifacts(
       ({ passwordHash }) => passwordHash === DEMO_SEED_DISABLED_PASSWORD_HASH,
     )
     .map(({ id }) => id);
-  const sessions = await client.query<{ token: string; userId: number }>(
+  const sessions = await client.query<{ id: string; userId: number }>(
     `
-      SELECT token, user_id AS "userId"
+      SELECT id, user_id AS "userId"
       FROM sessions
       WHERE user_id = ANY($1::integer[])
     `,
@@ -159,11 +199,25 @@ async function verifyLegacySessionInvalidation(
 
   try {
     const legacyUpdate = await client.query(
-      'UPDATE users SET password_hash = $1 WHERE id = $2',
+      `
+        UPDATE users
+        SET password_hash = $1,
+            password_algorithm = 'legacy_sha256',
+            password_parameters = '{"digest":"sha256","encoding":"lower_hex"}'::jsonb,
+            identity_assurance = 'legacy_grandfathered',
+            email_verified_at = NULL
+        WHERE id = $2
+      `,
       [LEGACY_DEMO_PASSWORD_HASH, legacyUser.id],
     );
     const customUpdate = await client.query(
-      'UPDATE users SET password_hash = $1 WHERE id = $2',
+      `
+        UPDATE users
+        SET password_hash = $1,
+            password_algorithm = 'argon2id',
+            password_parameters = '{"memoryKiB":65536,"timeCost":3,"parallelism":1}'::jsonb
+        WHERE id = $2
+      `,
       [CUSTOM_PASSWORD_HASH, customUser.id],
     );
 
@@ -175,10 +229,20 @@ async function verifyLegacySessionInvalidation(
 
     await client.query(
       `
-        INSERT INTO sessions (token, user_id)
-        VALUES ('legacy-hash-session', $1), ('custom-hash-session', $2)
+        INSERT INTO sessions (
+          id, token_digest, user_id, absolute_expires_at,
+          idle_expires_at, last_seen_at
+        )
+        VALUES
+          ($1, decode(repeat('11', 32), 'hex'), $2, now() + interval '7 days', now() + interval '1 day', now()),
+          ($3, decode(repeat('22', 32), 'hex'), $4, now() + interval '7 days', now() + interval '1 day', now())
       `,
-      [legacyUser.id, customUser.id],
+      [
+        LEGACY_HASH_SESSION_ID,
+        legacyUser.id,
+        CUSTOM_HASH_SESSION_ID,
+        customUser.id,
+      ],
     );
 
     await seedDemoRows(client, state, {
@@ -186,42 +250,62 @@ async function verifyLegacySessionInvalidation(
       synchronizeSequences: false,
     });
 
-    const users = await client.query<{ id: number; passwordHash: string }>(
+    const users = await client.query<{
+      id: number;
+      passwordHash: string;
+      passwordAlgorithm: string;
+    }>(
       `
-        SELECT id, password_hash AS "passwordHash"
+        SELECT id,
+               password_hash AS "passwordHash",
+               password_algorithm AS "passwordAlgorithm"
         FROM users
         WHERE id = ANY($1::integer[])
       `,
       [[legacyUser.id, customUser.id]],
     );
-    const passwordHashes = new Map(
-      users.rows.map(({ id, passwordHash }) => [id, passwordHash]),
+    const passwordHashes = new Map<
+      number,
+      { passwordHash: string; passwordAlgorithm: string }
+    >(
+      users.rows.map(({ id, passwordHash, passwordAlgorithm }) => [
+        id,
+        { passwordHash, passwordAlgorithm },
+      ]),
     );
 
     if (
-      passwordHashes.get(legacyUser.id) !== DEMO_SEED_DISABLED_PASSWORD_HASH
+      passwordHashes.get(legacyUser.id)?.passwordHash !==
+        DEMO_SEED_DISABLED_PASSWORD_HASH ||
+      passwordHashes.get(legacyUser.id)?.passwordAlgorithm !==
+        DEMO_SEED_DISABLED_PASSWORD_ALGORITHM
     ) {
       throw new Error('Legacy demo password hash was not disabled');
     }
 
-    if (passwordHashes.get(customUser.id) !== CUSTOM_PASSWORD_HASH) {
+    if (
+      passwordHashes.get(customUser.id)?.passwordHash !==
+        CUSTOM_PASSWORD_HASH ||
+      passwordHashes.get(customUser.id)?.passwordAlgorithm !== 'argon2id'
+    ) {
       throw new Error('Custom demo password hash was overwritten');
     }
 
-    const sessions = await client.query<{ token: string }>(
+    const sessions = await client.query<{ id: string }>(
       `
-        SELECT token
+        SELECT id
         FROM sessions
-        WHERE token IN ('legacy-hash-session', 'custom-hash-session')
+        WHERE id = ANY($1::uuid[])
       `,
+      [[LEGACY_HASH_SESSION_ID, CUSTOM_HASH_SESSION_ID]],
     );
-    const sessionTokens = new Set(sessions.rows.map(({ token }) => token));
+    const sessionIds = new Set(sessions.rows.map(({ id }) => id));
 
-    if (sessionTokens.has('legacy-hash-session')) {
+    if (sessionIds.has(LEGACY_HASH_SESSION_ID)) {
       throw new Error('Legacy-hash demo user session was not invalidated');
     }
 
-    if (!sessionTokens.has('custom-hash-session')) {
+    if (!sessionIds.has(CUSTOM_HASH_SESSION_ID)) {
       throw new Error(
         'Custom-hash demo user session was incorrectly invalidated',
       );

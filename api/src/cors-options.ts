@@ -1,48 +1,62 @@
 import type { CorsOptions } from '@nestjs/common/interfaces/external/cors-options.interface';
 
-const DEFAULT_ALLOWED_ORIGINS = [
-  'http://localhost:5173',
-  'http://127.0.0.1:5173',
-  'http://[::1]:5173',
-];
-
-export function createCorsOptions(configuredOrigins?: string): CorsOptions {
-  const allowedOrigins = new Set([
-    ...DEFAULT_ALLOWED_ORIGINS,
-    ...parseConfiguredOrigins(configuredOrigins),
-  ]);
+export function createCorsOptions(configuredOrigin?: string): CorsOptions {
+  const allowedOrigin = requireConfiguredOrigin(configuredOrigin);
 
   return {
     credentials: true,
     origin(origin, callback) {
-      if (!origin || allowedOrigins.has(origin) || isLocalDevOrigin(origin)) {
-        callback(null, true);
-        return;
-      }
-
-      callback(null, false);
+      const normalizedOrigin = normalizeHttpOrigin(origin);
+      callback(
+        null,
+        normalizedOrigin !== undefined && normalizedOrigin === allowedOrigin,
+      );
     },
   };
 }
 
-function parseConfiguredOrigins(configuredOrigins?: string): string[] {
-  return (configuredOrigins ?? '')
-    .split(',')
-    .map((origin) => origin.trim().replace(/\/$/, ''))
-    .filter(Boolean);
+export function normalizeHttpOrigin(
+  candidate: string | undefined,
+): string | undefined {
+  if (
+    !candidate ||
+    candidate.includes(',') ||
+    candidate.includes('@') ||
+    candidate.includes('\\') ||
+    containsHttpOriginControlCharacter(candidate) ||
+    !/^https?:\/\/[^/?#]+$/iu.test(candidate)
+  ) {
+    return undefined;
+  }
+  try {
+    const parsed = new URL(candidate);
+    if (
+      (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') ||
+      parsed.username ||
+      parsed.password
+    ) {
+      return undefined;
+    }
+    return parsed.origin;
+  } catch {
+    return undefined;
+  }
 }
 
-function isLocalDevOrigin(origin: string): boolean {
-  try {
-    const parsed = new URL(origin);
-    const loopbackHosts = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
-
-    return (
-      parsed.protocol === 'http:' &&
-      loopbackHosts.has(parsed.hostname) &&
-      Boolean(parsed.port)
-    );
-  } catch {
-    return false;
+function containsHttpOriginControlCharacter(candidate: string): boolean {
+  for (let index = 0; index < candidate.length; index += 1) {
+    const codeUnit = candidate.charCodeAt(index);
+    if (codeUnit <= 0x20 || (codeUnit >= 0x7f && codeUnit <= 0x9f)) {
+      return true;
+    }
   }
+  return false;
+}
+
+function requireConfiguredOrigin(configuredOrigin?: string): string {
+  const normalizedOrigin = normalizeHttpOrigin(configuredOrigin);
+  if (!normalizedOrigin) {
+    throw new RangeError('Exactly one valid web Origin is required');
+  }
+  return normalizedOrigin;
 }

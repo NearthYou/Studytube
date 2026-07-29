@@ -117,6 +117,153 @@ describe('database migration files', () => {
     expect(migration).not.toContain('DROP TABLE');
   });
 
+  it('preflights legacy auth data before the irreversible credential cutover', async () => {
+    const migrationPath = join(
+      process.cwd(),
+      'migrations',
+      '1753660802000_auth-hardening.cjs',
+    );
+
+    expect(existsSync(migrationPath)).toBe(true);
+
+    if (!existsSync(migrationPath)) {
+      return;
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const migration = require(migrationPath) as {
+      up(pgm: { sql: jest.Mock }): void | Promise<void>;
+    };
+    const pgm = { sql: jest.fn() };
+
+    await migration.up(pgm);
+
+    const statements = pgm.sql.mock.calls.map(([sql]) => String(sql));
+    const preflight = statements[0] ?? '';
+    const mutations = statements.slice(1).join('\n');
+    const printableAsciiCheck = preflight.indexOf(
+      'COLLATE "C" !~ \'^[ -~]+$\'',
+    );
+    const asciiSpaceTrim = preflight.indexOf("btrim(email, ' ')");
+    const grammarCheck = preflight.indexOf('invalid_email_grammar');
+    const lowercase = preflight.indexOf(`lower(btrim(email, ' ') COLLATE "C")`);
+    const collisionCheck = preflight.indexOf('canonical_collision');
+
+    expect(preflight).toContain('invalid legacy email user IDs');
+    expect(preflight).toContain('unknown password representation user IDs');
+    expect(preflight).toContain("password_hash !~ '^[0-9a-f]{64}$'");
+    expect(printableAsciiCheck).toBeGreaterThanOrEqual(0);
+    expect(asciiSpaceTrim).toBeGreaterThan(printableAsciiCheck);
+    expect(grammarCheck).toBeGreaterThan(asciiSpaceTrim);
+    expect(lowercase).toBeGreaterThan(grammarCheck);
+    expect(collisionCheck).toBeGreaterThan(lowercase);
+    expect(mutations).toContain('DROP TABLE sessions');
+  });
+
+  it('creates a digest-only constrained auth schema with application supplied UUIDs', async () => {
+    const migrationPath = join(
+      process.cwd(),
+      'migrations',
+      '1753660802000_auth-hardening.cjs',
+    );
+
+    expect(existsSync(migrationPath)).toBe(true);
+
+    if (!existsSync(migrationPath)) {
+      return;
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const migration = require(migrationPath) as {
+      up(pgm: { sql: jest.Mock }): void | Promise<void>;
+    };
+    const pgm = { sql: jest.fn() };
+
+    await migration.up(pgm);
+
+    const statements = pgm.sql.mock.calls.map(([sql]) => String(sql));
+    const sql = statements.join('\n');
+
+    for (const column of [
+      'email_canonical',
+      'password_algorithm',
+      'password_parameters',
+      'password_version',
+      'identity_assurance',
+      'email_verified_at',
+    ]) {
+      expect(sql).toContain(column);
+    }
+
+    expect(sql).toContain("password_hash ~ '^[0-9a-f]{64}$'");
+    expect(sql).toContain("password_hash = 'disabled:demo-seed-login'");
+    expect(sql).toContain("identity_assurance = 'legacy_grandfathered'");
+    expect(sql).toContain('email_verified_at = NULL');
+    expect(sql).toContain('DROP INDEX IF EXISTS users_lower_email_idx');
+    expect(sql).toContain('UNIQUE (email_canonical)');
+
+    for (const table of [
+      'sessions',
+      'pending_registrations',
+      'auth_rate_limits',
+      'verification_email_outbox',
+    ]) {
+      expect(sql).toContain(`CREATE TABLE ${table}`);
+    }
+
+    expect(sql).not.toMatch(/UUID\s+[^,\n]*DEFAULT/i);
+    expect(sql).not.toMatch(/\btoken\s+TEXT\b/i);
+    expect(sql).not.toMatch(/\bverification_token\b|\benrollment_token\b/i);
+    expect(sql).not.toMatch(/reauth/i);
+    expect(sql).toContain('CHECK (octet_length(token_digest) = 32)');
+    expect(sql).toContain('CHECK (octet_length(verification_digest) = 32)');
+    expect(sql).toContain('CHECK (octet_length(subject_digest) = 32)');
+    expect(sql).toContain('CHECK (octet_length(payload_hash) = 32)');
+    expect(sql).toContain('last_seen_at <= idle_expires_at');
+    expect(sql).toContain('completed_at <= enrollment_expires_at');
+    expect(sql).toContain('UNIQUE (token_digest)');
+    expect(sql).toContain('UNIQUE (verification_digest)');
+    expect(sql).toContain('UNIQUE (enrollment_digest)');
+    expect(sql).toContain('UNIQUE (idempotency_key)');
+    expect(sql).toContain('REFERENCES users(id) ON DELETE CASCADE');
+    expect(sql).toContain(
+      'REFERENCES pending_registrations(id) ON DELETE CASCADE',
+    );
+
+    const claimIndex = statements.find((statement) =>
+      statement.includes('verification_email_outbox_claim_idx'),
+    );
+
+    expect(claimIndex).toBeDefined();
+    expect(claimIndex).toContain('WHERE sent_at IS NULL');
+    expect(claimIndex).not.toMatch(/\bnow\s*\(/i);
+  });
+
+  it('rejects auth rollback before asking the migration builder to mutate data', () => {
+    const migrationPath = join(
+      process.cwd(),
+      'migrations',
+      '1753660802000_auth-hardening.cjs',
+    );
+
+    expect(existsSync(migrationPath)).toBe(true);
+
+    if (!existsSync(migrationPath)) {
+      return;
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const migration = require(migrationPath) as {
+      down(pgm: { sql: jest.Mock }): void;
+    };
+    const pgm = { sql: jest.fn() };
+
+    expect(() => migration.down(pgm)).toThrow(
+      /auth-hardening is irreversible.*verified pre-cutover backup/i,
+    );
+    expect(pgm.sql).not.toHaveBeenCalled();
+  });
+
   it('checks in a complete legacy runtime fixture with data and sequence state', async () => {
     const fixturePath = join(
       process.cwd(),
@@ -174,6 +321,10 @@ describe('database migration files', () => {
     expect(seedScript).toContain("assertStableIdentity('comment'");
     expect(seedScript).toContain("assertStableIdentity('feedback'");
     expect(seedScript).toContain('DELETE FROM sessions WHERE user_id = $1');
+    expect(seedScript).toContain('email_canonical');
+    expect(seedScript).toContain('password_algorithm');
+    expect(seedScript).toContain('password_parameters');
+    expect(seedScript).toContain('identity_assurance');
   });
 
   it('runs a guarded PostgreSQL verification after the idempotent demo seed', async () => {
@@ -254,6 +405,19 @@ describe('database migration files', () => {
     expect(verification).toContain('statement_timeout');
     expect(verification).toContain('CREATE INDEX CONCURRENTLY');
     expect(verification).toContain("query LIKE '%CREATE INDEX CONCURRENTLY%'");
+    expect(verification).toContain('invalid non-ASCII legacy email');
+    expect(verification).toContain('invalid control-character legacy email');
+    expect(verification).toContain('trim-induced canonical collision');
+    expect(verification).toContain('unknown password representation');
+    expect(verification).toContain('legacy_grandfathered');
+    expect(verification).toContain('octet_length(token_digest)');
+    expect(verification).toContain('legacy sessions were invalidated');
+    expect(verification).toContain('expectedLengthConstraints');
+    expect(verification).toContain('Digest length constraint is missing for');
+    expect(verification).toContain('session last-seen time beyond idle expiry');
+    expect(verification).toContain(
+      'pending completion beyond enrollment expiry',
+    );
   });
 });
 

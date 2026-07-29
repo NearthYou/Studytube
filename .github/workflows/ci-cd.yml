@@ -66,6 +66,9 @@ jobs:
       DATABASE_URL: postgresql://app:app@localhost:5432/app_test
       MIGRATION_ADOPTION_DATABASE: app_test
       NODE_ENV: test
+      WEB_ORIGIN: https://app.studytube.example.test
+      AUTH_VERIFICATION_PEPPER: ci-verification-pepper-change-before-production
+      AUTH_RATE_LIMIT_PEPPER: ci-rate-limit-pepper-change-before-production
       DB_INIT_ATTEMPTS: 3
       DB_INIT_RETRY_DELAY_MS: 100
     defaults:
@@ -110,10 +113,21 @@ jobs:
           ALLOW_MIGRATION_ADOPTION_TEST: "true"
         run: npm run db:migrate:test-adoption
 
-      - name: Rehearse latest concurrent index rollback and reapply
+      - name: Rehearse reversible concurrent-index migration
+        env:
+          PGPASSWORD: app
         run: |
-          npm run db:migrate:down -- 1
-          npm run db:migrate:up -- 1
+          rollback_database=migration_rollback_test
+          rollback_database_url="postgresql://app:${PGPASSWORD}@localhost:5432/${rollback_database}"
+          cleanup_rollback_database() {
+            dropdb --if-exists --host localhost --username app "$rollback_database"
+          }
+          trap cleanup_rollback_database EXIT
+          cleanup_rollback_database
+          createdb --host localhost --username app "$rollback_database"
+          DATABASE_URL="$rollback_database_url" npm run db:migrate:up -- 2
+          DATABASE_URL="$rollback_database_url" npm run db:migrate:down -- 1
+          DATABASE_URL="$rollback_database_url" npm run db:migrate:up -- 1
 
       - name: Lint
         run: npm run lint
@@ -121,8 +135,14 @@ jobs:
       - name: Test
         run: npm test -- --runInBand
 
+      - name: Verify cookie-only authentication boundary
+        run: npm run auth:verify-boundary
+
+      - name: Verify bounded Argon2 behavior
+        run: npm run auth:benchmark-password -- --samples=2 --warmup=0 --concurrency=2 --saturate-queue
+
       - name: Test API with PostgreSQL
-        run: npm run test:e2e
+        run: npm run test:e2e -- --runInBand
 
       - name: Build
         run: npm run build
@@ -160,7 +180,7 @@ jobs:
       - web
       - api
       - ai
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/sw')
+    if: github.ref == 'refs/heads/sw' && (github.event_name == 'workflow_dispatch' || github.event_name == 'push')
     env:
       EC2_HOST: ${{ secrets.EC2_HOST }}
       EC2_USER: ${{ secrets.EC2_USER }}

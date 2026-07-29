@@ -1,13 +1,12 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { join } from 'node:path';
 import { Pool, type PoolClient } from 'pg';
 import {
   assertConnectedDatabase,
   requireSafeDatabaseTarget,
 } from './database-script-guards';
 
-const TABLES = [
+const LEGACY_TABLES = [
   ['users', 'id'],
   ['sessions', 'token'],
   ['posts', 'id'],
@@ -21,6 +20,10 @@ const TABLES = [
   ['post_embeddings', 'post_id'],
 ] as const;
 
+const PRESERVED_BOARD_TABLES = LEGACY_TABLES.filter(
+  ([table]) => table !== 'users' && table !== 'sessions',
+);
+
 const SEQUENCES = [
   'users_id_seq',
   'posts_id_seq',
@@ -31,7 +34,7 @@ const SEQUENCES = [
   'playlist_feedback_id_seq',
 ] as const;
 
-const INDEXES = [
+const CONCURRENT_INDEXES = [
   'users_lower_email_idx',
   'sessions_user_id_idx',
   'posts_author_updated_at_idx',
@@ -49,10 +52,13 @@ const INDEXES = [
 const EXPECTED_MIGRATIONS = [
   '1753660800000_baseline-schema',
   '1753660801000_concurrent-indexes',
+  '1753660802000_auth-hardening',
 ] as const;
 
 const INDEX_MIGRATION_APPLICATION_NAME =
   'studytube-migration-adoption-index-build';
+const LEGACY_SHA256 = 'a'.repeat(64);
+const DISABLED_PASSWORD_HASH = 'disabled:demo-seed-login';
 
 interface TableFingerprint {
   rowCount: number;
@@ -74,6 +80,12 @@ interface StartedMigration {
   isSettled: () => boolean;
 }
 
+interface LegacyAuthRow {
+  id: number;
+  email: string;
+  passwordHash: string;
+}
+
 function quoteIdentifier(identifier: string): string {
   return `"${identifier.replaceAll('"', '""')}"`;
 }
@@ -92,10 +104,11 @@ async function assertMigrationHistoryAbsent(client: PoolClient) {
 
 async function readTableFingerprints(
   client: PoolClient,
+  tables: ReadonlyArray<readonly [string, string]>,
 ): Promise<Record<string, TableFingerprint>> {
   const fingerprints: Record<string, TableFingerprint> = {};
 
-  for (const [table, orderBy] of TABLES) {
+  for (const [table, orderBy] of tables) {
     const result = await client.query<{ row: string }>(
       `
         SELECT to_jsonb(fingerprint_row)::text AS row
@@ -149,9 +162,12 @@ async function readSequenceStates(
   return sequences;
 }
 
-async function readSnapshot(client: PoolClient): Promise<DatabaseSnapshot> {
+async function readSnapshot(
+  client: PoolClient,
+  tables: ReadonlyArray<readonly [string, string]>,
+): Promise<DatabaseSnapshot> {
   return {
-    tables: await readTableFingerprints(client),
+    tables: await readTableFingerprints(client, tables),
     sequences: await readSequenceStates(client),
   };
 }
@@ -186,13 +202,7 @@ function startMigration(
   count?: number,
   applicationName?: string,
 ): StartedMigration {
-  const cliPath = join(
-    process.cwd(),
-    'node_modules',
-    'node-pg-migrate',
-    'bin',
-    'node-pg-migrate.js',
-  );
+  const cliPath = require.resolve('node-pg-migrate/bin/node-pg-migrate');
   const args = [cliPath, 'up'];
 
   if (count !== undefined) {
@@ -320,7 +330,7 @@ async function verifyNonBlockingIndexMigration(
 
     migration = startMigration(
       connectionString,
-      undefined,
+      1,
       INDEX_MIGRATION_APPLICATION_NAME,
     );
     await waitForConcurrentIndexBuild(monitor, migration);
@@ -391,7 +401,7 @@ async function assertIndexesReady(client: PoolClient) {
     `,
   );
   const byName = new Map(result.rows.map((index) => [index.name, index]));
-  const missing = INDEXES.filter((name) => !byName.has(name));
+  const missing = CONCURRENT_INDEXES.filter((name) => !byName.has(name));
   const unusable = result.rows.filter(
     ({ indisvalid, indisready }) => !indisvalid || !indisready,
   );
@@ -407,6 +417,473 @@ async function assertIndexesReady(client: PoolClient) {
   }
 }
 
+async function readLegacyAuthRows(
+  client: PoolClient,
+): Promise<LegacyAuthRow[]> {
+  const result = await client.query<LegacyAuthRow>(`
+    SELECT id, email, password_hash AS "passwordHash"
+    FROM users
+    ORDER BY id
+  `);
+  return result.rows;
+}
+
+async function restoreLegacyAuthRows(
+  client: PoolClient,
+  rows: LegacyAuthRow[],
+): Promise<void> {
+  for (const row of rows) {
+    await client.query(
+      'UPDATE users SET email = $1, password_hash = $2 WHERE id = $3',
+      [row.email, row.passwordHash, row.id],
+    );
+  }
+}
+
+async function expectAuthMigrationFailure(
+  client: PoolClient,
+  connectionString: string,
+  description: string,
+  prepare: () => Promise<void>,
+  expected: RegExp,
+): Promise<void> {
+  const originalRows = await readLegacyAuthRows(client);
+
+  try {
+    await prepare();
+    let failure: unknown;
+
+    try {
+      await runMigration(connectionString, 1);
+    } catch (error) {
+      failure = error;
+    }
+
+    if (!(failure instanceof Error) || !expected.test(failure.message)) {
+      throw new Error(
+        `Expected ${description} to abort auth migration, received ${failure instanceof Error ? failure.message : 'no error'}`,
+      );
+    }
+
+    await assertMigrationHistory(client, EXPECTED_MIGRATIONS.slice(0, 2));
+
+    const leakedMutation = await client.query<{ count: string }>(`
+      SELECT count(*)::text AS count
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'users'
+        AND column_name = 'email_canonical'
+    `);
+
+    if (leakedMutation.rows[0]?.count !== '0') {
+      throw new Error(`${description} mutated schema before aborting`);
+    }
+  } finally {
+    await restoreLegacyAuthRows(client, originalRows);
+  }
+}
+
+async function verifyAuthPreflightFailures(
+  client: PoolClient,
+  connectionString: string,
+): Promise<void> {
+  await expectAuthMigrationFailure(
+    client,
+    connectionString,
+    'unknown password representation',
+    () => Promise.resolve(),
+    /unknown password representation user IDs.*\{41,42\}/i,
+  );
+
+  await expectAuthMigrationFailure(
+    client,
+    connectionString,
+    'invalid non-ASCII legacy email',
+    async () => {
+      await client.query(
+        "UPDATE users SET email = 'légacy@example.test' WHERE id = 41",
+      );
+    },
+    /invalid legacy email user IDs.*41/i,
+  );
+
+  await expectAuthMigrationFailure(
+    client,
+    connectionString,
+    'invalid control-character legacy email',
+    async () => {
+      await client.query('UPDATE users SET email = $1 WHERE id = 41', [
+        'legacy\nowner@example.test',
+      ]);
+    },
+    /invalid legacy email user IDs.*41/i,
+  );
+
+  await expectAuthMigrationFailure(
+    client,
+    connectionString,
+    'trim-induced canonical collision',
+    async () => {
+      await client.query(
+        `
+          UPDATE users
+          SET email = CASE id
+            WHEN 41 THEN ' Shared@Example.Test '
+            WHEN 42 THEN 'shared@example.test'
+          END
+          WHERE id IN (41, 42)
+        `,
+      );
+    },
+    /canonical email collisions.*41.*42/i,
+  );
+}
+
+async function readPreservedUserFingerprint(
+  client: PoolClient,
+): Promise<string> {
+  const result = await client.query<{ row: string }>(`
+    SELECT jsonb_build_object(
+      'id', id,
+      'name', name,
+      'preferences', preferences,
+      'created_at', created_at
+    )::text AS row
+    FROM users
+    ORDER BY id
+  `);
+
+  return createHash('sha256')
+    .update(result.rows.map(({ row }) => row).join('\n'))
+    .digest('hex');
+}
+
+async function prepareValidAuthAdoption(client: PoolClient): Promise<void> {
+  await client.query(
+    `
+      UPDATE users
+      SET email = CASE id
+            WHEN 41 THEN ' Legacy-Owner@Example.Test '
+            ELSE email
+          END,
+          password_hash = CASE id
+            WHEN 41 THEN $1
+            WHEN 42 THEN $2
+            ELSE password_hash
+          END
+      WHERE id IN (41, 42)
+    `,
+    [LEGACY_SHA256, DISABLED_PASSWORD_HASH],
+  );
+}
+
+async function assertDigestColumnsAndConstraints(
+  client: PoolClient,
+): Promise<void> {
+  const expectedColumns = new Map([
+    ['sessions.token_digest', 'bytea'],
+    ['pending_registrations.verification_digest', 'bytea'],
+    ['pending_registrations.enrollment_digest', 'bytea'],
+    ['auth_rate_limits.subject_digest', 'bytea'],
+    ['verification_email_outbox.payload_hash', 'bytea'],
+  ]);
+  const expectedLengthConstraints = new Map([
+    [
+      'sessions.token_digest',
+      {
+        tableName: 'sessions',
+        definition: 'octet_length(token_digest) = 32',
+      },
+    ],
+    [
+      'pending_registrations.verification_digest',
+      {
+        tableName: 'pending_registrations',
+        definition: 'octet_length(verification_digest) = 32',
+      },
+    ],
+    [
+      'pending_registrations.enrollment_digest',
+      {
+        tableName: 'pending_registrations',
+        definition: 'octet_length(enrollment_digest) = 32',
+      },
+    ],
+    [
+      'auth_rate_limits.subject_digest',
+      {
+        tableName: 'auth_rate_limits',
+        definition: 'octet_length(subject_digest) = 32',
+      },
+    ],
+    [
+      'verification_email_outbox.payload_hash',
+      {
+        tableName: 'verification_email_outbox',
+        definition: 'octet_length(payload_hash) = 32',
+      },
+    ],
+  ]);
+  const columns = await client.query<{
+    tableName: string;
+    columnName: string;
+    dataType: string;
+  }>(`
+    SELECT table_name AS "tableName",
+           column_name AS "columnName",
+           data_type AS "dataType"
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name IN (
+        'sessions',
+        'pending_registrations',
+        'auth_rate_limits',
+        'verification_email_outbox'
+      )
+  `);
+  const actualColumns = new Map(
+    columns.rows.map(({ tableName, columnName, dataType }) => [
+      `${tableName}.${columnName}`,
+      dataType,
+    ]),
+  );
+
+  for (const [column, dataType] of expectedColumns) {
+    if (actualColumns.get(column) !== dataType) {
+      throw new Error(`Digest column ${column} is not ${dataType}`);
+    }
+  }
+
+  for (const rawColumn of [
+    'sessions.token',
+    'pending_registrations.verification_token',
+    'pending_registrations.enrollment_token',
+  ]) {
+    if (actualColumns.has(rawColumn)) {
+      throw new Error(
+        `Raw secret column remains after auth adoption: ${rawColumn}`,
+      );
+    }
+  }
+
+  const lengthConstraints = await client.query<{
+    tableName: string;
+    definition: string;
+  }>(`
+    SELECT table_row.relname AS "tableName",
+           pg_get_constraintdef(constraint_row.oid) AS definition
+    FROM pg_constraint AS constraint_row
+    JOIN pg_class AS table_row ON table_row.oid = constraint_row.conrelid
+    JOIN pg_namespace AS namespace_row
+      ON namespace_row.oid = table_row.relnamespace
+    WHERE namespace_row.nspname = 'public'
+      AND table_row.relname IN (
+        'sessions',
+        'pending_registrations',
+        'auth_rate_limits',
+        'verification_email_outbox'
+      )
+      AND pg_get_constraintdef(constraint_row.oid) LIKE '%octet_length(%'
+  `);
+  const definitionsByTable = new Map<string, string[]>();
+
+  for (const { tableName, definition } of lengthConstraints.rows) {
+    definitionsByTable.set(tableName, [
+      ...(definitionsByTable.get(tableName) ?? []),
+      definition,
+    ]);
+  }
+
+  for (const [column, expected] of expectedLengthConstraints) {
+    const definitions = definitionsByTable.get(expected.tableName) ?? [];
+
+    if (
+      !definitions.some((definition) =>
+        definition.includes(expected.definition),
+      )
+    ) {
+      throw new Error(`Digest length constraint is missing for ${column}`);
+    }
+  }
+}
+
+async function expectCheckViolation(
+  client: PoolClient,
+  savepoint: string,
+  description: string,
+  operation: () => Promise<unknown>,
+): Promise<void> {
+  await client.query(`SAVEPOINT ${savepoint}`);
+  let failure: unknown;
+
+  try {
+    await operation();
+  } catch (error) {
+    failure = error;
+  }
+
+  await client.query(`ROLLBACK TO SAVEPOINT ${savepoint}`);
+
+  if (
+    typeof failure !== 'object' ||
+    failure === null ||
+    !('code' in failure) ||
+    failure.code !== '23514'
+  ) {
+    throw new Error(`Expected check violation for ${description}`);
+  }
+}
+
+async function assertAuthAdoption(client: PoolClient): Promise<void> {
+  const users = await client.query<{
+    id: number;
+    email: string;
+    emailCanonical: string;
+    passwordAlgorithm: string;
+    identityAssurance: string;
+    emailVerifiedAt: Date | null;
+  }>(`
+    SELECT id,
+           email,
+           email_canonical AS "emailCanonical",
+           password_algorithm AS "passwordAlgorithm",
+           identity_assurance AS "identityAssurance",
+           email_verified_at AS "emailVerifiedAt"
+    FROM users
+    ORDER BY id
+  `);
+  const expected = [
+    {
+      id: 41,
+      email: 'Legacy-Owner@Example.Test',
+      emailCanonical: 'legacy-owner@example.test',
+      passwordAlgorithm: 'legacy_sha256',
+    },
+    {
+      id: 42,
+      email: 'legacy-collaborator@example.test',
+      emailCanonical: 'legacy-collaborator@example.test',
+      passwordAlgorithm: 'disabled',
+    },
+  ];
+
+  for (const expectedUser of expected) {
+    const user = users.rows.find(({ id }) => id === expectedUser.id);
+
+    if (
+      !user ||
+      user.email !== expectedUser.email ||
+      user.emailCanonical !== expectedUser.emailCanonical ||
+      user.passwordAlgorithm !== expectedUser.passwordAlgorithm ||
+      user.identityAssurance !== 'legacy_grandfathered' ||
+      user.emailVerifiedAt !== null
+    ) {
+      throw new Error(
+        `Auth adoption produced inconsistent grandfathered user ${expectedUser.id}`,
+      );
+    }
+  }
+
+  const sessions = await client.query<{ count: string }>(
+    'SELECT count(*)::text AS count FROM sessions',
+  );
+
+  if (sessions.rows[0]?.count !== '0') {
+    throw new Error('Expected all legacy sessions were invalidated');
+  }
+
+  await assertDigestColumnsAndConstraints(client);
+
+  const claimIndex = await client.query<{ predicate: string | null }>(`
+    SELECT pg_get_expr(index_row.indpred, index_row.indrelid) AS predicate
+    FROM pg_index AS index_row
+    JOIN pg_class AS index_class ON index_class.oid = index_row.indexrelid
+    WHERE index_class.relname = 'verification_email_outbox_claim_idx'
+  `);
+  const predicate = claimIndex.rows[0]?.predicate;
+
+  if (!predicate || /\bnow\s*\(/i.test(predicate)) {
+    throw new Error(
+      'Outbox claim index is missing or has a volatile predicate',
+    );
+  }
+
+  await client.query('BEGIN');
+
+  try {
+    const inserted = await client.query<{ digestLength: number }>(
+      `
+        INSERT INTO sessions (
+          id, token_digest, user_id, absolute_expires_at,
+          idle_expires_at, last_seen_at
+        )
+        VALUES (
+          '00000000-0000-4000-8000-000000000201',
+          decode(repeat('ab', 32), 'hex'),
+          41,
+          now() + interval '7 days',
+          now() + interval '1 day',
+          now()
+        )
+        RETURNING octet_length(token_digest) AS "digestLength"
+      `,
+    );
+
+    if (inserted.rows[0]?.digestLength !== 32) {
+      throw new Error('New digest session did not store a 32-byte digest');
+    }
+
+    await expectCheckViolation(
+      client,
+      'invalid_session_idle_expiry',
+      'session last-seen time beyond idle expiry',
+      () =>
+        client.query(`
+          INSERT INTO sessions (
+            id, token_digest, user_id, absolute_expires_at,
+            idle_expires_at, last_seen_at
+          )
+          VALUES (
+            '00000000-0000-4000-8000-000000000202',
+            decode(repeat('ac', 32), 'hex'),
+            41,
+            now() + interval '7 days',
+            now() + interval '1 day',
+            now() + interval '2 days'
+          )
+        `),
+    );
+
+    await expectCheckViolation(
+      client,
+      'invalid_pending_completion_expiry',
+      'pending completion beyond enrollment expiry',
+      () =>
+        client.query(`
+          INSERT INTO pending_registrations (
+            id, email, email_canonical, key_version, verification_digest,
+            verification_expires_at, verified_at, enrollment_digest,
+            enrollment_expires_at, completed_at
+          )
+          VALUES (
+            '00000000-0000-4000-8000-000000000301',
+            'boundary@example.test',
+            'boundary@example.test',
+            1,
+            decode(repeat('bc', 32), 'hex'),
+            now() + interval '30 minutes',
+            now() + interval '5 minutes',
+            decode(repeat('bd', 32), 'hex'),
+            now() + interval '15 minutes',
+            now() + interval '20 minutes'
+          )
+        `),
+    );
+  } finally {
+    await client.query('ROLLBACK');
+  }
+}
+
 async function main() {
   const target = requireSafeDatabaseTarget('ALLOW_MIGRATION_ADOPTION_TEST');
   const pool = new Pool({ connectionString: target.connectionString });
@@ -417,23 +894,45 @@ async function main() {
     try {
       await assertConnectedDatabase(client, target.databaseName);
       await assertMigrationHistoryAbsent(client);
-      const before = await readSnapshot(client);
+      const before = await readSnapshot(client, LEGACY_TABLES);
 
       await runMigration(target.connectionString, 1);
       await assertMigrationHistory(client, EXPECTED_MIGRATIONS.slice(0, 1));
-
-      const afterBaseline = await readSnapshot(client);
-      assertSnapshotUnchanged(before, afterBaseline, 'Baseline adoption');
-
-      await verifyNonBlockingIndexMigration(pool, target.connectionString);
-      await assertMigrationHistory(client, EXPECTED_MIGRATIONS);
-      await assertIndexesReady(client);
-
-      const afterIndexes = await readSnapshot(client);
       assertSnapshotUnchanged(
         before,
-        afterIndexes,
+        await readSnapshot(client, LEGACY_TABLES),
+        'Baseline adoption',
+      );
+
+      await verifyNonBlockingIndexMigration(pool, target.connectionString);
+      await assertMigrationHistory(client, EXPECTED_MIGRATIONS.slice(0, 2));
+      await assertIndexesReady(client);
+      assertSnapshotUnchanged(
+        before,
+        await readSnapshot(client, LEGACY_TABLES),
         'Concurrent index migration',
+      );
+
+      await verifyAuthPreflightFailures(client, target.connectionString);
+      await prepareValidAuthAdoption(client);
+
+      const preservedUsers = await readPreservedUserFingerprint(client);
+      const preservedBoard = await readSnapshot(client, PRESERVED_BOARD_TABLES);
+
+      await runMigration(target.connectionString, 1);
+      await assertMigrationHistory(client, EXPECTED_MIGRATIONS);
+      await assertAuthAdoption(client);
+
+      if ((await readPreservedUserFingerprint(client)) !== preservedUsers) {
+        throw new Error(
+          'Auth adoption changed preserved legacy user identity data',
+        );
+      }
+
+      assertSnapshotUnchanged(
+        preservedBoard,
+        await readSnapshot(client, PRESERVED_BOARD_TABLES),
+        'Auth adoption',
       );
     } finally {
       client.release();
@@ -443,11 +942,13 @@ async function main() {
   }
 
   console.log(
-    'Legacy adoption preserved every table fingerprint and sequence while concurrent indexes allowed an independent write.',
+    'Legacy adoption preserved user IDs and board data, rejected unsafe credentials, invalidated raw sessions, and installed the digest-only auth schema.',
   );
 }
 
-void main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : error);
-  process.exitCode = 1;
-});
+if (require.main === module) {
+  void main().catch((error: unknown) => {
+    console.error(error instanceof Error ? error.message : error);
+    process.exitCode = 1;
+  });
+}

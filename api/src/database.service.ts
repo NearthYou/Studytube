@@ -5,32 +5,51 @@
   OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { timingSafeEqual } from 'node:crypto';
 import { Pool, PoolClient, type QueryConfig } from 'pg';
+import { AuthRepositoryUnavailableError } from './auth/auth.repository';
+import type {
+  CompleteRegistrationCommand,
+  CompleteRegistrationResult,
+  CommitLoginCommand,
+  CommitLoginResult,
+  ConsumeVerificationCommand,
+  ConsumeVerificationResult,
+  FindActiveSessionCommand,
+  FindActiveSessionResult,
+  FindAuthUserCommand,
+  FindAuthUserResult,
+  FindEnrollmentCandidateCommand,
+  FindEnrollmentCandidateResult,
+  FindEnrollmentReadinessCommand,
+  FindEnrollmentReadinessResult,
+  PendingRegistrationCommand,
+  PendingRegistrationResult,
+  RateLimitCommand,
+  RateLimitResult,
+  RevokeActiveSessionCommand,
+  RevokeActiveSessionResult,
+} from './auth/auth.types';
 import {
   iso,
   normalizeComment,
   normalizeFeedback,
   normalizeTagNames,
   normalizeVideoAsset,
-  publicUser,
   vectorLiteral,
   type PostRow,
-  type UserRow,
   type VideoAssetRow,
 } from './database-board.mapper';
 import {
   BoardRepository,
   Comment,
   CreatePostInput,
-  LearningPreferences,
   PaginatedPosts,
   Playlist,
   PlaylistFeedback,
-  Session,
   StudyPost,
   UpdatePlaylistInput,
   UpdatePostInput,
-  User,
 } from './study-board.types';
 import type {
   CreateVideoAssetInput,
@@ -139,228 +158,680 @@ export class DatabaseService
     }
   }
 
-  async createUser(input: {
-    name: string;
-    email: string;
-    passwordHash: string;
-  }): Promise<User> {
-    const result = await this.pool.query<UserRow>(
-      `
-          INSERT INTO users (name, email, password_hash)
-          VALUES ($1, $2, $3)
-          RETURNING id, name, email, password_hash AS "passwordHash", preferences, created_at AS "createdAt"
+  async consumeRateLimit(command: RateLimitCommand): Promise<RateLimitResult> {
+    try {
+      const result = await this.pool.query<{
+        allowed: boolean;
+        remaining: number;
+        retryAfterSeconds: number;
+      }>(
+        `
+          WITH rate_window AS (
+            SELECT to_timestamp(
+              floor(
+                extract(epoch FROM statement_timestamp()) /
+                $3::double precision
+              ) * $3::double precision
+            ) AS window_start
+          ), consumed AS (
+            INSERT INTO auth_rate_limits (
+              action, subject_digest, window_start, attempts, expires_at
+            )
+            SELECT $1, $2, window_start, 1,
+                   window_start + make_interval(secs => $3::double precision)
+            FROM rate_window
+            ON CONFLICT (action, subject_digest, window_start)
+            DO UPDATE SET
+              attempts = auth_rate_limits.attempts + 1,
+              expires_at = EXCLUDED.expires_at
+            RETURNING attempts, expires_at
+          )
+          SELECT attempts <= $4 AS allowed,
+                 greatest($4 - attempts, 0)::integer AS remaining,
+                 greatest(
+                   1,
+                   ceil(
+                     extract(epoch FROM (expires_at - statement_timestamp()))
+                   )::integer
+                 ) AS "retryAfterSeconds"
+          FROM consumed
         `,
-      [input.name, input.email, input.passwordHash],
-    );
-
-    return publicUser(result.rows[0]);
-  }
-
-  async findUserByEmail(
-    email: string,
-  ): Promise<(User & { passwordHash: string }) | null> {
-    const result = await this.pool.query<UserRow>(
-      `
-          SELECT id, name, email, password_hash AS "passwordHash",
-                 preferences, created_at AS "createdAt"
-          FROM users
-          WHERE lower(email) = lower($1)
-        `,
-      [email],
-    );
-
-    return result.rows[0]
-      ? {
-          ...publicUser(result.rows[0]),
-          passwordHash: result.rows[0].passwordHash,
-        }
-      : null;
-  }
-
-  async updateUser(
-    id: number,
-    input: {
-      name?: string;
-      passwordHash?: string;
-      preferences?: LearningPreferences;
-    },
-  ): Promise<User | null> {
-    const result = await this.pool.query<UserRow>(
-      `
-          UPDATE users
-          SET name = COALESCE($2, name),
-              password_hash = COALESCE($3, password_hash),
-              preferences = COALESCE($4::jsonb, preferences)
-          WHERE id = $1
-          RETURNING id, name, email, password_hash AS "passwordHash", preferences, created_at AS "createdAt"
-        `,
-      [
-        id,
-        input.name ?? null,
-        input.passwordHash ?? null,
-        input.preferences ? JSON.stringify(input.preferences) : null,
-      ],
-    );
-
-    return result.rows[0] ? publicUser(result.rows[0]) : null;
-  }
-
-  async createSession(userId: number, token: string): Promise<Session> {
-    await this.pool.query(
-      `
-          INSERT INTO sessions (token, user_id)
-          VALUES ($1, $2)
-        `,
-      [token, userId],
-    );
-
-    const user = await this.findUserById(userId);
-
-    if (!user) {
-      throw new Error('User not found');
+        [
+          command.action,
+          command.subjectDigest,
+          command.windowSeconds,
+          command.maxAttempts,
+        ],
+      );
+      const row = result.rows[0];
+      if (!row) {
+        throw this.authPersistenceError();
+      }
+      return row.allowed
+        ? { allowed: true, remaining: Number(row.remaining) }
+        : {
+            allowed: false,
+            retryAfterSeconds: Number(row.retryAfterSeconds),
+          };
+    } catch {
+      throw this.authPersistenceError();
     }
-
-    return { token, user };
   }
 
-  async createSessionIfPasswordHashMatches(input: {
-    userId: number;
-    token: string;
-    expectedPasswordHash: string;
-  }): Promise<Session | null> {
-    const result = await this.pool.query<UserRow & { token: string }>(
-      `
-        WITH matching_user AS MATERIALIZED (
-          SELECT id, name, email, password_hash, preferences, created_at
+  async findAuthUser(
+    command: FindAuthUserCommand,
+  ): Promise<FindAuthUserResult> {
+    try {
+      const result = await this.pool.query<AuthUserCredentialRow>(
+        `
+          SELECT id, name, email,
+                 email_canonical AS "emailCanonical",
+                 password_hash AS "passwordHash",
+                 password_algorithm AS "passwordAlgorithm",
+                 password_parameters AS "passwordParameters",
+                 password_version AS "passwordVersion",
+                 identity_assurance AS "identityAssurance",
+                 created_at AS "createdAt"
           FROM users
-          WHERE id = $1
-            AND password_hash = $2
-          FOR UPDATE
-        ), inserted_session AS (
-          INSERT INTO sessions (token, user_id)
-          SELECT $3, id
-          FROM matching_user
-          RETURNING token, user_id
-        )
-        SELECT inserted_session.token,
-               matching_user.id,
-               matching_user.name,
-               matching_user.email,
-               matching_user.password_hash AS "passwordHash",
-               matching_user.preferences,
-               matching_user.created_at AS "createdAt"
-        FROM inserted_session
-        JOIN matching_user
-          ON matching_user.id = inserted_session.user_id
-      `,
-      [input.userId, input.expectedPasswordHash, input.token],
-    );
-    const row = result.rows[0];
-
-    return row ? { token: row.token, user: publicUser(row) } : null;
+          WHERE email_canonical = $1
+        `,
+        [command.emailCanonical],
+      );
+      const row = result.rows[0];
+      return {
+        user: row
+          ? {
+              ...row,
+              createdAt: new Date(row.createdAt).toISOString(),
+            }
+          : null,
+      };
+    } catch {
+      throw this.authPersistenceError();
+    }
   }
 
-  async updateUserIfPasswordHashMatchesAndReplaceSessions(input: {
-    userId: number;
-    expectedPasswordHash: string;
-    passwordHash: string;
-    replacementSessionToken: string;
-    name?: string;
-    preferences?: LearningPreferences;
-  }): Promise<Session | null> {
-    const client = await this.pool.connect();
+  async createPendingRegistration(
+    command: PendingRegistrationCommand,
+  ): Promise<PendingRegistrationResult> {
+    const client = await this.connectAuthClient();
     let transactionOpen = false;
+    const rollback = async () => {
+      if (!transactionOpen) {
+        return;
+      }
+      await client.query('ROLLBACK');
+      transactionOpen = false;
+    };
 
     try {
       await client.query('BEGIN');
       transactionOpen = true;
-
-      const updatedUser = await client.query<UserRow>(
+      const eligibility = await client.query<{
+        userExists: boolean;
+        pendingExists: boolean;
+      }>(
         `
-          /* password_change_user_lock */
-          UPDATE users
-          SET name = COALESCE($2, name),
-              preferences = COALESCE($3::jsonb, preferences),
-              password_hash = $4
-          WHERE id = $1
-            AND password_hash = $5
-          RETURNING id, name, email, password_hash AS "passwordHash", preferences, created_at AS "createdAt"
+          SELECT EXISTS (
+                   SELECT 1
+                   FROM users
+                   WHERE email_canonical = $1
+                 ) AS "userExists",
+                 EXISTS (
+                   SELECT 1
+                   FROM pending_registrations
+                   WHERE email_canonical = $1
+                     AND completed_at IS NULL
+                     AND verification_expires_at > statement_timestamp()
+                 ) AS "pendingExists"
         `,
-        [
-          input.userId,
-          input.name ?? null,
-          input.preferences ? JSON.stringify(input.preferences) : null,
-          input.passwordHash,
-          input.expectedPasswordHash,
-        ],
+        [command.emailCanonical],
       );
-      const row = updatedUser.rows[0];
-
-      if (!row) {
-        await client.query('ROLLBACK');
+      const state = eligibility.rows[0];
+      if (!state || state.userExists || state.pendingExists) {
+        await client.query('COMMIT');
         transactionOpen = false;
-        return null;
+        return { status: 'accepted' };
       }
 
-      const currentSession = await client.query<{ token: string }>(
-        `
-          SELECT token
-          FROM sessions
-          WHERE user_id = $1
-            AND token = $2
-          FOR UPDATE
-        `,
-        [input.userId, input.replacementSessionToken],
-      );
-
-      if (!currentSession.rows[0]) {
-        await client.query('ROLLBACK');
-        transactionOpen = false;
-        return null;
-      }
-
-      await client.query('DELETE FROM sessions WHERE user_id = $1', [
-        input.userId,
-      ]);
       await client.query(
         `
-          INSERT INTO sessions (token, user_id)
-          VALUES ($1, $2)
+          INSERT INTO pending_registrations (
+            id, email, email_canonical, key_version,
+            verification_digest, created_at, verification_expires_at
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7)
         `,
-        [input.replacementSessionToken, input.userId],
+        [
+          command.pendingRegistrationId,
+          command.recipient,
+          command.emailCanonical,
+          command.keyVersion,
+          command.verificationDigest,
+          command.createdAt,
+          command.verificationExpiresAt,
+        ],
+      );
+      await client.query(
+        `
+          INSERT INTO verification_email_outbox (
+            id, pending_registration_id, recipient, idempotency_key,
+            sender, public_origin, template_version, locale, subject,
+            payload_hash
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        `,
+        [
+          command.outbox.id,
+          command.pendingRegistrationId,
+          command.recipient,
+          command.outbox.idempotencyKey,
+          command.outbox.sender,
+          command.outbox.publicOrigin,
+          command.outbox.templateVersion,
+          command.outbox.locale,
+          command.outbox.subject,
+          command.outbox.payloadHash,
+        ],
       );
       await client.query('COMMIT');
       transactionOpen = false;
-
-      return {
-        token: input.replacementSessionToken,
-        user: publicUser(row),
-      };
-    } catch (error) {
-      if (transactionOpen) {
-        await client.query('ROLLBACK');
+      return { status: 'accepted' };
+    } catch {
+      try {
+        await rollback();
+      } catch {
+        throw this.authPersistenceError();
       }
-
-      throw error;
+      throw this.authPersistenceError();
     } finally {
       client.release();
     }
   }
 
-  async findSession(token: string): Promise<Session | null> {
-    const result = await this.pool.query<UserRow & { token: string }>(
-      `
-          SELECT s.token, u.id, u.name, u.email, u.password_hash AS "passwordHash",
-                 u.preferences, u.created_at AS "createdAt"
-          FROM sessions s
-          JOIN users u ON u.id = s.user_id
-          WHERE s.token = $1
-        `,
-      [token],
-    );
-    const row = result.rows[0];
+  async consumeVerification(
+    command: ConsumeVerificationCommand,
+  ): Promise<ConsumeVerificationResult> {
+    const client = await this.connectAuthClient();
+    let transactionOpen = false;
+    const rollback = async () => {
+      if (!transactionOpen) {
+        return;
+      }
+      await client.query('ROLLBACK');
+      transactionOpen = false;
+    };
 
-    return row ? { token: row.token, user: publicUser(row) } : null;
+    try {
+      await client.query('BEGIN');
+      transactionOpen = true;
+      const locked = await client.query<PendingVerificationRow>(
+        `
+          SELECT key_version AS "keyVersion",
+                 verification_digest AS "verificationDigest",
+                 attempt_count AS "attemptCount",
+                 max_attempts AS "maxAttempts",
+                 verification_expires_at AS "verificationExpiresAt",
+                 verified_at AS "verifiedAt",
+                 enrollment_digest AS "enrollmentDigest",
+                 enrollment_expires_at AS "enrollmentExpiresAt",
+                 completed_at AS "completedAt"
+          FROM pending_registrations
+          WHERE id = $1
+          FOR UPDATE
+        `,
+        [command.pendingRegistrationId],
+      );
+      const row = locked.rows[0];
+      if (
+        !row ||
+        row.keyVersion !== command.keyVersion ||
+        row.attemptCount >= row.maxAttempts ||
+        toTime(row.verificationExpiresAt) <= command.verifiedAt.getTime() ||
+        row.verifiedAt !== null ||
+        row.enrollmentDigest !== null ||
+        row.enrollmentExpiresAt !== null ||
+        row.completedAt !== null
+      ) {
+        await rollback();
+        return { status: 'invalid' };
+      }
+
+      if (
+        !authDigestMatches(
+          row.verificationDigest,
+          command.presentedVerificationDigest,
+        )
+      ) {
+        await client.query(
+          `
+            UPDATE pending_registrations
+            SET attempt_count = attempt_count + 1
+            WHERE id = $1
+              AND attempt_count < max_attempts
+            RETURNING attempt_count AS "attemptCount",
+                      max_attempts AS "maxAttempts"
+          `,
+          [command.pendingRegistrationId],
+        );
+        await client.query('COMMIT');
+        transactionOpen = false;
+        return { status: 'invalid' };
+      }
+
+      await client.query(
+        `
+          UPDATE pending_registrations
+          SET verified_at = $2,
+              enrollment_digest = $3,
+              enrollment_expires_at = $4
+          WHERE id = $1
+        `,
+        [
+          command.pendingRegistrationId,
+          command.verifiedAt,
+          command.enrollmentDigest,
+          command.enrollmentExpiresAt,
+        ],
+      );
+      await client.query('COMMIT');
+      transactionOpen = false;
+      return { status: 'verified' };
+    } catch {
+      try {
+        await rollback();
+      } catch {
+        throw this.authPersistenceError();
+      }
+      throw this.authPersistenceError();
+    } finally {
+      client.release();
+    }
+  }
+
+  async findEnrollmentCandidate(
+    command: FindEnrollmentCandidateCommand,
+  ): Promise<FindEnrollmentCandidateResult> {
+    try {
+      const result = await this.pool.query<{ eligible: boolean }>(
+        `
+          SELECT EXISTS (
+            SELECT 1
+            FROM pending_registrations
+            WHERE enrollment_digest = $1
+              AND verified_at IS NOT NULL
+              AND enrollment_expires_at > $2
+              AND completed_at IS NULL
+          ) AS eligible
+        `,
+        [command.enrollmentDigest, command.at],
+      );
+      return { eligible: result.rows[0]?.eligible === true };
+    } catch {
+      throw this.authPersistenceError();
+    }
+  }
+
+  async completeRegistration(
+    command: CompleteRegistrationCommand,
+  ): Promise<CompleteRegistrationResult> {
+    const client = await this.connectAuthClient();
+    let transactionOpen = false;
+    const rollback = async () => {
+      if (!transactionOpen) {
+        return;
+      }
+      await client.query('ROLLBACK');
+      transactionOpen = false;
+    };
+
+    try {
+      await client.query('BEGIN');
+      transactionOpen = true;
+      const locked = await client.query<CompletionPendingRow>(
+        `
+          SELECT id,
+                 email,
+                 email_canonical AS "emailCanonical",
+                 verified_at AS "verifiedAt",
+                 enrollment_digest AS "enrollmentDigest",
+                 enrollment_expires_at AS "enrollmentExpiresAt",
+                 completed_at AS "completedAt"
+          FROM pending_registrations
+          WHERE enrollment_digest = $1
+          FOR UPDATE
+        `,
+        [command.enrollmentDigest],
+      );
+      const pending = locked.rows[0];
+      if (
+        !pending ||
+        pending.verifiedAt === null ||
+        pending.completedAt !== null ||
+        pending.enrollmentExpiresAt === null ||
+        toTime(pending.enrollmentExpiresAt) <= command.completedAt.getTime() ||
+        !authDigestMatches(pending.enrollmentDigest, command.enrollmentDigest)
+      ) {
+        await rollback();
+        return { status: 'invalid' };
+      }
+
+      type InsertedUser = {
+        id: number;
+        name: string;
+        email: string;
+        createdAt: Date | string;
+      };
+      let user: InsertedUser | undefined;
+      try {
+        const insertedUser = await client.query<InsertedUser>(
+          `
+            INSERT INTO users (
+              name, email, email_canonical, password_hash,
+              password_algorithm, password_parameters, password_version,
+              identity_assurance, email_verified_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9)
+            RETURNING id, name, email, created_at AS "createdAt"
+          `,
+          [
+            command.name,
+            pending.email,
+            pending.emailCanonical,
+            command.passwordHash,
+            command.passwordAlgorithm,
+            JSON.stringify(command.passwordParameters),
+            command.passwordVersion,
+            command.identityAssurance,
+            command.completedAt,
+          ],
+        );
+        user = insertedUser.rows[0];
+      } catch (error) {
+        if (this.isUserEmailUniqueViolation(error)) {
+          await rollback();
+          return { status: 'conflict' };
+        }
+        throw error;
+      }
+      if (!user) {
+        throw this.authPersistenceError();
+      }
+
+      await client.query(
+        `
+          INSERT INTO sessions (
+            id, token_digest, user_id, created_at,
+            absolute_expires_at, idle_expires_at, last_seen_at
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7)
+        `,
+        [
+          command.sessionId,
+          command.sessionDigest,
+          user.id,
+          command.sessionCreatedAt,
+          command.sessionAbsoluteExpiresAt,
+          command.sessionIdleExpiresAt,
+          command.sessionCreatedAt,
+        ],
+      );
+      await client.query(
+        `
+          UPDATE pending_registrations
+          SET completed_at = $2
+          WHERE id = $1
+            AND completed_at IS NULL
+        `,
+        [pending.id, command.completedAt],
+      );
+      await client.query('COMMIT');
+      transactionOpen = false;
+      return {
+        status: 'completed',
+        user: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          createdAt: new Date(user.createdAt).toISOString(),
+        },
+      };
+    } catch {
+      try {
+        await rollback();
+      } catch {
+        throw this.authPersistenceError();
+      }
+      throw this.authPersistenceError();
+    } finally {
+      client.release();
+    }
+  }
+
+  async commitLogin(command: CommitLoginCommand): Promise<CommitLoginResult> {
+    const client = await this.connectAuthClient();
+    let transactionOpen = false;
+    const rollback = async () => {
+      if (!transactionOpen) {
+        return;
+      }
+      await client.query('ROLLBACK');
+      transactionOpen = false;
+    };
+
+    try {
+      await client.query('BEGIN');
+      transactionOpen = true;
+      const locked = await client.query<AuthUserCredentialRow>(
+        `
+          SELECT id, name, email,
+                 email_canonical AS "emailCanonical",
+                 password_hash AS "passwordHash",
+                 password_algorithm AS "passwordAlgorithm",
+                 password_parameters AS "passwordParameters",
+                 password_version AS "passwordVersion",
+                 identity_assurance AS "identityAssurance",
+                 created_at AS "createdAt"
+          FROM users
+          WHERE id = $1
+            AND password_hash = $2
+            AND password_version = $3
+          FOR UPDATE
+        `,
+        [
+          command.userId,
+          command.expectedPasswordHash,
+          command.expectedPasswordVersion,
+        ],
+      );
+      const user = locked.rows[0];
+      if (!user) {
+        await rollback();
+        return { status: 'stale' };
+      }
+      if (
+        user.passwordAlgorithm === 'disabled' ||
+        (user.identityAssurance !== 'email_verified' &&
+          user.identityAssurance !== 'legacy_grandfathered')
+      ) {
+        await rollback();
+        return { status: 'invalid' };
+      }
+
+      if (command.passwordUpgrade) {
+        const upgraded = await client.query(
+          `
+            UPDATE users
+            SET password_hash = $2,
+                password_algorithm = $3,
+                password_parameters = $4::jsonb,
+                password_version = $5
+            WHERE id = $1
+              AND password_hash = $6
+              AND password_version = $7
+          `,
+          [
+            command.userId,
+            command.passwordUpgrade.passwordHash,
+            command.passwordUpgrade.passwordAlgorithm,
+            JSON.stringify(command.passwordUpgrade.passwordParameters),
+            command.passwordUpgrade.passwordVersion,
+            command.expectedPasswordHash,
+            command.expectedPasswordVersion,
+          ],
+        );
+        if (upgraded.rowCount !== 1) {
+          await rollback();
+          return { status: 'stale' };
+        }
+      }
+
+      await client.query(
+        `
+          INSERT INTO sessions (
+            id, token_digest, user_id, created_at,
+            absolute_expires_at, idle_expires_at, last_seen_at
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $4)
+        `,
+        [
+          command.sessionId,
+          command.sessionDigest,
+          command.userId,
+          command.sessionCreatedAt,
+          command.sessionAbsoluteExpiresAt,
+          command.sessionIdleExpiresAt,
+        ],
+      );
+      await client.query('COMMIT');
+      transactionOpen = false;
+      return {
+        status: 'committed',
+        user: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          createdAt: new Date(user.createdAt).toISOString(),
+        },
+      };
+    } catch {
+      try {
+        await rollback();
+      } catch {
+        throw this.authPersistenceError();
+      }
+      throw this.authPersistenceError();
+    } finally {
+      client.release();
+    }
+  }
+
+  async findActiveSession(
+    command: FindActiveSessionCommand,
+  ): Promise<FindActiveSessionResult> {
+    try {
+      const result = await this.pool.query<ActiveSessionRow>(
+        `
+          WITH active_session AS MATERIALIZED (
+            SELECT s.id AS "sessionId",
+                   s.user_id AS "userId",
+                   s.last_seen_at AS "lastSeenAt",
+                   u.name,
+                   u.email,
+                   u.created_at AS "userCreatedAt"
+            FROM sessions s
+            JOIN users u ON u.id = s.user_id
+            WHERE s.token_digest = $1
+              AND s.revoked_at IS NULL
+              AND s.absolute_expires_at > statement_timestamp()
+              AND s.idle_expires_at > statement_timestamp()
+            FOR UPDATE OF s
+          ), touched AS (
+            UPDATE sessions s
+            SET last_seen_at = statement_timestamp(),
+                idle_expires_at = LEAST(
+                  s.absolute_expires_at,
+                  statement_timestamp() + interval '24 hours'
+                )
+            FROM active_session active
+            WHERE s.id = active."sessionId"
+              AND active."lastSeenAt" <=
+                  statement_timestamp() - interval '15 minutes'
+            RETURNING s.id
+          )
+          SELECT "sessionId", "userId", name, email, "userCreatedAt"
+          FROM active_session
+        `,
+        [command.sessionDigest],
+      );
+      const row = result.rows[0];
+      if (!row) {
+        return { status: 'invalid' };
+      }
+      return Object.freeze({
+        status: 'active',
+        principal: Object.freeze({
+          sessionId: row.sessionId,
+          userId: row.userId,
+        }),
+        user: Object.freeze({
+          id: row.userId,
+          name: row.name,
+          email: row.email,
+          createdAt: new Date(row.userCreatedAt).toISOString(),
+        }),
+      });
+    } catch {
+      throw this.authPersistenceError();
+    }
+  }
+
+  async revokeActiveSession(
+    command: RevokeActiveSessionCommand,
+  ): Promise<RevokeActiveSessionResult> {
+    try {
+      const result = await this.pool.query<{ id: string }>(
+        `
+          UPDATE sessions
+          SET revoked_at = statement_timestamp(),
+              revoke_reason = $2
+          WHERE token_digest = $1
+            AND revoked_at IS NULL
+            AND absolute_expires_at > statement_timestamp()
+            AND idle_expires_at > statement_timestamp()
+          RETURNING id
+        `,
+        [command.sessionDigest, command.reason],
+      );
+      return result.rows[0] ? { status: 'revoked' } : { status: 'invalid' };
+    } catch {
+      throw this.authPersistenceError();
+    }
+  }
+
+  async findEnrollmentReadiness(
+    command: FindEnrollmentReadinessCommand,
+  ): Promise<FindEnrollmentReadinessResult> {
+    try {
+      const result = await this.pool.query<{ ready: boolean }>(
+        `
+          SELECT EXISTS (
+            SELECT 1
+            FROM pending_registrations
+            WHERE enrollment_digest = $1
+              AND verified_at IS NOT NULL
+              AND enrollment_expires_at > statement_timestamp()
+              AND completed_at IS NULL
+          ) AS ready
+        `,
+        [command.enrollmentDigest],
+      );
+      return result.rows[0]?.ready === true
+        ? { status: 'ready' }
+        : { status: 'invalid' };
+    } catch {
+      throw this.authPersistenceError();
+    }
   }
 
   async listPosts(input: {
@@ -900,19 +1371,6 @@ export class DatabaseService
     return normalizeFeedback(result.rows[0]);
   }
 
-  private async findUserById(id: number): Promise<User | null> {
-    const result = await this.pool.query<UserRow>(
-      `
-        SELECT id, name, email, password_hash AS "passwordHash", preferences, created_at AS "createdAt"
-        FROM users
-        WHERE id = $1
-      `,
-      [id],
-    );
-
-    return result.rows[0] ? publicUser(result.rows[0]) : null;
-  }
-
   private async hydratePost(row: PostRow): Promise<StudyPost> {
     const [tags, comments] = await Promise.all([
       this.pool.query<{ name: string }>(
@@ -1095,4 +1553,96 @@ export class DatabaseService
       ? code
       : undefined;
   }
+
+  private authPersistenceError(): AuthRepositoryUnavailableError {
+    return new AuthRepositoryUnavailableError();
+  }
+
+  private isUserEmailUniqueViolation(error: unknown): boolean {
+    if (this.postgresErrorCode(error) !== '23505') {
+      return false;
+    }
+    const constraint = this.postgresErrorConstraint(error);
+    return (
+      constraint === 'users_email_canonical_key' ||
+      constraint === 'users_email_key'
+    );
+  }
+
+  private postgresErrorConstraint(error: unknown): string | undefined {
+    if (
+      typeof error !== 'object' ||
+      error === null ||
+      !('constraint' in error)
+    ) {
+      return undefined;
+    }
+    const constraint = (error as { constraint?: unknown }).constraint;
+    return typeof constraint === 'string' ? constraint : undefined;
+  }
+
+  private async connectAuthClient(): Promise<PoolClient> {
+    try {
+      return await this.pool.connect();
+    } catch {
+      throw this.authPersistenceError();
+    }
+  }
+}
+
+type PendingVerificationRow = {
+  keyVersion: number;
+  verificationDigest: Buffer;
+  attemptCount: number;
+  maxAttempts: number;
+  verificationExpiresAt: Date | string;
+  verifiedAt: Date | string | null;
+  enrollmentDigest: Buffer | null;
+  enrollmentExpiresAt: Date | string | null;
+  completedAt: Date | string | null;
+};
+
+type CompletionPendingRow = {
+  id: string;
+  email: string;
+  emailCanonical: string;
+  verifiedAt: Date | string | null;
+  enrollmentDigest: Buffer;
+  enrollmentExpiresAt: Date | string | null;
+  completedAt: Date | string | null;
+};
+
+type AuthUserCredentialRow = {
+  id: number;
+  name: string;
+  email: string;
+  emailCanonical: string;
+  passwordHash: string;
+  passwordAlgorithm: 'argon2id' | 'legacy_sha256' | 'disabled';
+  passwordParameters: Record<string, unknown>;
+  passwordVersion: number;
+  identityAssurance: 'email_verified' | 'legacy_grandfathered';
+  createdAt: Date | string;
+};
+
+type ActiveSessionRow = {
+  sessionId: string;
+  userId: number;
+  name: string;
+  email: string;
+  userCreatedAt: Date | string;
+};
+
+function authDigestMatches(stored: Buffer, presented: Buffer): boolean {
+  return (
+    Buffer.isBuffer(stored) &&
+    Buffer.isBuffer(presented) &&
+    stored.length === 32 &&
+    presented.length === 32 &&
+    timingSafeEqual(stored, presented)
+  );
+}
+
+function toTime(value: Date | string): number {
+  return new Date(value).getTime();
 }

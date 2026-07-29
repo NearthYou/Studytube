@@ -13,6 +13,11 @@ const LEGACY_DEMO_PASSWORD_HASH =
   '47f65a9430b5f109208eea5ad01ce9f5c8335244bfab3626eb91aea9a7b97b87';
 
 export const DEMO_SEED_DISABLED_PASSWORD_HASH = 'disabled:demo-seed-login';
+export const DEMO_SEED_DISABLED_PASSWORD_ALGORITHM = 'disabled';
+export const DEMO_SEED_DISABLED_PASSWORD_PARAMETERS = {
+  reason: 'demo_seed_login',
+} as const;
+export const DEMO_SEED_IDENTITY_ASSURANCE = 'legacy_grandfathered';
 
 class DemoSeedSource extends MemoryBoardRepository {
   readState(): MemoryBoardState {
@@ -65,17 +70,29 @@ export function assertStableIdentity(
 
 async function seedUsers(client: PoolClient, state: MemoryBoardState) {
   for (const user of state.users) {
+    const emailCanonical = user.email.toLowerCase();
+
     await client.query(
       `
-        INSERT INTO users (id, name, email, password_hash, preferences, created_at)
-        VALUES ($1, $2, $3, $4, $5::jsonb, $6)
+        INSERT INTO users (
+          id, name, email, email_canonical, password_hash,
+          password_algorithm, password_parameters, password_version,
+          identity_assurance, email_verified_at, preferences, created_at
+        )
+        VALUES (
+          $1, $2, $3, $4, $5, $6, $7::jsonb, 1, $8, NULL, $9::jsonb, $10
+        )
         ON CONFLICT (id) DO NOTHING
       `,
       [
         user.id,
         user.name,
         user.email,
+        emailCanonical,
         DEMO_SEED_DISABLED_PASSWORD_HASH,
+        DEMO_SEED_DISABLED_PASSWORD_ALGORITHM,
+        JSON.stringify(DEMO_SEED_DISABLED_PASSWORD_PARAMETERS),
+        DEMO_SEED_IDENTITY_ASSURANCE,
         JSON.stringify(user.preferences),
         user.createdAt,
       ],
@@ -84,10 +101,20 @@ async function seedUsers(client: PoolClient, state: MemoryBoardState) {
     const existing = await client.query<{
       id: number;
       email: string;
+      emailCanonical: string;
       passwordHash: string;
+      passwordAlgorithm: string;
+      identityAssurance: string;
+      emailVerifiedAt: Date | null;
     }>(
       `
-        SELECT id, email, password_hash AS "passwordHash"
+        SELECT id,
+               email,
+               email_canonical AS "emailCanonical",
+               password_hash AS "passwordHash",
+               password_algorithm AS "passwordAlgorithm",
+               identity_assurance AS "identityAssurance",
+               email_verified_at AS "emailVerifiedAt"
         FROM users
         WHERE id = $1
       `,
@@ -98,6 +125,7 @@ async function seedUsers(client: PoolClient, state: MemoryBoardState) {
     assertStableIdentity('user', existingUser, {
       id: user.id,
       email: user.email,
+      emailCanonical,
     });
 
     const replacement = replacementForLegacyDemoPasswordHash(
@@ -108,12 +136,25 @@ async function seedUsers(client: PoolClient, state: MemoryBoardState) {
       const updated = await client.query(
         `
           UPDATE users
-          SET password_hash = $1
-          WHERE id = $2
-            AND email = $3
-            AND password_hash = $4
+          SET password_hash = $1,
+              password_algorithm = $2,
+              password_parameters = $3::jsonb,
+              password_version = password_version + 1,
+              identity_assurance = $4,
+              email_verified_at = NULL
+          WHERE id = $5
+            AND email = $6
+            AND password_hash = $7
         `,
-        [replacement, user.id, user.email, LEGACY_DEMO_PASSWORD_HASH],
+        [
+          replacement,
+          DEMO_SEED_DISABLED_PASSWORD_ALGORITHM,
+          JSON.stringify(DEMO_SEED_DISABLED_PASSWORD_PARAMETERS),
+          DEMO_SEED_IDENTITY_ASSURANCE,
+          user.id,
+          user.email,
+          LEGACY_DEMO_PASSWORD_HASH,
+        ],
       );
 
       if (updated.rowCount !== 1) {

@@ -264,6 +264,46 @@ describe('database migration files', () => {
     expect(pgm.sql).not.toHaveBeenCalled();
   });
 
+  it('defines an additive Course aggregate migration with guarded rollback', async () => {
+    const migrationPath = join(
+      process.cwd(),
+      'migrations',
+      '1753660803000_course-aggregate.cjs',
+    );
+
+    expect(existsSync(migrationPath)).toBe(true);
+
+    if (!existsSync(migrationPath)) {
+      return;
+    }
+
+    const migration = await readFile(migrationPath, 'utf8');
+
+    for (const table of [
+      'courses',
+      'course_steps',
+      'course_feedback',
+      'course_backfill_audits',
+    ]) {
+      expect(migration).toContain(`CREATE TABLE ${table}`);
+    }
+
+    for (const constraint of [
+      'courses_status_visibility_valid',
+      'courses_idempotency_digest_pair_valid',
+      'course_steps_course_position_key',
+      'course_steps_positions_contiguous',
+      'courses_published_nonempty',
+    ]) {
+      expect(migration).toContain(constraint);
+    }
+
+    expect(migration).toContain('DEFERRABLE INITIALLY DEFERRED');
+    expect(migration).toContain('ON DELETE SET NULL');
+    expect(migration).toContain('course aggregate rollback refused');
+    expect(migration).not.toMatch(/DROP TABLE\s+(playlists|playlist_items)/i);
+  });
+
   it('checks in a complete legacy runtime fixture with data and sequence state', async () => {
     const fixturePath = join(
       process.cwd(),

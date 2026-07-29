@@ -24,6 +24,12 @@ const PRESERVED_BOARD_TABLES = LEGACY_TABLES.filter(
   ([table]) => table !== 'users' && table !== 'sessions',
 );
 
+const AUTH_ADOPTED_TABLES = [
+  ['users', 'id'],
+  ['sessions', 'id'],
+  ...PRESERVED_BOARD_TABLES,
+] as const;
+
 const SEQUENCES = [
   'users_id_seq',
   'posts_id_seq',
@@ -53,6 +59,25 @@ const EXPECTED_MIGRATIONS = [
   '1753660800000_baseline-schema',
   '1753660801000_concurrent-indexes',
   '1753660802000_auth-hardening',
+  '1753660803000_course-aggregate',
+] as const;
+
+const COURSE_TABLES = [
+  'courses',
+  'course_steps',
+  'course_feedback',
+  'course_backfill_audits',
+] as const;
+
+const COURSE_ROW_CONSTRAINTS = [
+  'courses_status_visibility_valid',
+  'courses_idempotency_digest_pair_valid',
+  'course_steps_course_position_key',
+] as const;
+
+const COURSE_DEFERRED_TRIGGERS = [
+  'courses_aggregate_invariants',
+  'course_steps_aggregate_invariants',
 ] as const;
 
 const INDEX_MIGRATION_APPLICATION_NAME =
@@ -105,6 +130,7 @@ async function assertMigrationHistoryAbsent(client: PoolClient) {
 async function readTableFingerprints(
   client: PoolClient,
   tables: ReadonlyArray<readonly [string, string]>,
+  requireRows = true,
 ): Promise<Record<string, TableFingerprint>> {
   const fingerprints: Record<string, TableFingerprint> = {};
 
@@ -120,7 +146,7 @@ async function readTableFingerprints(
       `,
     );
 
-    if (result.rows.length === 0) {
+    if (requireRows && result.rows.length === 0) {
       throw new Error(`Legacy fixture table ${table} must contain data`);
     }
 
@@ -165,9 +191,10 @@ async function readSequenceStates(
 async function readSnapshot(
   client: PoolClient,
   tables: ReadonlyArray<readonly [string, string]>,
+  requireRows = true,
 ): Promise<DatabaseSnapshot> {
   return {
-    tables: await readTableFingerprints(client, tables),
+    tables: await readTableFingerprints(client, tables, requireRows),
     sequences: await readSequenceStates(client),
   };
 }
@@ -884,6 +911,125 @@ async function assertAuthAdoption(client: PoolClient): Promise<void> {
   }
 }
 
+async function assertCourseSchema(client: PoolClient): Promise<void> {
+  for (const table of COURSE_TABLES) {
+    const relation = await client.query<{ relation: string | null }>(
+      'SELECT to_regclass($1)::text AS relation',
+      [`public.${quoteIdentifier(table)}`],
+    );
+
+    if (relation.rows[0]?.relation === null) {
+      throw new Error(`Course table is missing: ${table}`);
+    }
+
+    const count = await client.query<{ rowCount: string }>(
+      `SELECT count(*)::text AS "rowCount" FROM ${quoteIdentifier(table)}`,
+    );
+
+    if (count.rows[0]?.rowCount !== '0') {
+      throw new Error(`Course migration unexpectedly populated table ${table}`);
+    }
+  }
+
+  const constraints = await client.query<{
+    name: string;
+    deferrable: boolean;
+    initiallyDeferred: boolean;
+  }>(
+    `
+    SELECT constraint_row.conname AS name,
+           constraint_row.condeferrable AS deferrable,
+           constraint_row.condeferred AS "initiallyDeferred"
+    FROM pg_constraint AS constraint_row
+    JOIN pg_namespace AS namespace_row
+      ON namespace_row.oid = constraint_row.connamespace
+    WHERE namespace_row.nspname = 'public'
+      AND constraint_row.conname = ANY($1::text[])
+    `,
+    [COURSE_ROW_CONSTRAINTS],
+  );
+  const constraintsByName = new Map(
+    constraints.rows.map((constraint) => [constraint.name, constraint]),
+  );
+  const missingConstraints = COURSE_ROW_CONSTRAINTS.filter(
+    (name) => !constraintsByName.has(name),
+  );
+
+  if (missingConstraints.length > 0) {
+    throw new Error(
+      `Course constraints are missing: ${missingConstraints.join(', ')}`,
+    );
+  }
+
+  const positionConstraint = constraintsByName.get(
+    'course_steps_course_position_key',
+  );
+
+  if (
+    !positionConstraint?.deferrable ||
+    !positionConstraint.initiallyDeferred
+  ) {
+    throw new Error(
+      'Course step position uniqueness must be initially deferred',
+    );
+  }
+
+  const triggers = await client.query<{
+    name: string;
+    deferrable: boolean;
+    initiallyDeferred: boolean;
+  }>(
+    `
+      SELECT trigger_row.tgname AS name,
+             trigger_row.tgdeferrable AS deferrable,
+             trigger_row.tginitdeferred AS "initiallyDeferred"
+      FROM pg_trigger AS trigger_row
+      JOIN pg_class AS table_row ON table_row.oid = trigger_row.tgrelid
+      JOIN pg_namespace AS namespace_row
+        ON namespace_row.oid = table_row.relnamespace
+      WHERE namespace_row.nspname = 'public'
+        AND trigger_row.tgname = ANY($1::text[])
+    `,
+    [COURSE_DEFERRED_TRIGGERS],
+  );
+  const triggersByName = new Map(
+    triggers.rows.map((trigger) => [trigger.name, trigger]),
+  );
+
+  for (const triggerName of COURSE_DEFERRED_TRIGGERS) {
+    const trigger = triggersByName.get(triggerName);
+
+    if (!trigger?.deferrable || !trigger.initiallyDeferred) {
+      throw new Error(
+        `Course invariant trigger ${triggerName} must be initially deferred`,
+      );
+    }
+  }
+
+  const sourcePostForeignKey = await client.query<{
+    deleteAction: string;
+  }>(`
+    SELECT constraint_row.confdeltype AS "deleteAction"
+    FROM pg_constraint AS constraint_row
+    JOIN pg_class AS table_row ON table_row.oid = constraint_row.conrelid
+    JOIN pg_attribute AS column_row
+      ON column_row.attrelid = table_row.oid
+     AND column_row.attnum = ANY(constraint_row.conkey)
+    JOIN pg_namespace AS namespace_row
+      ON namespace_row.oid = table_row.relnamespace
+    WHERE namespace_row.nspname = 'public'
+      AND table_row.relname = 'course_steps'
+      AND column_row.attname = 'source_post_id'
+      AND constraint_row.contype = 'f'
+  `);
+
+  if (sourcePostForeignKey.rows[0]?.deleteAction !== 'n') {
+    throw new Error(
+      'Course step source-post foreign key must use ON DELETE SET NULL',
+    );
+  }
+}
+
 async function main() {
   const target = requireSafeDatabaseTarget('ALLOW_MIGRATION_ADOPTION_TEST');
   const pool = new Pool({ connectionString: target.connectionString });
@@ -920,7 +1066,7 @@ async function main() {
       const preservedBoard = await readSnapshot(client, PRESERVED_BOARD_TABLES);
 
       await runMigration(target.connectionString, 1);
-      await assertMigrationHistory(client, EXPECTED_MIGRATIONS);
+      await assertMigrationHistory(client, EXPECTED_MIGRATIONS.slice(0, 3));
       await assertAuthAdoption(client);
 
       if ((await readPreservedUserFingerprint(client)) !== preservedUsers) {
@@ -934,6 +1080,21 @@ async function main() {
         await readSnapshot(client, PRESERVED_BOARD_TABLES),
         'Auth adoption',
       );
+
+      const beforeCourseSchema = await readSnapshot(
+        client,
+        AUTH_ADOPTED_TABLES,
+        false,
+      );
+
+      await runMigration(target.connectionString, 1);
+      await assertMigrationHistory(client, EXPECTED_MIGRATIONS);
+      await assertCourseSchema(client);
+      assertSnapshotUnchanged(
+        beforeCourseSchema,
+        await readSnapshot(client, AUTH_ADOPTED_TABLES, false),
+        'Course schema adoption',
+      );
     } finally {
       client.release();
     }
@@ -942,7 +1103,7 @@ async function main() {
   }
 
   console.log(
-    'Legacy adoption preserved user IDs and board data, rejected unsafe credentials, invalidated raw sessions, and installed the digest-only auth schema.',
+    'Legacy adoption preserved table fingerprints and sequence state, rejected unsafe credentials, invalidated raw sessions, installed digest-only auth, and added an empty Course schema.',
   );
 }
 

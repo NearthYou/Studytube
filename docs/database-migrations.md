@@ -139,7 +139,7 @@ DEPLOY_BRANCH=main DEPLOY_SHA=<same-green-ci-sha> APP_DIR=/home/ubuntu/studytube
   bash scripts/deploy-ec2.sh main
 ```
 
-스크립트는 freeze parity 표식의 SHA나 database identity가 현재 대상과 다르면 프로세스를 내리기 전에 거부한다. legacy 또는 새로운 freeze 배포를 시작할 때는 과거 parity 표식을 먼저 무효화한다. course health check가 성공하면 durable activation 표식을 남긴다. 이후 일반 course 재배포에서는 legacy backfill을 다시 실행하지 않는다.
+스크립트는 freeze parity 표식의 SHA나 database identity가 현재 대상과 다르면 프로세스를 내리기 전에 거부한다. legacy 또는 새로운 freeze 배포를 시작할 때는 과거 parity 표식을 먼저 무효화한다. 첫 course 프로세스를 열기 직전에 durable activation 표식을 남겨 health check 실패 중에도 rollback 경계가 사라지지 않게 한다. 이후 일반 course 재배포에서는 legacy backfill을 다시 실행하지 않는다.
 
 ## smoke check
 

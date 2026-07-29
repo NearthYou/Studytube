@@ -227,6 +227,11 @@ ai/.venv/bin/python -m pip install -r ai/requirements.txt
 
 npm --prefix api run db:migrate:up
 
+if [ "$course_cutover_mode" = "course" ] && [ "$course_already_activated" = "false" ]; then
+  write_course_activation_marker
+  course_already_activated="true"
+fi
+
 COURSE_CUTOVER_MODE="$course_cutover_mode" setsid nohup npm run all > npm-run-all.log 2>&1 < /dev/null &
 
 healthcheck_output="$(mktemp "${TMPDIR:-/tmp}/studytube-healthcheck.XXXXXX")"
@@ -266,8 +271,6 @@ if [ "$course_cutover_mode" = "freeze" ]; then
   else
     echo "Post-activation freeze: automatic legacy backfill is disabled; diagnose and roll forward."
   fi
-elif [ "$course_cutover_mode" = "course" ] && [ "$course_already_activated" = "false" ]; then
-  write_course_activation_marker
 fi
 
 git rev-parse --short HEAD

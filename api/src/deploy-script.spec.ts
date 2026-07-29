@@ -276,6 +276,18 @@ source '${deployScript}'
     expect(script).toContain('write_course_activation_marker');
   });
 
+  it('persists the irreversible activation boundary before Course traffic can start', () => {
+    const activationMarker = script.lastIndexOf(
+      '\n  write_course_activation_marker\n',
+    );
+    const processStart = script.indexOf(
+      'COURSE_CUTOVER_MODE="$course_cutover_mode" setsid nohup npm run all',
+    );
+
+    expect(activationMarker).toBeGreaterThanOrEqual(0);
+    expect(activationMarker).toBeLessThan(processStart);
+  });
+
   it('runs explicit Course migration and concurrency evidence in CI', () => {
     expect(workflow).toContain('Verify Course schema invariants');
     expect(workflow).toContain('course-schema.e2e-spec.ts');

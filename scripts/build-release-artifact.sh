@@ -92,7 +92,10 @@ mkdir -p -- "$payload_dir"
 git init --quiet --bare "$bare_repository"
 git -C "$bare_repository" fetch --quiet --depth=1 "$repo_root" \
   "$deploy_sha:refs/heads/release"
-git -C "$bare_repository" bundle create \
+git -c pack.threads=1 -c pack.compression=9 -C "$bare_repository" \
+  repack -a -d -F --window=0
+git -c pack.threads=1 -c pack.compression=9 -c pack.window=0 \
+  -C "$bare_repository" bundle create \
   "$payload_dir/repository.bundle" refs/heads/release
 
 bundle_head="$(git bundle list-heads "$payload_dir/repository.bundle" refs/heads/release)"

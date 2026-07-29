@@ -500,6 +500,25 @@ first_sha256="$(sha256sum "$first_artifact" | awk '{print $1}')"
 second_sha256="$(sha256sum "$second_artifact" | awk '{print $1}')"
 [[ "$first_sha256" == "$second_sha256" ]] || fail 'the same commit produced different artifacts'
 
+source_layout_a="$temporary_dir/source-layout-a"
+source_layout_b="$temporary_dir/source-layout-b"
+layout_output_a="$temporary_dir/layout-output-a"
+layout_output_b="$temporary_dir/layout-output-b"
+git clone --quiet --no-local "$repo_root" "$source_layout_a"
+git clone --quiet --no-local "$repo_root" "$source_layout_b"
+git -C "$source_layout_a" -c pack.threads=1 -c pack.compression=1 \
+  repack -a -d -F --window=0
+git -C "$source_layout_b" -c pack.threads=8 -c pack.compression=9 \
+  repack -a -d -F --window=32 --depth=50
+bash "$builder" --deploy-sha "$deploy_sha" --repo-root "$source_layout_a" \
+  --output-dir "$layout_output_a" >/dev/null
+bash "$builder" --deploy-sha "$deploy_sha" --repo-root "$source_layout_b" \
+  --output-dir "$layout_output_b" >/dev/null
+layout_sha256_a="$(sha256sum "$layout_output_a/$artifact_name" | awk '{print $1}')"
+layout_sha256_b="$(sha256sum "$layout_output_b/$artifact_name" | awk '{print $1}')"
+[[ "$layout_sha256_a" == "$layout_sha256_b" ]] ||
+  fail 'repository pack layout changed the release artifact'
+
 bash "$runner" verify-artifact \
   --artifact-file "$first_artifact" \
   --artifact-sha256 "$first_sha256" \

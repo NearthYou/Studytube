@@ -44,7 +44,9 @@ fi
 if [ "$remote_sha" = "$deployed_sha" ] &&
    systemctl is-active --quiet studytube-api.service &&
    systemctl is-active --quiet studytube-ai.service &&
+   systemctl is-active --quiet studytube-worker.service &&
    [ "$(docker inspect --format '{{.State.Running}}' studytube-postgres 2>/dev/null || true)" = "true" ] &&
+   [ "$(docker inspect --format '{{.State.Running}}' studytube-valkey 2>/dev/null || true)" = "true" ] &&
    [ "$(docker inspect --format '{{.State.Running}}' studytube-caddy 2>/dev/null || true)" = "true" ]; then
   echo "already deployed $deployed_sha"
   exit 0

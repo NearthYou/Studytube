@@ -20,6 +20,22 @@ services:
       retries: 10
       start_period: 10s
 
+  valkey:
+    image: valkey/valkey:9.1.1-alpine
+    container_name: studytube-valkey
+    restart: unless-stopped
+    command: ["valkey-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - valkeydata:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+
   caddy:
     image: caddy:2.11.4-alpine
     container_name: studytube-caddy
@@ -38,5 +54,6 @@ services:
 
 volumes:
   pgdata:
+  valkeydata:
   caddy_data:
   caddy_config:

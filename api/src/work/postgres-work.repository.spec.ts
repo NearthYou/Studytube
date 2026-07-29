@@ -1,8 +1,5 @@
 import type { Pool } from 'pg';
-import {
-  WorkLeaseLostError,
-  WorkReplayConflictError,
-} from './work.repository';
+import { WorkLeaseLostError, WorkReplayConflictError } from './work.repository';
 import { PostgresWorkRepository } from './postgres-work.repository';
 
 type RepositoryContract = {
@@ -32,12 +29,30 @@ type RepositoryContract = {
       details?: object;
     },
   ): Promise<'retry_scheduled' | 'dead_lettered'>;
+  findJobResult(
+    eventId: string,
+    handlerVersion: string,
+  ): Promise<{
+    id: string;
+    eventId: string;
+    handlerVersion: string;
+    outcome: 'succeeded' | 'terminal_failure';
+    result: object;
+  } | null>;
   recordJobResult(result: {
     id: string;
     eventId: string;
     handlerVersion: string;
     outcome: 'succeeded' | 'terminal_failure';
     result: object;
+  }): Promise<boolean>;
+  recordDeadLetter(input: {
+    id: string;
+    eventId: string;
+    handlerVersion: string;
+    code: string;
+    message: string;
+    details?: object;
   }): Promise<boolean>;
   replayDeadLetter(command: {
     deadLetterId: string;
@@ -168,6 +183,60 @@ describe('PostgresWorkRepository', () => {
     await expect(
       (repository as unknown as RepositoryContract).recordJobResult(result),
     ).resolves.toBe(false);
+  });
+
+  it('loads the persisted result before repeating a handler side effect', async () => {
+    const query = jest.fn().mockResolvedValue({
+      rows: [
+        {
+          id: '33333333-3333-4333-8333-333333333333',
+          eventId: '11111111-1111-4111-8111-111111111111',
+          handlerVersion: 'video-asset-v1',
+          outcome: 'succeeded',
+          result: { assetId: 7 },
+        },
+      ],
+    });
+    const repository = new PostgresWorkRepository({ query } as unknown as Pool);
+
+    await expect(
+      (repository as unknown as RepositoryContract).findJobResult(
+        '11111111-1111-4111-8111-111111111111',
+        'video-asset-v1',
+      ),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        outcome: 'succeeded',
+        result: { assetId: 7 },
+      }),
+    );
+  });
+
+  it('records one dead letter for an exhausted worker event', async () => {
+    const query = jest
+      .fn()
+      .mockResolvedValueOnce({ rows: [{ id: 'dead-letter-id' }] })
+      .mockResolvedValueOnce({ rows: [] });
+    const repository = new PostgresWorkRepository({ query } as unknown as Pool);
+    const input = {
+      id: '44444444-4444-4444-8444-444444444444',
+      eventId: '11111111-1111-4111-8111-111111111111',
+      handlerVersion: 'video-asset-v1',
+      code: 'CAPTION_PROVIDER_TIMEOUT',
+      message: 'caption provider timed out',
+      details: { attemptsMade: 8 },
+    };
+
+    await expect(
+      (repository as unknown as RepositoryContract).recordDeadLetter(input),
+    ).resolves.toBe(true);
+    await expect(
+      (repository as unknown as RepositoryContract).recordDeadLetter(input),
+    ).resolves.toBe(false);
+
+    const [sql] = query.mock.calls[0] as [string];
+    expect(sql).toContain('INSERT INTO work_dead_letters');
+    expect(sql).toContain('ON CONFLICT (event_id) DO NOTHING');
   });
 
   it('rejects replay when another actor already replayed the dead letter', async () => {

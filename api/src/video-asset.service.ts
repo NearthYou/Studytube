@@ -26,10 +26,6 @@ type SummaryResponse = {
 
 @Injectable()
 export class VideoAssetService {
-  private readonly queuedPosts: StudyPost[] = [];
-  private readonly activePostIds = new Set<number>();
-  private draining = false;
-
   constructor(
     private readonly repository: BoardRepository,
     private readonly aiProxyService: AiProxyService,
@@ -45,66 +41,39 @@ export class VideoAssetService {
     const current = await this.repository.findVideoAsset(post.id);
     const currentMatchesPost =
       current?.videoId === videoId && current.videoUrl === post.videoUrl;
-    const postActive = this.isPostActive(post.id);
 
     if (currentMatchesPost && current.status === 'ready') {
       return current;
     }
 
-    if (currentMatchesPost && current.status === 'processing' && postActive) {
-      return current;
-    }
-
-    if (currentMatchesPost && current.status === 'pending' && postActive) {
-      return current;
-    }
-
-    if (!this.activatePost(post.id)) {
-      return current;
-    }
-
-    try {
-      const asset = await this.repository.upsertVideoAsset({
+    if (this.repository.requestVideoAssetPreparation) {
+      return this.repository.requestVideoAssetPreparation({
         postId: post.id,
         videoId,
         videoUrl: post.videoUrl,
         language: 'ko',
       });
-      const processing = await this.repository.updateVideoAsset(post.id, {
-        status: 'processing',
-        sourceCaptionStatus: 'pending',
-        translationStatus: 'pending',
-        summaryStatus: 'pending',
-        sourceSegments: currentMatchesPost ? undefined : [],
-        translatedSegments: currentMatchesPost ? undefined : [],
-        summarySections: currentMatchesPost ? undefined : [],
-        transcriptBody: currentMatchesPost ? undefined : '',
-        errorMessage: '',
-      });
-
-      this.queuedPosts.push(post);
-      this.scheduleDrain();
-
-      return processing ?? asset;
-    } catch (error) {
-      this.activePostIds.delete(post.id);
-      throw error;
-    }
-  }
-
-  enqueuePost(post: StudyPost): boolean {
-    if (!this.extractYoutubeVideoId(post.videoUrl)) {
-      return false;
     }
 
-    if (!this.activatePost(post.id)) {
-      return false;
-    }
+    const asset = await this.repository.upsertVideoAsset({
+      postId: post.id,
+      videoId,
+      videoUrl: post.videoUrl,
+      language: 'ko',
+    });
+    const processing = await this.repository.updateVideoAsset(post.id, {
+      status: 'processing',
+      sourceCaptionStatus: 'pending',
+      translationStatus: 'pending',
+      summaryStatus: 'pending',
+      sourceSegments: currentMatchesPost ? undefined : [],
+      translatedSegments: currentMatchesPost ? undefined : [],
+      summarySections: currentMatchesPost ? undefined : [],
+      transcriptBody: currentMatchesPost ? undefined : '',
+      errorMessage: '',
+    });
 
-    this.queuedPosts.push(post);
-    this.scheduleDrain();
-
-    return true;
+    return processing ?? asset;
   }
 
   async preparePostAsset(post: StudyPost): Promise<VideoAsset | null> {
@@ -249,62 +218,6 @@ export class VideoAssetService {
         summaryStatus: 'failed',
         errorMessage: this.sanitizeErrorMessage(error),
       });
-    }
-  }
-
-  private scheduleDrain(): void {
-    void this.drainQueue().catch(() => {
-      this.draining = false;
-
-      if (this.queuedPosts.length > 0) {
-        this.scheduleDrain();
-      }
-    });
-  }
-
-  private isPostActive(postId: number): boolean {
-    return this.activePostIds.has(postId);
-  }
-
-  private activatePost(postId: number): boolean {
-    if (this.isPostActive(postId)) {
-      return false;
-    }
-
-    this.activePostIds.add(postId);
-
-    return true;
-  }
-
-  private async drainQueue(): Promise<void> {
-    if (this.draining) {
-      return;
-    }
-
-    this.draining = true;
-
-    try {
-      while (this.queuedPosts.length > 0) {
-        const post = this.queuedPosts.shift();
-
-        if (!post) {
-          continue;
-        }
-
-        try {
-          await this.preparePostAsset(post);
-        } catch {
-          // preparePostAsset owns persistence of failures; queued work must not leak.
-        } finally {
-          this.activePostIds.delete(post.id);
-        }
-      }
-    } finally {
-      this.draining = false;
-
-      if (this.queuedPosts.length > 0) {
-        this.scheduleDrain();
-      }
     }
   }
 

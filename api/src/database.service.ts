@@ -5,7 +5,7 @@
   OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { timingSafeEqual } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { Pool, PoolClient, type QueryConfig } from 'pg';
 import { AuthRepositoryUnavailableError } from './auth/auth.repository';
 import type {
@@ -1038,6 +1038,15 @@ export class DatabaseService
           input.tags.join(' '),
         ].join('\n'),
       );
+      await this.getWorkRepository().appendOutboxEvent(
+        this.videoAssetRequestedEvent({
+          id: post.id,
+          authorId: post.authorId,
+          title: post.title,
+          videoUrl: post.videoUrl,
+        }),
+        client,
+      );
       await client.query('COMMIT');
 
       return this.hydratePost(post);
@@ -1111,6 +1120,17 @@ export class DatabaseService
           next.tags.join(' '),
         ].join('\n'),
       );
+      if (next.videoUrl !== current.videoUrl) {
+        await this.getWorkRepository().appendOutboxEvent(
+          this.videoAssetRequestedEvent({
+            id,
+            authorId: current.authorId,
+            title: next.title,
+            videoUrl: next.videoUrl,
+          }),
+          client,
+        );
+      }
       await client.query('COMMIT');
 
       return this.hydratePost(result.rows[0]);
@@ -1171,6 +1191,84 @@ export class DatabaseService
     );
 
     return result.rows[0] ? normalizeVideoAsset(result.rows[0]) : null;
+  }
+
+  async requestVideoAssetPreparation(
+    input: CreateVideoAssetInput,
+  ): Promise<VideoAsset> {
+    const client = await this.pool.connect();
+
+    try {
+      await client.query('BEGIN');
+      const result = await client.query<VideoAssetRow>(
+        `
+          INSERT INTO video_assets (
+            post_id,
+            video_id,
+            video_url,
+            language,
+            status,
+            source_caption_status,
+            translation_status,
+            summary_status
+          )
+          VALUES (
+            $1, $2, $3, COALESCE($4::text, 'ko'),
+            'processing', 'pending', 'pending', 'pending'
+          )
+          ON CONFLICT (post_id) DO UPDATE
+          SET video_id = EXCLUDED.video_id,
+              video_url = EXCLUDED.video_url,
+              language = EXCLUDED.language,
+              source_language = '',
+              status = 'processing',
+              source_caption_status = 'pending',
+              translation_status = 'pending',
+              summary_status = 'pending',
+              source_segments = '[]'::jsonb,
+              translated_segments = '[]'::jsonb,
+              summary_sections = '[]'::jsonb,
+              transcript_body = '',
+              error_message = '',
+              updated_at = now()
+          RETURNING id, post_id AS "postId", video_id AS "videoId",
+                    video_url AS "videoUrl", language,
+                    source_language AS "sourceLanguage", status,
+                    source_caption_status AS "sourceCaptionStatus",
+                    translation_status AS "translationStatus",
+                    summary_status AS "summaryStatus",
+                    source_segments AS "sourceSegments",
+                    translated_segments AS "translatedSegments",
+                    summary_sections AS "summarySections",
+                    transcript_body AS "transcriptBody",
+                    error_message AS "errorMessage",
+                    created_at AS "createdAt", updated_at AS "updatedAt"
+        `,
+        [input.postId, input.videoId, input.videoUrl, input.language ?? null],
+      );
+      await this.getWorkRepository().appendOutboxEvent(
+        {
+          id: randomUUID(),
+          eventType: 'video_asset.requested',
+          aggregateType: 'post',
+          aggregateId: String(input.postId),
+          aggregateVersion: 1,
+          payloadSchemaVersion: 1,
+          payload: {
+            postId: input.postId,
+            videoUrl: input.videoUrl,
+          },
+        },
+        client,
+      );
+      await client.query('COMMIT');
+      return normalizeVideoAsset(result.rows[0]);
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async upsertVideoAsset(input: CreateVideoAssetInput): Promise<VideoAsset> {
@@ -1612,6 +1710,28 @@ export class DatabaseService
       `,
       [postId, content, vectorLiteral(content)],
     );
+  }
+
+  private videoAssetRequestedEvent(post: {
+    id: number;
+    authorId: number;
+    title: string;
+    videoUrl: string;
+  }) {
+    return {
+      id: randomUUID(),
+      eventType: 'video_asset.requested',
+      aggregateType: 'post',
+      aggregateId: String(post.id),
+      aggregateVersion: 1,
+      payloadSchemaVersion: 1,
+      payload: {
+        postId: post.id,
+        authorId: post.authorId,
+        title: post.title,
+        videoUrl: post.videoUrl,
+      },
+    };
   }
 
   private positiveInteger(value: string | undefined, fallback: number) {

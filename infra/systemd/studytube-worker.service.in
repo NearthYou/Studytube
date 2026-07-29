@@ -1,0 +1,27 @@
+[Unit]
+Description=StudyTube durable work processor
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=@APP_USER@
+Group=@APP_GROUP@
+WorkingDirectory=@APP_DIR@
+EnvironmentFile=-@APP_DIR@/.env
+EnvironmentFile=-@APP_DIR@/api/.env
+ExecStart=/usr/bin/env NODE_ENV=production COURSE_CUTOVER_MODE=@COURSE_CUTOVER_MODE@ @NODE_BIN@ api/dist/worker.js
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=60
+KillSignal=SIGTERM
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

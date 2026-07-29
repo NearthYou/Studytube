@@ -13,6 +13,7 @@ import { VideoAssetService } from './video-asset.service';
 import { AuthModule } from './auth/auth.module';
 import { CourseCutoverPolicy } from './course/course-cutover.policy';
 import { CourseModule } from './course/course.module';
+import { WorkModule } from './work/work.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { CourseModule } from './course/course.module';
     }),
     AuthModule,
     CourseModule,
+    WorkModule,
     HttpModule,
   ],
   controllers: [

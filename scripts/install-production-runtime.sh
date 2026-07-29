@@ -67,6 +67,9 @@ render_unit \
 render_unit \
   "$template_dir/studytube-ai.service.in" \
   "$temporary_dir/studytube-ai.service"
+render_unit \
+  "$template_dir/studytube-worker.service.in" \
+  "$temporary_dir/studytube-worker.service"
 
 sudo install -d -o root -g root -m 755 /var/www/studytube/releases
 sudo install -o root -g root -m 644 \
@@ -75,5 +78,11 @@ sudo install -o root -g root -m 644 \
 sudo install -o root -g root -m 644 \
   "$temporary_dir/studytube-ai.service" \
   /etc/systemd/system/studytube-ai.service
+sudo install -o root -g root -m 644 \
+  "$temporary_dir/studytube-worker.service" \
+  /etc/systemd/system/studytube-worker.service
 sudo systemctl daemon-reload
-sudo systemctl enable studytube-api.service studytube-ai.service
+sudo systemctl enable \
+  studytube-api.service \
+  studytube-ai.service \
+  studytube-worker.service

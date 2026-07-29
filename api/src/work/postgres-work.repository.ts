@@ -9,6 +9,7 @@ import type {
   AppendOutboxEvent,
   ClaimedOutboxEvent,
   JobResult,
+  RecordDeadLetter,
   ReplayDeadLetter,
   ReplayResult,
   RetryResult,
@@ -221,6 +222,55 @@ export class PostgresWorkRepository implements WorkRepository {
         result.handlerVersion,
         result.outcome,
         result.result,
+      ],
+    );
+
+    return inserted.rows[0] !== undefined;
+  }
+
+  async findJobResult(
+    eventId: string,
+    handlerVersion: string,
+  ): Promise<JobResult | null> {
+    const result = await this.pool.query<JobResult>(
+      `
+        SELECT
+          id,
+          event_id AS "eventId",
+          handler_version AS "handlerVersion",
+          outcome,
+          result
+        FROM work_job_results
+        WHERE event_id = $1 AND handler_version = $2
+      `,
+      [eventId, handlerVersion],
+    );
+
+    return result.rows[0] ?? null;
+  }
+
+  async recordDeadLetter(input: RecordDeadLetter): Promise<boolean> {
+    const inserted = await this.pool.query<{ id: string }>(
+      `
+        INSERT INTO work_dead_letters (
+          id,
+          event_id,
+          handler_version,
+          failure_code,
+          failure_message,
+          failure
+        )
+        VALUES ($1, $2, $3, $4, $5, $6)
+        ON CONFLICT (event_id) DO NOTHING
+        RETURNING id
+      `,
+      [
+        input.id,
+        input.eventId,
+        input.handlerVersion,
+        input.code,
+        this.safeFailureMessage(input.message),
+        input.details ?? {},
       ],
     );
 

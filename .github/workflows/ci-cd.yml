@@ -60,6 +60,15 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      valkey:
+        image: valkey/valkey:9.1.1-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "valkey-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
       DATABASE_URL: postgresql://app:app@localhost:5432/app_test
       MIGRATION_ADOPTION_DATABASE: app_test
@@ -70,6 +79,7 @@ jobs:
       COURSE_CUTOVER_MODE: legacy
       DB_INIT_ATTEMPTS: 3
       DB_INIT_RETRY_DELAY_MS: 100
+      VALKEY_URL: redis://127.0.0.1:6379
     defaults:
       run:
         working-directory: api

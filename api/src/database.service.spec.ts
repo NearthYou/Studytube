@@ -921,6 +921,153 @@ describe('DatabaseService core session persistence', () => {
   });
 });
 
+describe('DatabaseService durable post work', () => {
+  it('commits the post and its video asset event in the same transaction', async () => {
+    const service = new DatabaseService(configService());
+    const timestamp = new Date('2026-07-29T00:00:00.000Z');
+    const clientQuery = jest.fn().mockImplementation((sql: string) => {
+      if (sql.includes('INSERT INTO posts')) {
+        return Promise.resolve({
+          rows: [
+            {
+              id: 42,
+              authorId: 7,
+              authorName: 'Learner',
+              title: 'Durable post',
+              videoUrl: 'https://youtu.be/durablePost',
+              thumbnailUrl: '',
+              channelName: 'StudyTube',
+              summary: 'Summary',
+              translatedNotes: 'Notes',
+              createdAt: timestamp,
+              updatedAt: timestamp,
+            },
+          ],
+        });
+      }
+      return Promise.resolve({ rows: [], rowCount: 0 });
+    });
+    const poolQuery = jest.fn().mockResolvedValue({ rows: [], rowCount: 0 });
+    const release = jest.fn();
+    (
+      service as unknown as {
+        pool: {
+          connect(): Promise<{ query: jest.Mock; release: jest.Mock }>;
+          query: jest.Mock;
+        };
+      }
+    ).pool = {
+      connect: () => Promise.resolve({ query: clientQuery, release }),
+      query: poolQuery,
+    };
+
+    await service.createPost({
+      authorId: 7,
+      title: 'Durable post',
+      videoUrl: 'https://youtu.be/durablePost',
+      thumbnailUrl: '',
+      channelName: 'StudyTube',
+      summary: 'Summary',
+      translatedNotes: 'Notes',
+      tags: [],
+    });
+
+    const sql = sqlTexts(clientQuery);
+    const outboxIndex = sql.findIndex((statement) =>
+      statement.includes('INSERT INTO work_outbox_events'),
+    );
+    expect(outboxIndex).toBeGreaterThan(sql.indexOf('BEGIN'));
+    expect(outboxIndex).toBeLessThan(sql.indexOf('COMMIT'));
+    const calls = clientQuery.mock.calls as unknown as Array<
+      [string, unknown[]]
+    >;
+    const values = calls[outboxIndex]?.[1] ?? [];
+    expect(values.slice(1, 7)).toEqual([
+      'video_asset.requested',
+      'post',
+      '42',
+      1,
+      1,
+      expect.objectContaining({
+        postId: 42,
+        videoUrl: 'https://youtu.be/durablePost',
+      }),
+    ]);
+    expect(release).toHaveBeenCalled();
+  });
+
+  it('commits a manual asset request and its outbox event atomically', async () => {
+    const service = new DatabaseService(configService());
+    const timestamp = new Date('2026-07-29T00:00:00.000Z');
+    const clientQuery = jest.fn().mockImplementation((sql: string) => {
+      if (sql.includes('INSERT INTO video_assets')) {
+        return Promise.resolve({
+          rows: [
+            {
+              id: 9,
+              postId: 42,
+              videoId: 'durablePost',
+              videoUrl: 'https://youtu.be/durablePost',
+              language: 'ko',
+              sourceLanguage: '',
+              status: 'processing',
+              sourceCaptionStatus: 'pending',
+              translationStatus: 'pending',
+              summaryStatus: 'pending',
+              sourceSegments: [],
+              translatedSegments: [],
+              summarySections: [],
+              transcriptBody: '',
+              errorMessage: '',
+              createdAt: timestamp,
+              updatedAt: timestamp,
+            },
+          ],
+        });
+      }
+      return Promise.resolve({ rows: [], rowCount: 0 });
+    });
+    const release = jest.fn();
+    (
+      service as unknown as {
+        pool: {
+          connect(): Promise<{ query: jest.Mock; release: jest.Mock }>;
+        };
+      }
+    ).pool = {
+      connect: () => Promise.resolve({ query: clientQuery, release }),
+    };
+
+    await (
+      service as unknown as {
+        requestVideoAssetPreparation(input: {
+          postId: number;
+          videoId: string;
+          videoUrl: string;
+          language: string;
+        }): Promise<unknown>;
+      }
+    ).requestVideoAssetPreparation({
+      postId: 42,
+      videoId: 'durablePost',
+      videoUrl: 'https://youtu.be/durablePost',
+      language: 'ko',
+    });
+
+    const sql = sqlTexts(clientQuery);
+    const assetIndex = sql.findIndex((statement) =>
+      statement.includes('INSERT INTO video_assets'),
+    );
+    const outboxIndex = sql.findIndex((statement) =>
+      statement.includes('INSERT INTO work_outbox_events'),
+    );
+    expect(assetIndex).toBeGreaterThan(sql.indexOf('BEGIN'));
+    expect(outboxIndex).toBeGreaterThan(assetIndex);
+    expect(outboxIndex).toBeLessThan(sql.indexOf('COMMIT'));
+    expect(release).toHaveBeenCalled();
+  });
+});
+
 function pendingRegistrationCommand() {
   return {
     pendingRegistrationId: PENDING_ID,

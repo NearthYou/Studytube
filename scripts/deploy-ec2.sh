@@ -293,6 +293,9 @@ if [ -n "$requested_course_cutover_mode" ]; then
   export COURSE_CUTOVER_MODE="$requested_course_cutover_mode"
 fi
 
+VALKEY_URL="${VALKEY_URL:-redis://127.0.0.1:6379}"
+export VALKEY_URL
+
 for required_name in \
   DATABASE_URL \
   POSTGRES_USER \
@@ -306,6 +309,11 @@ for required_name in \
   fi
 done
 
+if [ "$VALKEY_URL" != "redis://127.0.0.1:6379" ]; then
+  echo "VALKEY_URL must use the loopback Valkey service in production" >&2
+  exit 1
+fi
+
 require_production_origins
 
 git checkout --detach "$deploy_sha"
@@ -315,7 +323,7 @@ if [ -n "$(git status --porcelain --untracked-files=all)" ]; then
   exit 1
 fi
 
-docker compose -f infra/production.compose.yml up -d --wait postgres
+docker compose -f infra/production.compose.yml up -d --wait postgres valkey
 
 require_auth_cutover_backup
 require_course_cutover_configuration
@@ -348,7 +356,7 @@ APP_DIR="$app_dir" COURSE_CUTOVER_MODE="$course_cutover_mode" \
 docker compose -f infra/production.compose.yml run --rm --no-deps caddy \
   validate --config /etc/caddy/Caddyfile --adapter caddyfile
 
-sudo systemctl stop studytube-api.service studytube-ai.service || true
+sudo systemctl stop studytube-api.service studytube-ai.service studytube-worker.service || true
 
 # One-time cleanup for hosts that used the previous development runtime.
 pkill -f '[s]cripts/dev-all.mjs' || true
@@ -356,6 +364,7 @@ pkill -f '[u]vicorn' || true
 pkill -f '[v]ite' || true
 pkill -f '[n]est start' || true
 pkill -f '[a]pi/dist/main' || true
+pkill -f '[a]pi/dist/worker' || true
 sleep 1
 
 for port in 3000 5173 8000; do
@@ -377,7 +386,7 @@ if [ "$course_cutover_mode" = "course" ] && [ "$course_already_activated" = "fal
   course_already_activated="true"
 fi
 
-sudo systemctl restart studytube-ai.service studytube-api.service
+sudo systemctl restart studytube-ai.service studytube-api.service studytube-worker.service
 
 healthcheck_output="$(mktemp "${TMPDIR:-/tmp}/studytube-healthcheck.XXXXXX")"
 cleanup_healthcheck_output() {
@@ -408,6 +417,14 @@ if ! wait_for_url http://127.0.0.1:3000/health/ready api; then
 fi
 if ! wait_for_url http://127.0.0.1:8000/health ai; then
   sudo journalctl -u studytube-ai.service -n 120 --no-pager >&2 || true
+  exit 1
+fi
+if ! sudo systemctl is-active --quiet studytube-worker.service; then
+  sudo journalctl -u studytube-worker.service -n 120 --no-pager >&2 || true
+  exit 1
+fi
+if [ "$(docker compose -f infra/production.compose.yml exec -T valkey valkey-cli ping)" != "PONG" ]; then
+  echo "Valkey health check failed" >&2
   exit 1
 fi
 

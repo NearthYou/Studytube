@@ -57,6 +57,10 @@ describe('EC2 deployment script', () => {
     resolve(__dirname, '../../infra/systemd/studytube-ai.service.in'),
     'utf8',
   );
+  const workerUnit = readFileSync(
+    resolve(__dirname, '../../infra/systemd/studytube-worker.service.in'),
+    'utf8',
+  );
 
   it('prepares the verified release and database before stopping managed services', () => {
     const immutableCheckout = script.indexOf(
@@ -539,5 +543,18 @@ source '${deployScript}'
     expect(workflow).toContain('Verify Course HTTP and concurrency contracts');
     expect(workflow).toContain('course-http.e2e-spec.ts');
     expect(workflow).toContain('course-concurrency.e2e-spec.ts');
+  });
+
+  it('keeps durable queue storage and worker listeners on loopback', () => {
+    expect(productionCompose).toContain('valkey/valkey:9.1.1-alpine');
+    expect(productionCompose).toContain('127.0.0.1:6379:6379');
+    expect(productionCompose).toContain('--appendonly');
+    expect(script).toContain('up -d --wait postgres valkey');
+    expect(script).toContain('studytube-worker.service');
+    expect(autoDeployScript).toContain(
+      'systemctl is-active --quiet studytube-worker.service',
+    );
+    expect(workerUnit).toContain('api/dist/worker.js');
+    expect(workerUnit).toContain('NODE_ENV=production');
   });
 });

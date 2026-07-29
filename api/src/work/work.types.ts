@@ -50,6 +50,15 @@ export type JobResult = {
   result: Record<string, unknown>;
 };
 
+export type RecordDeadLetter = {
+  id: string;
+  eventId: string;
+  handlerVersion: string;
+  code: string;
+  message: string;
+  details?: Record<string, unknown>;
+};
+
 export type ReplayDeadLetter = {
   deadLetterId: string;
   actorId: number | null;

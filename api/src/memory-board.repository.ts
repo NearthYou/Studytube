@@ -937,6 +937,30 @@ export class MemoryBoardRepository implements BoardRepository {
     return this.cloneVideoAsset(asset);
   }
 
+  async requestVideoAssetPreparation(
+    input: CreateVideoAssetInput,
+  ): Promise<VideoAsset> {
+    const current = await this.findVideoAsset(input.postId);
+    const sourceChanged =
+      current !== null &&
+      (current.videoId !== input.videoId ||
+        current.videoUrl !== input.videoUrl);
+    const asset = await this.upsertVideoAsset(input);
+    return (
+      (await this.updateVideoAsset(input.postId, {
+        status: 'processing',
+        sourceCaptionStatus: 'pending',
+        translationStatus: 'pending',
+        summaryStatus: 'pending',
+        sourceSegments: sourceChanged ? [] : undefined,
+        translatedSegments: sourceChanged ? [] : undefined,
+        summarySections: sourceChanged ? [] : undefined,
+        transcriptBody: sourceChanged ? '' : undefined,
+        errorMessage: '',
+      })) ?? asset
+    );
+  }
+
   async updateVideoAsset(
     postId: number,
     input: UpdateVideoAssetInput,

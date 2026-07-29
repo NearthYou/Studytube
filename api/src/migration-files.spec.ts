@@ -343,7 +343,7 @@ describe('database migration files', () => {
       'lease_token',
       'work_job_results_event_handler_key',
       'retrieval_embeddings_vector_dimensions',
-      "vector(1536)",
+      'vector(1536)',
       'agent_runs_state_valid',
       'agent_runs_budget_positive',
       'learning_progress_ranges_array',

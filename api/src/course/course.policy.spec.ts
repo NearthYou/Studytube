@@ -12,10 +12,34 @@ import {
 } from './course.policy';
 import type { CourseAggregate } from './course.types';
 
+type ExpectedCourseError = Partial<
+  Pick<CourseValidationError, 'code' | 'field'>
+>;
+
+class CourseValidationErrorMatcher extends Error {
+  constructor(private readonly expected: ExpectedCourseError) {
+    super('CourseValidationError matcher');
+  }
+
+  asymmetricMatch(actual: unknown): boolean {
+    return (
+      actual instanceof CourseValidationError &&
+      (this.expected.code === undefined ||
+        actual.code === this.expected.code) &&
+      (this.expected.field === undefined ||
+        actual.field === this.expected.field)
+    );
+  }
+}
+
+function courseError(expected: ExpectedCourseError): Error {
+  return new CourseValidationErrorMatcher(expected);
+}
+
 describe('Course domain policy', () => {
   it('rejects a blank title with a stable domain error', () => {
     expect(() => validateCourseTitle('   ')).toThrow(
-      expect.objectContaining<Partial<CourseValidationError>>({
+      courseError({
         code: 'COURSE_INVALID_INPUT',
         field: 'title',
       }),
@@ -118,7 +142,7 @@ describe('Course domain policy', () => {
         marks: [],
       }),
     ).toThrow(
-      expect.objectContaining<Partial<CourseValidationError>>({
+      courseError({
         code: 'COURSE_INVALID_INPUT',
         field: 'ownerLearningState.playbackRate',
       }),
@@ -135,7 +159,7 @@ describe('Course domain policy', () => {
         marks: [],
       }),
     ).toThrow(
-      expect.objectContaining<Partial<CourseValidationError>>({
+      courseError({
         field: 'ownerLearningState.loop',
       }),
     );
@@ -160,7 +184,7 @@ describe('Course domain policy', () => {
         ],
       }),
     ).toThrow(
-      expect.objectContaining<Partial<CourseValidationError>>({
+      courseError({
         field: 'ownerLearningState.marks[0]',
       }),
     );
@@ -175,7 +199,7 @@ describe('Course domain policy', () => {
         channelName: 'Channel',
       }),
     ).toThrow(
-      expect.objectContaining<Partial<CourseValidationError>>({
+      courseError({
         field: 'snapshot.videoUrl',
       }),
     );
@@ -188,7 +212,7 @@ describe('Course domain policy', () => {
         'create',
       ),
     ).toThrow(
-      expect.objectContaining<Partial<CourseValidationError>>({
+      courseError({
         field: 'steps[1].sourcePostId',
       }),
     );
@@ -196,7 +220,7 @@ describe('Course domain policy', () => {
 
   it('accepts existing BIGINT step identifiers only as canonical positive decimal strings', () => {
     expect(() => validateCourseStepInputs([{ stepId: 91 }], 'replace')).toThrow(
-      expect.objectContaining<Partial<CourseValidationError>>({
+      courseError({
         field: 'steps[0].stepId',
       }),
     );
@@ -229,7 +253,7 @@ describe('Course domain policy', () => {
     ).toString('base64url');
 
     expect(() => decodeCourseCursor(withTrailingBytes, 'owner')).toThrow(
-      expect.objectContaining<Partial<CourseValidationError>>({
+      courseError({
         code: 'COURSE_INVALID_INPUT',
         field: 'cursor',
       }),

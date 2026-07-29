@@ -2,6 +2,7 @@ import type {
   AppendOutboxEvent,
   ClaimedOutboxEvent,
   JobResult,
+  RecordDeadLetter,
   ReplayDeadLetter,
   ReplayResult,
   RetryResult,
@@ -28,7 +29,12 @@ export interface WorkRepository {
     handlerVersion: string,
     failure: WorkFailure,
   ): Promise<RetryResult>;
+  findJobResult(
+    eventId: string,
+    handlerVersion: string,
+  ): Promise<JobResult | null>;
   recordJobResult(result: JobResult): Promise<boolean>;
+  recordDeadLetter(input: RecordDeadLetter): Promise<boolean>;
   replayDeadLetter(command: ReplayDeadLetter): Promise<ReplayResult>;
 }
 

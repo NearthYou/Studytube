@@ -63,7 +63,8 @@ exports.up = (pgm) => {
       video_url_snapshot TEXT NOT NULL,
       thumbnail_url_snapshot TEXT NOT NULL DEFAULT '',
       channel_name_snapshot TEXT NOT NULL DEFAULT '',
-      owner_learning_state JSONB NOT NULL DEFAULT '{}'::jsonb,
+      owner_learning_state JSONB NOT NULL DEFAULT
+        '{"captionLanguage":"ko","captionsEnabled":true,"playbackRate":1,"loop":{"enabled":false,"manual":false,"start":0,"end":15},"marks":[]}'::jsonb,
       CONSTRAINT course_steps_position_positive
         CHECK (position >= 1),
       CONSTRAINT course_steps_owner_learning_state_object

@@ -9,6 +9,14 @@ import {
 export type { CourseCutoverMode };
 export type CourseOrderStrategy = 'legacy_position' | 'post_id_fallback';
 
+export const DEFAULT_OWNER_LEARNING_STATE = Object.freeze({
+  captionLanguage: 'ko',
+  captionsEnabled: true,
+  playbackRate: 1,
+  loop: Object.freeze({ enabled: false, manual: false, start: 0, end: 15 }),
+  marks: Object.freeze([]),
+});
+
 export interface LegacyPlaylistSnapshot {
   id: number;
   ownerId: number;
@@ -353,7 +361,7 @@ export function expectedCourseTarget(source: LegacyPlaylistSnapshot): Omit<
       videoUrl: item.videoUrl,
       thumbnailUrl: item.thumbnailUrl,
       channelName: item.channelName,
-      ownerLearningState: {},
+      ownerLearningState: DEFAULT_OWNER_LEARNING_STATE,
     })),
     feedback: source.feedback,
   };

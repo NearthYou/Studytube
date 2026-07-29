@@ -2,6 +2,7 @@ import { Pool, type PoolClient } from 'pg';
 import { CourseCutoverPolicy } from '../src/course/course-cutover.policy';
 import {
   acquireCourseBackfillLock,
+  DEFAULT_OWNER_LEARNING_STATE,
   type CourseCutoverMode,
   listLegacyPlaylistIds,
   parseCutoverMode,
@@ -201,7 +202,7 @@ async function insertCourseAggregate(
           video_url_snapshot, thumbnail_url_snapshot,
           channel_name_snapshot, owner_learning_state
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, '{}'::jsonb)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
       `,
       [
         source.id,
@@ -211,6 +212,7 @@ async function insertCourseAggregate(
         item.videoUrl,
         item.thumbnailUrl,
         item.channelName,
+        JSON.stringify(DEFAULT_OWNER_LEARNING_STATE),
       ],
     );
   }

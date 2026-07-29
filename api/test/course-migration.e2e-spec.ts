@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
 import { runCourseBackfill } from '../scripts/backfill-courses';
+import { DEFAULT_OWNER_LEARNING_STATE } from '../scripts/course-migration.shared';
 import { verifyCourseBackfill } from '../scripts/verify-course-backfill';
 
 const DATABASE_URL =
@@ -127,8 +128,18 @@ describe('legacy playlist to Course migration', () => {
         version: 1,
       },
       steps: [
-        { sourcePostId: postIds[1], position: 1, title: 'Second source' },
-        { sourcePostId: postIds[0], position: 2, title: 'First source' },
+        {
+          sourcePostId: postIds[1],
+          position: 1,
+          title: 'Second source',
+          ownerLearningState: DEFAULT_OWNER_LEARNING_STATE,
+        },
+        {
+          sourcePostId: postIds[0],
+          position: 2,
+          title: 'First source',
+          ownerLearningState: DEFAULT_OWNER_LEARNING_STATE,
+        },
       ],
       feedback: [
         {

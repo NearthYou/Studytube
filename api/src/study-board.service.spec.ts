@@ -155,9 +155,12 @@ describe('StudyBoardService', () => {
     await expect(
       service.updatePlaylist(curator, playlist.id, { title: 'Stolen' }),
     ).rejects.toBeInstanceOf(NotFoundException);
-    await expect(
-      service.addPlaylistItem(curator, playlist.id, 1),
-    ).resolves.toMatchObject({ postIds: expect.arrayContaining([1]) });
+    const updatedPlaylist = await service.addPlaylistItem(
+      curator,
+      playlist.id,
+      1,
+    );
+    expect(updatedPlaylist.postIds).toContain(1);
   });
 
   it('collects playlist feedback under the actor with a bounded rating', async () => {

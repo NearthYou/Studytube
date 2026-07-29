@@ -110,7 +110,7 @@ export type RegistrationReadiness = { status: 'ready' } | { status: 'invalid' };
 
 const ASCII_PRINTABLE_PATTERN = /^[\x20-\x7e]+$/u;
 const EMAIL_PATTERN =
-  /^[A-Za-z0-9!#$%&'*+\/=?^_{|}~-]+(\.[A-Za-z0-9!#$%&'*+\/=?^_{|}~-]+)*@[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$/u;
+  /^[A-Za-z0-9!#$%&'*+/=?^_{|}~-]+(\.[A-Za-z0-9!#$%&'*+/=?^_{|}~-]+)*@[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$/u;
 const VERIFICATION_TTL_MS = 15 * 60 * 1000;
 
 export class AuthService {

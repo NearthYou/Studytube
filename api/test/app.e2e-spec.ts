@@ -83,7 +83,12 @@ describe('application smoke with PostgreSQL (e2e)', () => {
       .get(`/posts/${postId}`)
       .set('Cookie', identity.cookie)
       .expect(200)
-      .expect(({ body }) => {
+      .expect((response) => {
+        const body = response.body as {
+          id: unknown;
+          authorId: unknown;
+          tags: unknown;
+        };
         expect(body).toMatchObject({ id: postId, authorId: identity.userId });
         expect(body.tags).toEqual(
           expect.arrayContaining(['postgres-e2e', 'cookie-principal']),

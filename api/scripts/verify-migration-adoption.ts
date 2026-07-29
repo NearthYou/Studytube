@@ -491,7 +491,7 @@ async function verifyAuthPreflightFailures(
     client,
     connectionString,
     'unknown password representation',
-    async () => undefined,
+    () => Promise.resolve(),
     /unknown password representation user IDs.*\{41,42\}/i,
   );
 

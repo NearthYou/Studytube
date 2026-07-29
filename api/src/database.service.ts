@@ -337,7 +337,7 @@ export class DatabaseService
       await client.query('COMMIT');
       transactionOpen = false;
       return { status: 'accepted' };
-    } catch (error) {
+    } catch {
       try {
         await rollback();
       } catch {
@@ -596,7 +596,7 @@ export class DatabaseService
           createdAt: new Date(user.createdAt).toISOString(),
         },
       };
-    } catch (error) {
+    } catch {
       try {
         await rollback();
       } catch {

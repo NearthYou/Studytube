@@ -48,6 +48,11 @@ function replacePoolConnection(
   return { connect, end, release };
 }
 
+function sqlTexts(query: jest.Mock): string[] {
+  const calls = query.mock.calls as unknown as Array<[string, ...unknown[]]>;
+  return calls.map(([sql]) => sql);
+}
+
 describe('DatabaseService fail-fast persistence', () => {
   it('retries connectivity and rejects startup without loading fallback data', async () => {
     const service = new DatabaseService(
@@ -323,7 +328,7 @@ describe('DatabaseService verified enrollment persistence', () => {
     await expect(
       existingService.createPendingRegistration(pendingRegistrationCommand()),
     ).resolves.toEqual({ status: 'accepted' });
-    expect(existingQuery.mock.calls.map(([sql]) => sql)).toEqual([
+    expect(sqlTexts(existingQuery)).toEqual([
       'BEGIN',
       expect.stringContaining('FROM users'),
       'COMMIT',
@@ -351,7 +356,7 @@ describe('DatabaseService verified enrollment persistence', () => {
     await expect(
       service.createPendingRegistration(pendingRegistrationCommand()),
     ).rejects.toThrow('Authentication persistence failed');
-    expect(query.mock.calls.at(-1)?.[0]).toBe('ROLLBACK');
+    expect(sqlTexts(query).at(-1)).toBe('ROLLBACK');
     expect(release).toHaveBeenCalledTimes(1);
   });
 
@@ -377,7 +382,7 @@ describe('DatabaseService verified enrollment persistence', () => {
     await expect(
       service.createPendingRegistration(pendingRegistrationCommand()),
     ).rejects.toThrow('Authentication persistence failed');
-    expect(query.mock.calls.at(-1)?.[0]).toBe('ROLLBACK');
+    expect(sqlTexts(query).at(-1)).toBe('ROLLBACK');
     expect(release).toHaveBeenCalledTimes(1);
   });
 
@@ -474,7 +479,7 @@ describe('DatabaseService verified enrollment persistence', () => {
       await expect(service.consumeVerification(command)).resolves.toEqual({
         status: 'invalid',
       });
-      expect(query.mock.calls.map(([sql]) => sql)).toEqual([
+      expect(sqlTexts(query)).toEqual([
         'BEGIN',
         expect.stringContaining('FOR UPDATE'),
         'ROLLBACK',
@@ -566,7 +571,7 @@ describe('DatabaseService verified enrollment persistence', () => {
       await expect(service.completeRegistration(command)).resolves.toEqual({
         status: 'conflict',
       });
-      expect(query.mock.calls.map(([sql]) => sql)).toEqual([
+      expect(sqlTexts(query)).toEqual([
         'BEGIN',
         expect.stringContaining('FOR UPDATE'),
         expect.stringContaining('INSERT INTO users'),
@@ -598,7 +603,7 @@ describe('DatabaseService verified enrollment persistence', () => {
     await expect(service.completeRegistration(command)).rejects.toThrow(
       'Authentication persistence failed',
     );
-    expect(query.mock.calls.map(([sql]) => sql)).toEqual([
+    expect(sqlTexts(query)).toEqual([
       'BEGIN',
       expect.stringContaining('FOR UPDATE'),
       expect.stringContaining('INSERT INTO users'),
@@ -642,7 +647,7 @@ describe('DatabaseService verified enrollment persistence', () => {
       await expect(service.completeRegistration(command)).rejects.toThrow(
         'Authentication persistence failed',
       );
-      expect(query.mock.calls.map(([sql]) => sql)).toEqual([
+      expect(sqlTexts(query)).toEqual([
         'BEGIN',
         expect.stringContaining('FOR UPDATE'),
         expect.stringContaining('INSERT INTO users'),
@@ -766,7 +771,7 @@ describe('DatabaseService core session persistence', () => {
     await expect(service.commitLogin(loginCommitCommand())).resolves.toEqual({
       status: 'stale',
     });
-    expect(query.mock.calls.map(([sql]) => sql)).toEqual([
+    expect(sqlTexts(query)).toEqual([
       'BEGIN',
       expect.stringContaining('FOR UPDATE'),
       'ROLLBACK',
@@ -807,7 +812,12 @@ describe('DatabaseService core session persistence', () => {
     expect(sql).toContain('LEAST(');
     expect(sql).toContain("interval '24 hours'");
     expect(values).toEqual([sessionDigest]);
-    expect(callsContainBuffer(query.mock.calls, sessionDigest)).toBe(true);
+    expect(
+      callsContainBuffer(
+        query.mock.calls as unknown as unknown[][],
+        sessionDigest,
+      ),
+    ).toBe(true);
   });
 
   it('returns invalid when the active lookup filters revoked or expired rows', async () => {
@@ -881,16 +891,18 @@ describe('DatabaseService core session persistence', () => {
       )
       .mockResolvedValueOnce({ rows: [], rowCount: null });
     const { release } = replacePoolConnection(service, query);
-    const { passwordUpgrade: _passwordUpgrade, ...command } =
-      loginCommitCommand();
+    const command = loginCommitCommand();
+    Reflect.deleteProperty(command, 'passwordUpgrade');
 
-    const error = await service.commitLogin(command).catch((caught) => caught);
+    const error: unknown = await service
+      .commitLogin(command)
+      .catch((caught: unknown): unknown => caught);
     expect(error).toBeInstanceOf(AuthRepositoryUnavailableError);
     expect(error).toMatchObject({
       code: 'AUTH_REPOSITORY_UNAVAILABLE',
       message: 'Authentication persistence failed',
     });
-    expect(query.mock.calls.at(3)?.[0]).toBe('ROLLBACK');
+    expect(sqlTexts(query).at(3)).toBe('ROLLBACK');
     expect(release).toHaveBeenCalled();
   });
 });

@@ -41,11 +41,14 @@ describe('auth token primitives', () => {
     expect(created.token).toMatch(
       /^v1\.[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.[A-Za-z0-9_-]{43}$/,
     );
-    expect(created.persistence).toEqual({
-      pendingRegistrationId: expect.any(String),
-      keyVersion: 'v1',
-      secretDigest: expect.any(Buffer),
-    });
+    expect(Object.keys(created.persistence).sort()).toEqual([
+      'keyVersion',
+      'pendingRegistrationId',
+      'secretDigest',
+    ]);
+    expect(typeof created.persistence.pendingRegistrationId).toBe('string');
+    expect(created.persistence.keyVersion).toBe('v1');
+    expect(created.persistence.secretDigest).toBeInstanceOf(Buffer);
     expect(created.persistence.secretDigest).toHaveLength(32);
     const expectedSecret = createHmac('sha256', verificationPepper)
       .update(

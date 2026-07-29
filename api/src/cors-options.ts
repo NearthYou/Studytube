@@ -23,7 +23,7 @@ export function normalizeHttpOrigin(
     candidate.includes(',') ||
     candidate.includes('@') ||
     candidate.includes('\\') ||
-    /[\u0000-\u0020\u007f-\u009f]/u.test(candidate) ||
+    containsHttpOriginControlCharacter(candidate) ||
     !/^https?:\/\/[^/?#]+$/iu.test(candidate)
   ) {
     return undefined;
@@ -41,6 +41,16 @@ export function normalizeHttpOrigin(
   } catch {
     return undefined;
   }
+}
+
+function containsHttpOriginControlCharacter(candidate: string): boolean {
+  for (let index = 0; index < candidate.length; index += 1) {
+    const codeUnit = candidate.charCodeAt(index);
+    if (codeUnit <= 0x20 || (codeUnit >= 0x7f && codeUnit <= 0x9f)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function requireConfiguredOrigin(configuredOrigin?: string): string {

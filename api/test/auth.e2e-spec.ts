@@ -135,10 +135,10 @@ describe('cookie authentication with PostgreSQL (e2e)', () => {
 
     expect(body).toEqual({
       user: {
-        id: expect.any(Number),
+        id: expect.any(Number) as unknown,
         name: 'Ada Proof',
         email,
-        createdAt: expect.any(String),
+        createdAt: expect.any(String) as unknown,
       },
     });
     expectSensitiveKeysAbsent(completion.body);
@@ -182,7 +182,7 @@ describe('cookie authentication with PostgreSQL (e2e)', () => {
 
     expect(persisted.rows).toEqual([
       {
-        passwordHash: expect.stringMatching(/^\$argon2id\$/u),
+        passwordHash: expect.stringMatching(/^\$argon2id\$/u) as unknown,
         passwordAlgorithm: 'argon2id',
         passwordParameters: {
           memoryKiB: 65_536,
@@ -645,9 +645,9 @@ function expectStableError(response: ResponseShape, status: number): void {
     'requestId',
   ]);
   expect(response.body).toEqual({
-    code: expect.any(String),
-    message: expect.any(String),
-    requestId: expect.any(String),
+    code: expect.any(String) as unknown,
+    message: expect.any(String) as unknown,
+    requestId: expect.any(String) as unknown,
   });
 }
 

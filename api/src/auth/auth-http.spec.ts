@@ -1,6 +1,6 @@
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import request from 'supertest';
+import supertest from 'supertest';
 import { AiProxyService } from '../ai-proxy.service';
 import { AiController } from '../ai.controller';
 import { AppController } from '../app.controller';
@@ -28,6 +28,10 @@ const user = {
   createdAt: '2026-07-29T00:00:00.000Z',
 };
 
+function request(app: unknown) {
+  return supertest(app as Parameters<typeof supertest>[0]);
+}
+
 describe('authentication HTTP boundary', () => {
   let app: INestApplication;
   let sessionIsActive: boolean;
@@ -42,9 +46,13 @@ describe('authentication HTTP boundary', () => {
     authenticateSession: jest.fn(),
     logout: jest.fn(),
   };
+  const createPost = jest.fn<
+    Promise<{ id: number }>,
+    Parameters<StudyBoardService['createPost']>
+  >();
   const studyBoardService = {
     listPublicPosts: jest.fn(),
-    createPost: jest.fn(),
+    createPost,
   };
 
   beforeAll(async () => {
@@ -107,18 +115,20 @@ describe('authentication HTTP boundary', () => {
       sessionToken: SESSION_TOKEN,
       user,
     });
-    authService.authenticateSession.mockImplementation(async (token: string) =>
-      token === SESSION_TOKEN && sessionIsActive
-        ? {
-            status: 'authenticated',
-            principal: { sessionId: 11, userId: user.id },
-            user,
-          }
-        : { status: 'invalid' },
+    authService.authenticateSession.mockImplementation((token: string) =>
+      Promise.resolve(
+        token === SESSION_TOKEN && sessionIsActive
+          ? {
+              status: 'authenticated',
+              principal: { sessionId: 11, userId: user.id },
+              user,
+            }
+          : { status: 'invalid' },
+      ),
     );
-    authService.logout.mockImplementation(async () => {
+    authService.logout.mockImplementation(() => {
       sessionIsActive = false;
-      return { status: 'revoked' };
+      return Promise.resolve({ status: 'revoked' });
     });
     studyBoardService.listPublicPosts.mockResolvedValue({ items: [] });
     studyBoardService.createPost.mockResolvedValue({ id: 91 });
@@ -146,7 +156,7 @@ describe('authentication HTTP boundary', () => {
       .send({ email: 'ada@example.com', password: 'not-accepted-here' })
       .expect(400);
 
-    expect(Object.keys(invalid.body).sort()).toEqual([
+    expect(Object.keys(invalid.body as object).sort()).toEqual([
       'code',
       'message',
       'requestId',
@@ -183,10 +193,10 @@ describe('authentication HTTP boundary', () => {
       .expect(204);
 
     expect(response.text).toBe('');
-    expect(response.headers['set-cookie'].join('\n')).toMatch(
+    expect((response.get('Set-Cookie') ?? []).join('\n')).toMatch(
       /studytube_enrollment=.*HttpOnly/i,
     );
-    expect(response.headers['set-cookie'].join('\n')).not.toContain(
+    expect((response.get('Set-Cookie') ?? []).join('\n')).not.toContain(
       'studytube_session=',
     );
     expect(response.body).toEqual({});
@@ -208,7 +218,7 @@ describe('authentication HTTP boundary', () => {
       },
       expect.any(String),
     );
-    const cookies = response.headers['set-cookie'].join('\n');
+    const cookies = (response.get('Set-Cookie') ?? []).join('\n');
     expect(cookies).toMatch(/studytube_session=.*HttpOnly/i);
     expect(cookies).toContain('studytube_enrollment=;');
     expect(JSON.stringify(response.body)).not.toContain(SESSION_TOKEN);
@@ -221,10 +231,13 @@ describe('authentication HTTP boundary', () => {
       .send({ email: 'ada@example.com', password: 'password' })
       .expect(200, { user });
 
-    const sessionCookie = login.headers['set-cookie'].find((value: string) =>
-      value.startsWith('studytube_session='),
-    );
+    const sessionCookie = login
+      .get('Set-Cookie')
+      ?.find((value) => value.startsWith('studytube_session='));
     expect(sessionCookie).toBeDefined();
+    if (!sessionCookie) {
+      throw new Error('Expected login to set a session cookie');
+    }
 
     await request(app.getHttpServer())
       .get('/me')
@@ -237,7 +250,7 @@ describe('authentication HTTP boundary', () => {
       .set('Cookie', sessionCookie)
       .expect(204);
 
-    expect(logout.headers['set-cookie'].join('\n')).toContain(
+    expect((logout.get('Set-Cookie') ?? []).join('\n')).toContain(
       'studytube_session=;',
     );
 
@@ -269,7 +282,7 @@ describe('authentication HTTP boundary', () => {
 
     for (const attempt of attempts) {
       const response = await attempt().expect(401);
-      expect(Object.keys(response.body).sort()).toEqual([
+      expect(Object.keys(response.body as object).sort()).toEqual([
         'code',
         'message',
         'requestId',
@@ -307,13 +320,11 @@ describe('authentication HTTP boundary', () => {
       })
       .expect(201, { id: 91 });
 
-    expect(studyBoardService.createPost).toHaveBeenCalledWith(
+    expect(createPost).toHaveBeenCalledWith(
       { userId: user.id },
       expect.objectContaining({ title: 'Auth boundaries' }),
     );
-    expect(Object.isFrozen(studyBoardService.createPost.mock.calls[0][0])).toBe(
-      true,
-    );
+    expect(Object.isFrozen(createPost.mock.calls[0][0])).toBe(true);
   });
 
   it('exposes registration readiness only through the enrollment cookie', async () => {

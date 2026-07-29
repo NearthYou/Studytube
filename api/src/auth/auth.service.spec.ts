@@ -17,7 +17,15 @@ const ENROLLMENT_TOKEN = Buffer.alloc(32, 8).toString('base64url');
 const SESSION_TOKEN = Buffer.alloc(32, 9).toString('base64url');
 const DUMMY_PASSWORD_HASH = '$argon2id$dummy-password-hash';
 
-function createRepository(): jest.Mocked<AuthRepository> {
+type AuthRepositoryMock = {
+  [Key in keyof AuthRepository]: AuthRepository[Key] extends (
+    ...args: infer Args
+  ) => infer Result
+    ? jest.MockedFunction<(this: void, ...args: Args) => Result>
+    : never;
+};
+
+function createRepository(): AuthRepositoryMock {
   return {
     consumeRateLimit: jest.fn().mockResolvedValue({
       allowed: true,
@@ -54,7 +62,7 @@ function createRepository(): jest.Mocked<AuthRepository> {
 }
 
 function createVerificationFactory(): jest.MockedFunction<VerificationTokenFactory> {
-  return jest.fn((_pepper: Buffer | string) => ({
+  return jest.fn(() => ({
     token: VERIFICATION_TOKEN,
     persistence: {
       pendingRegistrationId: PENDING_ID,

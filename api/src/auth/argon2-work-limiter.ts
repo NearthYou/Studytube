@@ -87,7 +87,7 @@ export class Argon2WorkLimiter {
         operation,
         resolve,
         reject,
-      } as QueuedJob<unknown>);
+      });
     });
   }
 

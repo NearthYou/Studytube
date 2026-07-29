@@ -239,7 +239,7 @@ describe('database migration files', () => {
     expect(claimIndex).not.toMatch(/\bnow\s*\(/i);
   });
 
-  it('rejects auth rollback before asking the migration builder to mutate data', async () => {
+  it('rejects auth rollback before asking the migration builder to mutate data', () => {
     const migrationPath = join(
       process.cwd(),
       'migrations',

@@ -211,7 +211,7 @@ Prometheus 형식 지표는 EC2 내부의 API Unix socket에서 `GET /internal/m
 ## Immutable release 흐름
 
 1. Deploy job은 `fetch-depth: 0`으로 검증된 `github.sha`를 checkout한다.
-2. `build-release-artifact.sh`는 그 SHA만 노출하는 Git bundle, format version, bundle digest를 포함한 deterministic tar.gz를 만든다.
+2. `build-release-artifact.sh`는 그 SHA만 노출하는 Git bundle, format version, bundle digest를 포함한 deterministic tar.gz를 만든다. source repository의 기존 pack 압축과 delta 배치가 결과에 섞이지 않도록 단일 thread, 고정 압축, no-delta full repack으로 bundle 입력을 정규화한다. artifact가 조금 커지는 대신 같은 commit의 재배포 checksum이 runner 환경과 repository pack layout에 따라 달라지지 않는다.
 3. tar.gz와 SHA-256 파일은 GitHub artifact로 14일 보존한다.
 4. OIDC로 받은 단기 AWS 자격 증명으로 artifact, digest, digest에 고정된 SSM runner를 S3에 올린다.
 5. upload는 `If-None-Match: *`, SHA-256 checksum, AES256 server-side encryption, Governance retention을 사용한다. 같은 key에 다른 content가 있으면 중단한다.

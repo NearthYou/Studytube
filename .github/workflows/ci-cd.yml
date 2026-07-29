@@ -479,6 +479,7 @@ jobs:
         with:
           name: backend-integration-evidence-${{ github.run_id }}-${{ github.run_attempt }}
           path: api/.ci-artifacts
+          include-hidden-files: true
           if-no-files-found: warn
           retention-days: 14
 

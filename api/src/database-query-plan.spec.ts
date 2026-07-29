@@ -1,10 +1,17 @@
 import {
   assertQueryPlanContract,
   extractExplainPlan,
+  QUERY_PLAN_VERIFICATION_SESSION_SETTINGS,
   type ExplainPlan,
 } from './database-query-plan';
 
 describe('database query plan contracts', () => {
+  it('makes synthetic index-availability checks independent of planner cost sampling', () => {
+    expect(QUERY_PLAN_VERIFICATION_SESSION_SETTINGS).toContain(
+      'SET LOCAL enable_seqscan = off',
+    );
+  });
+
   it('accepts the required index without a protected sequential scan', () => {
     const plan: ExplainPlan = {
       'Node Type': 'Nested Loop',

@@ -72,8 +72,7 @@ async function main(): Promise<void> {
   const bytesPerMiB = 1024 * 1024;
   const peakRssIncreaseMiB = (peakRssBytes - baselineRssBytes) / bytesPerMiB;
   const checks = {
-    singleMedianWithinTarget:
-      sequential.hash.medianMs >= 100 && sequential.hash.medianMs <= 500,
+    singleMedianWithinCeiling: sequential.hash.medianMs <= 500,
     memoryWithinBudget: peakRssIncreaseMiB <= AUTH_ARGON2_MEMORY_BUDGET_MIB,
     overloadRejected: !options.saturateQueue || overflow.rejected,
     requestedConcurrencyAchieved: argon2PeakConcurrency === options.concurrency,

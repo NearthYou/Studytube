@@ -248,14 +248,15 @@ stop_public_edge() {
 }
 
 public_edge_container_state() {
-  local inspect_output inspect_status=0
+  local inspect_output inspect_status=0 normalized_inspect_output
   inspect_output="$(
     timeout --signal=TERM --kill-after=5s 15s \
       docker inspect --format '{{.State.Running}}' studytube-caddy 2>&1
   )" || inspect_status=$?
   if ((inspect_status != 0)); then
-    case "$inspect_output" in
-      *'No such object: studytube-caddy'*|*'No such container: studytube-caddy'*)
+    normalized_inspect_output="${inspect_output,,}"
+    case "$normalized_inspect_output" in
+      *'no such object: studytube-caddy'*|*'no such container: studytube-caddy'*)
         printf 'absent\n'
         return 0
         ;;

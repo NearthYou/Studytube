@@ -5,6 +5,8 @@ import {
 } from './argon2-work-limiter';
 import { ARGON2_MEMORY_PER_JOB_MIB } from './auth.constants';
 import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 const invalidMemoryOverride: Argon2WorkLimiterOptions = {
   // @ts-expect-error Per-job Argon2 memory accounting is not configurable.
@@ -138,6 +140,18 @@ describe('Argon2WorkLimiter', () => {
     expect(limiter.policy.concurrency).toBeLessThan(
       Math.floor(limiter.policy.memoryBudgetMiB / ARGON2_MEMORY_PER_JOB_MIB),
     );
+  });
+
+  it('accepts faster password hashing while retaining the CI latency ceiling', () => {
+    const benchmark = readFileSync(
+      resolve(__dirname, '../../scripts/benchmark-password-hash.ts'),
+      'utf8',
+    );
+
+    expect(benchmark).toContain(
+      'singleMedianWithinCeiling: sequential.hash.medianMs <= 500',
+    );
+    expect(benchmark).not.toMatch(/medianMs\s*>=\s*100/u);
   });
 
   it('rejects benchmark samples smaller than requested concurrency before hashing', () => {

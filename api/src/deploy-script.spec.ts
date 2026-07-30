@@ -307,6 +307,18 @@ describe('EC2 deployment script', () => {
     );
   });
 
+  it('treats an empty Docker inspect error as absent only after an exact-name listing', () => {
+    expect(immutableRunner).toContain(
+      'if [[ -z "$inspect_output" ]] && public_edge_container_is_absent; then',
+    );
+    expect(immutableRunner).toContain(
+      "docker ps -a --filter 'name=^/studytube-caddy$' --format '{{.Names}}'",
+    );
+    expect(immutableRunner).toContain(
+      '((list_status == 0)) && [[ -z "$list_output" ]]',
+    );
+  });
+
   it('preserves supported database and authenticated OTLP runtime settings', () => {
     const apiKeys = runtimeInstaller.slice(
       runtimeInstaller.indexOf('api_environment_keys=('),

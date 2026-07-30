@@ -260,6 +260,10 @@ public_edge_container_state() {
         return 0
         ;;
     esac
+    if [[ -z "$inspect_output" ]] && public_edge_container_is_absent; then
+      printf 'absent\n'
+      return 0
+    fi
     fail 'could not verify the public edge container state'
     return 1
   fi
@@ -271,6 +275,15 @@ public_edge_container_state() {
       return 1
       ;;
   esac
+}
+
+public_edge_container_is_absent() {
+  local list_output list_status=0
+  list_output="$(
+    timeout --signal=TERM --kill-after=5s 15s \
+      docker ps -a --filter 'name=^/studytube-caddy$' --format '{{.Names}}' 2>&1
+  )" || list_status=$?
+  ((list_status == 0)) && [[ -z "$list_output" ]]
 }
 
 verify_deployment_watchdog_active() {

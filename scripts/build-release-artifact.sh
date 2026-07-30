@@ -90,7 +90,7 @@ payload_dir="$temporary_dir/payload"
 bare_repository="$temporary_dir/repository.git"
 mkdir -p -- "$payload_dir"
 git init --quiet --bare "$bare_repository"
-git -C "$bare_repository" fetch --quiet --depth=1 "$repo_root" \
+git -C "$bare_repository" fetch --quiet "$repo_root" \
   "$deploy_sha:refs/heads/release"
 git -c pack.threads=1 -c pack.compression=9 -C "$bare_repository" \
   repack -a -d -F --window=0

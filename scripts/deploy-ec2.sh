@@ -438,10 +438,12 @@ require_irreversible_migration_backup() {
     migration_applied="false"
     if [ -n "$migration_history" ]; then
       migration_applied="$(
-        run_psql --no-psqlrc --tuples-only --no-align \
-          --set ON_ERROR_STOP=1 \
-          --set migration_name="$migration_name" \
-          --command "SELECT EXISTS (SELECT 1 FROM pgmigrations WHERE name = :'migration_name')"
+        printf '%s\n' \
+          "SELECT EXISTS (SELECT 1 FROM pgmigrations WHERE name = :'migration_name')" |
+          run_psql --no-psqlrc --tuples-only --no-align \
+            --set ON_ERROR_STOP=1 \
+            --set migration_name="$migration_name" \
+            --file=-
       )"
     fi
     if [ "$migration_applied" != "t" ]; then

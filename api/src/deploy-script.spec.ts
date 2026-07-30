@@ -1012,6 +1012,10 @@ source '${deployScript}'
     expect(script).toContain('IRREVERSIBLE_MIGRATIONS_VERIFIED_BACKUP_MARKER');
     expect(script).toContain('backup_verified=true');
     expect(script).toContain('pgmigrations');
+    expect(script).toContain('--file=-');
+    expect(script).not.toContain(
+      `--command "SELECT EXISTS (SELECT 1 FROM pgmigrations WHERE name = :'migration_name')"`,
+    );
     expect(script).toContain('Refusing irreversible migration');
     expect(guardInvocations).toHaveLength(2);
     expect(guard).toBeLessThan(migration);

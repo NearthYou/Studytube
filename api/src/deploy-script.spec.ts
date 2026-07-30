@@ -309,6 +309,12 @@ describe('EC2 deployment script', () => {
 
   it('treats an empty Docker inspect error as absent only after an exact-name listing', () => {
     expect(immutableRunner).toContain(
+      'normalized_inspect_output="${inspect_output,,}"',
+    );
+    expect(immutableRunner).toContain(
+      "*'no such object: studytube-caddy'*|*'no such container: studytube-caddy'*",
+    );
+    expect(immutableRunner).toContain(
       'if [[ -z "$inspect_output" ]] && public_edge_container_is_absent; then',
     );
     expect(immutableRunner).toContain(

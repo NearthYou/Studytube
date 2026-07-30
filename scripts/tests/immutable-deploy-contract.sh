@@ -525,6 +525,16 @@ bash "$runner" verify-artifact \
   --deploy-sha "$deploy_sha" \
   >/dev/null
 
+extracted_artifact="$temporary_dir/extracted-artifact"
+staged_checkout="$temporary_dir/staged-checkout"
+mkdir -p -- "$extracted_artifact"
+tar -xzf "$first_artifact" -C "$extracted_artifact"
+git clone --quiet --branch release --single-branch \
+  "$extracted_artifact/repository.bundle" "$staged_checkout" ||
+  fail 'the verified release bundle cannot be cloned on the deployment host'
+[[ "$(git -C "$staged_checkout" rev-parse HEAD)" == "$deploy_sha" ]] ||
+  fail 'the cloned release bundle does not resolve to the deployed commit'
+
 tampered_artifact="$temporary_dir/tampered.tar.gz"
 cp -- "$first_artifact" "$tampered_artifact"
 printf 'tamper\n' >>"$tampered_artifact"

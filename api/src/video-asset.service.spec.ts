@@ -1,7 +1,10 @@
 import { AiProxyService } from './ai-proxy.service';
 import { MemoryBoardRepository } from './memory-board.repository';
 import type { StudyPost } from './study-board.types';
-import { VideoAssetService } from './video-asset.service';
+import {
+  VideoAssetPreparationRetryableError,
+  VideoAssetService,
+} from './video-asset.service';
 import type { UpdateVideoAssetInput } from './video-asset.types';
 
 class RecordingRepository extends MemoryBoardRepository {
@@ -95,14 +98,17 @@ describe('VideoAssetService', () => {
     expect(repository.updatedPostIds).toEqual(
       repository.updatedPostIds.map(() => post.id),
     );
-    expect(captions).toHaveBeenCalledWith({
-      videoId: 'assetSuccess',
-      videoUrl: post.videoUrl,
-      targetLanguage: 'ko',
-      allowFallback: false,
-      translateFallback: false,
-      durationSeconds: 14400,
-    });
+    expect(captions).toHaveBeenCalledWith(
+      {
+        videoId: 'assetSuccess',
+        videoUrl: post.videoUrl,
+        targetLanguage: 'ko',
+        allowFallback: false,
+        translateFallback: false,
+        durationSeconds: 14400,
+      },
+      undefined,
+    );
     expect(summary).toHaveBeenCalledWith(
       expect.objectContaining({
         videoId: 'assetSuccess',
@@ -116,6 +122,111 @@ describe('VideoAssetService', () => {
           { start: 65, end: 70, text: '리액트 훅을 배웁니다' },
         ],
       }),
+      undefined,
+    );
+  });
+
+  it('returns a matching ready asset without repeating provider calls', async () => {
+    const repository = new RecordingRepository();
+    const captions = jest.fn();
+    const summary = jest.fn();
+    const service = new VideoAssetService(repository, {
+      captions,
+      summary,
+    } as unknown as AiProxyService);
+    const post = await repository.createPost({
+      authorId: 1,
+      title: 'Already prepared lesson',
+      videoUrl: 'https://www.youtube.com/watch?v=readyAsset',
+      thumbnailUrl: 'https://i.ytimg.com/vi/readyAsset/hqdefault.jpg',
+      channelName: 'StudyTube',
+      summary: 'Ready asset.',
+      translatedNotes: 'Ready asset notes.',
+      tags: ['asset'],
+    });
+    await repository.upsertVideoAsset({
+      postId: post.id,
+      videoId: 'readyAsset',
+      videoUrl: post.videoUrl,
+      language: 'ko',
+    });
+    const ready = await repository.updateVideoAsset(post.id, {
+      status: 'ready',
+      sourceLanguage: 'en',
+      sourceCaptionStatus: 'ready',
+      translationStatus: 'ready',
+      summaryStatus: 'ready',
+      sourceSegments: [{ start: 0, end: 2, text: 'Ready source' }],
+      translatedSegments: [{ start: 0, end: 2, text: '준비된 번역' }],
+      summarySections: [{ label: '핵심 요약', body: '준비된 요약' }],
+      transcriptBody: '준비된 번역',
+      errorMessage: '',
+    });
+
+    await expect(service.preparePostAsset(post)).resolves.toEqual(ready);
+    expect(captions).not.toHaveBeenCalled();
+    expect(summary).not.toHaveBeenCalled();
+  });
+
+  it('resumes summary generation from persisted captions after a worker restart', async () => {
+    const repository = new RecordingRepository();
+    const captions = jest.fn();
+    const summary = jest.fn().mockResolvedValue({
+      sections: [{ label: '핵심 요약', body: '재개된 요약입니다.' }],
+    });
+    const service = new VideoAssetService(repository, {
+      captions,
+      summary,
+    } as unknown as AiProxyService);
+    const post = await repository.createPost({
+      authorId: 1,
+      title: 'Resume persisted captions',
+      videoUrl: 'https://www.youtube.com/watch?v=resumeSummary',
+      thumbnailUrl: 'https://i.ytimg.com/vi/resumeSummary/hqdefault.jpg',
+      channelName: 'StudyTube',
+      summary: 'Resume summary.',
+      translatedNotes: 'Resume summary notes.',
+      tags: ['asset'],
+    });
+    const sourceSegments = [
+      { start: 0, end: 3, text: 'Persisted source caption' },
+    ];
+    const translatedSegments = [{ start: 0, end: 3, text: '저장된 번역 자막' }];
+    await repository.upsertVideoAsset({
+      postId: post.id,
+      videoId: 'resumeSummary',
+      videoUrl: post.videoUrl,
+      language: 'ko',
+    });
+    await repository.updateVideoAsset(post.id, {
+      status: 'processing',
+      sourceLanguage: 'en',
+      sourceCaptionStatus: 'ready',
+      translationStatus: 'ready',
+      summaryStatus: 'pending',
+      sourceSegments,
+      translatedSegments,
+      summarySections: [],
+      transcriptBody: '',
+      errorMessage: 'Worker stopped before summary persistence.',
+    });
+
+    await expect(service.preparePostAsset(post)).resolves.toMatchObject({
+      status: 'ready',
+      sourceCaptionStatus: 'ready',
+      translationStatus: 'ready',
+      summaryStatus: 'ready',
+      sourceSegments,
+      translatedSegments,
+      summarySections: [{ label: '핵심 요약', body: '재개된 요약입니다.' }],
+    });
+    expect(captions).not.toHaveBeenCalled();
+    expect(summary).toHaveBeenCalledWith(
+      expect.objectContaining({
+        videoId: 'resumeSummary',
+        segments: translatedSegments,
+      }),
+      undefined,
     );
   });
 
@@ -164,6 +275,38 @@ describe('VideoAssetService', () => {
     expect(summary).not.toHaveBeenCalled();
   });
 
+  it('rethrows transient provider failures without persisting secret text', async () => {
+    const repository = new RecordingRepository();
+    const providerFailure = new Error('Bearer caption-provider-secret-canary');
+    const service = new VideoAssetService(repository, {
+      captions: jest.fn().mockRejectedValue(providerFailure),
+      summary: jest.fn(),
+    } as unknown as AiProxyService);
+    const post = await repository.createPost({
+      authorId: 1,
+      title: 'Transient caption failure',
+      videoUrl: 'https://www.youtube.com/watch?v=transientCaption',
+      thumbnailUrl: 'https://i.ytimg.com/vi/transientCaption/hqdefault.jpg',
+      channelName: 'StudyTube',
+      summary: 'Transient caption provider failure.',
+      translatedNotes: 'Transient caption provider failure notes.',
+      tags: ['captions'],
+    });
+
+    await expect(service.preparePostAsset(post)).rejects.toBe(providerFailure);
+    const asset = await repository.findVideoAsset(post.id);
+    expect(asset).toMatchObject({
+      status: 'processing',
+      sourceCaptionStatus: 'pending',
+      translationStatus: 'pending',
+      summaryStatus: 'pending',
+      errorMessage: 'Video asset provider is temporarily unavailable.',
+    });
+    expect(JSON.stringify(asset)).not.toContain(
+      'caption-provider-secret-canary',
+    );
+  });
+
   it('stores rate-limited caption responses as partial native-caption fallback assets', async () => {
     const repository = new RecordingRepository();
     const captions = jest.fn().mockResolvedValue({
@@ -208,7 +351,7 @@ describe('VideoAssetService', () => {
     expect(summary).not.toHaveBeenCalled();
   });
 
-  it('treats AI summary fallback sections as failed and keeps a partial asset', async () => {
+  it('keeps persisted captions and retries an unavailable summary provider', async () => {
     const repository = new RecordingRepository();
     const captions = jest.fn().mockResolvedValue({
       translated: true,
@@ -240,18 +383,18 @@ describe('VideoAssetService', () => {
       tags: ['summary'],
     });
 
-    await expect(service.preparePostAsset(post)).resolves.toMatchObject({
+    await expect(service.preparePostAsset(post)).rejects.toBeInstanceOf(
+      VideoAssetPreparationRetryableError,
+    );
+    await expect(repository.findVideoAsset(post.id)).resolves.toMatchObject({
       postId: post.id,
-      status: 'partial',
+      status: 'processing',
       sourceCaptionStatus: 'ready',
       translationStatus: 'ready',
-      summaryStatus: 'failed',
-      summarySections: [
-        { label: '전사문', body: '사용하면 안 되는 fallback 섹션입니다.' },
-      ],
-      transcriptBody: '사용하면 안 되는 fallback 섹션입니다.',
-      errorMessage:
-        'FastAPI summary service did not respond before the proxy timeout.',
+      summaryStatus: 'pending',
+      summarySections: [],
+      transcriptBody: '',
+      errorMessage: 'Video asset summary provider is temporarily unavailable.',
     });
   });
 
@@ -302,6 +445,7 @@ describe('VideoAssetService', () => {
       expect.objectContaining({
         segments: sourceSegments,
       }),
+      undefined,
     );
   });
 

@@ -1,7 +1,10 @@
 import type { StudyPost } from '../study-board.types';
 import type { VideoAsset } from '../video-asset.types';
+import { DurableJobExecutor } from './durable-job.executor';
+import { MemoryJobExecutionStore } from './memory-job-execution.store';
 import type { AppendOutboxEvent, JobResult } from './work.types';
 import type { WorkQueueJob } from './work.queue';
+import { WorkJobBusyError } from './work.errors';
 import { VideoAssetJobHandler } from './video-asset.worker';
 
 const POST: StudyPost = {
@@ -81,18 +84,48 @@ class MemoryResults {
   }
 }
 
-type HandlerContract = {
-  handle(job: WorkQueueJob): Promise<Record<string, unknown>>;
-  recordExhaustedFailure(
-    job: WorkQueueJob,
-    error: Error,
-    attemptsMade: number,
-  ): Promise<void>;
-};
-
 describe('VideoAssetJobHandler', () => {
+  it('runs one provider call for concurrent delivery and replays the completed result', async () => {
+    const results = new MemoryResults();
+    const store = new MemoryJobExecutionStore();
+    const executor = new DurableJobExecutor(store, {
+      leaseOwner: 'video-worker',
+      leaseMs: 30_000,
+    });
+    let finish: ((asset: VideoAsset) => void) | undefined;
+    const preparePostAsset = jest.fn(
+      () =>
+        new Promise<VideoAsset>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const handler = new VideoAssetJobHandler(
+      { findPost: () => Promise.resolve(POST) },
+      { preparePostAsset },
+      results,
+      executor,
+    );
+
+    const active = handler.handle(JOB);
+    await expect(handler.handle(JOB)).rejects.toBeInstanceOf(WorkJobBusyError);
+    finish?.(ASSET);
+    await expect(active).resolves.toEqual({
+      assetId: 9,
+      postId: 42,
+      status: 'ready',
+    });
+    await expect(handler.handle(JOB)).resolves.toEqual({
+      assetId: 9,
+      postId: 42,
+      status: 'ready',
+    });
+
+    expect(preparePostAsset).toHaveBeenCalledTimes(1);
+  });
+
   it('persists one result and skips the side effect on duplicate delivery', async () => {
     const results = new MemoryResults();
+    const execution = jobExecution();
     let preparations = 0;
     const handler = new VideoAssetJobHandler(
       { findPost: () => Promise.resolve(POST) },
@@ -103,14 +136,19 @@ describe('VideoAssetJobHandler', () => {
         },
       },
       results,
+      execution.executor,
     );
 
-    await expect(
-      (handler as unknown as HandlerContract).handle(JOB),
-    ).resolves.toEqual({ assetId: 9, postId: 42, status: 'ready' });
-    await expect(
-      (handler as unknown as HandlerContract).handle(JOB),
-    ).resolves.toEqual({ assetId: 9, postId: 42, status: 'ready' });
+    await expect(handler.handle(JOB)).resolves.toEqual({
+      assetId: 9,
+      postId: 42,
+      status: 'ready',
+    });
+    await expect(handler.handle(JOB)).resolves.toEqual({
+      assetId: 9,
+      postId: 42,
+      status: 'ready',
+    });
 
     expect(preparations).toBe(1);
     expect(results.appendedEvents).toHaveLength(2);
@@ -133,31 +171,31 @@ describe('VideoAssetJobHandler', () => {
 
   it('records a terminal typed failure for an unsupported payload schema', async () => {
     const results = new MemoryResults();
+    const execution = jobExecution();
     const handler = new VideoAssetJobHandler(
       { findPost: () => Promise.resolve(POST) },
       { preparePostAsset: () => Promise.resolve(ASSET) },
       results,
+      execution.executor,
     );
 
     await expect(
-      (handler as unknown as HandlerContract).handle({
+      handler.handle({
         ...JOB,
         payloadSchemaVersion: 2,
       }),
     ).rejects.toMatchObject({ code: 'UNSUPPORTED_PAYLOAD_SCHEMA' });
 
-    expect(results.result).toMatchObject({
+    expect(execution.store.findResult(JOB)).toMatchObject({
       outcome: 'terminal_failure',
       result: { code: 'UNSUPPORTED_PAYLOAD_SCHEMA' },
     });
-    expect(results.deadLetter).toMatchObject({
-      eventId: JOB.eventId,
-      handlerVersion: JOB.handlerVersion,
+    expect(execution.store.findDeadLetter(JOB)).toMatchObject({
       code: 'UNSUPPORTED_PAYLOAD_SCHEMA',
     });
 
     await expect(
-      (handler as unknown as HandlerContract).handle({
+      handler.handle({
         ...JOB,
         payloadSchemaVersion: 2,
       }),
@@ -166,41 +204,84 @@ describe('VideoAssetJobHandler', () => {
 
   it('leaves transient provider failures unrecorded so BullMQ can retry', async () => {
     const results = new MemoryResults();
+    const execution = jobExecution();
     const providerFailure = new Error('caption provider timeout');
+    const preparePostAsset = jest
+      .fn()
+      .mockRejectedValueOnce(providerFailure)
+      .mockResolvedValue(ASSET);
     const handler = new VideoAssetJobHandler(
       { findPost: () => Promise.resolve(POST) },
-      { preparePostAsset: () => Promise.reject(providerFailure) },
+      { preparePostAsset },
       results,
+      execution.executor,
     );
 
-    await expect(
-      (handler as unknown as HandlerContract).handle(JOB),
-    ).rejects.toBe(providerFailure);
-    expect(results.result).toBeNull();
+    await expect(handler.handle(JOB)).rejects.toBe(providerFailure);
+    expect(execution.store.findResult(JOB)).toBeNull();
+    await expect(handler.handle(JOB)).resolves.toMatchObject({
+      assetId: ASSET.id,
+    });
+    expect(preparePostAsset).toHaveBeenCalledTimes(2);
   });
 
   it('persists an exhausted transient failure for audit and replay', async () => {
     const results = new MemoryResults();
+    const execution = jobExecution();
+    const rawFailure =
+      'Bearer video-secret-canary https://worker:video-url-secret@example.invalid/captions?token=video-query-secret';
+    const preparePostAsset = jest.fn().mockRejectedValue(new Error(rawFailure));
     const handler = new VideoAssetJobHandler(
       { findPost: () => Promise.resolve(POST) },
-      { preparePostAsset: () => Promise.resolve(ASSET) },
+      { preparePostAsset },
       results,
+      execution.executor,
     );
 
-    await (handler as unknown as HandlerContract).recordExhaustedFailure(
-      JOB,
-      new Error('caption provider timeout'),
-      8,
-    );
+    await expect(
+      handler.handle(JOB, {
+        attemptNumber: 8,
+        maxAttempts: 8,
+        isFinalAttempt: true,
+      }),
+    ).rejects.toMatchObject({
+      code: 'JOB_ATTEMPTS_EXHAUSTED',
+      message: 'JOB_ATTEMPTS_EXHAUSTED',
+    });
 
-    expect(results.deadLetter).toMatchObject({
-      eventId: JOB.eventId,
+    expect(execution.store.findDeadLetter(JOB)).toMatchObject({
       code: 'JOB_ATTEMPTS_EXHAUSTED',
       details: { attemptsMade: 8 },
     });
-    expect(results.result).toMatchObject({
+    expect(execution.store.findResult(JOB)).toMatchObject({
       outcome: 'terminal_failure',
       result: { code: 'JOB_ATTEMPTS_EXHAUSTED', attemptsMade: 8 },
     });
+    const persisted = JSON.stringify({
+      result: execution.store.findResult(JOB),
+      deadLetter: execution.store.findDeadLetter(JOB),
+    });
+    expect(persisted).not.toContain('video-secret-canary');
+    expect(persisted).not.toContain('video-url-secret');
+    expect(persisted).not.toContain('video-query-secret');
+
+    await expect(handler.handle(JOB)).rejects.toMatchObject({
+      code: 'JOB_ATTEMPTS_EXHAUSTED',
+    });
+    expect(preparePostAsset).toHaveBeenCalledTimes(1);
   });
 });
+
+function jobExecution(): {
+  store: MemoryJobExecutionStore;
+  executor: DurableJobExecutor;
+} {
+  const store = new MemoryJobExecutionStore();
+  return {
+    store,
+    executor: new DurableJobExecutor(store, {
+      leaseOwner: 'video-worker',
+      leaseMs: 30_000,
+    }),
+  };
+}

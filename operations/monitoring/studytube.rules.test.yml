@@ -1,0 +1,129 @@
+rule_files:
+  - studytube.rules.yml
+
+evaluation_interval: 1m
+
+tests:
+  - name: outbox backlog becomes pending, fires, and resolves
+    interval: 1m
+    input_series:
+      - series: 'studytube_outbox_oldest_age_seconds{job="studytube-api",instance="api-1"}'
+        values: '130 130 130 0'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: StudyTubeOutboxBacklogOld
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: StudyTubeOutboxBacklogOld
+        exp_alerts:
+          - exp_labels:
+              alertname: StudyTubeOutboxBacklogOld
+              instance: api-1
+              job: studytube-api
+              service: studytube
+              severity: warning
+            exp_annotations:
+              summary: StudyTube outbox delivery is delayed
+              action: Inspect the outbox relay and oldest pending event before replaying work.
+      - eval_time: 3m
+        alertname: StudyTubeOutboxBacklogOld
+        exp_alerts: []
+
+  - name: outbox counters become pending, fire, and age out
+    interval: 1m
+    input_series:
+      - series: 'studytube_outbox_failures_total{job="studytube-api",instance="api-1",event_type="video_asset.requested"}'
+        values: '0 1 1 1 1 1 1 1'
+      - series: 'studytube_outbox_poison_total{job="studytube-api",instance="api-1",event_type="video_asset.requested"}'
+        values: '0 1 1 1 1 1 1 1'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: StudyTubeOutboxProcessingFailures
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: StudyTubeOutboxProcessingFailures
+        exp_alerts:
+          - exp_labels:
+              alertname: StudyTubeOutboxProcessingFailures
+              event_type: video_asset.requested
+              instance: api-1
+              job: studytube-api
+              service: studytube
+              severity: warning
+            exp_annotations:
+              summary: StudyTube outbox processing failed
+              action: Inspect bounded event-type metrics and sanitized worker logs.
+      - eval_time: 6m
+        alertname: StudyTubeOutboxProcessingFailures
+        exp_alerts: []
+      - eval_time: 1m
+        alertname: StudyTubeOutboxPoisonedEvent
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: StudyTubeOutboxPoisonedEvent
+        exp_alerts:
+          - exp_labels:
+              alertname: StudyTubeOutboxPoisonedEvent
+              event_type: video_asset.requested
+              instance: api-1
+              job: studytube-api
+              service: studytube
+              severity: critical
+            exp_annotations:
+              summary: StudyTube moved an outbox event to dead-letter storage
+              action: Keep automatic replay disabled until the failure is classified.
+      - eval_time: 6m
+        alertname: StudyTubeOutboxPoisonedEvent
+        exp_alerts: []
+
+  - name: database pool waiters become pending, fire, and resolve
+    interval: 1m
+    input_series:
+      - series: 'studytube_db_pool_waiting{job="studytube-api",instance="api-1"}'
+        values: '2 2 2 0'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: StudyTubeDatabasePoolWaiters
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: StudyTubeDatabasePoolWaiters
+        exp_alerts:
+          - exp_labels:
+              alertname: StudyTubeDatabasePoolWaiters
+              instance: api-1
+              job: studytube-api
+              service: studytube
+              severity: warning
+            exp_annotations:
+              summary: StudyTube database work is waiting for a connection
+              action: Check slow requests and pool saturation before increasing capacity.
+      - eval_time: 3m
+        alertname: StudyTubeDatabasePoolWaiters
+        exp_alerts: []
+
+  - name: database pool saturation becomes pending, fires, and resolves
+    interval: 1m
+    input_series:
+      - series: 'studytube_db_pool_connections{job="studytube-api",instance="api-1",state="busy"}'
+        values: '9 9 9 2'
+      - series: 'studytube_db_pool_connections{job="studytube-api",instance="api-1",state="total"}'
+        values: '10 10 10 10'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: StudyTubeDatabasePoolSaturation
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: StudyTubeDatabasePoolSaturation
+        exp_alerts:
+          - exp_labels:
+              alertname: StudyTubeDatabasePoolSaturation
+              instance: api-1
+              job: studytube-api
+              service: studytube
+              severity: warning
+            exp_annotations:
+              summary: StudyTube database connection pool is saturated
+              action: Inspect query latency and waiting work before changing the pool size.
+      - eval_time: 3m
+        alertname: StudyTubeDatabasePoolSaturation
+        exp_alerts: []

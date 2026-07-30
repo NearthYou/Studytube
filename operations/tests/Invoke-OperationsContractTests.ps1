@@ -9,7 +9,13 @@ $backupScript = Join-Path $repoRoot 'operations\backup\Invoke-PostgresRestoreDri
 $failureScript = Join-Path $repoRoot 'operations\resilience\Invoke-ServiceFailureDrill.ps1'
 $loadScript = Join-Path $repoRoot 'operations\load\studytube-core.js'
 $loadContractScript = Join-Path $repoRoot 'operations\tests\studytube-core.contract.mjs'
+$writeLoadScript = Join-Path $repoRoot 'operations\load\studytube-progress-write.js'
+$writeLoadContractScript = Join-Path $repoRoot 'operations\tests\studytube-progress-write.contract.mjs'
+$writeLoadSmokeScript = Join-Path $repoRoot 'operations\tests\Invoke-K6ProgressWriteSmoke.ps1'
+$prometheusDrill = Join-Path $repoRoot 'operations\monitoring\Invoke-PrometheusRuleDrill.ps1'
+$operationsCommon = Join-Path $repoRoot 'operations\lib\Operations.Common.ps1'
 $composeFile = Join-Path $repoRoot 'docker-compose.yml'
+$ciWorkflow = Join-Path $repoRoot '.github\workflows\ci-cd.yml'
 $failures = New-Object System.Collections.Generic.List[string]
 $passes = 0
 
@@ -129,6 +135,87 @@ function Invoke-ApiSocketProbeContract {
   }
 }
 
+function Test-DockerContextRejected {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$ContextName,
+    [Parameter(Mandatory = $true)]
+    [string]$ContextEndpoint,
+    [string]$DockerHost = ''
+  )
+
+  $tokens = $null
+  $parseErrors = $null
+  $ast = [Management.Automation.Language.Parser]::ParseFile(
+    $operationsCommon,
+    [ref]$tokens,
+    [ref]$parseErrors
+  )
+  if ($parseErrors.Count -gt 0) {
+    throw "Operations common helpers have PowerShell parse errors: $($parseErrors -join '; ')"
+  }
+  $functionAst = $ast.Find({
+      param($node)
+      $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+      $node.Name -eq 'Assert-LocalDockerContext'
+    }, $true)
+  if ($null -eq $functionAst) {
+    throw 'Operations common helpers must define Assert-LocalDockerContext.'
+  }
+
+  $module = New-Module -ArgumentList @(
+    $functionAst.Extent.Text,
+    $ContextName,
+    $ContextEndpoint,
+    $DockerHost
+  ) -ScriptBlock {
+    param(
+      [string]$Definition,
+      [string]$FakeContextName,
+      [string]$FakeContextEndpoint,
+      [string]$FakeDockerHost
+    )
+
+    function Invoke-ExternalCommand {
+      param(
+        [string]$FilePath,
+        [string[]]$ArgumentList = @(),
+        [switch]$AllowFailure
+      )
+
+      if ($ArgumentList -contains 'show') {
+        return [pscustomobject]@{ ExitCode = 0; Output = $FakeContextName }
+      }
+      if ($ArgumentList -contains 'inspect') {
+        return [pscustomobject]@{ ExitCode = 0; Output = $FakeContextEndpoint }
+      }
+      throw "Unexpected fake Docker invocation: $($ArgumentList -join ' ')"
+    }
+
+    . ([scriptblock]::Create($Definition))
+  }
+
+  try {
+    return & $module {
+      $previousDockerHost = $env:DOCKER_HOST
+      $env:DOCKER_HOST = $FakeDockerHost
+      try {
+        $null = Assert-LocalDockerContext
+        return $false
+      }
+      catch {
+        return $true
+      }
+      finally {
+        $env:DOCKER_HOST = $previousDockerHost
+      }
+    }
+  }
+  finally {
+    Remove-Module $module
+  }
+}
+
 try {
   $backupPlan = Invoke-JsonPlan -ScriptPath $backupScript -Arguments @(
     '-PlanOnly',
@@ -189,12 +276,73 @@ try {
   Assert-True ($apiSocketProbe.Invocation.ArgumentList -contains 'http://localhost/health/ready') 'Unix socket readiness must probe the runtime readiness endpoint.'
   Assert-True ($apiSocketProbe.Invocation.ArgumentList -contains '/dev/null') 'Unix socket readiness must discard the response body.'
 
+  $prometheusPlan = Invoke-JsonPlan -ScriptPath $prometheusDrill -Arguments @('-PlanOnly')
+  Assert-True ($prometheusPlan.mode -eq 'plan') 'Prometheus rule drill must expose a plan-only mode.'
+  Assert-True ([bool]$prometheusPlan.localDockerOnly) 'Prometheus rule tests must reject remote Docker contexts.'
+  Assert-True ([bool]$prometheusPlan.readOnlyRulesMount) 'Prometheus rule tests must mount rule files read-only.'
+  Assert-True ($prometheusPlan.persistentServiceAdded -eq $false) 'Prometheus rule tests must not add a persistent service to the production host.'
+  Assert-True ($prometheusPlan.image -match '@sha256:[a-f0-9]{64}$') 'Prometheus rule tests must use a digest-pinned image.'
+  Assert-True (@($prometheusPlan.commands).Count -eq 2) 'Prometheus rule drill must check syntax and execute unit tests.'
+
+  $k6SmokePlan = Invoke-JsonPlan -ScriptPath $writeLoadSmokeScript -Arguments @('-PlanOnly')
+  Assert-True ($k6SmokePlan.mode -eq 'plan') 'The actual k6 smoke must expose a side-effect-free plan mode.'
+  Assert-True ([bool]$k6SmokePlan.loopbackFixtureOnly) 'The actual k6 smoke must restrict its mutable fixture to loopback.'
+  Assert-True ($k6SmokePlan.k6Version -match '^\d+\.\d+\.\d+$') 'The actual k6 smoke must pin a concrete k6 version.'
+  Assert-True ($k6SmokePlan.k6ArchiveSha256 -match '^[a-f0-9]{64}$') 'The actual k6 smoke must pin the downloaded archive checksum.'
+  Assert-True (@($k6SmokePlan.phases) -join ',' -eq 'inspect,setup,write,duplicate,readback,teardown,summary') 'The actual k6 smoke must cover the full bounded progress-write lifecycle.'
+  $ciWorkflowText = Get-Content -LiteralPath $ciWorkflow -Raw -Encoding UTF8
+  Assert-True (
+    $ciWorkflowText -match '(?s)Invoke-K6ProgressWriteSmoke\.ps1\s+-Execute'
+  ) 'CI must execute the original progress-write workload through the actual pinned k6 runtime.'
+
+  Assert-True (
+    Test-DockerContextRejected `
+      -ContextName 'default' `
+      -ContextEndpoint 'tcp://remote.example:2376'
+  ) 'Operations drills must reject a remote endpoint even when its Docker context is named default.'
+  Assert-True (-not (
+      Test-DockerContextRejected `
+        -ContextName 'desktop-linux' `
+        -ContextEndpoint 'npipe:////./pipe/dockerDesktopLinuxEngine'
+    )) 'Operations drills must accept the inspected local Docker Desktop engine endpoint.'
+  Assert-True (
+    Test-DockerContextRejected `
+      -ContextName 'desktop-linux' `
+      -ContextEndpoint 'npipe:////./pipe/dockerDesktopLinuxEngine' `
+      -DockerHost 'file://C:/remote-docker-endpoint'
+  ) 'Operations drills must reject file-based DOCKER_HOST overrides.'
+  Assert-True (
+    Test-DockerContextRejected `
+      -ContextName 'desktop-linux' `
+      -ContextEndpoint 'npipe:////remote-builder/pipe/docker_engine'
+  ) 'Operations drills must reject a remote named pipe from an inspected Docker context.'
+  Assert-True (
+    Test-DockerContextRejected `
+      -ContextName 'desktop-linux' `
+      -ContextEndpoint 'npipe:////./pipe/dockerDesktopLinuxEngine' `
+      -DockerHost 'npipe:////remote-builder/pipe/docker_engine'
+  ) 'Operations drills must reject a remote named pipe supplied through DOCKER_HOST.'
+  Assert-True (
+    Test-DockerContextRejected `
+      -ContextName 'default' `
+      -ContextEndpoint 'unix://remote-builder/run/docker.sock'
+  ) 'Operations drills must reject a Unix endpoint with a remote authority.'
+  Assert-True (-not (
+      Test-DockerContextRejected `
+        -ContextName 'default' `
+        -ContextEndpoint 'unix:///var/run/docker.sock'
+    )) 'Operations drills must accept an authority-free absolute local Unix socket.'
+
   $node = Get-Command node -ErrorAction SilentlyContinue
   if ($null -ne $node) {
     & $node.Source --check $loadScript
     Assert-True ($LASTEXITCODE -eq 0) 'k6 workload must pass JavaScript syntax validation.'
     & $node.Source $loadContractScript
     Assert-True ($LASTEXITCODE -eq 0) 'k6 workload must reuse a pre-provisioned session across isolated VUs and use a separately configured safe readiness URL.'
+    & $node.Source --check $writeLoadScript
+    Assert-True ($LASTEXITCODE -eq 0) 'k6 progress write workload must pass JavaScript syntax validation.'
+    & $node.Source $writeLoadContractScript
+    Assert-True ($LASTEXITCODE -eq 0) 'k6 progress write workload must require deliberate write acknowledgement and retain no credentials or raw data identifiers.'
   }
   else {
     Write-Warning 'node is unavailable; JavaScript syntax validation was skipped.'

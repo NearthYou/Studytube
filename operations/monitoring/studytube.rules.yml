@@ -1,0 +1,57 @@
+groups:
+  - name: studytube-runtime
+    interval: 30s
+    rules:
+      - alert: StudyTubeOutboxBacklogOld
+        expr: studytube_outbox_oldest_age_seconds > 120
+        for: 2m
+        labels:
+          service: studytube
+          severity: warning
+        annotations:
+          summary: StudyTube outbox delivery is delayed
+          action: Inspect the outbox relay and oldest pending event before replaying work.
+
+      - alert: StudyTubeOutboxProcessingFailures
+        expr: increase(studytube_outbox_failures_total[5m]) > 0
+        for: 1m
+        labels:
+          service: studytube
+          severity: warning
+        annotations:
+          summary: StudyTube outbox processing failed
+          action: Inspect bounded event-type metrics and sanitized worker logs.
+
+      - alert: StudyTubeOutboxPoisonedEvent
+        expr: increase(studytube_outbox_poison_total[5m]) > 0
+        for: 1m
+        labels:
+          service: studytube
+          severity: critical
+        annotations:
+          summary: StudyTube moved an outbox event to dead-letter storage
+          action: Keep automatic replay disabled until the failure is classified.
+
+      - alert: StudyTubeDatabasePoolWaiters
+        expr: studytube_db_pool_waiting > 0
+        for: 2m
+        labels:
+          service: studytube
+          severity: warning
+        annotations:
+          summary: StudyTube database work is waiting for a connection
+          action: Check slow requests and pool saturation before increasing capacity.
+
+      - alert: StudyTubeDatabasePoolSaturation
+        expr: >-
+          studytube_db_pool_connections{state="busy"}
+          / ignoring(state)
+          clamp_min(studytube_db_pool_connections{state="total"}, 1)
+          > 0.8
+        for: 2m
+        labels:
+          service: studytube
+          severity: warning
+        annotations:
+          summary: StudyTube database connection pool is saturated
+          action: Inspect query latency and waiting work before changing the pool size.

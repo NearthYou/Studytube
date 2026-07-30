@@ -13,6 +13,12 @@ export type WorkQueueJob = {
   telemetry?: Record<string, string>;
 };
 
+export type WorkAttemptContext = {
+  attemptNumber: number;
+  maxAttempts: number;
+  isFinalAttempt: boolean;
+};
+
 export type WorkQueueOptions = {
   jobId: string;
   attempts: number;

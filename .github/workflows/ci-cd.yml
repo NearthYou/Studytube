@@ -184,6 +184,25 @@ jobs:
       - name: Verify immutable deployment contract
         run: bash ../scripts/tests/immutable-deploy-contract.sh
 
+      - name: Verify guarded operations contracts
+        shell: pwsh
+        working-directory: .
+        run: ./operations/tests/Invoke-OperationsContractTests.ps1
+
+      - name: Verify actual k6 progress-write runtime
+        shell: pwsh
+        working-directory: .
+        run: ./operations/tests/Invoke-K6ProgressWriteSmoke.ps1 -Execute
+
+      - name: Verify Prometheus alert rules
+        shell: pwsh
+        working-directory: .
+        run: >-
+          ./operations/monitoring/Invoke-PrometheusRuleDrill.ps1
+          -Execute
+          -EvidenceDirectory "$env:RUNNER_TEMP/studytube-prometheus-rule-evidence"
+          | Out-Null
+
       - name: Validate production Compose model
         env:
           POSTGRES_USER: app

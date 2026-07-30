@@ -1,16 +1,10 @@
-import { randomUUID } from 'node:crypto';
 import { AiProxyService } from '../ai-proxy.service';
+import { DurableJobExecutor } from '../work/durable-job.executor';
 import { deterministicWorkUuid } from '../work/deterministic-work-id';
-import type { WorkQueueJob } from '../work/work.queue';
-import type { WorkRepository } from '../work/work.repository';
-import { WorkJobTerminalError } from '../work/video-asset.worker';
+import type { WorkAttemptContext, WorkQueueJob } from '../work/work.queue';
+import { WorkJobTerminalError } from '../work/work.errors';
 import type { QuizQuestionInput } from './learning.repository';
 import { LearningService } from './learning.service';
-
-type ResultStore = Pick<
-  WorkRepository,
-  'findJobResult' | 'recordJobResult' | 'recordDeadLetter'
->;
 
 type QuizPayload = {
   courseStepId: string;
@@ -30,24 +24,33 @@ export class QuizGenerationJobHandler {
   constructor(
     private readonly learning: LearningService,
     private readonly ai: AiProxyService,
-    private readonly results: ResultStore,
+    private readonly executor: DurableJobExecutor,
   ) {}
 
-  async handle(job: WorkQueueJob): Promise<Record<string, unknown>> {
-    const existing = await this.results.findJobResult(
-      job.eventId,
-      job.handlerVersion,
+  async handle(
+    job: WorkQueueJob,
+    attempt?: WorkAttemptContext,
+  ): Promise<Record<string, unknown>> {
+    return this.executor.execute(
+      {
+        eventId: job.eventId,
+        handlerVersion: job.handlerVersion,
+      },
+      (signal) => this.process(job, signal),
+      attempt?.isFinalAttempt
+        ? {
+            code: 'QUIZ_GENERATION_ATTEMPTS_EXHAUSTED',
+            attemptsMade: attempt.attemptNumber,
+          }
+        : undefined,
     );
-    if (existing) {
-      if (existing.outcome === 'terminal_failure') {
-        throw new WorkJobTerminalError(
-          typeof existing.result.code === 'string'
-            ? existing.result.code
-            : 'TERMINAL_FAILURE',
-        );
-      }
-      return existing.result;
-    }
+  }
+
+  private async process(
+    job: WorkQueueJob,
+    signal: AbortSignal,
+  ): Promise<Record<string, unknown>> {
+    signal.throwIfAborted();
     if (
       job.eventType !== 'quiz_generation.requested' ||
       job.payloadSchemaVersion !== 1
@@ -60,16 +63,21 @@ export class QuizGenerationJobHandler {
     }
 
     const generated = parseQuizResponse(
-      await this.ai.generateQuiz({
-        schemaVersion: 1,
-        ...payload,
-      }),
+      await this.ai.generateQuiz(
+        {
+          schemaVersion: 1,
+          ...payload,
+        },
+        signal,
+      ),
       payload.sourceUrl,
     );
+    signal.throwIfAborted();
     if (!generated) {
       return this.terminal(job, 'INVALID_QUIZ_RESPONSE');
     }
     const quizId = deterministicWorkUuid(job.eventId, 'quiz');
+    signal.throwIfAborted();
     await this.learning.createQuiz({
       quizId,
       courseStepId: payload.courseStepId,
@@ -78,65 +86,21 @@ export class QuizGenerationJobHandler {
       maxAttempts: 3,
       questions: generated.questions,
     });
+    signal.throwIfAborted();
     const result = {
       quizId,
       courseStepId: payload.courseStepId,
       questionCount: generated.questions.length,
       generatorVersion: generated.generatorVersion,
     };
-    await this.results.recordJobResult({
-      id: randomUUID(),
-      eventId: job.eventId,
-      handlerVersion: job.handlerVersion,
-      outcome: 'succeeded',
-      result,
-    });
     return result;
   }
 
-  async recordExhaustedFailure(
-    job: WorkQueueJob,
-    error: Error,
-    attemptsMade: number,
-  ): Promise<void> {
-    if (await this.results.findJobResult(job.eventId, job.handlerVersion)) {
-      return;
-    }
-    const code = 'QUIZ_GENERATION_ATTEMPTS_EXHAUSTED';
-    await this.results.recordDeadLetter({
-      id: randomUUID(),
-      eventId: job.eventId,
-      handlerVersion: job.handlerVersion,
-      code,
-      message: error.message,
-      details: { attemptsMade },
-    });
-    await this.results.recordJobResult({
-      id: randomUUID(),
-      eventId: job.eventId,
-      handlerVersion: job.handlerVersion,
-      outcome: 'terminal_failure',
-      result: { code, attemptsMade },
-    });
-  }
-
-  private async terminal(job: WorkQueueJob, code: string): Promise<never> {
-    await this.results.recordDeadLetter({
-      id: randomUUID(),
-      eventId: job.eventId,
-      handlerVersion: job.handlerVersion,
-      code,
-      message: code,
+  private terminal(job: WorkQueueJob, code: string): never {
+    throw new WorkJobTerminalError(code, {
       details: { payloadSchemaVersion: job.payloadSchemaVersion },
-    });
-    await this.results.recordJobResult({
-      id: randomUUID(),
-      eventId: job.eventId,
-      handlerVersion: job.handlerVersion,
-      outcome: 'terminal_failure',
       result: { code },
     });
-    throw new WorkJobTerminalError(code);
   }
 }
 

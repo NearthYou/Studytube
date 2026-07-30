@@ -25,6 +25,7 @@ from urllib.parse import parse_qsl, quote_plus, urlencode, urlparse, urlunparse
 from xml.etree import ElementTree
 
 from runtime_environment import load_runtime_environment
+from telemetry import configure_fastapi_telemetry
 from mcp_server import (
     GatewaySettings,
     create_mcp_server,
@@ -139,12 +140,16 @@ mcp_application = create_streamable_http_app(
 
 @asynccontextmanager
 async def application_lifespan(_app: FastAPI):
-    require_production_internal_key()
-    async with mcp_server.session_manager.run():
-        yield
+    try:
+        require_production_internal_key()
+        async with mcp_server.session_manager.run():
+            yield
+    finally:
+        telemetry_runtime.shutdown()
 
 
 app = FastAPI(title="StudyTube AI Service", lifespan=application_lifespan)
+telemetry_runtime = configure_fastapi_telemetry(app)
 
 
 def require_production_internal_key() -> None:

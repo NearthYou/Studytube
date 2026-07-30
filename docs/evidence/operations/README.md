@@ -91,6 +91,41 @@
 
 세션 cookie는 환경에서 각 VU의 명시적 request header로만 전달되며 setup return이나 k6 cookie jar를 거치지 않습니다. VU는 번호에 따라 세션 풀을 순환 배정받고 실행 중에는 같은 세션을 재사용합니다. summary에는 readiness URL, `preprovisioned-session` 방식과 풀 크기만 기록하고 session cookie 값과 자격 증명은 기록하지 않습니다. 스크립트가 로그인이나 로그아웃을 호출하지 않으므로 `latency.login`은 null입니다.
 
+## 진도 쓰기 증거 스키마
+
+스키마 버전은 `studytube.progress-write-evidence.v1`입니다.
+
+| 경로 | 형식 | 설명 |
+| --- | --- | --- |
+| `target.baseUrl` | string | 실행 전에 정확히 확인한 대상 URL |
+| `configuration.profile` | string | `dedicated-progress-write` 고정값 |
+| `configuration.dedicatedCourseStepConfigured` | boolean | 격리된 Course step 확인값을 제공했는지 여부 |
+| `configuration.virtualUsers` | integer | 1에서 4 사이의 VU 수 |
+| `configuration.iterationsPerVirtualUser` | integer | 1에서 3 사이의 VU별 반복 수 |
+| `configuration.duplicateRequestPerIteration` | boolean | 같은 payload와 idempotency key를 다시 보냈는지 여부 |
+| `completeness` | object | 필수 threshold, 흐름별 표본 수, 전체 요청 수가 모두 존재하는지 여부 |
+| `latency.progressWrite` | object | 첫 진도 기록의 p50, p95, p99와 표본 수 |
+| `latency.progressDuplicate` | object | 동일 요청 재전송의 p50, p95, p99와 표본 수 |
+| `latency.progressReadback` | object | 저장 구간 재조회 p50, p95, p99와 표본 수 |
+| `thresholds` | object | latency, check, 오류율 임계값의 통과 여부 |
+| `retention` | object | 자격 증명, 응답 본문, 원문 데이터 ID 미보존 확인 |
+
+Course step ID와 Cookie는 요청에만 사용하며 summary에는 값이나 digest를 남기지 않습니다. setup과 teardown 사이의 version 증분이 고유 요청 수와 다르거나 필수 metric이 빠지면 `status`는 failed입니다. 이 스키마의 통과는 격리된 데이터셋에서 관찰한 결과이므로 일반 사용자 데이터나 더 큰 부하의 성능으로 확대 해석하지 않습니다.
+
+## Prometheus 규칙 증거 스키마
+
+스키마 버전은 `studytube.prometheus-rule-drill-result.v1`입니다.
+
+| 경로 | 형식 | 설명 |
+| --- | --- | --- |
+| `image` | string | digest가 고정된 Prometheus image |
+| `dockerContext` | string | 허용된 로컬 Docker context |
+| `results` | array | rule 문법 검사와 unit test의 상태, 종료 코드, 실행 시간 |
+| `executionBoundary` | object | 로컬 Docker, 읽기 전용 mount, network 차단, 상시 서비스 미추가 확인 |
+| `retention` | object | 자격 증명, metric sample, command output 미보존 확인 |
+
+규칙 테스트는 pending, firing, resolved 전이를 검증하지만 실제 운영 지표 수집이나 알림 전달을 증명하지 않습니다. 실제 알림을 주장하려면 별도의 scrape와 전달 경로를 배포하고 live 증거를 남겨야 합니다.
+
 ## 실험 기록
 
 각 결과 JSON과 함께 변경 설명 또는 이슈 댓글에 다음 항목을 기록합니다.

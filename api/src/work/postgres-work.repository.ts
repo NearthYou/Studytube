@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { Pool } from 'pg';
+import type { Pool, PoolClient } from 'pg';
 import {
   WorkLeaseLostError,
   WorkReplayConflictError,
@@ -21,8 +21,22 @@ import {
   observabilityRuntime,
   type ObservabilityRuntime,
 } from '../observability/runtime';
+import { redactTelemetryValue } from '../observability/redaction';
+import type {
+  JobExecutionAcquisition,
+  JobExecutionCompletion,
+  JobExecutionKey,
+  JobExecutionRecord,
+  JobExecutionStore,
+} from './job-execution.store';
+import {
+  WorkJobCompletionConflictError,
+  WorkJobLeaseLostError,
+} from './work.errors';
 
-export class PostgresWorkRepository implements WorkRepository {
+export class PostgresWorkRepository
+  implements WorkRepository, JobExecutionStore
+{
   constructor(
     private readonly pool: Pool,
     private readonly observability: ObservabilityRuntime = observabilityRuntime,
@@ -189,7 +203,7 @@ export class PostgresWorkRepository implements WorkRepository {
           SELECT $3, id, $7, $4, $5, $8
           FROM released
           WHERE exhausted
-          ON CONFLICT (event_id) DO NOTHING
+          ON CONFLICT (event_id, handler_version) DO NOTHING
           RETURNING event_id
         )
         SELECT CASE
@@ -216,6 +230,174 @@ export class PostgresWorkRepository implements WorkRepository {
       throw new WorkLeaseLostError();
     }
     return outcome;
+  }
+
+  async acquire(
+    key: JobExecutionKey,
+    leaseOwner: string,
+    leaseMs: number,
+  ): Promise<JobExecutionAcquisition> {
+    return this.withJobExecutionTransaction(key, async (client) => {
+      const completed = await client.query<JobExecutionRecord>(
+        `
+          SELECT
+            event_id AS "eventId",
+            handler_version AS "handlerVersion",
+            outcome,
+            result
+          FROM work_job_results
+          WHERE event_id = $1 AND handler_version = $2
+        `,
+        [key.eventId, key.handlerVersion],
+      );
+      const record = completed.rows[0];
+      if (record) {
+        return { status: 'completed', record };
+      }
+
+      const leaseToken = randomUUID();
+      const claimed = await client.query<{ leaseToken: string }>(
+        `
+          INSERT INTO work_job_claims (
+            event_id,
+            handler_version,
+            lease_owner,
+            lease_token,
+            lease_expires_at
+          )
+          VALUES (
+            $1,
+            $2,
+            $3,
+            $4,
+            statement_timestamp() + ($5::integer * interval '1 millisecond')
+          )
+          ON CONFLICT (event_id, handler_version) DO UPDATE
+          SET lease_owner = EXCLUDED.lease_owner,
+              lease_token = EXCLUDED.lease_token,
+              lease_expires_at = EXCLUDED.lease_expires_at,
+              renewed_at = statement_timestamp()
+          WHERE work_job_claims.lease_expires_at <= statement_timestamp()
+          RETURNING lease_token AS "leaseToken"
+        `,
+        [key.eventId, key.handlerVersion, leaseOwner, leaseToken, leaseMs],
+      );
+      const claim = claimed.rows[0];
+      return claim
+        ? { status: 'acquired', leaseToken: claim.leaseToken }
+        : { status: 'busy' };
+    });
+  }
+
+  async complete(
+    key: JobExecutionKey,
+    leaseToken: string,
+    completion: JobExecutionCompletion,
+  ): Promise<void> {
+    await this.withJobExecutionTransaction(key, async (client) => {
+      const deleted = await client.query<{ eventId: string }>(
+        `
+          DELETE FROM work_job_claims
+          WHERE event_id = $1
+            AND handler_version = $2
+            AND lease_token = $3
+            AND lease_expires_at > statement_timestamp()
+          RETURNING event_id AS "eventId"
+        `,
+        [key.eventId, key.handlerVersion, leaseToken],
+      );
+      if (!deleted.rows[0]) {
+        throw new WorkJobLeaseLostError();
+      }
+
+      await client.query(
+        `
+          INSERT INTO work_job_results (
+            id, event_id, handler_version, outcome, result
+          )
+          VALUES ($1, $2, $3, $4, $5)
+        `,
+        [
+          randomUUID(),
+          key.eventId,
+          key.handlerVersion,
+          completion.outcome,
+          completion.result,
+        ],
+      );
+      if (completion.deadLetter) {
+        const safeMessage = this.safeFailureMessage(
+          completion.deadLetter.message,
+        );
+        const details = completion.deadLetter.details ?? {};
+        const recorded = await client.query<{ id: string }>(
+          `
+            INSERT INTO work_dead_letters (
+              id,
+              event_id,
+              handler_version,
+              failure_code,
+              failure_message,
+              failure
+            )
+            VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (event_id, handler_version) DO UPDATE
+            SET failure_code = work_dead_letters.failure_code
+            WHERE work_dead_letters.failure_code = EXCLUDED.failure_code
+              AND work_dead_letters.failure_message = EXCLUDED.failure_message
+              AND work_dead_letters.failure = EXCLUDED.failure
+            RETURNING id
+          `,
+          [
+            randomUUID(),
+            key.eventId,
+            key.handlerVersion,
+            completion.deadLetter.code,
+            safeMessage,
+            details,
+          ],
+        );
+        if (!recorded.rows[0]) {
+          throw new WorkJobCompletionConflictError();
+        }
+      }
+    });
+  }
+
+  async renew(
+    key: JobExecutionKey,
+    leaseToken: string,
+    leaseMs: number,
+  ): Promise<boolean> {
+    const renewed = await this.pool.query<{ eventId: string }>(
+      `
+        UPDATE work_job_claims
+        SET lease_expires_at = statement_timestamp()
+              + ($4::integer * interval '1 millisecond'),
+            renewed_at = statement_timestamp()
+        WHERE event_id = $1
+          AND handler_version = $2
+          AND lease_token = $3
+          AND lease_expires_at > statement_timestamp()
+        RETURNING event_id AS "eventId"
+      `,
+      [key.eventId, key.handlerVersion, leaseToken, leaseMs],
+    );
+    return renewed.rows[0] !== undefined;
+  }
+
+  async release(key: JobExecutionKey, leaseToken: string): Promise<boolean> {
+    const released = await this.pool.query<{ eventId: string }>(
+      `
+        DELETE FROM work_job_claims
+        WHERE event_id = $1
+          AND handler_version = $2
+          AND lease_token = $3
+        RETURNING event_id AS "eventId"
+      `,
+      [key.eventId, key.handlerVersion, leaseToken],
+    );
+    return released.rows[0] !== undefined;
   }
 
   async recordJobResult(result: JobResult): Promise<boolean> {
@@ -273,7 +455,7 @@ export class PostgresWorkRepository implements WorkRepository {
           failure
         )
         VALUES ($1, $2, $3, $4, $5, $6)
-        ON CONFLICT (event_id) DO NOTHING
+        ON CONFLICT (event_id, handler_version) DO NOTHING
         RETURNING id
       `,
       [
@@ -369,7 +551,11 @@ export class PostgresWorkRepository implements WorkRepository {
   }
 
   private safeFailureMessage(message: string): string {
-    return message.replace(/\s+/g, ' ').trim().slice(0, 1000);
+    const redacted = redactTelemetryValue(message);
+    return (typeof redacted === 'string' ? redacted : 'WORK_FAILURE')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 1000);
   }
 
   async readOutboxHealthSnapshot(): Promise<OutboxHealthSnapshot> {
@@ -401,6 +587,32 @@ export class PostgresWorkRepository implements WorkRepository {
       return this.observability.traces.injectJob(eventId);
     } catch {
       return { 'x-studytube-job-id': eventId };
+    }
+  }
+
+  private async withJobExecutionTransaction<T>(
+    key: JobExecutionKey,
+    task: (client: PoolClient) => Promise<T>,
+  ): Promise<T> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(
+        'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
+        [`${key.eventId}:${key.handlerVersion}`],
+      );
+      const result = await task(client);
+      await client.query('COMMIT');
+      return result;
+    } catch (error) {
+      try {
+        await client.query('ROLLBACK');
+      } catch {
+        // Preserve the transaction failure.
+      }
+      throw error;
+    } finally {
+      client.release();
     }
   }
 }

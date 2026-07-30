@@ -99,12 +99,7 @@ async function main() {
   };
   const outputPath = resolve(
     process.env.RETRIEVAL_EVAL_REPORT_PATH ??
-      join(
-        process.cwd(),
-        'evaluation',
-        'results',
-        `retrieval-${generatedAt.replace(/[:.]/gu, '-')}.json`,
-      ),
+      join(process.cwd(), '.ci-artifacts', 'retrieval-evaluation.json'),
   );
   await mkdir(dirname(outputPath), { recursive: true });
   await writeFile(outputPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');

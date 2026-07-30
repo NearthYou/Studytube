@@ -122,7 +122,10 @@ export class AiProxyService {
     };
   }
 
-  async embedding(input: { input: string }): Promise<EmbeddingResponse> {
+  async embedding(
+    input: { input: string },
+    signal?: AbortSignal,
+  ): Promise<EmbeddingResponse> {
     const startedAt = performance.now();
     let data: unknown;
     try {
@@ -131,8 +134,12 @@ export class AiProxyService {
         input,
         Number(this.configService.get<string>('AI_EMBEDDING_TIMEOUT_MS')) ||
           15_000,
+        signal,
       );
-    } catch {
+    } catch (error) {
+      if (signal?.aborted) {
+        throw signal.reason ?? error;
+      }
       this.recordAiRequest(
         'embedding',
         'text-embedding-3-small',
@@ -188,21 +195,23 @@ export class AiProxyService {
     );
   }
 
-  captions(body: unknown): Promise<unknown> {
+  captions(body: unknown, signal?: AbortSignal): Promise<unknown> {
     return this.post(
       '/youtube/captions',
       body,
       this.captionFallback(body),
       Number(this.configService.get<string>('AI_CAPTION_TIMEOUT_MS')) || 300000,
+      signal,
     );
   }
 
-  summary(body: unknown): Promise<unknown> {
+  summary(body: unknown, signal?: AbortSignal): Promise<unknown> {
     return this.post(
       '/youtube/summary',
       body,
       this.summaryFallback(body),
       Number(this.configService.get<string>('AI_SUMMARY_TIMEOUT_MS')) || 180000,
+      signal,
     );
   }
 
@@ -222,13 +231,14 @@ export class AiProxyService {
     );
   }
 
-  async generateQuiz(body: unknown): Promise<unknown> {
+  async generateQuiz(body: unknown, signal?: AbortSignal): Promise<unknown> {
     const startedAt = performance.now();
     try {
       const data = await this.postStrict(
         '/quiz/generate',
         body,
         Number(this.configService.get<string>('AI_QUIZ_TIMEOUT_MS')) || 120_000,
+        signal,
       );
       const usage = aiUsage(data);
       this.recordAiRequest(
@@ -242,7 +252,7 @@ export class AiProxyService {
       return data;
     } catch (error) {
       this.recordAiRequest('quiz_generation', 'unknown', 'failed', startedAt);
-      throw error;
+      throw signal?.aborted ? (signal.reason ?? error) : error;
     }
   }
 
@@ -267,6 +277,7 @@ export class AiProxyService {
     body: unknown,
     fallback: unknown,
     timeout = 7000,
+    signal?: AbortSignal,
   ): Promise<unknown> {
     const startedAt = performance.now();
     try {
@@ -274,6 +285,7 @@ export class AiProxyService {
         this.httpService.post<unknown>(`${this.aiServiceUrl}${path}`, body, {
           headers: this.internalHeaders(),
           timeout,
+          signal,
         }),
       );
       const data: unknown = response.data;
@@ -288,7 +300,10 @@ export class AiProxyService {
       );
 
       return data;
-    } catch {
+    } catch (error) {
+      if (signal?.aborted) {
+        throw signal.reason ?? error;
+      }
       this.recordAiRequest(path, 'unknown', 'failed', startedAt);
       return fallback;
     }
@@ -298,11 +313,13 @@ export class AiProxyService {
     path: string,
     body: unknown,
     timeout: number,
+    signal?: AbortSignal,
   ): Promise<unknown> {
     const response = await firstValueFrom(
       this.httpService.post<unknown>(`${this.aiServiceUrl}${path}`, body, {
         headers: this.internalHeaders(),
         timeout,
+        signal,
       }),
     );
     return response.data;

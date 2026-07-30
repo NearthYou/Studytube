@@ -2,7 +2,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
 import { PostgresRetrievalRepository } from '../src/retrieval/postgres-retrieval.repository';
 import { RetrievalEmbeddingJobHandler } from '../src/retrieval/retrieval-embedding.worker';
-import type { JobResult } from '../src/work/work.types';
+import { DurableJobExecutor } from '../src/work/durable-job.executor';
+import { MemoryJobExecutionStore } from '../src/work/memory-job-execution.store';
 
 const DATABASE_URL =
   process.env.DATABASE_URL ?? 'postgresql://app:app@127.0.0.1:5432/app_dev';
@@ -342,25 +343,17 @@ describe('retrieval safety (e2e)', () => {
         }),
       ).resolves.toBeNull();
 
-      let storedResult: JobResult | null = null;
+      const executionStore = new MemoryJobExecutionStore();
       const cleanup = jest.spyOn(repository, 'removeMissingSourceChunks');
       const handler = new RetrievalEmbeddingJobHandler(
-        {
-          findPost: () => Promise.resolve(null),
-          findVideoAsset: () => Promise.resolve(null),
-        },
         {
           embedding: () => Promise.reject(new Error('must not embed')),
         },
         repository,
-        {
-          findJobResult: () => Promise.resolve(storedResult),
-          recordJobResult: (input) => {
-            storedResult ??= input;
-            return Promise.resolve(true);
-          },
-          recordDeadLetter: () => Promise.resolve(true),
-        },
+        new DurableJobExecutor(executionStore, {
+          leaseOwner: 'retrieval-e2e',
+          leaseMs: 30_000,
+        }),
       );
       const job = {
         eventId: randomUUID(),

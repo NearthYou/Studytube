@@ -1,5 +1,18 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomBytes, randomUUID } from 'node:crypto';
+import {
+  isSpanContextValid,
+  propagation,
+  ROOT_CONTEXT,
+  SpanKind,
+  SpanStatusCode,
+  TraceFlags,
+  trace,
+  type Attributes,
+  type Span,
+  type SpanContext,
+  type TextMapGetter,
+} from '@opentelemetry/api';
 
 export type TraceHeaderCarrier = Record<
   string,
@@ -21,6 +34,11 @@ export type ExecutionTraceContext = W3CTraceContext & {
   jobId?: string;
 };
 
+export type JobSpanOptions = {
+  spanName?: string;
+  attributes?: Attributes;
+};
+
 export interface TraceIdFactory {
   traceId(): string;
   spanId(): string;
@@ -37,6 +55,17 @@ const TRACE_PARENT_PATTERN = /^00-([0-9a-f]{32})-([0-9a-f]{16})-(00|01)$/u;
 const SAFE_CORRELATION_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/u;
 const ZERO_TRACE_ID = '0'.repeat(32);
 const ZERO_SPAN_ID = '0'.repeat(16);
+const JOB_TRACER_NAME = 'studytube.job';
+
+const TRACE_HEADER_GETTER: TextMapGetter<TraceHeaderCarrier> = {
+  keys: (carrier) => Object.keys(carrier),
+  get: (carrier, key) => {
+    const value = caseInsensitiveHeader(carrier, key);
+    return typeof value === 'string' || value === undefined
+      ? value
+      : Array.from(value);
+  },
+};
 
 export function parseTraceParent(
   header: string | undefined,
@@ -104,16 +133,23 @@ export class TraceContextManager {
 
   runRequest<T>(carrier: TraceHeaderCarrier, callback: () => T): T {
     const parent = extractTraceContext(carrier);
+    const active = activeOpenTelemetryTraceContext();
+    const activeParent =
+      parent && (!active || parent.traceId === active.traceId)
+        ? parent
+        : undefined;
     const incomingRequestId = validCorrelationId(
       firstHeader(carrier, 'x-request-id'),
     );
     const context: ExecutionTraceContext = {
       kind: 'request',
-      traceId: parent?.traceId ?? this.ids.traceId(),
-      spanId: this.ids.spanId(),
-      ...(parent ? { parentSpanId: parent.spanId } : {}),
-      traceFlags: parent?.traceFlags ?? '01',
-      ...(parent?.traceState ? { traceState: parent.traceState } : {}),
+      traceId: active?.traceId ?? parent?.traceId ?? this.ids.traceId(),
+      spanId: active?.spanId ?? this.ids.spanId(),
+      ...(activeParent ? { parentSpanId: activeParent.spanId } : {}),
+      traceFlags: active?.traceFlags ?? parent?.traceFlags ?? '01',
+      ...(active?.traceState || activeParent?.traceState
+        ? { traceState: active?.traceState ?? activeParent?.traceState }
+        : {}),
       requestId: incomingRequestId ?? this.ids.requestId(),
     };
 
@@ -129,14 +165,65 @@ export class TraceContextManager {
       throw new Error('Cannot inject job context without an active trace');
     }
     const safeJobId = requireCorrelationId(jobId, 'job ID');
+    const active = activeOpenTelemetryTraceContext();
+    const traceContext =
+      active?.traceId === context.traceId
+        ? {
+            ...active,
+            requestId: context.requestId,
+          }
+        : context;
 
-    injectTraceContext(context, carrier);
+    deleteHeader(carrier, 'tracestate');
+    injectTraceContext(
+      {
+        traceId: traceContext.traceId,
+        spanId: traceContext.spanId,
+        traceFlags: traceContext.traceFlags,
+        requestId: context.requestId,
+      },
+      carrier,
+    );
     carrier['x-studytube-job-id'] = safeJobId;
     return carrier;
   }
 
-  runJob<T>(carrier: TraceHeaderCarrier, callback: () => T): T {
-    const parent = extractTraceContext(carrier);
+  runJob<T>(
+    carrier: TraceHeaderCarrier,
+    callback: () => T,
+    options: JobSpanOptions = {},
+  ): T {
+    const parent = parseTraceParent(firstHeader(carrier, 'traceparent'));
+    const traceParentCarrier = parent
+      ? {
+          traceparent: `00-${parent.traceId}-${parent.spanId}-${parent.traceFlags}`,
+        }
+      : {};
+    const extractedContext = propagation.extract(
+      ROOT_CONTEXT,
+      traceParentCarrier,
+      TRACE_HEADER_GETTER,
+    );
+    const tracer = trace.getTracer(JOB_TRACER_NAME);
+
+    return tracer.startActiveSpan(
+      options.spanName ?? `${JOB_TRACER_NAME} process`,
+      {
+        kind: SpanKind.CONSUMER,
+        ...(options.attributes ? { attributes: options.attributes } : {}),
+      },
+      extractedContext,
+      (span) => this.runJobInSpan(span, carrier, parent, callback),
+    );
+  }
+
+  private runJobInSpan<T>(
+    span: Span,
+    carrier: TraceHeaderCarrier,
+    parent: W3CTraceContext | undefined,
+    callback: () => T,
+  ): T {
+    const active = openTelemetryTraceContext(span.spanContext());
     const requestId =
       validCorrelationId(firstHeader(carrier, 'x-request-id')) ??
       this.ids.requestId();
@@ -145,34 +232,106 @@ export class TraceContextManager {
     );
     const context: ExecutionTraceContext = {
       kind: 'job',
-      traceId: parent?.traceId ?? this.ids.traceId(),
-      spanId: this.ids.spanId(),
-      ...(parent ? { parentSpanId: parent.spanId } : {}),
-      traceFlags: parent?.traceFlags ?? '01',
-      ...(parent?.traceState ? { traceState: parent.traceState } : {}),
+      traceId: active?.traceId ?? parent?.traceId ?? this.ids.traceId(),
+      spanId: active?.spanId ?? this.ids.spanId(),
+      ...(parent && (!active || parent.traceId === active.traceId)
+        ? { parentSpanId: parent.spanId }
+        : {}),
+      traceFlags: active?.traceFlags ?? parent?.traceFlags ?? '01',
+      ...(active?.traceState || parent?.traceState
+        ? { traceState: active?.traceState ?? parent?.traceState }
+        : {}),
       requestId,
       ...(jobId ? { jobId } : {}),
     };
 
-    return this.storage.run(context, callback);
+    try {
+      const result = this.storage.run(context, callback);
+      if (isPromiseLike(result)) {
+        return Promise.resolve(result).then(
+          (value) => {
+            span.end();
+            return value;
+          },
+          (error: unknown) => {
+            recordSpanFailure(span);
+            span.end();
+            throw error;
+          },
+        ) as T;
+      }
+      span.end();
+      return result;
+    } catch (error) {
+      recordSpanFailure(span);
+      span.end();
+      throw error;
+    }
   }
+}
+
+function activeOpenTelemetryTraceContext(): W3CTraceContext | undefined {
+  return openTelemetryTraceContext(trace.getActiveSpan()?.spanContext());
+}
+
+function openTelemetryTraceContext(
+  spanContext: SpanContext | undefined,
+): W3CTraceContext | undefined {
+  if (!spanContext || !isSpanContextValid(spanContext)) {
+    return undefined;
+  }
+  const traceState = spanContext.traceState?.serialize();
+  return {
+    traceId: spanContext.traceId,
+    spanId: spanContext.spanId,
+    traceFlags: spanContext.traceFlags & TraceFlags.SAMPLED ? '01' : '00',
+    ...(traceState ? { traceState } : {}),
+  };
+}
+
+function recordSpanFailure(span: Span): void {
+  span.recordException({ name: 'Error' });
+  span.setStatus({ code: SpanStatusCode.ERROR });
+}
+
+function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
+  return (
+    (typeof value === 'object' || typeof value === 'function') &&
+    value !== null &&
+    'then' in value &&
+    typeof value.then === 'function'
+  );
 }
 
 function firstHeader(
   carrier: TraceHeaderCarrier,
   expectedName: string,
 ): string | undefined {
-  const entry = Object.entries(carrier).find(
-    ([name]) => name.toLowerCase() === expectedName,
-  );
-  if (!entry) {
-    return undefined;
-  }
-  const value = entry[1];
+  const value = caseInsensitiveHeader(carrier, expectedName);
   if (typeof value === 'string' || value === undefined) {
     return value;
   }
   return value[0];
+}
+
+function caseInsensitiveHeader(
+  carrier: TraceHeaderCarrier,
+  expectedName: string,
+): string | readonly string[] | undefined {
+  return Object.entries(carrier).find(
+    ([name]) => name.toLowerCase() === expectedName.toLowerCase(),
+  )?.[1];
+}
+
+function deleteHeader(
+  carrier: Record<string, string>,
+  expectedName: string,
+): void {
+  for (const name of Object.keys(carrier)) {
+    if (name.toLowerCase() === expectedName.toLowerCase()) {
+      delete carrier[name];
+    }
+  }
 }
 
 function validTraceState(value: string | undefined): string | undefined {

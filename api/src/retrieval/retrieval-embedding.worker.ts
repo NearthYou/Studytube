@@ -1,8 +1,6 @@
-import { randomUUID } from 'node:crypto';
-import type { BoardRepository } from '../study-board.types';
-import { WorkJobTerminalError } from '../work/video-asset.worker';
-import type { WorkRepository } from '../work/work.repository';
-import type { WorkQueueJob } from '../work/work.queue';
+import { DurableJobExecutor } from '../work/durable-job.executor';
+import { WorkJobTerminalError } from '../work/work.errors';
+import type { WorkAttemptContext, WorkQueueJob } from '../work/work.queue';
 import type { RetrievalRepository } from './retrieval.repository';
 import type {
   EmbeddingResponse,
@@ -17,19 +15,17 @@ export const RETRIEVAL_CHUNK_MAX_COUNT = 128;
 const RETRIEVAL_CHUNK_HEADER_MAX_CHARACTERS = 800;
 
 type EmbeddingClient = {
-  embedding(input: { input: string }): Promise<EmbeddingResponse>;
+  embedding(
+    input: { input: string },
+    signal?: AbortSignal,
+  ): Promise<EmbeddingResponse>;
 };
-type ResultStore = Pick<
-  WorkRepository,
-  'findJobResult' | 'recordJobResult' | 'recordDeadLetter'
->;
 type PreparedChunk = Omit<RetrievalChunk, 'embedding'>;
 
 class RetrievalChunkingError extends Error {}
 
 export class RetrievalEmbeddingJobHandler {
   constructor(
-    legacySources: Pick<BoardRepository, 'findPost' | 'findVideoAsset'>,
     private readonly embeddings: EmbeddingClient,
     private readonly retrieval: Pick<
       RetrievalRepository,
@@ -38,27 +34,33 @@ export class RetrievalEmbeddingJobHandler {
       | 'replaceSourceChunks'
       | 'removeMissingSourceChunks'
     >,
-    private readonly results: ResultStore,
-  ) {
-    void legacySources;
+    private readonly executor: DurableJobExecutor,
+  ) {}
+
+  async handle(
+    job: WorkQueueJob,
+    attempt?: WorkAttemptContext,
+  ): Promise<Record<string, unknown>> {
+    return this.executor.execute(
+      {
+        eventId: job.eventId,
+        handlerVersion: job.handlerVersion,
+      },
+      (signal) => this.process(job, signal),
+      attempt?.isFinalAttempt
+        ? {
+            code: 'EMBEDDING_ATTEMPTS_EXHAUSTED',
+            attemptsMade: attempt.attemptNumber,
+          }
+        : undefined,
+    );
   }
 
-  async handle(job: WorkQueueJob): Promise<Record<string, unknown>> {
-    const existing = await this.results.findJobResult(
-      job.eventId,
-      job.handlerVersion,
-    );
-    if (existing) {
-      if (existing.outcome === 'terminal_failure') {
-        throw new WorkJobTerminalError(
-          typeof existing.result.code === 'string'
-            ? existing.result.code
-            : 'TERMINAL_FAILURE',
-        );
-      }
-      return existing.result;
-    }
-
+  private async process(
+    job: WorkQueueJob,
+    signal: AbortSignal,
+  ): Promise<Record<string, unknown>> {
+    signal.throwIfAborted();
     if (
       job.eventType !== 'retrieval_embedding.requested' ||
       job.payloadSchemaVersion !== 1
@@ -70,30 +72,32 @@ export class RetrievalEmbeddingJobHandler {
       return this.terminal(job, 'INVALID_RETRIEVAL_PAYLOAD');
     }
     const snapshot = await this.retrieval.readSourceSnapshot(source);
+    signal.throwIfAborted();
     if (!snapshot) {
       const indexingOutcome = await this.retrieval.removeMissingSourceChunks({
         sourceKind: source.sourceKind,
         sourceId: source.sourceId,
       });
-      return this.succeeded(job, {
+      signal.throwIfAborted();
+      return {
         sourceKind: source.sourceKind,
         sourceId: source.sourceId,
         model: RETRIEVAL_MODEL,
         indexingOutcome,
         chunkCount: 0,
-      });
+      };
     }
     if (source.sourceVersion !== undefined) {
       const requestedVersion = BigInt(source.sourceVersion);
       const currentVersion = BigInt(snapshot.sourceVersion);
       if (requestedVersion < currentVersion) {
-        return this.succeeded(job, {
+        return {
           sourceKind: snapshot.sourceKind,
           sourceId: snapshot.sourceId,
           sourceVersion: snapshot.sourceVersion,
           indexingOutcome: 'superseded',
           chunkCount: 0,
-        });
+        };
       }
       if (requestedVersion > currentVersion) {
         return this.terminal(job, 'RETRIEVAL_SOURCE_VERSION_AHEAD');
@@ -115,10 +119,12 @@ export class RetrievalEmbeddingJobHandler {
     let estimatedCostUsd = 0;
     const chunks: RetrievalChunk[] = [];
     for (const chunk of prepared) {
+      signal.throwIfAborted();
       const embedded = await this.retrieval.resolveEmbedding(
         { model: RETRIEVAL_MODEL, content: chunk.content },
-        () => this.embeddings.embedding({ input: chunk.content }),
+        () => this.embeddings.embedding({ input: chunk.content }, signal),
       );
+      signal.throwIfAborted();
       if (
         embedded.model !== RETRIEVAL_MODEL ||
         embedded.dimensions !== 1536 ||
@@ -135,6 +141,7 @@ export class RetrievalEmbeddingJobHandler {
       chunks.push({ ...chunk, embedding: embedded.embedding });
     }
 
+    signal.throwIfAborted();
     const indexingOutcome = await this.retrieval.replaceSourceChunks({
       sourceKind: snapshot.sourceKind,
       sourceId: snapshot.sourceId,
@@ -144,7 +151,8 @@ export class RetrievalEmbeddingJobHandler {
       model: RETRIEVAL_MODEL,
       chunks,
     });
-    return this.succeeded(job, {
+    signal.throwIfAborted();
+    return {
       sourceKind: snapshot.sourceKind,
       sourceId: snapshot.sourceId,
       sourceVersion: snapshot.sourceVersion,
@@ -155,66 +163,14 @@ export class RetrievalEmbeddingJobHandler {
       cacheHitCount,
       inputTokens,
       estimatedCostUsd,
-    });
+    };
   }
 
-  async recordExhaustedFailure(
-    job: WorkQueueJob,
-    error: Error,
-    attemptsMade: number,
-  ): Promise<void> {
-    if (await this.results.findJobResult(job.eventId, job.handlerVersion)) {
-      return;
-    }
-    const code = 'EMBEDDING_ATTEMPTS_EXHAUSTED';
-    await this.results.recordDeadLetter({
-      id: randomUUID(),
-      eventId: job.eventId,
-      handlerVersion: job.handlerVersion,
-      code,
-      message: error.message,
-      details: { attemptsMade },
-    });
-    await this.results.recordJobResult({
-      id: randomUUID(),
-      eventId: job.eventId,
-      handlerVersion: job.handlerVersion,
-      outcome: 'terminal_failure',
-      result: { code, attemptsMade },
-    });
-  }
-
-  private async succeeded(
-    job: WorkQueueJob,
-    result: Record<string, unknown>,
-  ): Promise<Record<string, unknown>> {
-    await this.results.recordJobResult({
-      id: randomUUID(),
-      eventId: job.eventId,
-      handlerVersion: job.handlerVersion,
-      outcome: 'succeeded',
-      result,
-    });
-    return result;
-  }
-
-  private async terminal(job: WorkQueueJob, code: string): Promise<never> {
-    await this.results.recordDeadLetter({
-      id: randomUUID(),
-      eventId: job.eventId,
-      handlerVersion: job.handlerVersion,
-      code,
-      message: code,
+  private terminal(job: WorkQueueJob, code: string): never {
+    throw new WorkJobTerminalError(code, {
       details: { payloadSchemaVersion: job.payloadSchemaVersion },
-    });
-    await this.results.recordJobResult({
-      id: randomUUID(),
-      eventId: job.eventId,
-      handlerVersion: job.handlerVersion,
-      outcome: 'terminal_failure',
       result: { code },
     });
-    throw new WorkJobTerminalError(code);
   }
 }
 

@@ -1,42 +1,52 @@
-import { randomUUID } from 'node:crypto';
 import type { BoardRepository, StudyPost } from '../study-board.types';
 import type { VideoAsset } from '../video-asset.types';
 import type { WorkRepository } from './work.repository';
-import type { WorkQueueJob } from './work.queue';
+import type { WorkAttemptContext, WorkQueueJob } from './work.queue';
 import { deterministicWorkUuid } from './deterministic-work-id';
+import { DurableJobExecutor } from './durable-job.executor';
+import { WorkJobTerminalError } from './work.errors';
 
 type PostReader = Pick<BoardRepository, 'findPost'>;
 type VideoAssetPreparer = {
-  preparePostAsset(post: StudyPost): Promise<VideoAsset | null>;
+  preparePostAsset(
+    post: StudyPost,
+    signal?: AbortSignal,
+  ): Promise<VideoAsset | null>;
 };
-type JobResultStore = Pick<
-  WorkRepository,
-  'appendOutboxEvent' | 'findJobResult' | 'recordJobResult' | 'recordDeadLetter'
->;
+type FollowUpEventStore = Pick<WorkRepository, 'appendOutboxEvent'>;
 
 export class VideoAssetJobHandler {
   constructor(
     private readonly posts: PostReader,
     private readonly videoAssets: VideoAssetPreparer,
-    private readonly results: JobResultStore,
+    private readonly events: FollowUpEventStore,
+    private readonly executor: DurableJobExecutor,
   ) {}
 
-  async handle(job: WorkQueueJob): Promise<Record<string, unknown>> {
-    const existing = await this.results.findJobResult(
-      job.eventId,
-      job.handlerVersion,
+  async handle(
+    job: WorkQueueJob,
+    attempt?: WorkAttemptContext,
+  ): Promise<Record<string, unknown>> {
+    return this.executor.execute(
+      {
+        eventId: job.eventId,
+        handlerVersion: job.handlerVersion,
+      },
+      (signal) => this.process(job, signal),
+      attempt?.isFinalAttempt
+        ? {
+            code: 'JOB_ATTEMPTS_EXHAUSTED',
+            attemptsMade: attempt.attemptNumber,
+          }
+        : undefined,
     );
-    if (existing) {
-      if (existing.outcome === 'terminal_failure') {
-        throw new WorkJobTerminalError(
-          typeof existing.result.code === 'string'
-            ? existing.result.code
-            : 'TERMINAL_FAILURE',
-        );
-      }
-      return existing.result;
-    }
+  }
 
+  private async process(
+    job: WorkQueueJob,
+    signal: AbortSignal,
+  ): Promise<Record<string, unknown>> {
+    signal.throwIfAborted();
     if (job.eventType !== 'video_asset.requested') {
       return this.terminal(job, 'UNSUPPORTED_EVENT_TYPE');
     }
@@ -50,11 +60,13 @@ export class VideoAssetJobHandler {
       return this.terminal(job, 'INVALID_VIDEO_ASSET_PAYLOAD');
     }
     const post = await this.posts.findPost(postId);
+    signal.throwIfAborted();
     if (!post) {
       return this.terminal(job, 'POST_NOT_FOUND');
     }
 
-    const asset = await this.videoAssets.preparePostAsset(post);
+    const asset = await this.videoAssets.preparePostAsset(post, signal);
+    signal.throwIfAborted();
     if (!asset) {
       return this.terminal(job, 'VIDEO_ASSET_UNSUPPORTED');
     }
@@ -64,7 +76,8 @@ export class VideoAssetJobHandler {
       postId: asset.postId,
       status: asset.status,
     };
-    await this.results.appendOutboxEvent({
+    signal.throwIfAborted();
+    await this.events.appendOutboxEvent({
       id: deterministicWorkUuid(job.eventId, 'retrieval_embedding.requested'),
       eventType: 'retrieval_embedding.requested',
       aggregateType: 'post',
@@ -74,7 +87,8 @@ export class VideoAssetJobHandler {
       payload: { postId: post.id, causeEventId: job.eventId },
     });
     if (courseStepId) {
-      await this.results.appendOutboxEvent({
+      signal.throwIfAborted();
+      await this.events.appendOutboxEvent({
         id: deterministicWorkUuid(
           job.eventId,
           `retrieval_embedding.course_step.${courseStepId}`,
@@ -92,63 +106,17 @@ export class VideoAssetJobHandler {
         },
       });
     }
-    await this.results.recordJobResult({
-      id: randomUUID(),
-      eventId: job.eventId,
-      handlerVersion: job.handlerVersion,
-      outcome: 'succeeded',
-      result,
-    });
     return result;
   }
 
-  async recordExhaustedFailure(
-    job: WorkQueueJob,
-    error: Error,
-    attemptsMade: number,
-  ): Promise<void> {
-    if (await this.results.findJobResult(job.eventId, job.handlerVersion)) {
-      return;
-    }
-
-    const code = 'JOB_ATTEMPTS_EXHAUSTED';
-    await this.results.recordDeadLetter({
-      id: randomUUID(),
-      eventId: job.eventId,
-      handlerVersion: job.handlerVersion,
-      code,
-      message: error.message,
-      details: { attemptsMade },
-    });
-    await this.results.recordJobResult({
-      id: randomUUID(),
-      eventId: job.eventId,
-      handlerVersion: job.handlerVersion,
-      outcome: 'terminal_failure',
-      result: { code, attemptsMade },
-    });
-  }
-
-  private async terminal(job: WorkQueueJob, code: string): Promise<never> {
-    await this.results.recordDeadLetter({
-      id: randomUUID(),
-      eventId: job.eventId,
-      handlerVersion: job.handlerVersion,
-      code,
-      message: code,
+  private terminal(job: WorkQueueJob, code: string): never {
+    throw new WorkJobTerminalError(code, {
       details: {
         eventType: job.eventType,
         payloadSchemaVersion: job.payloadSchemaVersion,
       },
-    });
-    await this.results.recordJobResult({
-      id: randomUUID(),
-      eventId: job.eventId,
-      handlerVersion: job.handlerVersion,
-      outcome: 'terminal_failure',
       result: { code },
     });
-    throw new WorkJobTerminalError(code);
   }
 
   private positiveInteger(value: unknown): number | null {
@@ -166,8 +134,4 @@ export class VideoAssetJobHandler {
   }
 }
 
-export class WorkJobTerminalError extends Error {
-  constructor(readonly code: string) {
-    super(code);
-  }
-}
+export { WorkJobTerminalError } from './work.errors';

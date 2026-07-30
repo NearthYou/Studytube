@@ -1,6 +1,7 @@
 import { HttpModule } from '@nestjs/axios';
 import { Logger, Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { randomUUID } from 'node:crypto';
 import { AiProxyService } from '../ai-proxy.service';
 import { AuthModule } from '../auth/auth.module';
 import { DatabaseService } from '../database.service';
@@ -35,6 +36,8 @@ import {
 import { VerificationEmailOutboxWorker } from '../auth/verification-email-outbox.worker';
 import { observabilityRuntime } from '../observability/runtime';
 import { runtimeConfigOptions } from '../runtime-environment-files';
+import { DurableJobExecutor } from './durable-job.executor';
+import type { JobExecutionStore } from './job-execution.store';
 
 @Module({
   imports: [
@@ -57,28 +60,51 @@ import { runtimeConfigOptions } from '../runtime-environment-files';
       inject: [DatabaseService],
     },
     {
+      provide: DurableJobExecutor,
+      useFactory: (
+        repository: WorkRepository & JobExecutionStore,
+        config: ConfigService,
+      ) =>
+        new DurableJobExecutor(repository, {
+          leaseOwner:
+            config.get<string>('WORK_JOB_LEASE_OWNER')?.trim() ||
+            `job-executor-${process.pid}-${randomUUID()}`,
+          leaseMs: positiveInteger(
+            config.get<string>('WORK_JOB_LEASE_MS'),
+            300_000,
+          ),
+        }),
+      inject: [WORK_REPOSITORY, ConfigService],
+    },
+    {
       provide: VideoAssetJobHandler,
       useFactory: (
         database: DatabaseService,
         videoAssets: VideoAssetService,
         repository: WorkRepository,
-      ) => new VideoAssetJobHandler(database, videoAssets, repository),
-      inject: [DatabaseService, VideoAssetService, WORK_REPOSITORY],
+        executor: DurableJobExecutor,
+      ) =>
+        new VideoAssetJobHandler(database, videoAssets, repository, executor),
+      inject: [
+        DatabaseService,
+        VideoAssetService,
+        WORK_REPOSITORY,
+        DurableJobExecutor,
+      ],
     },
     {
       provide: RetrievalEmbeddingJobHandler,
       useFactory: (
         database: DatabaseService,
         aiProxy: AiProxyService,
-        repository: WorkRepository,
+        executor: DurableJobExecutor,
       ) =>
         new RetrievalEmbeddingJobHandler(
-          database,
           aiProxy,
           database.getRetrievalRepository(),
-          repository,
+          executor,
         ),
-      inject: [DatabaseService, AiProxyService, WORK_REPOSITORY],
+      inject: [DatabaseService, AiProxyService, DurableJobExecutor],
     },
     {
       provide: RetrievalEmbeddingCacheMaintenance,
@@ -102,15 +128,15 @@ import { runtimeConfigOptions } from '../runtime-environment-files';
       useFactory: (
         learning: LearningService,
         aiProxy: AiProxyService,
-        repository: WorkRepository,
-      ) => new QuizGenerationJobHandler(learning, aiProxy, repository),
-      inject: [LearningService, AiProxyService, WORK_REPOSITORY],
+        executor: DurableJobExecutor,
+      ) => new QuizGenerationJobHandler(learning, aiProxy, executor),
+      inject: [LearningService, AiProxyService, DurableJobExecutor],
     },
     {
       provide: UnsupportedWorkJobHandler,
-      useFactory: (repository: WorkRepository) =>
-        new UnsupportedWorkJobHandler(repository),
-      inject: [WORK_REPOSITORY],
+      useFactory: (executor: DurableJobExecutor) =>
+        new UnsupportedWorkJobHandler(executor),
+      inject: [DurableJobExecutor],
     },
     {
       provide: DurableWorkRouter,

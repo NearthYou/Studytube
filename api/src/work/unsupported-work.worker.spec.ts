@@ -1,3 +1,5 @@
+import { DurableJobExecutor } from './durable-job.executor';
+import { MemoryJobExecutionStore } from './memory-job-execution.store';
 import type { WorkQueueJob } from './work.queue';
 import { UnsupportedWorkJobHandler } from './unsupported-work.worker';
 
@@ -11,27 +13,37 @@ const JOB: WorkQueueJob = {
 
 describe('UnsupportedWorkJobHandler', () => {
   it('records one terminal result and dead letter before rejecting', async () => {
-    const recordDeadLetter = jest.fn().mockResolvedValue(true);
-    const recordJobResult = jest.fn().mockResolvedValue(true);
-    const handler = new UnsupportedWorkJobHandler({
-      findJobResult: jest.fn().mockResolvedValue(null),
-      recordDeadLetter,
-      recordJobResult,
+    const store = new MemoryJobExecutionStore();
+    const executor = new DurableJobExecutor(store, {
+      leaseOwner: 'unsupported-worker',
+      leaseMs: 30_000,
+    });
+    const handler = new UnsupportedWorkJobHandler(executor);
+
+    await expect(handler.handle(JOB)).rejects.toMatchObject({
+      code: 'UNSUPPORTED_EVENT_TYPE',
+    });
+    expect(store.findDeadLetter(JOB)).toEqual({
+      code: 'UNSUPPORTED_EVENT_TYPE',
+      message: 'UNSUPPORTED_EVENT_TYPE',
+      details: {
+        eventType: JOB.eventType,
+        payloadSchemaVersion: JOB.payloadSchemaVersion,
+      },
+    });
+    expect(store.findResult(JOB)).toMatchObject({
+      outcome: 'terminal_failure',
+      result: {
+        code: 'UNSUPPORTED_EVENT_TYPE',
+      },
     });
 
     await expect(handler.handle(JOB)).rejects.toMatchObject({
       code: 'UNSUPPORTED_EVENT_TYPE',
     });
-    expect(recordDeadLetter).toHaveBeenCalledWith(
+    expect(store.findDeadLetter(JOB)).toEqual(
       expect.objectContaining({
-        eventId: JOB.eventId,
         code: 'UNSUPPORTED_EVENT_TYPE',
-      }),
-    );
-    expect(recordJobResult).toHaveBeenCalledWith(
-      expect.objectContaining({
-        eventId: JOB.eventId,
-        outcome: 'terminal_failure',
       }),
     );
   });

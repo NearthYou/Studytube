@@ -73,19 +73,43 @@ function Invoke-DockerCompose {
 }
 
 function Assert-LocalDockerContext {
+  $isLocalEndpoint = {
+    param([AllowEmptyString()][string]$Value)
+
+    if ($Value -cmatch '^npipe:////\./pipe/[A-Za-z0-9._-]+$') {
+      return $true
+    }
+    if (
+      $Value -cmatch '^unix:(?:/|///)(?!/)[A-Za-z0-9._/-]+$' -and
+      $Value -cnotmatch '(?:^|/)\.\.(?:/|$)'
+    ) {
+      return $true
+    }
+    return $false
+  }
+
   $dockerHost = [string]$env:DOCKER_HOST
-  if (
-    $dockerHost -and
-    $dockerHost -notmatch '^(npipe:|unix:|file:)'
-  ) {
+  if ($dockerHost -and -not (& $isLocalEndpoint $dockerHost)) {
     throw 'Remote DOCKER_HOST values are refused by operations drills.'
   }
 
   $context = Invoke-ExternalCommand -FilePath 'docker' -ArgumentList @('context', 'show')
-  if ($context.Output -notin @('default', 'desktop-linux')) {
-    throw "Docker context '$($context.Output)' is not an allowlisted local context."
+  $contextName = $context.Output.Trim()
+  if ($contextName -notin @('default', 'desktop-linux')) {
+    throw "Docker context '$contextName' is not an allowlisted local context."
   }
-  return $context.Output
+  $endpoint = Invoke-ExternalCommand -FilePath 'docker' -ArgumentList @(
+    'context',
+    'inspect',
+    $contextName,
+    '--format',
+    '{{ .Endpoints.docker.Host }}'
+  )
+  $endpointValue = $endpoint.Output.Trim()
+  if (-not (& $isLocalEndpoint $endpointValue)) {
+    throw "Docker context '$contextName' does not target a local engine endpoint."
+  }
+  return $contextName
 }
 
 function Get-ComposeContainerId {

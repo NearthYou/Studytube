@@ -239,7 +239,7 @@ describe('PostgresWorkRepository', () => {
 
     const [sql] = query.mock.calls[0] as [string];
     expect(sql).toContain('INSERT INTO work_dead_letters');
-    expect(sql).toContain('ON CONFLICT (event_id) DO NOTHING');
+    expect(sql).toContain('ON CONFLICT (event_id, handler_version) DO NOTHING');
   });
 
   it('rejects replay when another actor already replayed the dead letter', async () => {

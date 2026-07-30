@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "language": "ko",
+  "queries": [
+    {
+      "id": "react-lifecycle",
+      "query": "리액트 상태 생명주기 훅",
+      "relevant": [
+        {
+          "sourceKey": "post:2140001001",
+          "minTimestampSeconds": 30,
+          "maxTimestampSeconds": 30
+        }
+      ]
+    },
+    {
+      "id": "postgres-index",
+      "query": "데이터베이스 조인 인덱스",
+      "relevant": [
+        {
+          "sourceKey": "post:2140001003",
+          "minTimestampSeconds": 45,
+          "maxTimestampSeconds": 45
+        }
+      ]
+    }
+  ]
+}

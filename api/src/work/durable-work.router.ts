@@ -1,14 +1,12 @@
-import type { WorkQueueJob } from './work.queue';
+import type { WorkAttemptContext, WorkQueueJob } from './work.queue';
 import type { LearningService } from '../learning/learning.service';
-import { WorkJobTerminalError } from './video-asset.worker';
+import { WorkJobTerminalError } from './work.errors';
 
 type DurableHandler = {
-  handle(job: WorkQueueJob): Promise<Record<string, unknown>>;
-  recordExhaustedFailure?(
+  handle(
     job: WorkQueueJob,
-    error: Error,
-    attemptsMade: number,
-  ): Promise<void>;
+    attempt?: WorkAttemptContext,
+  ): Promise<Record<string, unknown>>;
 };
 
 export class DurableWorkRouter {
@@ -20,9 +18,12 @@ export class DurableWorkRouter {
     private readonly learning?: Pick<LearningService, 'settleAgentWorkItem'>,
   ) {}
 
-  async handle(job: WorkQueueJob): Promise<Record<string, unknown>> {
+  async handle(
+    job: WorkQueueJob,
+    attempt?: WorkAttemptContext,
+  ): Promise<Record<string, unknown>> {
     try {
-      const result = await this.handler(job).handle(job);
+      const result = await this.handler(job).handle(job, attempt);
       await this.settleLearningWork(job, 'completed');
       return result;
     } catch (error) {
@@ -31,15 +32,6 @@ export class DurableWorkRouter {
       }
       throw error;
     }
-  }
-
-  async recordExhaustedFailure(
-    job: WorkQueueJob,
-    error: Error,
-    attemptsMade: number,
-  ): Promise<void> {
-    await this.handler(job).recordExhaustedFailure?.(job, error, attemptsMade);
-    await this.settleLearningWork(job, 'failed', 'WORK_ATTEMPTS_EXHAUSTED');
   }
 
   private handler(job: WorkQueueJob): DurableHandler {

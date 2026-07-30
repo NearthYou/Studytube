@@ -76,122 +76,185 @@ export class VideoAssetService {
     return processing ?? asset;
   }
 
-  async preparePostAsset(post: StudyPost): Promise<VideoAsset | null> {
+  async preparePostAsset(
+    post: StudyPost,
+    signal?: AbortSignal,
+  ): Promise<VideoAsset | null> {
+    signal?.throwIfAborted();
     const videoId = this.extractYoutubeVideoId(post.videoUrl);
 
     if (!videoId) {
       return null;
     }
 
-    let sourceCaptionStatus: 'pending' | 'ready' | 'failed' = 'pending';
+    const current = await this.repository.findVideoAsset(post.id);
+    signal?.throwIfAborted();
+    const currentMatchesPost =
+      current?.videoId === videoId && current.videoUrl === post.videoUrl;
+    if (currentMatchesPost && current.status === 'ready') {
+      return current;
+    }
+
+    const canResumePersistedCaptions =
+      currentMatchesPost &&
+      current.sourceCaptionStatus === 'ready' &&
+      current.sourceSegments.length > 0;
+    let sourceCaptionStatus: 'pending' | 'ready' | 'failed' =
+      canResumePersistedCaptions ? 'ready' : 'pending';
     let translationStatus: 'pending' | 'ready' | 'partial' | 'failed' =
-      'pending';
+      canResumePersistedCaptions &&
+      current.translationStatus === 'ready' &&
+      current.translatedSegments.length > 0
+        ? 'ready'
+        : canResumePersistedCaptions
+          ? 'partial'
+          : 'pending';
+    let sourceSegments = canResumePersistedCaptions
+      ? current.sourceSegments
+      : [];
+    let translatedSegments = canResumePersistedCaptions
+      ? current.translatedSegments
+      : [];
 
     try {
+      signal?.throwIfAborted();
       await this.repository.upsertVideoAsset({
         postId: post.id,
         videoId,
         videoUrl: post.videoUrl,
         language: 'ko',
       });
+      signal?.throwIfAborted();
 
-      await this.repository.updateVideoAsset(post.id, {
-        status: 'processing',
-        sourceCaptionStatus: 'pending',
-        translationStatus: 'pending',
-        summaryStatus: 'pending',
-        errorMessage: '',
-      });
+      if (!canResumePersistedCaptions) {
+        await this.repository.updateVideoAsset(post.id, {
+          status: 'processing',
+          sourceCaptionStatus: 'pending',
+          translationStatus: 'pending',
+          summaryStatus: 'pending',
+          errorMessage: '',
+        });
+        signal?.throwIfAborted();
 
-      const captions = this.normalizeCaptionResponse(
-        await this.aiProxyService.captions({
-          videoId,
-          videoUrl: post.videoUrl,
-          targetLanguage: 'ko',
-          allowFallback: false,
-          translateFallback: false,
-          durationSeconds: 14400,
-        }),
-      );
+        const captions = this.normalizeCaptionResponse(
+          await this.aiProxyService.captions(
+            {
+              videoId,
+              videoUrl: post.videoUrl,
+              targetLanguage: 'ko',
+              allowFallback: false,
+              translateFallback: false,
+              durationSeconds: 14400,
+            },
+            signal,
+          ),
+        );
+        signal?.throwIfAborted();
 
-      if (captions.segments.length === 0) {
-        if (this.shouldUseNativeCaptionFallback(captions)) {
+        if (captions.provider === 'ai-service-unavailable') {
+          throw new VideoAssetPreparationRetryableError('captions');
+        }
+
+        if (captions.segments.length === 0) {
+          if (this.shouldUseNativeCaptionFallback(captions)) {
+            return this.repository.updateVideoAsset(post.id, {
+              status: 'partial',
+              sourceLanguage: captions.sourceLanguage || 'youtube',
+              sourceCaptionStatus: 'partial',
+              translationStatus: 'partial',
+              summaryStatus: 'partial',
+              sourceSegments: [],
+              translatedSegments: [],
+              summarySections: [],
+              transcriptBody: '',
+              errorMessage:
+                captions.message ||
+                'YouTube player automatic captions will be used.',
+            });
+          }
+
           return this.repository.updateVideoAsset(post.id, {
-            status: 'partial',
-            sourceLanguage: captions.sourceLanguage || 'youtube',
-            sourceCaptionStatus: 'partial',
-            translationStatus: 'partial',
-            summaryStatus: 'partial',
+            status: 'failed',
+            sourceLanguage: captions.sourceLanguage,
+            sourceCaptionStatus: 'failed',
+            translationStatus: 'failed',
+            summaryStatus: 'failed',
             sourceSegments: [],
             translatedSegments: [],
             summarySections: [],
             transcriptBody: '',
             errorMessage:
-              captions.message ||
-              'YouTube player automatic captions will be used.',
+              captions.message || 'No caption segments were returned.',
           });
         }
 
-        return this.repository.updateVideoAsset(post.id, {
-          status: 'failed',
+        sourceSegments = captions.sourceSegments.length
+          ? captions.sourceSegments
+          : captions.segments;
+        translatedSegments = captions.translated
+          ? captions.translatedSegments
+          : [];
+        const translationErrorMessage =
+          captions.message || 'Translated caption segments were not returned.';
+
+        sourceCaptionStatus = 'ready';
+        translationStatus =
+          captions.translated && translatedSegments.length
+            ? 'ready'
+            : 'partial';
+
+        await this.repository.updateVideoAsset(post.id, {
+          status: translationStatus === 'ready' ? 'processing' : 'partial',
           sourceLanguage: captions.sourceLanguage,
-          sourceCaptionStatus: 'failed',
-          translationStatus: 'failed',
-          summaryStatus: 'failed',
-          sourceSegments: [],
-          translatedSegments: [],
-          summarySections: [],
-          transcriptBody: '',
+          sourceCaptionStatus,
+          translationStatus,
+          sourceSegments,
+          translatedSegments,
           errorMessage:
-            captions.message || 'No caption segments were returned.',
+            translationStatus === 'ready' ? '' : translationErrorMessage,
         });
+        signal?.throwIfAborted();
+      } else {
+        await this.repository.updateVideoAsset(post.id, {
+          status: translationStatus === 'ready' ? 'processing' : 'partial',
+          summaryStatus: 'pending',
+          errorMessage: '',
+        });
+        signal?.throwIfAborted();
       }
-
-      const sourceSegments = captions.sourceSegments.length
-        ? captions.sourceSegments
-        : captions.segments;
-      const translatedSegments = captions.translated
-        ? captions.translatedSegments
-        : [];
-      const translationErrorMessage =
-        captions.message || 'Translated caption segments were not returned.';
-
-      sourceCaptionStatus = 'ready';
-      translationStatus =
-        captions.translated && translatedSegments.length ? 'ready' : 'partial';
-
-      await this.repository.updateVideoAsset(post.id, {
-        status: translationStatus === 'ready' ? 'processing' : 'partial',
-        sourceLanguage: captions.sourceLanguage,
-        sourceCaptionStatus,
-        translationStatus,
-        sourceSegments,
-        translatedSegments,
-        errorMessage:
-          translationStatus === 'ready' ? '' : translationErrorMessage,
-      });
 
       const segmentsForSummary = translatedSegments.length
         ? translatedSegments
         : sourceSegments;
+      const translationErrorMessage =
+        translationStatus === 'ready'
+          ? ''
+          : 'Translated caption segments were not returned.';
       const summary = this.normalizeSummaryResponse(
-        await this.aiProxyService.summary({
-          videoId,
-          title: post.title,
-          channelName: post.channelName,
-          language: 'ko',
-          summary: post.summary,
-          translatedNotes: post.translatedNotes,
-          segments: segmentsForSummary,
-        }),
+        await this.aiProxyService.summary(
+          {
+            videoId,
+            title: post.title,
+            channelName: post.channelName,
+            language: 'ko',
+            summary: post.summary,
+            translatedNotes: post.translatedNotes,
+            segments: segmentsForSummary,
+          },
+          signal,
+        ),
       );
-      const summaryStatus =
-        summary.sections.length && !summary.failed ? 'ready' : 'failed';
+      signal?.throwIfAborted();
+      if (summary.failed) {
+        throw new VideoAssetPreparationRetryableError('summary');
+      }
+      const summaryStatus = summary.sections.length ? 'ready' : 'failed';
       const status: VideoAssetStatus =
         translationStatus === 'ready' && summaryStatus === 'ready'
           ? 'ready'
           : 'partial';
 
+      signal?.throwIfAborted();
       return this.repository.updateVideoAsset(post.id, {
         status,
         summaryStatus,
@@ -208,16 +271,25 @@ export class VideoAssetService {
             : summary.message || 'No summary sections were returned.',
       });
     } catch (error) {
+      if (signal?.aborted) {
+        throw signal.reason ?? error;
+      }
       const sourceReady = sourceCaptionStatus === 'ready';
-      const status: VideoAssetStatus = sourceReady ? 'partial' : 'failed';
-
-      return this.repository.updateVideoAsset(post.id, {
-        status,
-        sourceCaptionStatus: sourceReady ? 'ready' : 'failed',
-        translationStatus: sourceReady ? translationStatus : 'failed',
-        summaryStatus: 'failed',
-        errorMessage: this.sanitizeErrorMessage(error),
-      });
+      try {
+        await this.repository.updateVideoAsset(post.id, {
+          status: 'processing',
+          sourceCaptionStatus: sourceReady ? 'ready' : 'pending',
+          translationStatus: sourceReady ? translationStatus : 'pending',
+          summaryStatus: 'pending',
+          errorMessage:
+            error instanceof VideoAssetPreparationRetryableError
+              ? error.safeMessage
+              : 'Video asset provider is temporarily unavailable.',
+        });
+      } catch {
+        // Preserve the provider failure so BullMQ can retry or dead-letter it.
+      }
+      throw error;
     }
   }
 
@@ -374,10 +446,14 @@ export class VideoAssetService {
   private stringValue(value: unknown): string {
     return typeof value === 'string' ? value : '';
   }
+}
 
-  private sanitizeErrorMessage(error: unknown): string {
-    const message = error instanceof Error ? error.message : 'Unknown error';
+export class VideoAssetPreparationRetryableError extends Error {
+  readonly code = 'VIDEO_ASSET_PROVIDER_UNAVAILABLE';
+  readonly safeMessage: string;
 
-    return message.replace(/\s+/g, ' ').trim() || 'Unknown error';
+  constructor(step: 'captions' | 'summary') {
+    super(`Video asset ${step} provider is unavailable`);
+    this.safeMessage = `Video asset ${step} provider is temporarily unavailable.`;
   }
 }

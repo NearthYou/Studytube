@@ -1,6 +1,8 @@
 import type { AiProxyService } from '../ai-proxy.service';
+import { DurableJobExecutor } from '../work/durable-job.executor';
+import { MemoryJobExecutionStore } from '../work/memory-job-execution.store';
 import type { WorkQueueJob } from '../work/work.queue';
-import type { JobResult } from '../work/work.types';
+import { WorkJobBusyError } from '../work/work.errors';
 import type { LearningService } from './learning.service';
 import { QuizGenerationJobHandler } from './quiz-generation.worker';
 
@@ -21,27 +23,6 @@ const JOB: WorkQueueJob = {
   },
 };
 
-class MemoryResults {
-  result: JobResult | null = null;
-  deadLetter: Record<string, unknown> | null = null;
-
-  findJobResult(): Promise<JobResult | null> {
-    return Promise.resolve(this.result);
-  }
-
-  recordJobResult(result: JobResult): Promise<boolean> {
-    if (this.result) return Promise.resolve(false);
-    this.result = result;
-    return Promise.resolve(true);
-  }
-
-  recordDeadLetter(input: Record<string, unknown>): Promise<boolean> {
-    if (this.deadLetter) return Promise.resolve(false);
-    this.deadLetter = input;
-    return Promise.resolve(true);
-  }
-}
-
 function generatedQuiz() {
   return {
     schemaVersion: 1 as const,
@@ -59,14 +40,46 @@ function generatedQuiz() {
 }
 
 describe('QuizGenerationJobHandler', () => {
+  it('runs one quiz provider call for concurrent delivery and replays the result', async () => {
+    const execution = jobExecution();
+    let finish: ((quiz: ReturnType<typeof generatedQuiz>) => void) | undefined;
+    const generateQuiz = jest.fn(
+      () =>
+        new Promise<ReturnType<typeof generatedQuiz>>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const createQuiz = jest.fn().mockResolvedValue(undefined);
+    const handler = new QuizGenerationJobHandler(
+      { createQuiz } as unknown as LearningService,
+      { generateQuiz } as unknown as AiProxyService,
+      execution.executor,
+    );
+
+    const active = handler.handle(JOB);
+    await expect(handler.handle(JOB)).rejects.toBeInstanceOf(WorkJobBusyError);
+    finish?.(generatedQuiz());
+    await expect(active).resolves.toMatchObject({
+      courseStepId: '42',
+      questionCount: 5,
+    });
+    await expect(handler.handle(JOB)).resolves.toMatchObject({
+      courseStepId: '42',
+      questionCount: 5,
+    });
+
+    expect(generateQuiz).toHaveBeenCalledTimes(1);
+    expect(createQuiz).toHaveBeenCalledTimes(1);
+  });
+
   it('persists a deterministic grounded quiz once across duplicate delivery', async () => {
-    const results = new MemoryResults();
+    const execution = jobExecution();
     const generateQuiz = jest.fn().mockResolvedValue(generatedQuiz());
     const createQuiz = jest.fn().mockResolvedValue(undefined);
     const handler = new QuizGenerationJobHandler(
       { createQuiz } as unknown as LearningService,
       { generateQuiz } as unknown as AiProxyService,
-      results,
+      execution.executor,
     );
 
     const first = await handler.handle(JOB);
@@ -91,7 +104,7 @@ describe('QuizGenerationJobHandler', () => {
   });
 
   it('records malformed model output as a durable terminal failure', async () => {
-    const results = new MemoryResults();
+    const execution = jobExecution();
     const handler = new QuizGenerationJobHandler(
       { createQuiz: jest.fn() } as unknown as LearningService,
       {
@@ -100,35 +113,102 @@ describe('QuizGenerationJobHandler', () => {
           questions: generatedQuiz().questions.slice(0, 4),
         }),
       } as unknown as AiProxyService,
-      results,
+      execution.executor,
     );
 
     await expect(handler.handle(JOB)).rejects.toMatchObject({
       code: 'INVALID_QUIZ_RESPONSE',
     });
-    expect(results.result).toMatchObject({
+    expect(execution.store.findResult(JOB)).toMatchObject({
       outcome: 'terminal_failure',
       result: { code: 'INVALID_QUIZ_RESPONSE' },
     });
-    expect(results.deadLetter).toMatchObject({
-      eventId: JOB.eventId,
+    expect(execution.store.findDeadLetter(JOB)).toMatchObject({
       code: 'INVALID_QUIZ_RESPONSE',
     });
   });
 
   it('leaves transient AI failures unrecorded for queue retry', async () => {
-    const results = new MemoryResults();
+    const execution = jobExecution();
     const failure = new Error('AI timeout');
+    const generateQuiz = jest
+      .fn()
+      .mockRejectedValueOnce(failure)
+      .mockResolvedValue(generatedQuiz());
     const handler = new QuizGenerationJobHandler(
       { createQuiz: jest.fn() } as unknown as LearningService,
       {
-        generateQuiz: jest.fn().mockRejectedValue(failure),
+        generateQuiz,
       } as unknown as AiProxyService,
-      results,
+      execution.executor,
     );
 
     await expect(handler.handle(JOB)).rejects.toBe(failure);
-    expect(results.result).toBeNull();
-    expect(results.deadLetter).toBeNull();
+    expect(execution.store.findResult(JOB)).toBeNull();
+    expect(execution.store.findDeadLetter(JOB)).toBeNull();
+    await expect(handler.handle(JOB)).resolves.toMatchObject({
+      courseStepId: '42',
+      questionCount: 5,
+    });
+    expect(generateQuiz).toHaveBeenCalledTimes(2);
+  });
+
+  it('atomically records a redacted terminal result on the final AI attempt', async () => {
+    const execution = jobExecution();
+    const rawFailure =
+      'Bearer quiz-secret-canary https://quiz:quiz-url-secret@example.invalid/generate?token=quiz-query-secret';
+    const generateQuiz = jest.fn().mockRejectedValue(new Error(rawFailure));
+    const handler = new QuizGenerationJobHandler(
+      { createQuiz: jest.fn() } as unknown as LearningService,
+      { generateQuiz } as unknown as AiProxyService,
+      execution.executor,
+    );
+
+    await expect(
+      handler.handle(JOB, {
+        attemptNumber: 8,
+        maxAttempts: 8,
+        isFinalAttempt: true,
+      }),
+    ).rejects.toMatchObject({
+      code: 'QUIZ_GENERATION_ATTEMPTS_EXHAUSTED',
+    });
+    expect(execution.store.findResult(JOB)).toMatchObject({
+      outcome: 'terminal_failure',
+      result: {
+        code: 'QUIZ_GENERATION_ATTEMPTS_EXHAUSTED',
+        attemptsMade: 8,
+      },
+    });
+    expect(execution.store.findDeadLetter(JOB)).toMatchObject({
+      code: 'QUIZ_GENERATION_ATTEMPTS_EXHAUSTED',
+      details: { attemptsMade: 8 },
+    });
+    const persisted = JSON.stringify({
+      result: execution.store.findResult(JOB),
+      deadLetter: execution.store.findDeadLetter(JOB),
+    });
+    expect(persisted).not.toContain('quiz-secret-canary');
+    expect(persisted).not.toContain('quiz-url-secret');
+    expect(persisted).not.toContain('quiz-query-secret');
+
+    await expect(handler.handle(JOB)).rejects.toMatchObject({
+      code: 'QUIZ_GENERATION_ATTEMPTS_EXHAUSTED',
+    });
+    expect(generateQuiz).toHaveBeenCalledTimes(1);
   });
 });
+
+function jobExecution(): {
+  store: MemoryJobExecutionStore;
+  executor: DurableJobExecutor;
+} {
+  const store = new MemoryJobExecutionStore();
+  return {
+    store,
+    executor: new DurableJobExecutor(store, {
+      leaseOwner: 'quiz-worker',
+      leaseMs: 30_000,
+    }),
+  };
+}

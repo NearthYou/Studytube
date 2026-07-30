@@ -1,4 +1,6 @@
-import type { JobResult } from '../work/work.types';
+import { DurableJobExecutor } from '../work/durable-job.executor';
+import { MemoryJobExecutionStore } from '../work/memory-job-execution.store';
+import { WorkJobBusyError } from '../work/work.errors';
 import type { WorkQueueJob } from '../work/work.queue';
 import {
   buildRetrievalChunks,
@@ -36,8 +38,63 @@ const JOB: WorkQueueJob = {
 };
 
 describe('RetrievalEmbeddingJobHandler', () => {
+  it('runs one embedding provider call for concurrent delivery and replays the result', async () => {
+    const execution = jobExecution();
+    let finish:
+      | ((response: {
+          model: string;
+          dimensions: number;
+          embedding: number[];
+        }) => void)
+      | undefined;
+    const embedding = jest.fn(
+      () =>
+        new Promise<{
+          model: string;
+          dimensions: number;
+          embedding: number[];
+        }>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const replaceSourceChunks = jest.fn().mockResolvedValue('stored');
+    const handler = new RetrievalEmbeddingJobHandler(
+      { embedding },
+      {
+        readSourceSnapshot: () =>
+          Promise.resolve({
+            ...POST_SNAPSHOT,
+            transcriptBody: 'One short retrieval chunk',
+            translatedSegments: [],
+          }),
+        resolveEmbedding: (_input, load) => load(),
+        replaceSourceChunks,
+      },
+      execution.executor,
+    );
+
+    const active = handler.handle(JOB);
+    await expect(handler.handle(JOB)).rejects.toBeInstanceOf(WorkJobBusyError);
+    finish?.({
+      model: 'text-embedding-3-small',
+      dimensions: 1536,
+      embedding: VECTOR,
+    });
+    await expect(active).resolves.toMatchObject({
+      indexingOutcome: 'stored',
+      chunkCount: 1,
+    });
+    await expect(handler.handle(JOB)).resolves.toMatchObject({
+      indexingOutcome: 'stored',
+      chunkCount: 1,
+    });
+
+    expect(embedding).toHaveBeenCalledTimes(1);
+    expect(replaceSourceChunks).toHaveBeenCalledTimes(1);
+  });
+
   it('embeds every bounded timestamp chunk before replacing the whole source once', async () => {
-    let result: JobResult | null = null;
+    const execution = jobExecution();
     const replaceSourceChunks = jest.fn().mockResolvedValue('stored');
     const embedding = jest.fn().mockResolvedValue({
       model: 'text-embedding-3-small',
@@ -50,19 +107,13 @@ describe('RetrievalEmbeddingJobHandler', () => {
       (_input: unknown, load: () => Promise<unknown>) => load(),
     );
     const handler = new RetrievalEmbeddingJobHandler(
-      legacySources(),
       { embedding },
       {
         readSourceSnapshot: () => Promise.resolve(POST_SNAPSHOT),
         resolveEmbedding,
         replaceSourceChunks,
       },
-      resultStore(
-        () => result,
-        (next) => {
-          result ??= next;
-        },
-      ),
+      execution.executor,
     );
 
     await expect(handler.handle(JOB)).resolves.toMatchObject({
@@ -115,8 +166,8 @@ describe('RetrievalEmbeddingJobHandler', () => {
       translatedSegments: [],
     };
     const replaceSourceChunks = jest.fn().mockResolvedValue('stored');
+    const execution = jobExecution();
     const handler = new RetrievalEmbeddingJobHandler(
-      legacySources(),
       {
         embedding: () =>
           Promise.resolve({
@@ -130,7 +181,7 @@ describe('RetrievalEmbeddingJobHandler', () => {
         resolveEmbedding: (_input, load) => load(),
         replaceSourceChunks,
       },
-      resultStore(() => null),
+      execution.executor,
     );
 
     await handler.handle({
@@ -155,15 +206,15 @@ describe('RetrievalEmbeddingJobHandler', () => {
   it('marks an old delivery superseded without paying for embeddings', async () => {
     const embedding = jest.fn();
     const replaceSourceChunks = jest.fn();
+    const execution = jobExecution();
     const handler = new RetrievalEmbeddingJobHandler(
-      legacySources(),
       { embedding },
       {
         readSourceSnapshot: () => Promise.resolve(POST_SNAPSHOT),
         resolveEmbedding: jest.fn(),
         replaceSourceChunks,
       },
-      resultStore(() => null),
+      execution.executor,
     );
 
     await expect(
@@ -180,11 +231,10 @@ describe('RetrievalEmbeddingJobHandler', () => {
   });
 
   it('removes every model for a missing source and records a successful result', async () => {
-    let result: JobResult | null = null;
+    const execution = jobExecution();
     const removeMissingSourceChunks = jest.fn().mockResolvedValue('removed');
     const embedding = jest.fn();
     const handler = new RetrievalEmbeddingJobHandler(
-      legacySources(),
       { embedding },
       {
         readSourceSnapshot: () => Promise.resolve(null),
@@ -192,12 +242,7 @@ describe('RetrievalEmbeddingJobHandler', () => {
         replaceSourceChunks: jest.fn(),
         removeMissingSourceChunks,
       },
-      resultStore(
-        () => result,
-        (next) => {
-          result ??= next;
-        },
-      ),
+      execution.executor,
     );
 
     await expect(handler.handle(JOB)).resolves.toEqual({
@@ -222,8 +267,8 @@ describe('RetrievalEmbeddingJobHandler', () => {
   it('rejects a rounded numeric source ID before reading or deleting a source', async () => {
     const readSourceSnapshot = jest.fn();
     const removeMissingSourceChunks = jest.fn();
+    const execution = jobExecution();
     const handler = new RetrievalEmbeddingJobHandler(
-      legacySources(),
       { embedding: jest.fn() },
       {
         readSourceSnapshot,
@@ -231,7 +276,7 @@ describe('RetrievalEmbeddingJobHandler', () => {
         replaceSourceChunks: jest.fn(),
         removeMissingSourceChunks,
       },
-      resultStore(() => null),
+      execution.executor,
     );
 
     await expect(
@@ -248,24 +293,83 @@ describe('RetrievalEmbeddingJobHandler', () => {
   });
 
   it('keeps a provider outage retriable instead of writing a terminal result', async () => {
-    const recordDeadLetter = jest.fn().mockResolvedValue(true);
+    const execution = jobExecution();
+    const providerFailure = new Error('OpenAI unavailable');
+    const embedding = jest
+      .fn()
+      .mockRejectedValueOnce(providerFailure)
+      .mockResolvedValue({
+        model: 'text-embedding-3-small',
+        dimensions: 1536,
+        embedding: VECTOR,
+      });
     const handler = new RetrievalEmbeddingJobHandler(
-      legacySources(),
-      { embedding: () => Promise.reject(new Error('OpenAI unavailable')) },
+      { embedding },
       {
         readSourceSnapshot: () => Promise.resolve(POST_SNAPSHOT),
         resolveEmbedding: (_input, load) => load(),
-        replaceSourceChunks: jest.fn(),
+        replaceSourceChunks: jest.fn().mockResolvedValue('stored'),
       },
-      {
-        findJobResult: () => Promise.resolve(null),
-        recordJobResult: jest.fn().mockResolvedValue(true),
-        recordDeadLetter,
-      },
+      execution.executor,
     );
 
-    await expect(handler.handle(JOB)).rejects.toThrow('OpenAI unavailable');
-    expect(recordDeadLetter).not.toHaveBeenCalled();
+    await expect(handler.handle(JOB)).rejects.toBe(providerFailure);
+    expect(execution.store.findDeadLetter(JOB)).toBeNull();
+    await expect(handler.handle(JOB)).resolves.toMatchObject({
+      indexingOutcome: 'stored',
+    });
+    expect(embedding).toHaveBeenCalledTimes(4);
+  });
+
+  it('atomically records a redacted terminal result on the final provider attempt', async () => {
+    const execution = jobExecution();
+    const rawFailure =
+      'Bearer retrieval-secret-canary https://embed:retrieval-url-secret@example.invalid/v1?api_key=retrieval-query-secret';
+    const embedding = jest.fn().mockRejectedValue(new Error(rawFailure));
+    const handler = new RetrievalEmbeddingJobHandler(
+      { embedding },
+      {
+        readSourceSnapshot: () =>
+          Promise.resolve({
+            ...POST_SNAPSHOT,
+            transcriptBody: 'One final retrieval chunk',
+            translatedSegments: [],
+          }),
+        resolveEmbedding: (_input, load) => load(),
+        replaceSourceChunks: jest.fn(),
+      },
+      execution.executor,
+    );
+
+    await expect(
+      handler.handle(JOB, {
+        attemptNumber: 8,
+        maxAttempts: 8,
+        isFinalAttempt: true,
+      }),
+    ).rejects.toMatchObject({
+      code: 'EMBEDDING_ATTEMPTS_EXHAUSTED',
+    });
+    expect(execution.store.findResult(JOB)).toMatchObject({
+      outcome: 'terminal_failure',
+      result: { code: 'EMBEDDING_ATTEMPTS_EXHAUSTED', attemptsMade: 8 },
+    });
+    expect(execution.store.findDeadLetter(JOB)).toMatchObject({
+      code: 'EMBEDDING_ATTEMPTS_EXHAUSTED',
+      details: { attemptsMade: 8 },
+    });
+    const persisted = JSON.stringify({
+      result: execution.store.findResult(JOB),
+      deadLetter: execution.store.findDeadLetter(JOB),
+    });
+    expect(persisted).not.toContain('retrieval-secret-canary');
+    expect(persisted).not.toContain('retrieval-url-secret');
+    expect(persisted).not.toContain('retrieval-query-secret');
+
+    await expect(handler.handle(JOB)).rejects.toMatchObject({
+      code: 'EMBEDDING_ATTEMPTS_EXHAUSTED',
+    });
+    expect(embedding).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -284,23 +388,16 @@ describe('buildRetrievalChunks', () => {
   });
 });
 
-function legacySources() {
+function jobExecution(): {
+  store: MemoryJobExecutionStore;
+  executor: DurableJobExecutor;
+} {
+  const store = new MemoryJobExecutionStore();
   return {
-    findPost: () => Promise.resolve(null),
-    findVideoAsset: () => Promise.resolve(null),
-  };
-}
-
-function resultStore(
-  get: () => JobResult | null,
-  set: (result: JobResult) => void = () => undefined,
-) {
-  return {
-    findJobResult: () => Promise.resolve(get()),
-    recordJobResult: (input: JobResult) => {
-      set(input);
-      return Promise.resolve(true);
-    },
-    recordDeadLetter: () => Promise.resolve(true),
+    store,
+    executor: new DurableJobExecutor(store, {
+      leaseOwner: 'retrieval-worker',
+      leaseMs: 30_000,
+    }),
   };
 }

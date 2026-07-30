@@ -39,7 +39,10 @@ describe('DurableWorkRouter', () => {
     );
 
     await expect(router.handle(job('unknown.requested'))).rejects.toBe(error);
-    expect(unsupported.handle).toHaveBeenCalledWith(job('unknown.requested'));
+    expect(unsupported.handle).toHaveBeenCalledWith(
+      job('unknown.requested'),
+      undefined,
+    );
   });
 
   it('routes quiz generation and settles its approved run work item', async () => {
@@ -64,11 +67,16 @@ describe('DurableWorkRouter', () => {
     });
   });
 
-  it('settles terminal and exhausted jobs as failed', async () => {
+  it('settles terminal and final-attempt jobs as failed', async () => {
     const terminal = new WorkJobTerminalError('INVALID_QUIZ_RESPONSE');
+    const exhausted = new WorkJobTerminalError(
+      'QUIZ_GENERATION_ATTEMPTS_EXHAUSTED',
+    );
     const quiz = {
-      handle: jest.fn().mockRejectedValue(terminal),
-      recordExhaustedFailure: jest.fn().mockResolvedValue(undefined),
+      handle: jest
+        .fn()
+        .mockRejectedValueOnce(terminal)
+        .mockRejectedValueOnce(exhausted),
     };
     const learning = { settleAgentWorkItem: jest.fn().mockResolvedValue() };
     const router = new DurableWorkRouter(
@@ -89,21 +97,18 @@ describe('DurableWorkRouter', () => {
     });
 
     learning.settleAgentWorkItem.mockClear();
-    await router.recordExhaustedFailure(
-      quizJob,
-      new Error('provider timeout'),
-      8,
-    );
-    expect(quiz.recordExhaustedFailure).toHaveBeenCalledWith(
-      quizJob,
-      expect.any(Error),
-      8,
-    );
+    const finalAttempt = {
+      attemptNumber: 8,
+      maxAttempts: 8,
+      isFinalAttempt: true,
+    };
+    await expect(router.handle(quizJob, finalAttempt)).rejects.toBe(exhausted);
+    expect(quiz.handle).toHaveBeenLastCalledWith(quizJob, finalAttempt);
     expect(learning.settleAgentWorkItem).toHaveBeenCalledWith({
       courseStepId: '24',
       kind: 'quiz_generation',
       outcome: 'failed',
-      reasonCode: 'WORK_ATTEMPTS_EXHAUSTED',
+      reasonCode: 'QUIZ_GENERATION_ATTEMPTS_EXHAUSTED',
     });
   });
 });

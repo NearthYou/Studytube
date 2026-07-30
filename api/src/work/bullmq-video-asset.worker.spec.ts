@@ -1,5 +1,6 @@
 import type { WorkQueueJob } from './work.queue';
 import { WorkJobTerminalError } from './video-asset.worker';
+import type { ObservabilityRuntime } from '../observability/runtime';
 import {
   BullMqVideoAssetWorker,
   type BullMqJob,
@@ -18,7 +19,6 @@ const JOB: WorkQueueJob = {
 class RecordingWorker implements BullMqWorkerClient {
   ready = false;
   closed = false;
-  failedListener?: (job: BullMqJob | undefined, error: Error) => void;
 
   waitUntilReady(): Promise<unknown> {
     this.ready = true;
@@ -28,18 +28,6 @@ class RecordingWorker implements BullMqWorkerClient {
   close(): Promise<void> {
     this.closed = true;
     return Promise.resolve();
-  }
-
-  on(
-    _event: 'failed',
-    listener: (job: BullMqJob | undefined, error: Error) => void,
-  ): this {
-    this.failedListener = listener;
-    return this;
-  }
-
-  emitFailed(job: BullMqJob, error: Error): void {
-    this.failedListener?.(job, error);
   }
 }
 
@@ -90,35 +78,89 @@ describe('BullMqVideoAssetWorker', () => {
     });
   });
 
-  it('records a dead letter only after the final transient attempt', async () => {
+  it('passes one-based attempt context and marks only the last attempt final', async () => {
     const worker = new RecordingWorker();
-    const recordExhaustedFailure = jest.fn().mockResolvedValue(undefined);
-    const handler = {
-      handle: () => Promise.resolve({ status: 'ready' }),
-      recordExhaustedFailure,
-    };
+    let processor: ((job: BullMqJob) => Promise<unknown>) | undefined;
+    const handle = jest.fn().mockResolvedValue({ status: 'ready' });
     const runner = new BullMqVideoAssetWorker(
       'redis://127.0.0.1:6379',
-      handler,
-      () => worker,
+      { handle },
+      (_url, jobProcessor) => {
+        processor = jobProcessor;
+        return worker;
+      },
     );
     await runner.onModuleInit();
 
-    worker.emitFailed(
-      { data: JOB, attemptsMade: 7, opts: { attempts: 8 } },
-      new Error('transient'),
-    );
-    worker.emitFailed(
-      { data: JOB, attemptsMade: 8, opts: { attempts: 8 } },
-      new Error('exhausted'),
-    );
+    await processor?.({
+      data: JOB,
+      attemptsMade: 0,
+      opts: { attempts: 8 },
+    });
+    await processor?.({
+      data: JOB,
+      attemptsMade: 7,
+      opts: { attempts: 8 },
+    });
     await runner.onModuleDestroy();
 
-    expect(recordExhaustedFailure).toHaveBeenCalledTimes(1);
-    expect(recordExhaustedFailure).toHaveBeenCalledWith(
-      JOB,
-      expect.objectContaining({ message: 'exhausted' }),
-      8,
+    expect(handle).toHaveBeenNthCalledWith(1, JOB, {
+      attemptNumber: 1,
+      maxAttempts: 8,
+      isFinalAttempt: false,
+    });
+    expect(handle).toHaveBeenNthCalledWith(2, JOB, {
+      attemptNumber: 8,
+      maxAttempts: 8,
+      isFinalAttempt: true,
+    });
+  });
+
+  it('describes BullMQ processing as a consumer span without exposing payloads', async () => {
+    let processor: ((job: BullMqJob) => Promise<unknown>) | undefined;
+    const runJob = jest.fn(
+      (_carrier: Record<string, unknown>, callback: () => Promise<unknown>) =>
+        callback(),
+    );
+    const observability = {
+      traces: { runJob },
+      metrics: { workerJob: jest.fn() },
+      logger: {
+        info: jest.fn(),
+        error: jest.fn(),
+      },
+    } as unknown as ObservabilityRuntime;
+    const runner = new BullMqVideoAssetWorker(
+      'redis://127.0.0.1:6379',
+      { handle: () => Promise.resolve({ status: 'ready' }) },
+      (_url, jobProcessor) => {
+        processor = jobProcessor;
+        return new RecordingWorker();
+      },
+      observability,
+    );
+
+    await runner.onModuleInit();
+    await processor?.({ data: JOB });
+
+    expect(runJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        'x-studytube-job-id': JOB.eventId,
+      }),
+      expect.any(Function),
+      {
+        spanName: 'studytube-work process',
+        attributes: {
+          'messaging.system': 'redis',
+          'messaging.destination.name': 'studytube-work',
+          'messaging.operation.type': 'process',
+          'messaging.message.id': JOB.eventId,
+          'studytube.event.type': JOB.eventType,
+        },
+      },
+    );
+    expect(JSON.stringify(runJob.mock.calls)).not.toContain(
+      JSON.stringify(JOB.payload),
     );
   });
 });

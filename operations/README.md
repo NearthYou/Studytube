@@ -137,9 +137,57 @@ VU 번호가 풀 크기보다 크면 세션을 순환 배정합니다. 계정별
 
 기본 임계값은 전체 오류율 1퍼센트 미만, 전체 p95 1000ms 미만, 전체 p99 2000ms 미만입니다. 게시물과 코스 목록 p95는 800ms입니다. 임계값 변경이 필요하면 코드와 실행 증거에 변경 이유를 함께 남깁니다.
 
+## k6 진도 쓰기 계약
+
+`studytube-progress-write.js`는 운영 데이터를 탐색하는 부하가 아니라, 격리된 계정과 Course step에서 진도 저장의 동시성과 idempotency를 확인하는 짧은 시나리오입니다. 각 VU는 한 구간을 기록한 뒤 같은 payload와 `Idempotency-Key`를 한 번 더 보내고, 마지막 조회에서 자신이 기록한 구간이 남았는지 확인합니다. setup 전 version과 teardown 후 version의 차이는 고유 요청 수와 정확히 같아야 하므로 중복 요청이 두 번째 mutation으로 반영되면 실행이 실패합니다. 기본값은 4 VU, VU당 1회이며 코드는 4 VU와 VU당 3회를 넘는 설정을 거부합니다.
+
+비루프백 대상에서 실행하려면 다음 확인값이 모두 필요합니다.
+
+```powershell
+$env:K6_BASE_URL = 'https://approved.example.com/api'
+$env:K6_READINESS_URL = 'https://approved.example.com/api/health/live'
+$env:K6_SESSION_COOKIE = '__Host-studytube_session=<dedicated-test-session>'
+$env:K6_COURSE_STEP_ID = '<dedicated-course-step-id>'
+$env:STUDYTUBE_K6_RUN_ID = '<new-unique-run-id>'
+$env:K6_ACKNOWLEDGE_WRITES = 'true'
+$env:K6_ACKNOWLEDGE_TARGET = $env:K6_BASE_URL
+$env:K6_ACKNOWLEDGE_DEDICATED_DATA = 'true'
+$env:K6_ACKNOWLEDGE_COURSE_STEP_ID = $env:K6_COURSE_STEP_ID
+k6 run ./operations/load/studytube-progress-write.js
+```
+
+실행 전에 해당 계정과 Course step이 다른 사용자 흐름과 분리되어 있는지 확인하고 매번 새 `STUDYTUBE_K6_RUN_ID`를 지정해야 합니다. 다른 쓰기가 같은 step의 version을 바꾸면 idempotency 검증이 의도적으로 실패합니다. 비루프백 대상은 HTTPS만 허용하고 인증 요청은 redirect를 따르지 않습니다. `--vus`, `--duration`, `--iterations`, `--no-setup`, `--no-teardown`, 분산 segment, HTTP debug와 TLS 검증 해제 같은 실행 override도 첫 요청 전에 거부합니다. 결과 JSON에는 대상 URL, VU 수, latency와 임계값만 남고 Cookie, Course step 원문, 응답 본문은 남지 않습니다. 필수 threshold, 흐름별 표본 수, 전체 요청 수가 모두 있어야 결과가 passed가 됩니다. 테스트가 끝나면 세션을 폐기합니다.
+
+원본 스크립트가 Node 기반 모의 실행뿐 아니라 실제 k6 런타임에서도 동작하는지는 다음 일회성 스모크로 확인합니다.
+
+```powershell
+pwsh ./operations/tests/Invoke-K6ProgressWriteSmoke.ps1 -PlanOnly
+pwsh ./operations/tests/Invoke-K6ProgressWriteSmoke.ps1 -Execute
+```
+
+스모크는 버전과 SHA-256을 고정한 k6 공식 릴리스만 내려받습니다. 임시 서버는 `127.0.0.1`의 임의 포트에만 바인딩하고 1 VU, 1 iteration으로 readiness, baseline, write, exact duplicate, readback, teardown과 summary를 확인합니다. 전용 Cookie, Course step과 응답 canary가 stdout, stderr, 결과 JSON에 남으면 실패하며, fixture 프로세스와 다운로드 파일은 종료 경로에서도 정리합니다.
+
+## Prometheus 알람 규칙 검증
+
+이 검증은 outbox 지연과 실패, poison event, DB pool 대기와 포화 규칙이 예상한 시점에 pending, firing, resolved 상태로 바뀌는지 `promtool`로 확인합니다. 프로덕션 EC2에 Prometheus나 Grafana daemon을 추가하지 않습니다.
+
+계획을 확인합니다.
+
+```powershell
+pwsh ./operations/monitoring/Invoke-PrometheusRuleDrill.ps1 -PlanOnly
+```
+
+로컬 Docker에서 실제 규칙 테스트를 실행합니다.
+
+```powershell
+pwsh ./operations/monitoring/Invoke-PrometheusRuleDrill.ps1 -Execute
+```
+
+드릴은 digest로 고정한 Prometheus 이미지와 로컬 Docker context만 허용합니다. 컨테이너 네트워크와 Linux capability를 제거하고, root filesystem과 규칙 mount를 읽기 전용으로 사용합니다. `promtool` 임시 데이터만 크기가 제한된 tmpfs에 기록합니다. 이 결과는 알람 논리 검증이며 실제 scrape, Alertmanager 전달, 운영 paging이 활성화됐다는 의미는 아닙니다.
+
 ## 정적 계약 검증
 
-다음 명령은 계획 모드가 실제 서비스에 접근하지 않는지, 임시 DB 접두사와 정리 계약이 있는지, 네 가지 실패 시나리오와 k6 문법이 유효한지 확인합니다.
+다음 명령은 계획 모드가 실제 서비스에 접근하지 않는지, 임시 DB 접두사와 정리 계약이 있는지, 네 가지 실패 시나리오, 두 k6 시나리오의 안전장치와 Prometheus 드릴 경계가 유효한지 확인합니다.
 
 ```powershell
 pwsh ./operations/tests/Invoke-OperationsContractTests.ps1

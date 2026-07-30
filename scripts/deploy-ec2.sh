@@ -80,9 +80,8 @@ require_distinct_secrets() {
 }
 
 run_psql() {
-  PGDATABASE="$DATABASE_URL" \
-    timeout --signal=TERM --kill-after=5s 30s \
-      psql "$@"
+  timeout --signal=TERM --kill-after=5s 30s \
+    psql --dbname "$DATABASE_URL" "$@"
 }
 
 validate_root_only_file() {

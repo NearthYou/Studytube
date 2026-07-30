@@ -102,6 +102,11 @@ describe('EC2 deployment script', () => {
     STUDYTUBE_PUBLIC_URL: 'https://studytube.test',
   };
 
+  it('passes the database connection URL explicitly to psql', () => {
+    expect(script).toContain('psql --dbname "$DATABASE_URL" "$@"');
+    expect(script).not.toContain('PGDATABASE="$DATABASE_URL"');
+  });
+
   it('prepares the verified release and database before stopping managed services', () => {
     const immutableCheckout = script.indexOf(
       'git checkout --detach "$deploy_sha"',

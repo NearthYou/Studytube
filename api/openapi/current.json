@@ -409,7 +409,6 @@
           "id",
           "name",
           "email",
-          "preferences",
           "createdAt"
         ],
         "type": "object"

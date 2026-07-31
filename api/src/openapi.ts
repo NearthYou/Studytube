@@ -86,7 +86,7 @@ export function createOpenApiDocument(app: INestApplication) {
     ...domainOpenApiSchemas,
     AuthPublicUser: {
       type: 'object',
-      required: ['id', 'name', 'email', 'preferences', 'createdAt'],
+      required: ['id', 'name', 'email', 'createdAt'],
       properties: {
         id: { type: 'integer', minimum: 1 },
         name: { type: 'string' },

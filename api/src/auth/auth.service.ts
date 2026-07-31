@@ -204,10 +204,10 @@ export class AuthService {
     let name: string;
     try {
       name = normalizeName(input.name);
-      this.passwordHasher.validate(input.password);
     } catch {
       return { status: 'invalid' };
     }
+    this.passwordHasher.validate(input.password);
 
     const enrollmentDigest = digestOpaqueToken(input.enrollmentToken);
     const candidate = await this.repository.findEnrollmentCandidate({

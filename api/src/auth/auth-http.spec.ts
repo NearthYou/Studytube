@@ -13,6 +13,7 @@ import { AuthCookiePolicy } from './auth-cookie';
 import { AuthRepositoryUnavailableError } from './auth.repository';
 import { Argon2QueueOverflowError } from './argon2-work-limiter';
 import { ClientAddressResolver } from './client-address.resolver';
+import { PasswordValidationError } from './password-hasher';
 import { RequestIdMiddleware } from './request-id.middleware';
 import { SessionGuard } from './session.guard';
 import { AuthService } from './auth.service';
@@ -223,6 +224,27 @@ describe('authentication HTTP boundary', () => {
     expect(cookies).toMatch(/studytube_session=.*HttpOnly/i);
     expect(cookies).toContain('studytube_enrollment=;');
     expect(JSON.stringify(response.body)).not.toContain(SESSION_TOKEN);
+  });
+
+  it('reports password input failure without claiming that enrollment expired', async () => {
+    authService.completeRegistration.mockRejectedValueOnce(
+      new PasswordValidationError('Password must be 8 to 128 UTF-8 bytes'),
+    );
+
+    const response = await request(app.getHttpServer())
+      .post('/auth/registrations/complete')
+      .set('Origin', WEB_ORIGIN)
+      .set('Cookie', `studytube_enrollment=${ENROLLMENT_TOKEN}`)
+      .send({ name: 'Ada', password: '1234' })
+      .expect(400);
+    const body = response.body as { code: string; message: string };
+
+    expect(body).toMatchObject({
+      code: 'INVALID_REQUEST',
+      message: 'Password must be 8 to 128 UTF-8 bytes',
+    });
+    expect(body.message).not.toMatch(/enrollment|expired/i);
+    expect(response.get('Set-Cookie') ?? []).toEqual([]);
   });
 
   it('logs in, authenticates /me, logs out, and rejects session reuse', async () => {

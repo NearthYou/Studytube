@@ -142,6 +142,22 @@ describe('verification email senders', () => {
       } as never,
       5_000,
     );
+    const accessDenied = new SesV2VerificationEmailSender(
+      {
+        send: jest.fn().mockRejectedValue(
+          Object.assign(
+            new Error(
+              'credential-canary https://provider.invalid/signup/verify#verification=url-canary',
+            ),
+            {
+              name: 'AccessDeniedException',
+              $metadata: { httpStatusCode: 403 },
+            },
+          ),
+        ),
+      } as never,
+      5_000,
+    );
 
     await expect(retrying.send(message())).rejects.toMatchObject({
       code: 'ses_throttled',
@@ -157,6 +173,11 @@ describe('verification email senders', () => {
       code: 'ses_throttled',
       retryable: true,
       message: 'Verification email delivery failed: ses_throttled',
+    });
+    await expect(accessDenied.send(message())).rejects.toMatchObject({
+      code: 'ses_access_denied',
+      retryable: false,
+      message: 'Verification email delivery failed: ses_access_denied',
     });
   });
 

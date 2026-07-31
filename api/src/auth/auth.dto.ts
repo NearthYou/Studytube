@@ -1,4 +1,15 @@
-import { IsEmail, IsNotEmpty, IsString } from 'class-validator';
+import { Type } from 'class-transformer';
+import {
+  ArrayMaxSize,
+  ArrayNotEmpty,
+  IsArray,
+  IsEmail,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  MaxLength,
+  ValidateNested,
+} from 'class-validator';
 
 export class SignupDto {
   @IsEmail()
@@ -33,4 +44,52 @@ export class LoginDto {
   @IsString()
   @IsNotEmpty()
   password!: string;
+}
+
+export class VerifyProfileDto {
+  @IsString()
+  @IsNotEmpty()
+  currentPassword!: string;
+}
+
+export class LearningPreferencesDto {
+  @IsArray()
+  @ArrayNotEmpty()
+  @ArrayMaxSize(8)
+  @IsString({ each: true })
+  @MaxLength(100, { each: true })
+  interests!: string[];
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
+  pace!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(500)
+  goal!: string;
+}
+
+export class UpdateProfileDto {
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  currentPassword?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  password?: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => LearningPreferencesDto)
+  preferences?: LearningPreferencesDto;
 }

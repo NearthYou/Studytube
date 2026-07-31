@@ -1499,7 +1499,7 @@ function MyEditPage({
           <label>
             새 비밀번호
             <input
-              minLength={6}
+              minLength={8}
               type="password"
               value={draft.password}
               onChange={(event) =>
@@ -1622,7 +1622,7 @@ function ProfileVerificationForm({
         <label>
           현재 비밀번호
           <input
-            minLength={6}
+            minLength={8}
             type="password"
             value={currentPassword}
             onChange={(event) => setCurrentPassword(event.target.value)}
@@ -4834,7 +4834,7 @@ function WatchPage({ session }: { session: Session }) {
         ? videoDurationState.waitExpired
         : false;
   const currentPlayerLoadError =
-    playerLoadError?.videoId === currentVideo?.videoId
+    playerLoadError && playerLoadError.videoId === currentVideo?.videoId
       ? playerLoadError.message
       : "";
   const isPlayerReady =
@@ -5711,31 +5711,52 @@ function WatchPage({ session }: { session: Session }) {
   }
 
   if (!currentVideo) {
+    const hasAvailablePlaylist = playlistChoices.length > 0;
     return (
       <main className="page-shell watch-empty-page">
         <section className="watch-empty-shell">
           <div className="watch-empty-copy">
             <p className="eyebrow">학습</p>
-            <h1>학습할 플레이리스트를 선택하세요</h1>
+            <h1>
+              {hasAvailablePlaylist
+                ? "학습할 플레이리스트를 선택하세요"
+                : "아직 학습할 영상이 없어요"}
+            </h1>
             <p>
-              공개 플레이리스트와 작성 중인 플레이리스트를 바로 이어서 볼 수
-              있습니다. 선택하면 첫 영상부터 재생목록이 시작됩니다.
+              {hasAvailablePlaylist
+                ? "공개 플레이리스트와 작성 중인 플레이리스트를 선택하면 첫 영상부터 학습을 시작할 수 있습니다."
+                : "첫 영상을 등록하거나 공개 코스를 둘러본 뒤 학습을 시작해보세요."}
             </p>
             <div className="watch-empty-actions">
-              <Link className="primary-link" to="/playlists">
-                새 코스 찾기
-              </Link>
-              <Link className="quiet-link" to="/board">
-                등록 화면으로
-              </Link>
+              {hasAvailablePlaylist ? (
+                <>
+                  <Link className="primary-link" to="/playlists">
+                    새 코스 찾기
+                  </Link>
+                  <Link className="quiet-link" to="/board">
+                    등록 화면으로
+                  </Link>
+                </>
+              ) : (
+                <>
+                  <Link className="primary-link" to="/board">
+                    첫 영상 등록하기
+                  </Link>
+                  <Link className="quiet-link" to="/playlists">
+                    공개 코스 둘러보기
+                  </Link>
+                </>
+              )}
             </div>
           </div>
-          <WatchPlaylistPicker
-            activeChoiceId={activePlaylistChoice?.id ?? null}
-            choices={playlistChoices}
-            onSelect={playPlaylistChoice}
-            status={playlistLibraryStatus}
-          />
+          {hasAvailablePlaylist && (
+            <WatchPlaylistPicker
+              activeChoiceId={activePlaylistChoice?.id ?? null}
+              choices={playlistChoices}
+              onSelect={playPlaylistChoice}
+              status={playlistLibraryStatus}
+            />
+          )}
         </section>
       </main>
     );

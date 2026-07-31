@@ -9,6 +9,8 @@ import {
   resendEmailVerification,
   setUnauthorizedHandler,
   signUp,
+  updateMe,
+  verifyMe,
 } from "../src/api.ts";
 
 test("uses the browser cookie for protected requests without an authorization header", async () => {
@@ -64,14 +66,73 @@ test("notifies the session boundary after a protected request returns 401", asyn
     unauthorized += 1;
   });
   globalThis.fetch = async () =>
-    new Response(JSON.stringify({ message: "Authentication required" }), {
-      status: 401,
+    new Response(
+      JSON.stringify({
+        code: "UNAUTHORIZED",
+        message: "Authentication required",
+      }),
+      {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+
+  try {
+    await assert.rejects(requestJson("/me"), /로그인이 필요합니다/);
+    assert.equal(unauthorized, 1);
+  } finally {
+    setUnauthorizedHandler(null);
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("does not expose raw English API errors to Korean users", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ message: "Cannot PUT /me" }), {
+      status: 404,
       headers: { "Content-Type": "application/json" },
     });
 
   try {
-    await assert.rejects(requestJson("/me"), /Authentication required/);
-    assert.equal(unauthorized, 1);
+    await assert.rejects(
+      requestJson("/me", { method: "PUT" }),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.match(error.message, /요청한 기능을 찾을 수 없습니다/);
+        assert.doesNotMatch(error.message, /Cannot PUT|Not Found|API 404/i);
+        return true;
+      },
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("keeps the session when only the current password is wrong", async () => {
+  const originalFetch = globalThis.fetch;
+  let unauthorized = 0;
+  setUnauthorizedHandler(() => {
+    unauthorized += 1;
+  });
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        code: "INVALID_CURRENT_PASSWORD",
+        message: "Current password is invalid",
+      }),
+      {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+
+  try {
+    await assert.rejects(
+      verifyMe({ currentPassword: "wrong password" }),
+      /현재 비밀번호가 올바르지 않습니다/,
+    );
+    assert.equal(unauthorized, 0);
   } finally {
     setUnauthorizedHandler(null);
     globalThis.fetch = originalFetch;
@@ -160,6 +221,41 @@ test("completes registration with name and password only", async () => {
   assert.deepEqual(JSON.parse(String(request.init?.body)), {
     name: "Ada",
     password: "correct horse",
+  });
+});
+
+test("verifies and updates the current profile through cookie endpoints", async () => {
+  const verification = await captureRequest(
+    () => verifyMe({ currentPassword: "current password" }),
+    { id: 7, name: "Ada" },
+  );
+
+  assert.match(verification.input, /\/me\/verify$/);
+  assert.equal(verification.init?.method, "POST");
+  assert.deepEqual(JSON.parse(String(verification.init?.body)), {
+    currentPassword: "current password",
+  });
+
+  const update = await captureRequest(
+    () =>
+      updateMe({
+        preferences: {
+          interests: ["Docker"],
+          pace: "10분",
+          goal: "마스터하기",
+        },
+      }),
+    { id: 7, name: "Ada" },
+  );
+
+  assert.match(update.input, /\/me$/);
+  assert.equal(update.init?.method, "PUT");
+  assert.deepEqual(JSON.parse(String(update.init?.body)), {
+    preferences: {
+      interests: ["Docker"],
+      pace: "10분",
+      goal: "마스터하기",
+    },
   });
 });
 

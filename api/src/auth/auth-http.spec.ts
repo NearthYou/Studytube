@@ -28,6 +28,14 @@ const user = {
   email: 'ada@example.com',
   createdAt: '2026-07-29T00:00:00.000Z',
 };
+const updatedUser = {
+  ...user,
+  preferences: {
+    interests: ['Docker'],
+    pace: '10분',
+    goal: '마스터하기',
+  },
+};
 
 function request(app: unknown) {
   return supertest(app as Parameters<typeof supertest>[0]);
@@ -46,6 +54,8 @@ describe('authentication HTTP boundary', () => {
     login: jest.fn(),
     authenticateSession: jest.fn(),
     logout: jest.fn(),
+    verifyProfile: jest.fn(),
+    updateProfile: jest.fn(),
   };
   const createPost = jest.fn<
     Promise<{ id: number }>,
@@ -131,6 +141,14 @@ describe('authentication HTTP boundary', () => {
     authService.logout.mockImplementation(() => {
       sessionIsActive = false;
       return Promise.resolve({ status: 'revoked' });
+    });
+    authService.verifyProfile.mockResolvedValue({
+      status: 'verified',
+      user: updatedUser,
+    });
+    authService.updateProfile.mockResolvedValue({
+      status: 'updated',
+      user: updatedUser,
     });
     studyBoardService.listPublicPosts.mockResolvedValue({ items: [] });
     studyBoardService.createPost.mockResolvedValue({ id: 91 });
@@ -281,6 +299,32 @@ describe('authentication HTTP boundary', () => {
       .get('/me')
       .set('Cookie', sessionCookie)
       .expect(401);
+  });
+
+  it('verifies and updates the authenticated profile through cookie routes', async () => {
+    await request(app.getHttpServer())
+      .post('/me/verify')
+      .set('Origin', WEB_ORIGIN)
+      .set('Cookie', `studytube_session=${SESSION_TOKEN}`)
+      .send({ currentPassword: 'current password' })
+      .expect(200, updatedUser);
+
+    expect(authService.verifyProfile).toHaveBeenCalledWith(
+      user,
+      'current password',
+    );
+
+    await request(app.getHttpServer())
+      .put('/me')
+      .set('Origin', WEB_ORIGIN)
+      .set('Cookie', `studytube_session=${SESSION_TOKEN}`)
+      .send({ preferences: updatedUser.preferences })
+      .expect(200, updatedUser);
+
+    expect(authService.updateProfile).toHaveBeenCalledWith(
+      { sessionId: 11, user },
+      { preferences: updatedUser.preferences },
+    );
   });
 
   it('rejects missing, malformed, duplicate, and bearer-only session credentials', async () => {

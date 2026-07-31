@@ -724,6 +724,7 @@ describe('DatabaseService verified enrollment persistence', () => {
       id: 7,
       name: 'Ada',
       email: 'ada@example.com',
+      preferences: { interests: [], pace: '', goal: '' },
       createdAt: AUTH_NOW,
     };
     const query = jest
@@ -1009,6 +1010,71 @@ describe('DatabaseService core session persistence', () => {
     expect(release).toHaveBeenCalledTimes(1);
   });
 
+  it('updates learning preferences in one locked transaction', async () => {
+    const service = new DatabaseService(configService());
+    const preferences = {
+      interests: ['Docker'],
+      pace: '10분',
+      goal: '마스터하기',
+    };
+    const query = jest
+      .fn()
+      .mockResolvedValueOnce({ rows: [], rowCount: null })
+      .mockResolvedValueOnce({
+        rows: [authCredentialRow()],
+        rowCount: 1,
+      })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            id: 7,
+            name: 'Ada',
+            email: 'ada@example.com',
+            preferences,
+            createdAt: AUTH_NOW,
+          },
+        ],
+        rowCount: 1,
+      })
+      .mockResolvedValueOnce({ rows: [], rowCount: null });
+    const { release } = replacePoolConnection(service, query);
+
+    await expect(
+      service.updateProfile({
+        userId: 7,
+        sessionId: SESSION_ID,
+        preferences,
+      }),
+    ).resolves.toEqual({
+      status: 'updated',
+      user: {
+        id: 7,
+        name: 'Ada',
+        email: 'ada@example.com',
+        preferences,
+        createdAt: AUTH_NOW.toISOString(),
+      },
+    });
+
+    const calls = query.mock.calls as Array<[string, unknown[]?]>;
+    expect(calls.map(([sql]) => sql)).toEqual([
+      'BEGIN',
+      expect.stringContaining('FOR UPDATE'),
+      expect.stringContaining('UPDATE users'),
+      'COMMIT',
+    ]);
+    expect(calls[2][1]).toEqual([
+      7,
+      null,
+      JSON.stringify(preferences),
+      null,
+      null,
+      null,
+      null,
+    ]);
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+
   it('uses database time for active lookup and one capped 15-minute touch', async () => {
     const service = new DatabaseService(configService());
     const sessionDigest = Buffer.alloc(32, 9);
@@ -1019,6 +1085,7 @@ describe('DatabaseService core session persistence', () => {
           userId: 7,
           name: 'Ada',
           email: 'ada@example.com',
+          preferences: { interests: [], pace: '', goal: '' },
           userCreatedAt: AUTH_NOW,
         },
       ],
@@ -1415,6 +1482,7 @@ function authCredentialRowBase() {
     name: 'Ada',
     email: 'ada@example.com',
     emailCanonical: 'ada@example.com',
+    preferences: { interests: [], pace: '', goal: '' },
     passwordHash: createHashForTest('legacy password'),
     passwordAlgorithm: 'legacy_sha256' as const,
     passwordParameters: {

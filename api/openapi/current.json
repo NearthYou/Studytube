@@ -400,12 +400,16 @@
           },
           "name": {
             "type": "string"
+          },
+          "preferences": {
+            "$ref": "#/components/schemas/LearningPreferences"
           }
         },
         "required": [
           "id",
           "name",
           "email",
+          "preferences",
           "createdAt"
         ],
         "type": "object"
@@ -779,6 +783,59 @@
         },
         "required": [
           "expectedVersion"
+        ],
+        "type": "object"
+      },
+      "LearningPreferences": {
+        "properties": {
+          "goal": {
+            "maxLength": 500,
+            "type": "string"
+          },
+          "interests": {
+            "items": {
+              "maxLength": 100,
+              "type": "string"
+            },
+            "maxItems": 8,
+            "type": "array"
+          },
+          "pace": {
+            "maxLength": 100,
+            "type": "string"
+          }
+        },
+        "required": [
+          "interests",
+          "pace",
+          "goal"
+        ],
+        "type": "object"
+      },
+      "LearningPreferencesDto": {
+        "properties": {
+          "goal": {
+            "maxLength": 500,
+            "type": "string"
+          },
+          "interests": {
+            "items": {
+              "maxLength": 100,
+              "type": "string"
+            },
+            "maxItems": 8,
+            "minItems": 1,
+            "type": "array"
+          },
+          "pace": {
+            "maxLength": 100,
+            "type": "string"
+          }
+        },
+        "required": [
+          "interests",
+          "pace",
+          "goal"
         ],
         "type": "object"
       },
@@ -1810,6 +1867,35 @@
         },
         "required": [
           "expectedVersion"
+        ],
+        "type": "object"
+      },
+      "UpdateProfileDto": {
+        "properties": {
+          "currentPassword": {
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 100,
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
+          },
+          "preferences": {
+            "$ref": "#/components/schemas/LearningPreferencesDto"
+          }
+        },
+        "type": "object"
+      },
+      "VerifyProfileDto": {
+        "properties": {
+          "currentPassword": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "currentPassword"
         ],
         "type": "object"
       },
@@ -3590,6 +3676,66 @@
       "get": {
         "operationId": "AuthController_getMe",
         "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthPublicUser"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "Auth"
+        ]
+      },
+      "put": {
+        "operationId": "AuthController_updateProfile",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProfileDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthPublicUser"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/me/verify": {
+      "post": {
+        "operationId": "AuthController_verifyProfile",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerifyProfileDto"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {

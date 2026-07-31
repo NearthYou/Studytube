@@ -1,7 +1,10 @@
+import type { LearningPreferences } from '../study-board.types';
+
 export type AuthPublicUser = {
   readonly id: number;
   readonly name: string;
   readonly email: string;
+  readonly preferences?: LearningPreferences;
   readonly createdAt: string;
 };
 
@@ -49,6 +52,21 @@ export type CommitLoginResult =
   | { status: 'committed'; user: AuthPublicUser }
   | { status: 'stale' }
   | { status: 'invalid' };
+
+export type UpdateProfileCommand = {
+  userId: number;
+  sessionId: string;
+  name?: string;
+  preferences?: LearningPreferences;
+  expectedPasswordHash?: string;
+  expectedPasswordVersion?: number;
+  passwordUpgrade?: PasswordUpgrade;
+};
+
+export type UpdateProfileResult =
+  | { status: 'updated'; user: AuthPublicUser }
+  | { status: 'stale' }
+  | { status: 'missing' };
 
 export type AuthPrincipal = {
   readonly sessionId: string;

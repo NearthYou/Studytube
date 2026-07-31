@@ -524,7 +524,7 @@ describe('EC2 deployment script', () => {
     ).toBe('/api/study-board');
   });
 
-  it('keeps readiness private and rebuilds one trusted forwarding hop', () => {
+  it('keeps readiness private and leaves forwarding headers to Caddy', () => {
     const privateApiPaths =
       caddyfile
         .match(/^\s*@private_api path (?<paths>.+)$/mu)
@@ -546,10 +546,9 @@ describe('EC2 deployment script', () => {
     expect(apiProxyBlock).toContain(
       'reverse_proxy unix//run/studytube/api.sock',
     );
-    expect(apiProxyBlock.match(/header_up -X-Forwarded-For/gu)).toHaveLength(1);
-    expect(
-      apiProxyBlock.match(/header_up X-Forwarded-For \{remote_host\}/gu),
-    ).toHaveLength(1);
+    expect(apiProxyBlock).not.toMatch(
+      /header_up\s+[+-]?X-Forwarded-(?:For|Proto|Host)\b/u,
+    );
     expect(caddyfile).toContain(
       'Strict-Transport-Security "max-age=31536000; includeSubDomains"',
     );

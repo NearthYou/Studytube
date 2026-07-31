@@ -31,12 +31,6 @@
 		handle_path /api/* {
 			header Cache-Control "no-store"
 			reverse_proxy unix//run/studytube/api.sock {
-				header_up -X-Forwarded-For
-				header_up -X-Forwarded-Proto
-				header_up -X-Forwarded-Host
-				header_up X-Forwarded-For {remote_host}
-				header_up X-Forwarded-Proto {scheme}
-				header_up X-Forwarded-Host {host}
 				transport http {
 					dial_timeout 2s
 					response_header_timeout 185s

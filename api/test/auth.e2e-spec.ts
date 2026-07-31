@@ -40,6 +40,11 @@ type PublicUser = {
   id: number;
   name: string;
   email: string;
+  preferences: {
+    interests: string[];
+    pace: string;
+    goal: string;
+  };
   createdAt: string;
 };
 
@@ -488,6 +493,7 @@ describe('cookie authentication with PostgreSQL (e2e)', () => {
         id: expect.any(Number) as unknown,
         name: 'Ada Proof',
         email,
+        preferences: { interests: [], pace: '', goal: '' },
         createdAt: expect.any(String) as unknown,
       },
     });
@@ -546,6 +552,36 @@ describe('cookie authentication with PostgreSQL (e2e)', () => {
       },
     ]);
     expect(JSON.stringify(persisted.rows)).not.toContain(password);
+  });
+
+  it('persists learning preferences and verifies the current password', async () => {
+    const email = testEmail('profile');
+    const preferences = {
+      interests: ['Docker'],
+      pace: '10분',
+      goal: '마스터하기',
+    };
+    trackedEmails.add(email);
+    const registered = await registerUser(email, 'Profile Proof');
+    const expectedUser = { ...registered.user, preferences };
+
+    await registered.agent
+      .put('/me')
+      .set('Origin', WEB_ORIGIN)
+      .send({ preferences })
+      .expect(200, expectedUser);
+    await registered.agent.get('/me').expect(200, expectedUser);
+    await registered.agent
+      .post('/me/verify')
+      .set('Origin', WEB_ORIGIN)
+      .send({ currentPassword: registered.password })
+      .expect(200, expectedUser);
+
+    const persisted = await pool.query<{ preferences: unknown }>(
+      'SELECT preferences FROM users WHERE email_canonical = $1',
+      [email],
+    );
+    expect(persisted.rows).toEqual([{ preferences }]);
   });
 
   it('linearizes competing completion requests to one user and first session', async () => {

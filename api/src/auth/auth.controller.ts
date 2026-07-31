@@ -5,6 +5,7 @@ import {
   HttpCode,
   HttpStatus,
   Post,
+  Put,
   Req,
   Res,
 } from '@nestjs/common';
@@ -16,6 +17,8 @@ import {
   LoginDto,
   ResendVerificationDto,
   SignupDto,
+  UpdateProfileDto,
+  VerifyProfileDto,
 } from './auth.dto';
 import { AuthHttpException } from './auth-http.exception';
 import { ClientAddressResolver } from './client-address.resolver';
@@ -176,6 +179,72 @@ export class AuthController {
   @Get('me')
   getMe(@Req() request: AuthenticatedRequest) {
     return request.principal.user;
+  }
+
+  @Post('me/verify')
+  @HttpCode(HttpStatus.OK)
+  async verifyProfile(
+    @Body() body: VerifyProfileDto,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    const result = await this.authService.verifyProfile(
+      request.principal.user,
+      body.currentPassword,
+    );
+    if (result.status !== 'verified') {
+      throw new AuthHttpException(
+        'INVALID_CURRENT_PASSWORD',
+        'Current password is invalid',
+        HttpStatus.UNAUTHORIZED,
+      );
+    }
+    return result.user;
+  }
+
+  @Put('me')
+  @HttpCode(HttpStatus.OK)
+  async updateProfile(
+    @Body() body: UpdateProfileDto,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    const result = await this.authService.updateProfile(
+      {
+        sessionId: request.principal.sessionId,
+        user: request.principal.user,
+      },
+      {
+        ...(body.currentPassword !== undefined
+          ? { currentPassword: body.currentPassword }
+          : {}),
+        ...(body.name !== undefined ? { name: body.name } : {}),
+        ...(body.password !== undefined ? { password: body.password } : {}),
+        ...(body.preferences !== undefined
+          ? { preferences: body.preferences }
+          : {}),
+      },
+    );
+    if (result.status === 'invalid_credentials') {
+      throw new AuthHttpException(
+        'INVALID_CURRENT_PASSWORD',
+        'Current password is invalid',
+        HttpStatus.UNAUTHORIZED,
+      );
+    }
+    if (result.status === 'not_found') {
+      throw new AuthHttpException(
+        'PROFILE_NOT_FOUND',
+        'Profile was not found',
+        HttpStatus.NOT_FOUND,
+      );
+    }
+    if (result.status !== 'updated') {
+      throw new AuthHttpException(
+        'INVALID_PROFILE_UPDATE',
+        'Profile update is invalid',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    return result.user;
   }
 
   private rejectRateLimit(result: {

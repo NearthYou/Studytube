@@ -19,6 +19,8 @@ import type {
   RateLimitResult,
   RevokeActiveSessionCommand,
   RevokeActiveSessionResult,
+  UpdateProfileCommand,
+  UpdateProfileResult,
 } from './auth.types';
 
 export class AuthRepositoryUnavailableError extends Error {
@@ -46,6 +48,7 @@ export interface AuthRepository {
     command: CompleteRegistrationCommand,
   ): Promise<CompleteRegistrationResult>;
   commitLogin(command: CommitLoginCommand): Promise<CommitLoginResult>;
+  updateProfile(command: UpdateProfileCommand): Promise<UpdateProfileResult>;
   findActiveSession(
     command: FindActiveSessionCommand,
   ): Promise<FindActiveSessionResult>;

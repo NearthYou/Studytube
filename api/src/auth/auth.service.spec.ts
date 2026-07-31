@@ -56,6 +56,16 @@ function createRepository(): AuthRepositoryMock {
         createdAt: NOW.toISOString(),
       },
     }),
+    updateProfile: jest.fn().mockResolvedValue({
+      status: 'updated',
+      user: {
+        id: 7,
+        name: 'Ada',
+        email: 'ada@example.com',
+        preferences: { interests: [], pace: '', goal: '' },
+        createdAt: NOW.toISOString(),
+      },
+    }),
     findActiveSession: jest.fn().mockResolvedValue({ status: 'invalid' }),
     revokeActiveSession: jest.fn().mockResolvedValue({ status: 'revoked' }),
     findEnrollmentReadiness: jest.fn().mockResolvedValue({ status: 'ready' }),
@@ -124,6 +134,7 @@ function authUser(
     name: 'Ada',
     email: 'ada@example.com',
     emailCanonical: 'ada@example.com',
+    preferences: { interests: [], pace: '', goal: '' },
     createdAt: NOW.toISOString(),
     passwordHash: createHash('sha256')
       .update('correct horse battery staple')
@@ -467,6 +478,67 @@ describe('AuthService enrollment', () => {
         '203.0.113.7',
       ),
     ).resolves.toEqual({ status: 'conflict' });
+  });
+});
+
+describe('AuthService profile', () => {
+  const publicUser = {
+    id: 7,
+    name: 'Ada',
+    email: 'ada@example.com',
+    preferences: { interests: [], pace: '', goal: '' },
+    createdAt: NOW.toISOString(),
+  };
+
+  it('verifies the current password without returning credential fields', async () => {
+    const { service, repository, passwordHasher } = createService();
+    repository.findAuthUser.mockResolvedValue({ user: authUser() });
+    passwordHasher.verify.mockResolvedValueOnce({
+      valid: true,
+      needsRehash: false,
+      algorithm: 'argon2id',
+    });
+
+    await expect(
+      service.verifyProfile(publicUser, 'current password'),
+    ).resolves.toEqual({
+      status: 'verified',
+      user: publicUser,
+    });
+  });
+
+  it('updates learning preferences without asking for the current password', async () => {
+    const { service, repository } = createService();
+    const preferences = {
+      interests: ['Docker'],
+      pace: '10분',
+      goal: '마스터하기',
+    };
+    repository.updateProfile.mockResolvedValueOnce({
+      status: 'updated',
+      user: { ...publicUser, preferences },
+    });
+
+    await expect(
+      service.updateProfile(
+        { sessionId: SESSION_ID, user: publicUser },
+        { preferences },
+      ),
+    ).resolves.toEqual({
+      status: 'updated',
+      user: { ...publicUser, preferences },
+    });
+
+    expect(repository.findAuthUser).not.toHaveBeenCalled();
+    expect(repository.updateProfile).toHaveBeenCalledWith({
+      userId: 7,
+      sessionId: SESSION_ID,
+      name: undefined,
+      preferences,
+      expectedPasswordHash: undefined,
+      expectedPasswordVersion: undefined,
+      passwordUpgrade: undefined,
+    });
   });
 });
 

@@ -79,35 +79,50 @@ export async function requestJson<T>(
   path: string,
   options: RequestInit = {},
 ): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...options,
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      ...options.headers,
-    },
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      ...options,
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        ...options.headers,
+      },
+    });
+  } catch {
+    throw new ApiRequestError(
+      0,
+      "서버에 연결하지 못했습니다. 잠시 후 다시 시도해주세요.",
+    );
+  }
 
   if (!response.ok) {
-    if (response.status === 401) {
-      unauthorizedHandler?.();
-    }
-    let message = `API ${response.status}: ${response.statusText}`;
+    let code: string | undefined;
+    let serverMessage: string | undefined;
 
     try {
       const errorBody = (await response.json()) as {
+        code?: string;
         error?: string;
         message?: string | string[];
       };
       const bodyMessage = Array.isArray(errorBody.message)
         ? errorBody.message.join(" ")
         : errorBody.message;
-      message = bodyMessage || errorBody.error || message;
+      code = errorBody.code;
+      serverMessage = bodyMessage || errorBody.error;
     } catch {
-      // Keep the HTTP fallback message when the response body is not JSON.
+      // The Korean status fallback below is safe for non-JSON proxy errors.
     }
 
-    throw new ApiRequestError(response.status, message);
+    if (response.status === 401 && code === "UNAUTHORIZED") {
+      unauthorizedHandler?.();
+    }
+
+    throw new ApiRequestError(
+      response.status,
+      localizedApiError(response.status, code, serverMessage),
+    );
   }
 
   if (response.status === 204) {
@@ -115,6 +130,58 @@ export async function requestJson<T>(
   }
 
   return response.json() as Promise<T>;
+}
+
+function localizedApiError(
+  status: number,
+  code?: string,
+  serverMessage?: string,
+): string {
+  if (/Password must be 8 to 128 UTF-8 bytes/i.test(serverMessage ?? "")) {
+    return "비밀번호는 8~128바이트로 입력해주세요.";
+  }
+  if (
+    /Password must not contain control characters/i.test(serverMessage ?? "")
+  ) {
+    return "비밀번호에는 제어 문자를 사용할 수 없습니다.";
+  }
+
+  const codeMessages: Record<string, string> = {
+    INVALID_CREDENTIALS: "이메일 또는 비밀번호가 올바르지 않습니다.",
+    INVALID_CURRENT_PASSWORD: "현재 비밀번호가 올바르지 않습니다.",
+    INVALID_ENROLLMENT:
+      "가입 세션이 없거나 만료되었습니다. 이메일 인증부터 다시 시작해주세요.",
+    INVALID_PROFILE_UPDATE: "수정할 계정 정보를 확인해주세요.",
+    INVALID_REQUEST: "입력값을 확인해주세요.",
+    INVALID_VERIFICATION: "인증 링크가 유효하지 않거나 만료되었습니다.",
+    PROFILE_NOT_FOUND: "계정 정보를 찾을 수 없습니다.",
+    RATE_LIMITED: "요청이 너무 많습니다. 잠시 후 다시 시도해주세요.",
+    REGISTRATION_CONFLICT:
+      "이미 처리된 가입 요청입니다. 이메일 인증부터 다시 시작해주세요.",
+    SERVICE_UNAVAILABLE:
+      "서비스가 일시적으로 불안정합니다. 잠시 후 다시 시도해주세요.",
+    UNAUTHORIZED: "로그인이 필요합니다.",
+  };
+  if (code && codeMessages[code]) {
+    return codeMessages[code];
+  }
+
+  const statusMessages: Record<number, string> = {
+    400: "입력값을 확인해주세요.",
+    401: "로그인이 필요합니다.",
+    403: "이 작업을 수행할 권한이 없습니다.",
+    404: "요청한 기능을 찾을 수 없습니다.",
+    409: "다른 변경과 충돌했습니다. 새로고침 후 다시 시도해주세요.",
+    429: "요청이 너무 많습니다. 잠시 후 다시 시도해주세요.",
+    500: "요청을 처리하지 못했습니다. 잠시 후 다시 시도해주세요.",
+    502: "서버 연결이 원활하지 않습니다. 잠시 후 다시 시도해주세요.",
+    503: "서비스가 일시적으로 불안정합니다. 잠시 후 다시 시도해주세요.",
+    504: "서버 응답이 늦어지고 있습니다. 잠시 후 다시 시도해주세요.",
+  };
+  return (
+    statusMessages[status] ??
+    "요청을 처리하지 못했습니다. 잠시 후 다시 시도해주세요."
+  );
 }
 
 export function apiBaseUrl() {

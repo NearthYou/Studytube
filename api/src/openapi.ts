@@ -18,6 +18,12 @@ const jsonResponseSchemas: Record<string, Schema> = {
   AuthController_completeRegistration: userEnvelopeSchema(),
   AuthController_login: userEnvelopeSchema(),
   AuthController_getMe: { $ref: '#/components/schemas/AuthPublicUser' },
+  AuthController_verifyProfile: {
+    $ref: '#/components/schemas/AuthPublicUser',
+  },
+  AuthController_updateProfile: {
+    $ref: '#/components/schemas/AuthPublicUser',
+  },
   AppController_getHealth: { $ref: '#/components/schemas/Liveness' },
   AppController_getLiveness: { $ref: '#/components/schemas/Liveness' },
   AppController_getReadiness: { $ref: '#/components/schemas/Readiness' },
@@ -85,7 +91,21 @@ export function createOpenApiDocument(app: INestApplication) {
         id: { type: 'integer', minimum: 1 },
         name: { type: 'string' },
         email: { type: 'string', format: 'email' },
+        preferences: { $ref: '#/components/schemas/LearningPreferences' },
         createdAt: { type: 'string', format: 'date-time' },
+      },
+    },
+    LearningPreferences: {
+      type: 'object',
+      required: ['interests', 'pace', 'goal'],
+      properties: {
+        interests: {
+          type: 'array',
+          maxItems: 8,
+          items: { type: 'string', maxLength: 100 },
+        },
+        pace: { type: 'string', maxLength: 100 },
+        goal: { type: 'string', maxLength: 500 },
       },
     },
     DatabaseHealth: {

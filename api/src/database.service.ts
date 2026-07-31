@@ -34,11 +34,14 @@ import type {
   RateLimitResult,
   RevokeActiveSessionCommand,
   RevokeActiveSessionResult,
+  UpdateProfileCommand,
+  UpdateProfileResult,
 } from './auth/auth.types';
 import {
   iso,
   normalizeComment,
   normalizeFeedback,
+  normalizePreferences,
   normalizeTagNames,
   normalizeVideoAsset,
   type PostRow,
@@ -368,6 +371,7 @@ export class DatabaseService
       const result = await this.pool.query<AuthUserCredentialRow>(
         `
           SELECT id, name, email,
+                 preferences,
                  email_canonical AS "emailCanonical",
                  password_hash AS "passwordHash",
                  password_algorithm AS "passwordAlgorithm",
@@ -385,6 +389,7 @@ export class DatabaseService
         user: row
           ? {
               ...row,
+              preferences: normalizePreferences(row.preferences),
               createdAt: new Date(row.createdAt).toISOString(),
             }
           : null,
@@ -760,6 +765,7 @@ export class DatabaseService
         id: number;
         name: string;
         email: string;
+        preferences: unknown;
         createdAt: Date | string;
       };
       let user: InsertedUser | undefined;
@@ -772,7 +778,7 @@ export class DatabaseService
               identity_assurance, email_verified_at
             )
             VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9)
-            RETURNING id, name, email, created_at AS "createdAt"
+            RETURNING id, name, email, preferences, created_at AS "createdAt"
           `,
           [
             command.name,
@@ -833,6 +839,7 @@ export class DatabaseService
           id: user.id,
           name: user.name,
           email: user.email,
+          preferences: normalizePreferences(user.preferences),
           createdAt: new Date(user.createdAt).toISOString(),
         },
       };
@@ -865,6 +872,7 @@ export class DatabaseService
       const locked = await client.query<AuthUserCredentialRow>(
         `
           SELECT id, name, email,
+                 preferences,
                  email_canonical AS "emailCanonical",
                  password_hash AS "passwordHash",
                  password_algorithm AS "passwordAlgorithm",
@@ -951,6 +959,127 @@ export class DatabaseService
           id: user.id,
           name: user.name,
           email: user.email,
+          preferences: normalizePreferences(user.preferences),
+          createdAt: new Date(user.createdAt).toISOString(),
+        },
+      };
+    } catch {
+      try {
+        await rollback();
+      } catch {
+        throw this.authPersistenceError();
+      }
+      throw this.authPersistenceError();
+    } finally {
+      client.release();
+    }
+  }
+
+  async updateProfile(
+    command: UpdateProfileCommand,
+  ): Promise<UpdateProfileResult> {
+    const client = await this.connectAuthClient();
+    let transactionOpen = false;
+    const rollback = async () => {
+      if (!transactionOpen) {
+        return;
+      }
+      await client.query('ROLLBACK');
+      transactionOpen = false;
+    };
+
+    try {
+      await client.query('BEGIN');
+      transactionOpen = true;
+      const locked = await client.query<AuthUserCredentialRow>(
+        `
+          SELECT id, name, email,
+                 preferences,
+                 email_canonical AS "emailCanonical",
+                 password_hash AS "passwordHash",
+                 password_algorithm AS "passwordAlgorithm",
+                 password_parameters AS "passwordParameters",
+                 password_version AS "passwordVersion",
+                 identity_assurance AS "identityAssurance",
+                 created_at AS "createdAt"
+          FROM users
+          WHERE id = $1
+          FOR UPDATE
+        `,
+        [command.userId],
+      );
+      const current = locked.rows[0];
+      if (!current) {
+        await rollback();
+        return { status: 'missing' };
+      }
+
+      const checksCredential =
+        command.expectedPasswordHash !== undefined ||
+        command.expectedPasswordVersion !== undefined;
+      if (
+        checksCredential &&
+        (command.expectedPasswordHash === undefined ||
+          command.expectedPasswordVersion === undefined ||
+          current.passwordHash !== command.expectedPasswordHash ||
+          current.passwordVersion !== command.expectedPasswordVersion)
+      ) {
+        await rollback();
+        return { status: 'stale' };
+      }
+
+      const updated = await client.query<ProfileUserRow>(
+        `
+          UPDATE users
+          SET name = COALESCE($2::text, name),
+              preferences = COALESCE($3::jsonb, preferences),
+              password_hash = COALESCE($4::text, password_hash),
+              password_algorithm = COALESCE($5::text, password_algorithm),
+              password_parameters = COALESCE($6::jsonb, password_parameters),
+              password_version = COALESCE($7::integer, password_version)
+          WHERE id = $1
+          RETURNING id, name, email, preferences, created_at AS "createdAt"
+        `,
+        [
+          command.userId,
+          command.name ?? null,
+          command.preferences ? JSON.stringify(command.preferences) : null,
+          command.passwordUpgrade?.passwordHash ?? null,
+          command.passwordUpgrade?.passwordAlgorithm ?? null,
+          command.passwordUpgrade
+            ? JSON.stringify(command.passwordUpgrade.passwordParameters)
+            : null,
+          command.passwordUpgrade?.passwordVersion ?? null,
+        ],
+      );
+      const user = updated.rows[0];
+      if (!user) {
+        throw this.authPersistenceError();
+      }
+
+      if (command.passwordUpgrade) {
+        await client.query(
+          `
+            UPDATE sessions
+            SET revoked_at = statement_timestamp(),
+                revoke_reason = 'password_change'
+            WHERE user_id = $1
+              AND id <> $2
+              AND revoked_at IS NULL
+          `,
+          [command.userId, command.sessionId],
+        );
+      }
+
+      await client.query('COMMIT');
+      transactionOpen = false;
+      return {
+        status: 'updated',
+        user: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          preferences: normalizePreferences(user.preferences),
           createdAt: new Date(user.createdAt).toISOString(),
         },
       };
@@ -978,6 +1107,7 @@ export class DatabaseService
                    s.last_seen_at AS "lastSeenAt",
                    u.name,
                    u.email,
+                   u.preferences,
                    u.created_at AS "userCreatedAt"
             FROM sessions s
             JOIN users u ON u.id = s.user_id
@@ -999,7 +1129,7 @@ export class DatabaseService
                   statement_timestamp() - interval '15 minutes'
             RETURNING s.id
           )
-          SELECT "sessionId", "userId", name, email, "userCreatedAt"
+          SELECT "sessionId", "userId", name, email, preferences, "userCreatedAt"
           FROM active_session
         `,
         [command.sessionDigest],
@@ -1018,6 +1148,7 @@ export class DatabaseService
           id: row.userId,
           name: row.name,
           email: row.email,
+          preferences: normalizePreferences(row.preferences),
           createdAt: new Date(row.userCreatedAt).toISOString(),
         }),
       });
@@ -1983,6 +2114,7 @@ type AuthUserCredentialRow = {
   id: number;
   name: string;
   email: string;
+  preferences: unknown;
   emailCanonical: string;
   passwordHash: string;
   passwordAlgorithm: 'argon2id' | 'legacy_sha256' | 'disabled';
@@ -1997,7 +2129,16 @@ type ActiveSessionRow = {
   userId: number;
   name: string;
   email: string;
+  preferences: unknown;
   userCreatedAt: Date | string;
+};
+
+type ProfileUserRow = {
+  id: number;
+  name: string;
+  email: string;
+  preferences: unknown;
+  createdAt: Date | string;
 };
 
 function authDigestMatches(stored: Buffer, presented: Buffer): boolean {

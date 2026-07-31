@@ -27,6 +27,7 @@ import type {
   PasswordUpgrade,
   RateLimitResult,
 } from './auth.types';
+import type { LearningPreferences } from '../study-board.types';
 import { renderVerificationEmail } from './verification-email';
 
 export type VerificationTokenFactory = (
@@ -43,6 +44,7 @@ type AuthServiceRepository = Pick<
   | 'completeRegistration'
   | 'findAuthUser'
   | 'commitLogin'
+  | 'updateProfile'
   | 'findActiveSession'
   | 'revokeActiveSession'
   | 'findEnrollmentReadiness'
@@ -108,6 +110,23 @@ export type SessionAuthentication =
 export type LogoutResult = { status: 'revoked' } | { status: 'invalid' };
 
 export type RegistrationReadiness = { status: 'ready' } | { status: 'invalid' };
+
+export type ProfileVerification =
+  | { status: 'verified'; user: AuthPublicUser }
+  | { status: 'invalid_credentials' };
+
+export type ProfileUpdate =
+  | { status: 'updated'; user: AuthPublicUser }
+  | { status: 'invalid_input' }
+  | { status: 'invalid_credentials' }
+  | { status: 'not_found' };
+
+export type ProfileUpdateInput = {
+  currentPassword?: string;
+  name?: string;
+  password?: string;
+  preferences?: LearningPreferences;
+};
 
 const ASCII_PRINTABLE_PATTERN = /^[\x20-\x7e]+$/u;
 const EMAIL_PATTERN =
@@ -344,6 +363,82 @@ export class AuthService {
     return { status: 'invalid' };
   }
 
+  async verifyProfile(
+    user: Readonly<AuthPublicUser>,
+    currentPassword: string,
+  ): Promise<ProfileVerification> {
+    const credential = await this.findProfileCredential(user.email);
+    if (
+      !credential ||
+      !(await this.isCurrentPasswordValid(credential, currentPassword))
+    ) {
+      return { status: 'invalid_credentials' };
+    }
+    return { status: 'verified', user: profileUser(credential) };
+  }
+
+  async updateProfile(
+    principal: Readonly<{
+      sessionId: string;
+      user: Readonly<AuthPublicUser>;
+    }>,
+    input: ProfileUpdateInput,
+  ): Promise<ProfileUpdate> {
+    const changesName = input.name !== undefined;
+    const changesPassword = input.password !== undefined;
+    const changesPreferences = input.preferences !== undefined;
+    if (!changesName && !changesPassword && !changesPreferences) {
+      return { status: 'invalid_input' };
+    }
+
+    let name: string | undefined;
+    let preferences: LearningPreferences | undefined;
+    try {
+      name = changesName ? normalizeName(input.name!) : undefined;
+      preferences = changesPreferences
+        ? normalizeLearningPreferences(input.preferences!)
+        : undefined;
+      if (changesPassword) {
+        this.passwordHasher.validate(input.password!);
+      }
+    } catch {
+      return { status: 'invalid_input' };
+    }
+
+    let credential: AuthUserCredential | null = null;
+    if (changesName || changesPassword) {
+      credential = await this.findProfileCredential(principal.user.email);
+      if (
+        !credential ||
+        !input.currentPassword ||
+        !(await this.isCurrentPasswordValid(credential, input.currentPassword))
+      ) {
+        return { status: 'invalid_credentials' };
+      }
+    }
+
+    const passwordUpgrade =
+      changesPassword && credential
+        ? await this.createPasswordUpgrade(credential, input.password!)
+        : undefined;
+    const result = await this.repository.updateProfile({
+      userId: principal.user.id,
+      sessionId: principal.sessionId,
+      name,
+      preferences,
+      expectedPasswordHash: credential?.passwordHash,
+      expectedPasswordVersion: credential?.passwordVersion,
+      passwordUpgrade,
+    });
+    if (result.status === 'missing') {
+      return { status: 'not_found' };
+    }
+    if (result.status === 'stale') {
+      return { status: 'invalid_credentials' };
+    }
+    return result;
+  }
+
   async authenticateSession(
     sessionToken: string,
   ): Promise<SessionAuthentication> {
@@ -493,6 +588,36 @@ export class AuthService {
     );
   }
 
+  private async findProfileCredential(
+    email: string,
+  ): Promise<AuthUserCredential | null> {
+    let emailCanonical: string;
+    try {
+      emailCanonical = canonicalizeAuthEmail(email);
+    } catch {
+      return null;
+    }
+    return (await this.repository.findAuthUser({ emailCanonical })).user;
+  }
+
+  private async isCurrentPasswordValid(
+    user: AuthUserCredential,
+    password: string,
+  ): Promise<boolean> {
+    if (!isLoginCredential(user)) {
+      return false;
+    }
+    try {
+      return (await this.passwordHasher.verify(user.passwordHash, password))
+        .valid;
+    } catch (error) {
+      if (error instanceof PasswordValidationError) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
   private async createPasswordUpgrade(
     user: AuthUserCredential,
     password: string,
@@ -556,6 +681,45 @@ function normalizeName(name: string): string {
     throw new RangeError('Invalid name');
   }
   return normalized;
+}
+
+function normalizeLearningPreferences(
+  preferences: LearningPreferences,
+): LearningPreferences {
+  const interests = preferences.interests.map((interest) =>
+    normalizeProfileText(interest, 100),
+  );
+  if (interests.length === 0 || interests.length > 8) {
+    throw new RangeError('Invalid interests');
+  }
+  return {
+    interests: [...new Set(interests)],
+    pace: normalizeProfileText(preferences.pace, 100),
+    goal: normalizeProfileText(preferences.goal, 500),
+  };
+}
+
+function normalizeProfileText(value: string, maximumLength: number): string {
+  const normalized = value.trim();
+  if (
+    normalized.length === 0 ||
+    normalized.length > maximumLength ||
+    /\p{Cc}/u.test(normalized) ||
+    /[\uD800-\uDFFF]/u.test(normalized)
+  ) {
+    throw new RangeError('Invalid profile text');
+  }
+  return normalized;
+}
+
+function profileUser(user: AuthUserCredential): AuthPublicUser {
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    preferences: user.preferences,
+    createdAt: user.createdAt,
+  };
 }
 
 function isLoginCredential(user: AuthUserCredential): boolean {

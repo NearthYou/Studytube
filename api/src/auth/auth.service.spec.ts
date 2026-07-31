@@ -403,6 +403,30 @@ describe('AuthService enrollment', () => {
     );
   });
 
+  it('reports an invalid password as input failure without blaming the enrollment', async () => {
+    const { service, repository, passwordHasher } = createService();
+    passwordHasher.validate.mockImplementationOnce(() => {
+      throw new PasswordValidationError(
+        'Password must be 8 to 128 UTF-8 bytes',
+      );
+    });
+
+    await expect(
+      service.completeRegistration(
+        {
+          enrollmentToken: ENROLLMENT_TOKEN,
+          name: 'Ada',
+          password: '1234',
+        },
+        '203.0.113.7',
+      ),
+    ).rejects.toThrow(PasswordValidationError);
+
+    expect(repository.findEnrollmentCandidate).not.toHaveBeenCalled();
+    expect(repository.consumeRateLimit).not.toHaveBeenCalled();
+    expect(passwordHasher.hash).not.toHaveBeenCalled();
+  });
+
   it('closes attacker pre-registration by refusing to hash without a live proof', async () => {
     const { service, repository, passwordHasher } = createService();
     repository.findEnrollmentCandidate.mockResolvedValueOnce({

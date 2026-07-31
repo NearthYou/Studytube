@@ -839,9 +839,14 @@ function RegistrationCompletionPage({
               placeholder="비밀번호"
               type="password"
               autoComplete="new-password"
+              aria-describedby="registration-password-hint"
               disabled={isSubmitting}
               required
             />
+            <small id="registration-password-hint">
+              비밀번호는 8~128바이트로 입력해주세요. 영문과 숫자는 8자
+              이상입니다.
+            </small>
             <button type="submit" disabled={isSubmitting}>
               {isSubmitting ? "처리 중" : "가입 완료"}
             </button>

@@ -443,6 +443,9 @@ async function lstatIfExists(path: string) {
 
 function classifySesFailure(error: unknown): VerificationEmailDeliveryError {
   const name = errorName(error);
+  if (name === 'AccessDeniedException') {
+    return new VerificationEmailDeliveryError('ses_access_denied', false);
+  }
   if (
     name === 'ThrottlingException' ||
     name === 'TooManyRequestsException' ||

@@ -6,7 +6,10 @@ import type {
   VerificationEmailOutboxRepository,
 } from './verification-email-outbox.repository';
 import { VerificationEmailOutboxWorker } from './verification-email-outbox.worker';
-import { VerificationEmailDeliveryError } from './verification-email-sender';
+import {
+  SesV2VerificationEmailSender,
+  VerificationEmailDeliveryError,
+} from './verification-email-sender';
 import type { VerificationEmailSender } from './verification-email-sender';
 import { renderVerificationEmail } from './verification-email';
 
@@ -115,6 +118,54 @@ describe('VerificationEmailOutboxWorker', () => {
       failedAt: NOW,
     });
     expect(terminal.availableAt).toBeUndefined();
+  });
+
+  it('dead-letters SES access denial without persisting provider details', async () => {
+    const providerDetail =
+      'credential-canary https://provider.invalid/signup/verify#verification=url-canary';
+    const repository = repositoryWith(CLAIM);
+    const sender = new SesV2VerificationEmailSender(
+      {
+        send: jest.fn().mockRejectedValue(
+          Object.assign(new Error(providerDetail), {
+            name: 'AccessDeniedException',
+            $metadata: { httpStatusCode: 403 },
+          }),
+        ),
+      } as never,
+      5_000,
+    );
+    const logs: Array<{ event: string; fields: Record<string, unknown> }> = [];
+    const worker = workerWith(repository, sender, logs);
+
+    await expect(worker.deliverOnce()).resolves.toBe('dead_lettered');
+
+    expect(repository.release).toHaveBeenCalledWith({
+      id: CLAIM.id,
+      leaseToken: CLAIM.leaseToken,
+      now: NOW,
+      errorCode: 'ses_access_denied',
+      failedAt: NOW,
+    });
+    expect(logs).toEqual([
+      {
+        event: 'verification_email_delivery_failed',
+        fields: {
+          outbox_id: CLAIM.id,
+          attempt: 1,
+          error_code: 'ses_access_denied',
+          outcome: 'dead_lettered',
+          delivery_semantics: 'at_least_once',
+          duplicate_delivery_possible: false,
+        },
+      },
+    ]);
+    const persisted = JSON.stringify({
+      release: repository.release.mock.calls,
+      logs,
+    });
+    expect(persisted).not.toContain('credential-canary');
+    expect(persisted).not.toContain('url-canary');
   });
 
   it('marks an ambiguous provider timeout as a duplicate-capable retry', async () => {

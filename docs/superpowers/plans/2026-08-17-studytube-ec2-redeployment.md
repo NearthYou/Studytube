@@ -263,11 +263,17 @@ Launch one current Ubuntu 24.04 LTS x86_64 instance with:
 
 Use user data only for prerequisite installation and SSM readiness. It must not contain runtime secrets.
 
-- [ ] **Step 5: Allocate and associate one Elastic IP**
+- [ ] **Step 5: Retarget the least-privilege deploy policy**
+
+Update only the `StudyTubeImmutableDeploy` inline policy statement that authorizes `ssm:SendCommand` so its EC2 resource is the newly launched `studytube-prod` instance ARN. Keep the repository/branch trust, SSM document, release bucket paths, diagnostics paths, and result-read actions unchanged. Remove the terminated instance ARN from the policy and verify no other instance is authorized.
+
+The release bucket name is recreated with the same account-derived name, so the existing bucket ARN conditions remain valid after the bucket exists. Recheck the runtime role's bucket and CloudWatch resource statements without widening them.
+
+- [ ] **Step 6: Allocate and associate one Elastic IP**
 
 Allocate one VPC Elastic IP, associate it only with `studytube-prod`, and tag it for StudyTube. Verify that the instance has no second billable public IPv4 allocation.
 
-- [ ] **Step 6: Recreate DNS without repurchasing the domain**
+- [ ] **Step 7: Recreate DNS without repurchasing the domain**
 
 Create one public hosted zone for `studytube.page`. Copy its four authoritative name servers into the already-registered domain's name-server configuration, then create an apex A record pointing to the new Elastic IP. Do not register or renew the domain and keep auto-renew off.
 
@@ -345,17 +351,17 @@ The SSM command generates and writes secrets without echoing them. Its output ma
 
 Check only whether the approved StudyTube SecureString parameter exists; do not print its value. If it exists, grant the runtime role read access to that exact parameter and have the instance append `OPENAI_API_KEY` locally. If it does not exist, pause for the user to enter the key directly into an AWS SecureString field, then continue. Do not copy a key from browser storage, local files, shell history, chat, or logs.
 
-- [ ] **Step 5: Validate the config boundary**
+- [ ] **Step 5: Preflight the config boundary without exposing values**
 
-Run the checked-in validator through SSM after the first release downloads it:
+Before the first release exists, run a read-only SSM preflight that reports only ownership, mode, regular-file status, duplicate key names, and the presence of required key names. It must not print values.
 
 ```bash
-sudo bash /opt/studytube/current/scripts/ssm-deploy-release.sh \
-  validate-config-content \
-  --config-file /etc/studytube/deployment.env
+sudo stat -c '%U:%G %a %F' /etc/studytube/deployment.env
+sudo awk -F= '{print $1}' /etc/studytube/deployment.env | sort | uniq -d
+sudo awk -F= '{print $1}' /etc/studytube/deployment.env | sort
 ```
 
-Expected: `deployment config content is safe to load`. Any command substitution, symlink, wrong owner, wrong mode, duplicate key, or malformed line is a blocker.
+Expected: `root:root 600 regular file`, no duplicate-key output, and every required key name appears once. During Task 6, the uploaded checked-in `ssm-deploy-release.sh` performs the authoritative content validation before loading the config. Any command substitution, symlink, wrong owner, wrong mode, duplicate key, or malformed line blocks deployment without replacing the active release.
 
 ---
 

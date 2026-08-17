@@ -30,7 +30,7 @@ StudyTube는 단순한 영상 북마크가 아니라 다음 흐름을 한곳에 
 - 영상 구간 진도와 퀴즈 기록
 - 중단 뒤에도 다시 처리할 수 있는 백그라운드 작업
 
-현재 공개 배포는 개인 프로젝트 데모다. AWS SES가 sandbox 상태라 임의의 새 이메일 주소로 가입 메일을 보내는 기능은 제한되어 있다.
+현재 공개 배포는 개인 프로젝트 데모다. AWS SES 도메인 인증과 production 발송 권한을 사용해 가입 메일을 보낸다.
 
 ## 구조
 
@@ -73,13 +73,13 @@ flowchart LR
 
 ## 확인한 결과
 
-2026-07-30 기준으로 다음을 다시 실행했다.
+2026-08-17 배포 기준으로 다음을 다시 실행했다.
 
-- API 단위 테스트 642건
+- API 테스트 652건 통과, 환경 의존 테스트 1건 제외
 - 실제 PostgreSQL과 Valkey를 사용한 API E2E 68건
-- Web 테스트 179건
+- Web 테스트 183건
 - AI 테스트 119건 통과, 환경 의존 테스트 6건 제외
-- GitHub Actions의 Web, API, Backend Integration, AI, secret scan 통과
+- GitHub Actions의 Web, API, Backend Integration, AI, secret scan과 EC2 배포 통과
 
 CI와 배포 기록은 [GitHub Actions](https://github.com/NearthYou/studytube/actions/workflows/ci-cd.yml)에서 확인할 수 있다.
 

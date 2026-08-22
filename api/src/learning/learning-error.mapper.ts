@@ -7,6 +7,8 @@ import {
   LearningLeaseLostError,
   LearningLifecycleError,
   LearningNotFoundError,
+  LearningProposalExpiredError,
+  LearningProposalRejectedError,
   LearningQuizStaleError,
   LearningPersistenceUnavailableError,
   LearningValidationError,
@@ -34,6 +36,12 @@ export function throwLearningHttpError(error: unknown): never {
     error instanceof LearningLifecycleError ||
     error instanceof LearningLeaseLostError ||
     error instanceof LearningQuizStaleError
+  ) {
+    throw new AuthHttpException(error.code, error.message, HttpStatus.CONFLICT);
+  }
+  if (
+    error instanceof LearningProposalExpiredError ||
+    error instanceof LearningProposalRejectedError
   ) {
     throw new AuthHttpException(error.code, error.message, HttpStatus.CONFLICT);
   }

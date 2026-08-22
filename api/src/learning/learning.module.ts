@@ -26,6 +26,11 @@ import {
   type ProviderBudgetRepository,
 } from './provider-budget.repository';
 import { PostgresProviderBudgetRepository } from './postgres-provider-budget.repository';
+import {
+  LEARNING_PROPOSAL_REPOSITORY,
+  type LearningProposalRepository,
+} from './learning-proposal.repository';
+import { PostgresLearningProposalRepository } from './postgres-learning-proposal.repository';
 
 @Module({
   imports: [AuthModule, ConfigModule],
@@ -89,10 +94,18 @@ import { PostgresProviderBudgetRepository } from './postgres-provider-budget.rep
       inject: [PROVIDER_BUDGET_REPOSITORY, LEARNING_ITEM_REPOSITORY],
     },
     {
+      provide: LEARNING_PROPOSAL_REPOSITORY,
+      useFactory: (database: LearningDatabase): LearningProposalRepository =>
+        new PostgresLearningProposalRepository(database.pool),
+      inject: [LearningDatabase],
+    },
+    {
       provide: LearningService,
-      useFactory: (repository: LearningRepository) =>
-        new LearningService(repository),
-      inject: [LEARNING_REPOSITORY],
+      useFactory: (
+        repository: LearningRepository,
+        proposals: LearningProposalRepository,
+      ) => new LearningService(repository, proposals),
+      inject: [LEARNING_REPOSITORY, LEARNING_PROPOSAL_REPOSITORY],
     },
   ],
   exports: [
@@ -100,6 +113,7 @@ import { PostgresProviderBudgetRepository } from './postgres-provider-budget.rep
     LEARNING_NOTE_REPOSITORY,
     PROVIDER_BUDGET_REPOSITORY,
     LEARNING_REPOSITORY,
+    LEARNING_PROPOSAL_REPOSITORY,
     LearningService,
   ],
 })

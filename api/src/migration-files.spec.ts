@@ -559,6 +559,21 @@ describe('database migration files', () => {
     expect(migration).not.toMatch(/DROP TABLE|TRUNCATE|DELETE FROM/iu);
   });
 
+  it('adds immutable next-learning proposals with atomic approval fields', async () => {
+    const migration = await readFile(
+      join(process.cwd(), 'migrations', '1753660818000_learning-proposals.cjs'),
+      'utf8',
+    );
+    expect(migration).toContain('CREATE TABLE learning_proposals');
+    expect(migration).toContain('payload_digest BYTEA NOT NULL');
+    expect(migration).toContain('approval_target_digest BYTEA');
+    expect(migration).toContain(
+      "'pending', 'approved', 'dismissed', 'expired'",
+    );
+    expect(migration).toContain('learning proposals rollback refused');
+    expect(migration).not.toMatch(/DROP TABLE|TRUNCATE|DELETE FROM/iu);
+  });
+
   it('checks in a complete legacy runtime fixture with data and sequence state', async () => {
     const fixturePath = join(
       process.cwd(),

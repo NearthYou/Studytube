@@ -13,11 +13,13 @@ import { ApiHeader } from '@nestjs/swagger';
 import type { AuthenticatedRequest } from '../auth/session.guard';
 import {
   AdaptiveQuizLoopParamDto,
+  ApproveLearningProposalDto,
   AgentRunParamDto,
   CourseStepParamDto,
   CreateAgentRunDto,
   ExpectedVersionDto,
   LearningContextParamDto,
+  LearningProposalParamDto,
   QuizParamDto,
   RequestAdaptiveQuizDto,
   RecordProgressDto,
@@ -246,6 +248,60 @@ export class LearningController {
         idempotencyKey,
         body,
       ),
+    );
+  }
+
+  @Post('agent-runs/:runId/next-learning-proposal')
+  @HttpCode(HttpStatus.CREATED)
+  createNextLearningProposal(
+    @Req() request: AuthenticatedRequest,
+    @Param() params: AgentRunParamDto,
+  ) {
+    return boundary(() =>
+      this.service.createNextLearningProposal(
+        request.principal.userId,
+        params.runId,
+      ),
+    );
+  }
+
+  @Get('proposals/:proposalId')
+  getLearningProposal(
+    @Req() request: AuthenticatedRequest,
+    @Param() params: LearningProposalParamDto,
+  ) {
+    return boundary(async () =>
+      required(
+        await this.service.getLearningProposal(
+          request.principal.userId,
+          params.proposalId,
+        ),
+      ),
+    );
+  }
+
+  @Post('proposals/:proposalId/dismiss')
+  @HttpCode(HttpStatus.OK)
+  dismissLearningProposal(
+    @Req() request: AuthenticatedRequest,
+    @Param() params: LearningProposalParamDto,
+  ) {
+    return boundary(() =>
+      this.service.dismissLearningProposal(
+        request.principal.userId,
+        params.proposalId,
+      ),
+    );
+  }
+
+  @Post('proposals/approve')
+  @HttpCode(HttpStatus.OK)
+  approveLearningProposal(
+    @Req() request: AuthenticatedRequest,
+    @Body() body: ApproveLearningProposalDto,
+  ) {
+    return boundary(() =>
+      this.service.approveLearningProposal(request.principal.userId, body),
     );
   }
 }

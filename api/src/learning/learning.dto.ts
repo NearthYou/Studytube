@@ -5,6 +5,7 @@ import {
   IsArray,
   IsDateString,
   IsInt,
+  IsIn,
   IsNumber,
   IsOptional,
   IsString,
@@ -81,6 +82,34 @@ export class LearningContextParamDto {
 export class AdaptiveQuizLoopParamDto {
   @IsUUID('4')
   quizLoopId!: string;
+}
+
+export class LearningProposalParamDto {
+  @IsUUID('4')
+  proposalId!: string;
+}
+
+export class ApproveLearningProposalDto {
+  @IsUUID('4')
+  proposalId!: string;
+
+  @IsIn(['existing_course', 'new_private_course'])
+  targetKind!: 'existing_course' | 'new_private_course';
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  courseId?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  expectedCourseVersion?: number;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 200)
+  title?: string;
 }
 
 export class RequestAdaptiveQuizDto {

@@ -199,3 +199,36 @@ export type AdaptiveQuizSubmission = {
   attempt: AdaptiveQuizAttemptResult;
   reviewProposal: AdaptiveQuizReviewProposal | null;
 };
+
+export type LearningProposalState =
+  | 'pending'
+  | 'approved'
+  | 'dismissed'
+  | 'expired';
+
+export type LearningProposal = {
+  id: string;
+  ownerId: number;
+  agentRunId: string;
+  videoSourceId: string;
+  proposalVersion: number;
+  state: LearningProposalState;
+  candidate: {
+    title: string;
+    videoUrl: string;
+    thumbnailUrl: string;
+    channelName: string;
+    reason: string;
+  };
+  expiresAt: string;
+  approvedCourseId: number | null;
+  approvedCourseVersion: number | null;
+};
+
+export type ProposalApprovalTarget =
+  | {
+      kind: 'existing_course';
+      courseId: number;
+      expectedCourseVersion: number;
+    }
+  | { kind: 'new_private_course'; title: string };

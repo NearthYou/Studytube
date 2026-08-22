@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { LearningValidationError } from './learning.errors';
+import type { LearningProposalRepository } from './learning-proposal.repository';
 import type {
   AuthorizeAgentMcpCallCommand,
   CreateQuizCommand,
@@ -22,7 +23,10 @@ const DEFAULT_BUDGETS: AgentBudgets = {
 };
 
 export class LearningService {
-  constructor(private readonly repository: LearningRepository) {}
+  constructor(
+    private readonly repository: LearningRepository,
+    private readonly proposals?: LearningProposalRepository,
+  ) {}
 
   createRun(
     ownerId: number,
@@ -230,6 +234,72 @@ export class LearningService {
 
   getAdaptiveQuiz(userId: number, loopId: string) {
     return this.repository.findOwnerAdaptiveQuiz(userId, loopId);
+  }
+
+  createNextLearningProposal(ownerId: number, runId: string) {
+    return this.proposalRepository().createFromVerifiedRun(ownerId, runId);
+  }
+
+  getLearningProposal(ownerId: number, proposalId: string) {
+    return this.proposalRepository().findOwnerProposal(ownerId, proposalId);
+  }
+
+  dismissLearningProposal(ownerId: number, proposalId: string) {
+    return this.proposalRepository().dismiss(ownerId, proposalId);
+  }
+
+  approveLearningProposal(
+    ownerId: number,
+    body: {
+      proposalId: string;
+      targetKind: 'existing_course' | 'new_private_course';
+      courseId?: number;
+      expectedCourseVersion?: number;
+      title?: string;
+    },
+  ) {
+    if (body.targetKind === 'existing_course') {
+      if (
+        !Number.isSafeInteger(body.courseId) ||
+        Number(body.courseId) <= 0 ||
+        !Number.isSafeInteger(body.expectedCourseVersion) ||
+        Number(body.expectedCourseVersion) <= 0 ||
+        body.title !== undefined
+      ) {
+        throw new LearningValidationError(
+          'target',
+          '기존 Course와 현재 버전을 선택해주세요.',
+        );
+      }
+      return this.proposalRepository().approve(ownerId, body.proposalId, {
+        kind: 'existing_course',
+        courseId: body.courseId as number,
+        expectedCourseVersion: body.expectedCourseVersion as number,
+      });
+    }
+    const title = typeof body.title === 'string' ? body.title.trim() : '';
+    if (
+      !title ||
+      title.length > 200 ||
+      body.courseId !== undefined ||
+      body.expectedCourseVersion !== undefined
+    ) {
+      throw new LearningValidationError(
+        'target',
+        '새 비공개 Course 이름을 입력해주세요.',
+      );
+    }
+    return this.proposalRepository().approve(ownerId, body.proposalId, {
+      kind: 'new_private_course',
+      title,
+    });
+  }
+
+  private proposalRepository() {
+    if (!this.proposals) {
+      throw new Error('Learning proposal repository is unavailable');
+    }
+    return this.proposals;
   }
 
   loadAdaptiveQuizGeneration(loopId: string) {

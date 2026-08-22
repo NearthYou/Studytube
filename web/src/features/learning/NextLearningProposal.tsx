@@ -51,12 +51,15 @@ export function NextLearningProposal({
             title: selection.title.trim(),
           };
     try {
-      const response = await fetch(`${apiBaseUrl()}/learning/proposals/approve`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
+      const response = await fetch(
+        `${apiBaseUrl()}/learning/proposals/approve`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        },
+      );
       const result = (await response.json()) as {
         approvedCourseId?: number;
         error?: { code?: string };
@@ -82,10 +85,10 @@ export function NextLearningProposal({
       const response = await fetch(
         `${apiBaseUrl()}/learning/proposals/${proposal.id}/dismiss`,
         {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: "{}",
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
         },
       );
       setPhase(response.ok ? "rejected" : "version_conflict");
@@ -106,7 +109,8 @@ export function NextLearningProposal({
     const messages = {
       rejected: "이 제안은 사용하지 않기로 했습니다.",
       expired: "제안 시간이 지나 새 제안이 필요합니다.",
-      version_conflict: "Course가 변경되었습니다. 최신 상태에서 다시 선택해주세요.",
+      version_conflict:
+        "Course가 변경되었습니다. 최신 상태에서 다시 선택해주세요.",
     } as const;
     return (
       <section className="next-learning-proposal" aria-live="polite">

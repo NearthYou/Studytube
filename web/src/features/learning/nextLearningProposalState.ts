@@ -35,7 +35,9 @@ export function canApproveNextProposal(
   if (selection.kind === "existing_course") {
     return selection.courseId > 0 && selection.expectedCourseVersion > 0;
   }
-  return selection.title.trim().length > 0 && selection.title.trim().length <= 200;
+  return (
+    selection.title.trim().length > 0 && selection.title.trim().length <= 200
+  );
 }
 
 export function proposalFailurePhase(code: string): NextProposalPhase {

@@ -36,7 +36,10 @@ test("an existing Course keeps the version shown when the learner selects it", (
 test("expired, rejected and version conflict responses have separate recovery states", () => {
   assert.equal(proposalFailurePhase("LEARNING_PROPOSAL_EXPIRED"), "expired");
   assert.equal(proposalFailurePhase("LEARNING_PROPOSAL_REJECTED"), "rejected");
-  assert.equal(proposalFailurePhase("LEARNING_VERSION_CONFLICT"), "version_conflict");
+  assert.equal(
+    proposalFailurePhase("LEARNING_VERSION_CONFLICT"),
+    "version_conflict",
+  );
 });
 
 test("approval UI submits only proposal identity and target selection", () => {

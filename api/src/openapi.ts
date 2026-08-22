@@ -58,6 +58,18 @@ const jsonResponseSchemas: Record<string, Schema> = {
     $ref: '#/components/schemas/LearningNote',
   },
   LearningItemController_deleteNote: deletedSchema(),
+  LearningController_createNextLearningProposal: {
+    $ref: '#/components/schemas/LearningProposal',
+  },
+  LearningController_getLearningProposal: {
+    $ref: '#/components/schemas/LearningProposal',
+  },
+  LearningController_dismissLearningProposal: {
+    $ref: '#/components/schemas/LearningProposal',
+  },
+  LearningController_approveLearningProposal: {
+    $ref: '#/components/schemas/LearningProposal',
+  },
 };
 
 export function createOpenApiDocument(app: INestApplication) {
@@ -205,6 +217,60 @@ export function createOpenApiDocument(app: INestApplication) {
         body: { type: 'string', minLength: 1, maxLength: 4000 },
         createdAt: { type: 'string', format: 'date-time' },
         updatedAt: { type: 'string', format: 'date-time' },
+      },
+    },
+    LearningProposal: {
+      type: 'object',
+      required: [
+        'id',
+        'ownerId',
+        'agentRunId',
+        'videoSourceId',
+        'proposalVersion',
+        'state',
+        'candidate',
+        'expiresAt',
+        'approvedCourseId',
+        'approvedCourseVersion',
+      ],
+      properties: {
+        id: { type: 'string', format: 'uuid' },
+        ownerId: { type: 'integer', minimum: 1 },
+        agentRunId: { type: 'string', format: 'uuid' },
+        videoSourceId: { type: 'string', pattern: '^[1-9]\\d*$' },
+        proposalVersion: { type: 'integer', minimum: 1 },
+        state: {
+          type: 'string',
+          enum: ['pending', 'approved', 'dismissed', 'expired'],
+        },
+        candidate: {
+          type: 'object',
+          required: [
+            'title',
+            'videoUrl',
+            'thumbnailUrl',
+            'channelName',
+            'reason',
+          ],
+          properties: {
+            title: { type: 'string' },
+            videoUrl: { type: 'string', format: 'uri' },
+            thumbnailUrl: { type: 'string' },
+            channelName: { type: 'string' },
+            reason: { type: 'string' },
+          },
+        },
+        expiresAt: { type: 'string', format: 'date-time' },
+        approvedCourseId: {
+          type: 'integer',
+          minimum: 1,
+          nullable: true,
+        },
+        approvedCourseVersion: {
+          type: 'integer',
+          minimum: 1,
+          nullable: true,
+        },
       },
     },
   };

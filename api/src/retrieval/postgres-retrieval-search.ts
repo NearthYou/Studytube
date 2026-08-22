@@ -24,6 +24,10 @@ type RetrievalHitRow = {
   sourceUrl: string;
   timestampSeconds: number | string | null;
   rankingScore: number | string;
+  endSeconds: number | string | null;
+  resourceId: string | null;
+  readiness: 'partial' | 'ready' | null;
+  artifactGeneration: number | string | null;
 };
 
 type SearchParameters = {
@@ -36,6 +40,7 @@ type SearchParameters = {
   lexicalThreshold?: string;
   vectorMaxDistance?: string;
   rrfK?: string;
+  contextSnapshot?: string;
 };
 
 export class PostgresRetrievalSearch {
@@ -77,7 +82,13 @@ export class PostgresRetrievalSearch {
           sourceUrl: row.sourceUrl,
           timestampSeconds:
             row.timestampSeconds === null ? null : Number(row.timestampSeconds),
+          endSeconds: row.endSeconds === null ? null : Number(row.endSeconds),
         },
+        ...(row.resourceId ? { resourceId: row.resourceId } : {}),
+        ...(row.readiness ? { readiness: row.readiness } : {}),
+        ...(row.artifactGeneration === null
+          ? {}
+          : { artifactGeneration: Number(row.artifactGeneration) }),
       };
     });
   }
@@ -100,6 +111,7 @@ function buildSearch(
       limit: '$4',
       candidateLimit: '$5',
       lexicalThreshold: '$6',
+      contextSnapshot: input.contextSnapshotId ? '$7' : undefined,
     };
     values = [
       input.ownerId,
@@ -108,6 +120,7 @@ function buildSearch(
       limit,
       RETRIEVAL_CANDIDATE_LIMIT,
       RETRIEVAL_LEXICAL_MIN_SIMILARITY,
+      ...(input.contextSnapshotId ? [input.contextSnapshotId] : []),
     ];
     settings = `SELECT set_config(
       'pg_trgm.similarity_threshold',
@@ -122,6 +135,7 @@ function buildSearch(
       limit: '$4',
       candidateLimit: '$5',
       vectorMaxDistance: '$6',
+      contextSnapshot: input.contextSnapshotId ? '$7' : undefined,
     };
     values = [
       input.ownerId,
@@ -130,6 +144,7 @@ function buildSearch(
       limit,
       RETRIEVAL_CANDIDATE_LIMIT,
       RETRIEVAL_VECTOR_MAX_DISTANCE,
+      ...(input.contextSnapshotId ? [input.contextSnapshotId] : []),
     ];
     settings = `SELECT set_config(
       'hnsw.iterative_scan',
@@ -147,6 +162,7 @@ function buildSearch(
       lexicalThreshold: '$7',
       vectorMaxDistance: '$8',
       rrfK: '$9',
+      contextSnapshot: input.contextSnapshotId ? '$10' : undefined,
     };
     values = [
       input.ownerId,
@@ -158,6 +174,7 @@ function buildSearch(
       RETRIEVAL_LEXICAL_MIN_SIMILARITY,
       RETRIEVAL_VECTOR_MAX_DISTANCE,
       RETRIEVAL_RRF_K,
+      ...(input.contextSnapshotId ? [input.contextSnapshotId] : []),
     ];
     settings = `SELECT
       set_config(
@@ -189,7 +206,9 @@ function buildSearch(
       source_ranked AS (
         SELECT ranked.*,
                row_number() OVER (
-                 PARTITION BY source_kind, source_id
+                 PARTITION BY source_kind, source_id,
+                              CASE WHEN source_kind = 'learning_context'
+                                THEN resource_id ELSE '' END
                  ORDER BY ranking_score DESC, id
                ) AS source_chunk_rank
         FROM ranked
@@ -233,6 +252,10 @@ function buildSearch(
              content,
              source_url AS "sourceUrl",
              start_seconds AS "timestampSeconds",
+             end_seconds AS "endSeconds",
+             resource_id AS "resourceId",
+             readiness,
+             artifact_generation AS "artifactGeneration",
              ranking_score AS "rankingScore"
       FROM selected
       ORDER BY CASE visibility WHEN 'private' THEN 0 ELSE 1 END,
@@ -260,6 +283,14 @@ function modalityCandidates(
           SELECT * FROM (
             ${candidateBranch(modality, audience, 'course_step', parameters)}
           ) AS course_step_candidates
+          ${
+            audience === 'private' && parameters.contextSnapshot
+              ? `UNION ALL
+          SELECT * FROM (
+            ${learningContextCandidateBranch(modality, parameters)}
+          ) AS learning_context_candidates`
+              : ''
+          }
         ),
         ${prefix} AS MATERIALIZED (
           SELECT limited.*,
@@ -317,6 +348,10 @@ function candidateBranch(
              retrieval.content,
              retrieval.source_url,
              retrieval.start_seconds,
+             retrieval.end_seconds,
+             NULL::text AS resource_id,
+             NULL::text AS readiness,
+             NULL::integer AS artifact_generation,
              ${metric} AS modality_metric
       FROM retrieval_embeddings AS retrieval
       JOIN posts AS post
@@ -349,6 +384,10 @@ function candidateBranch(
            retrieval.content,
            retrieval.source_url,
            retrieval.start_seconds,
+           retrieval.end_seconds,
+           NULL::text AS resource_id,
+           NULL::text AS readiness,
+           NULL::integer AS artifact_generation,
            ${metric} AS modality_metric
     FROM retrieval_embeddings AS retrieval
     JOIN course_steps AS step
@@ -362,6 +401,72 @@ function candidateBranch(
       AND retrieval.model = ${parameters.model}
       AND ${audienceFilter}
       AND ${courseAccess}
+      AND ${filter}
+    ORDER BY ${metric} ${direction}${candidateTieBreaker}
+    LIMIT ${parameters.candidateLimit}
+  `;
+}
+
+function learningContextCandidateBranch(
+  modality: 'lexical' | 'vector',
+  parameters: SearchParameters,
+): string {
+  const metric =
+    modality === 'lexical'
+      ? `similarity(retrieval.content, ${required(parameters.query)})`
+      : `retrieval.embedding <=> ${required(parameters.embedding)}::vector`;
+  const filter =
+    modality === 'lexical'
+      ? `retrieval.content % ${required(parameters.query)}
+         AND ${metric} >= ${required(parameters.lexicalThreshold)}::real`
+      : `${metric} <= ${required(parameters.vectorMaxDistance)}::double precision`;
+  const direction = modality === 'lexical' ? 'DESC' : 'ASC';
+  const candidateTieBreaker = modality === 'lexical' ? ', retrieval.id' : '';
+  return `
+    SELECT retrieval.id,
+           retrieval.source_kind,
+           retrieval.source_id,
+           retrieval.visibility,
+           COALESCE(source.metadata->>'title', source.canonical_video_id) AS title,
+           retrieval.content,
+           retrieval.source_url,
+           retrieval.start_seconds,
+           retrieval.end_seconds,
+           retrieval.resource_id,
+           retrieval.readiness,
+           retrieval.artifact_generation,
+           ${metric} AS modality_metric
+    FROM retrieval_embeddings AS retrieval
+    JOIN learning_retrieval_context_snapshots AS snapshot
+      ON snapshot.agent_run_id = ${required(parameters.contextSnapshot)}::uuid
+     AND snapshot.owner_id = ${parameters.owner}
+     AND snapshot.study_context_id = retrieval.source_id
+     AND snapshot.context_retrieval_version = retrieval.source_version
+    JOIN study_contexts AS context
+      ON context.id = retrieval.source_id
+     AND context.user_id = snapshot.owner_id
+     AND snapshot.learning_item_id = context.learning_item_id
+    JOIN learning_items AS item
+      ON item.id = context.learning_item_id
+     AND item.user_id = snapshot.owner_id
+     AND item.video_source_id = snapshot.video_source_id
+    JOIN video_sources AS source ON source.id = item.video_source_id
+    CROSS JOIN settings
+    WHERE retrieval.source_kind = 'learning_context'
+      AND retrieval.visibility = 'private'
+      AND retrieval.owner_id = ${parameters.owner}
+      AND retrieval.model = ${parameters.model}
+      AND snapshot.caption_generation = retrieval.artifact_generation
+      AND (
+        retrieval.evidence_kind <> 'caption_segment'
+        OR snapshot.caption_artifact_id = retrieval.evidence_artifact_id
+      )
+      AND EXISTS (
+        SELECT 1
+        FROM jsonb_array_elements(snapshot.watched_ranges) AS watched(value)
+        WHERE (watched.value->>'start')::numeric < retrieval.end_seconds
+          AND retrieval.start_seconds < (watched.value->>'end')::numeric
+      )
       AND ${filter}
     ORDER BY ${metric} ${direction}${candidateTieBreaker}
     LIMIT ${parameters.candidateLimit}
@@ -388,6 +493,10 @@ function hybridRanked(parameters: SearchParameters): string {
            COALESCE(lexical.content, vector.content) AS content,
            COALESCE(lexical.source_url, vector.source_url) AS source_url,
            COALESCE(lexical.start_seconds, vector.start_seconds) AS start_seconds,
+           COALESCE(lexical.end_seconds, vector.end_seconds) AS end_seconds,
+           COALESCE(lexical.resource_id, vector.resource_id) AS resource_id,
+           COALESCE(lexical.readiness, vector.readiness) AS readiness,
+           COALESCE(lexical.artifact_generation, vector.artifact_generation) AS artifact_generation,
            COALESCE(
              1.0 / (${required(parameters.rrfK)}::numeric + lexical.lexical_rank),
              0

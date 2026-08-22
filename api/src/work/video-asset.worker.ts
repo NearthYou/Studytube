@@ -21,7 +21,10 @@ type VideoAssetPreparer = {
     signal?: AbortSignal,
   ): Promise<LearningCaptionResult>;
 };
-type FollowUpEventStore = Pick<WorkRepository, 'appendOutboxEvent'>;
+type FollowUpEventStore = Pick<
+  WorkRepository,
+  'appendOutboxEvent' | 'listLearningRetrievalContexts'
+>;
 
 export class VideoAssetJobHandler {
   constructor(
@@ -157,6 +160,41 @@ export class VideoAssetJobHandler {
       signal,
     );
     signal.throwIfAborted();
+    const captionArtifactId =
+      result.translationArtifactId ?? result.sourceArtifactId;
+    if (
+      result.status === 'ready' &&
+      captionArtifactId &&
+      this.events.listLearningRetrievalContexts
+    ) {
+      const contexts = await this.events.listLearningRetrievalContexts({
+        causeEventId: job.eventId,
+        reservationId,
+        captionArtifactId,
+      });
+      signal.throwIfAborted();
+      for (const context of contexts) {
+        await this.events.appendOutboxEvent({
+          id: deterministicWorkUuid(
+            job.eventId,
+            `retrieval_embedding.learning_context.${context.studyContextId}.${context.sourceVersion}`,
+          ),
+          eventType: 'retrieval_embedding.requested',
+          aggregateType: 'study_context',
+          aggregateId: context.studyContextId,
+          aggregateVersion: Number(context.sourceVersion),
+          payloadSchemaVersion: 1,
+          payload: {
+            sourceKind: 'learning_context',
+            sourceId: context.studyContextId,
+            sourceVersion: context.sourceVersion,
+            causeEventId: job.eventId,
+            captionArtifactId,
+          },
+        });
+        signal.throwIfAborted();
+      }
+    }
     return { ...result };
   }
 

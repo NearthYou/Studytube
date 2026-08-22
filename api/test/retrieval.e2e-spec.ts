@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
 import { PostgresRetrievalRepository } from '../src/retrieval/postgres-retrieval.repository';
 import { RetrievalEmbeddingJobHandler } from '../src/retrieval/retrieval-embedding.worker';
+import { buildRetrievalChunks } from '../src/retrieval/retrieval-embedding.worker';
 import { DurableJobExecutor } from '../src/work/durable-job.executor';
 import { MemoryJobExecutionStore } from '../src/work/memory-job-execution.store';
 
@@ -13,6 +14,253 @@ const ORTHOGONAL_VECTOR = [0, 1, ...Array.from({ length: 1534 }, () => 0)];
 
 describe('retrieval safety (e2e)', () => {
   jest.setTimeout(30_000);
+
+  it('enforces owner context, watched range, and caption generation for learning evidence', async () => {
+    const pool = new Pool({ connectionString: DATABASE_URL });
+    const repository = new PostgresRetrievalRepository(pool);
+    const suffix = randomUUID();
+    const userIds: number[] = [];
+    let videoSourceId: string | null = null;
+    try {
+      const callerId = await createUser(
+        pool,
+        `learning-${suffix}@example.test`,
+      );
+      const otherId = await createUser(
+        pool,
+        `other-learning-${suffix}@example.test`,
+      );
+      userIds.push(callerId, otherId);
+      await pool.query(
+        `UPDATE users SET preferences = jsonb_build_object(
+           'interests', '[]'::jsonb, 'pace', '', 'goal', '직렬화 이해'
+         ) WHERE id = $1`,
+        [callerId],
+      );
+      const source = await pool.query<{ id: string }>(
+        `INSERT INTO video_sources (
+           provider, canonical_video_id, canonical_url, metadata
+         ) VALUES ('youtube', $1, 'https://youtu.be/caption0001',
+                   '{"title":"현재 학습 영상"}'::jsonb)
+         RETURNING id::text AS id`,
+        [`u5${suffix.replace(/-/gu, '').slice(0, 9)}`],
+      );
+      videoSourceId = source.rows[0]?.id ?? null;
+      const artifact = await pool.query<{ id: string }>(
+        `INSERT INTO caption_artifacts (
+           video_source_id, kind, generation, source_language, provider,
+           work_event_id, handler_version
+         ) VALUES ($1, 'youtube_caption', 1, 'en', 'youtube', $2, 'u5-e2e')
+         RETURNING id::text AS id`,
+        [videoSourceId, randomUUID()],
+      );
+      const artifactId = artifact.rows[0]?.id;
+      await pool.query(
+        `INSERT INTO caption_generation_states (artifact_id, status, last_ordinal)
+         VALUES ($1, 'ready', 1)`,
+        [artifactId],
+      );
+      await pool.query(
+        `INSERT INTO caption_artifact_segments (
+           artifact_id, ordinal, start_seconds, end_seconds, text
+         ) VALUES
+           ($1, 0, 30, 40, '직렬화 현재 구간'),
+           ($1, 1, 90, 100, '직렬화 시청 범위 밖')`,
+        [artifactId],
+      );
+
+      const contexts: Array<{ ownerId: number; contextId: string }> = [];
+      for (const ownerId of [callerId, callerId, otherId]) {
+        const item = await pool.query<{ id: string }>(
+          `INSERT INTO learning_items (user_id, video_source_id)
+           VALUES ($1, $2)
+           ON CONFLICT (user_id, video_source_id) DO UPDATE
+             SET updated_at = statement_timestamp()
+           RETURNING id::text AS id`,
+          [ownerId, videoSourceId],
+        );
+        const context = await pool.query<{ id: string }>(
+          `INSERT INTO study_contexts (
+             user_id, learning_item_id, kind, course_step_provenance_id
+           ) VALUES ($1, $2, 'course_occurrence', $3)
+           RETURNING id::text AS id`,
+          [ownerId, item.rows[0]?.id, contexts.length + 9000],
+        );
+        await pool.query(
+          `UPDATE study_contexts
+           SET current_source_caption_artifact_id = $2
+           WHERE id = $1`,
+          [context.rows[0]?.id, artifactId],
+        );
+        contexts.push({ ownerId, contextId: context.rows[0].id });
+      }
+
+      for (const context of contexts) {
+        await pool.query(
+          `INSERT INTO learning_notes (
+             user_id, study_context_id, position_seconds, body
+           ) VALUES ($1, $2, 35, '직렬화 학습 메모')`,
+          [context.ownerId, context.contextId],
+        );
+      }
+      const quizId = randomUUID();
+      const quizStepId = await createDraftCourseStep(pool, callerId);
+      await pool.query(
+        `INSERT INTO quizzes (id, course_step_id, status)
+         VALUES ($1, $2, 'draft')`,
+        [quizId, quizStepId],
+      );
+      await pool.query(
+        `INSERT INTO quiz_questions (
+           id, quiz_id, position, prompt, choices, correct_choice_index,
+           explanation, source_start_seconds, source_end_seconds, source_url
+         ) VALUES (
+           $1, $2, 1, '직렬화 실패 시 어떻게 해야 하나요?',
+           '["재시도","무시"]'::jsonb, 0, '트랜잭션을 재시도합니다.',
+           32, 42, 'https://youtu.be/caption0001?t=32s'
+         )`,
+        [randomUUID(), quizId],
+      );
+      const quizAttemptId = randomUUID();
+      await pool.query(
+        `INSERT INTO quiz_attempts (
+           id, quiz_id, user_id, idempotency_key_digest, payload_hash,
+           attempt_number, score, study_context_id
+         ) VALUES ($1, $2, $3, $4, $5, 1, 80, $6)`,
+        [
+          quizAttemptId,
+          quizId,
+          callerId,
+          Buffer.alloc(32, 1),
+          Buffer.alloc(32, 2),
+          contexts[0].contextId,
+        ],
+      );
+
+      for (const context of contexts) {
+        const snapshot = await repository.readSourceSnapshot({
+          sourceKind: 'learning_context',
+          sourceId: context.contextId,
+        });
+        if (!snapshot) throw new Error('learning snapshot unavailable');
+        await repository.replaceSourceChunks({
+          ...sourceIdentity(snapshot),
+          model: MODEL,
+          chunks: buildRetrievalChunks(snapshot).map((chunk) => ({
+            ...chunk,
+            embedding: VECTOR,
+          })),
+        });
+      }
+
+      const runId = randomUUID();
+      await pool.query(
+        `INSERT INTO agent_runs (
+           id, owner_id, input, wall_time_budget_ms, tool_call_budget,
+           token_budget, estimated_cost_budget_usd
+         ) VALUES ($1, $2, '{}'::jsonb, 30000, 5, 1000, 0)`,
+        [runId, callerId],
+      );
+      const frozen = await repository.captureLearningContext({
+        agentRunId: runId,
+        ownerId: callerId,
+        studyContextId: contexts[0].contextId,
+        watchedRanges: [{ start: 20, end: 50 }],
+      });
+      expect(frozen.profileGoal).toBe('직렬화 이해');
+
+      const hits = await repository.hybridSearch({
+        ownerId: callerId,
+        contextSnapshotId: runId,
+        query: '직렬화',
+        model: MODEL,
+        embedding: VECTOR,
+        limit: 10,
+      });
+      expect(hits).toHaveLength(3);
+      expect(hits.map((hit) => hit.resourceId?.split(':')[0]).sort()).toEqual([
+        'caption-segment',
+        'learning-note',
+        'quiz-attempt',
+      ]);
+      expect(
+        hits.every(
+          (hit) =>
+            hit.sourceKind === 'learning_context' &&
+            hit.sourceId === contexts[0].contextId &&
+            hit.artifactGeneration === 1 &&
+            hit.citation.timestampSeconds !== null &&
+            hit.citation.timestampSeconds >= 20 &&
+            (hit.citation.endSeconds ?? 0) <= 50,
+        ),
+      ).toBe(true);
+
+      const nextArtifact = await pool.query<{ id: string }>(
+        `INSERT INTO caption_artifacts (
+           video_source_id, kind, generation, source_language, provider,
+           work_event_id, handler_version
+         ) VALUES ($1, 'youtube_caption', 2, 'en', 'youtube', $2, 'u5-e2e')
+         RETURNING id::text AS id`,
+        [videoSourceId, randomUUID()],
+      );
+      await pool.query(
+        `INSERT INTO caption_generation_states (artifact_id, status)
+         VALUES ($1, 'ready')`,
+        [nextArtifact.rows[0]?.id],
+      );
+      await pool.query(
+        `INSERT INTO caption_artifact_segments (
+           artifact_id, ordinal, start_seconds, end_seconds, text
+         ) VALUES ($1, 0, 30, 40, '직렬화 새 세대')`,
+        [nextArtifact.rows[0]?.id],
+      );
+      await pool.query(
+        `UPDATE study_contexts SET current_source_caption_artifact_id = $1
+         WHERE id = $2`,
+        [nextArtifact.rows[0]?.id, contexts[0].contextId],
+      );
+      const nextRunId = randomUUID();
+      await pool.query(
+        `INSERT INTO agent_runs (
+           id, owner_id, input, wall_time_budget_ms, tool_call_budget,
+           token_budget, estimated_cost_budget_usd
+         ) VALUES ($1, $2, '{}'::jsonb, 30000, 5, 1000, 0)`,
+        [nextRunId, callerId],
+      );
+      await repository.captureLearningContext({
+        agentRunId: nextRunId,
+        ownerId: callerId,
+        studyContextId: contexts[0].contextId,
+        watchedRanges: [{ start: 20, end: 50 }],
+      });
+      await expect(
+        repository.hybridSearch({
+          ownerId: callerId,
+          contextSnapshotId: nextRunId,
+          query: '직렬화',
+          model: MODEL,
+          embedding: VECTOR,
+          limit: 10,
+        }),
+      ).resolves.toEqual([]);
+    } finally {
+      if (userIds.length > 0) {
+        await pool.query('DELETE FROM users WHERE id = ANY($1::integer[])', [
+          userIds,
+        ]);
+      }
+      if (videoSourceId) {
+        await pool.query(
+          'DELETE FROM caption_artifacts WHERE video_source_id = $1',
+          [videoSourceId],
+        );
+        await pool.query('DELETE FROM video_sources WHERE id = $1', [
+          videoSourceId,
+        ]);
+      }
+      await pool.end();
+    }
+  });
 
   it('keeps private Course sources owner-scoped, deduplicates chunks, and cites the matched chunk', async () => {
     const pool = new Pool({ connectionString: DATABASE_URL });

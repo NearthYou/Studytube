@@ -7,6 +7,8 @@ import type {
   RetrievalSourceReference,
   RetrievalSourceSnapshot,
   ResolveRetrievalEmbedding,
+  CaptureLearningRetrievalContext,
+  LearningRetrievalContextSnapshot,
 } from './retrieval.types';
 
 export type RemoveMissingSourceChunksOutcome = 'removed' | 'superseded';
@@ -17,6 +19,9 @@ export type PruneEmbeddingCacheInput = {
 };
 
 export interface RetrievalRepository {
+  captureLearningContext(
+    input: CaptureLearningRetrievalContext,
+  ): Promise<LearningRetrievalContextSnapshot>;
   readSourceSnapshot(
     source: RetrievalSourceReference,
   ): Promise<RetrievalSourceSnapshot | null>;

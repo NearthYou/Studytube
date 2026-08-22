@@ -59,12 +59,22 @@ class MemoryResults {
   result: JobResult | null = null;
   deadLetter: Record<string, unknown> | null = null;
   appendedEvents: AppendOutboxEvent[] = [];
+  learningContexts: Array<{
+    studyContextId: string;
+    sourceVersion: string;
+  }> = [];
 
   appendOutboxEvent(event: AppendOutboxEvent): Promise<void> {
     if (!this.appendedEvents.some((existing) => existing.id === event.id)) {
       this.appendedEvents.push(event);
     }
     return Promise.resolve();
+  }
+
+  listLearningRetrievalContexts(): Promise<
+    Array<{ studyContextId: string; sourceVersion: string }>
+  > {
+    return Promise.resolve(this.learningContexts);
   }
 
   findJobResult(): Promise<JobResult | null> {
@@ -91,6 +101,7 @@ class MemoryResults {
 describe('VideoAssetJobHandler', () => {
   it('handles canonical learning intake without changing the legacy post path', async () => {
     const results = new MemoryResults();
+    results.learningContexts = [{ studyContextId: '81', sourceVersion: '5' }];
     const execution = jobExecution();
     const prepareLearningCaptions = jest
       .fn<
@@ -143,6 +154,20 @@ describe('VideoAssetJobHandler', () => {
       expect.stringMatching(/^[0-9a-f-]{36}$/u),
     );
     expect(signalArg).toBeInstanceOf(AbortSignal);
+    expect(results.appendedEvents).toEqual([
+      expect.objectContaining({
+        eventType: 'retrieval_embedding.requested',
+        aggregateType: 'study_context',
+        aggregateId: '81',
+        payload: {
+          sourceKind: 'learning_context',
+          sourceId: '81',
+          sourceVersion: '5',
+          causeEventId: job.eventId,
+          captionArtifactId: '18',
+        },
+      }),
+    ]);
   });
 
   it('runs one provider call for concurrent delivery and replays the completed result', async () => {

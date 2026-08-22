@@ -386,6 +386,59 @@ describe('buildRetrievalChunks', () => {
     ).toBe(true);
     expect(chunks[2]).toMatchObject({ startSeconds: 12, endSeconds: 36 });
   });
+
+  it('keeps immutable learning evidence identity on every indexed chunk', () => {
+    const chunks = buildRetrievalChunks({
+      ...POST_SNAPSHOT,
+      sourceKind: 'learning_context',
+      sourceId: '81',
+      sourceVersion: '5',
+      visibility: 'private',
+      evidenceItems: [
+        {
+          kind: 'caption_segment',
+          resourceId: 'caption-segment:701',
+          content: '격리 수준은 동시성 제어 규칙입니다.',
+          startSeconds: 30,
+          endSeconds: 42,
+          sourceUrl: 'https://youtu.be/caption0001?t=30s',
+          readiness: 'ready',
+          artifactId: '61',
+          segmentId: '701',
+          artifactGeneration: 4,
+        },
+        {
+          kind: 'learning_note',
+          resourceId: 'learning-note:91',
+          content: '직렬화 실패는 재시도한다.',
+          startSeconds: 35,
+          endSeconds: 36,
+          sourceUrl: 'https://youtu.be/caption0001?t=35s',
+          readiness: 'ready',
+          noteId: '91',
+          artifactGeneration: 4,
+        },
+      ],
+    });
+
+    expect(chunks).toEqual([
+      expect.objectContaining({
+        content: '격리 수준은 동시성 제어 규칙입니다.',
+        resourceId: 'caption-segment:701',
+        evidenceKind: 'caption_segment',
+        evidenceArtifactId: '61',
+        evidenceSegmentId: '701',
+        artifactGeneration: 4,
+      }),
+      expect.objectContaining({
+        content: '직렬화 실패는 재시도한다.',
+        resourceId: 'learning-note:91',
+        evidenceKind: 'learning_note',
+        evidenceNoteId: '91',
+        artifactGeneration: 4,
+      }),
+    ]);
+  });
 });
 
 function jobExecution(): {

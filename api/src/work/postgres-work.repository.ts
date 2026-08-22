@@ -85,6 +85,46 @@ export class PostgresWorkRepository
     );
   }
 
+  async listLearningRetrievalContexts(input: {
+    causeEventId: string;
+    reservationId: string;
+    captionArtifactId: string;
+  }): Promise<Array<{ studyContextId: string; sourceVersion: string }>> {
+    const result = await this.pool.query<{
+      studyContextId: string;
+      sourceVersion: string;
+    }>(
+      `
+        SELECT context.id::text AS "studyContextId",
+               context.retrieval_version::text AS "sourceVersion"
+        FROM provider_work_reservations AS work
+        JOIN provider_subscription_reservations AS subscription
+          ON subscription.work_reservation_id = work.id
+         AND subscription.state = 'committed'
+        JOIN study_contexts AS context
+          ON context.id = subscription.study_context_id
+         AND context.user_id = subscription.user_id
+        JOIN learning_items AS item ON item.id = context.learning_item_id
+          AND item.user_id = context.user_id
+        JOIN caption_artifacts AS artifact
+          ON artifact.id = $3::bigint
+         AND artifact.video_source_id = item.video_source_id
+        JOIN caption_generation_states AS state
+          ON state.artifact_id = artifact.id AND state.status = 'ready'
+        WHERE work.id = $2::bigint
+          AND work.work_id = $1::uuid
+          AND work.state = 'committed'
+          AND artifact.id = COALESCE(
+            context.current_translation_caption_artifact_id,
+            context.current_source_caption_artifact_id
+          )
+        ORDER BY context.id
+      `,
+      [input.causeEventId, input.reservationId, input.captionArtifactId],
+    );
+    return result.rows;
+  }
+
   async claimOutboxBatch(
     limit: number,
     leaseOwner: string,

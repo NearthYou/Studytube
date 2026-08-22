@@ -726,7 +726,7 @@ cat >"$deploy_fixture/scripts/install-production-runtime.sh" <<'EOF'
 #!/usr/bin/env bash
 printf 'installer <%s>\n' "$*" >>"$DEPLOY_COMMAND_LOG"
 case "${1:-install-runtime}" in
-  prepare-release|install-runtime|run-migration) exit 0 ;;
+  prepare-release|install-runtime|run-migration|run-stt-approval) exit 0 ;;
   run-course-backfill) exit 44 ;;
   *) exit 45 ;;
 esac
@@ -1155,7 +1155,11 @@ grep -Fxq 'UMask=0007' "$systemd_unit_dir/studytube-api.service" ||
 printf 'Per-service runtime isolation contract checks passed.\n'
 
 : >"$command_log"
-for migration_command in run-migration run-course-backfill run-course-verify; do
+for migration_command in \
+  run-migration \
+  run-course-backfill \
+  run-course-verify \
+  run-stt-approval; do
   if ! COMMAND_LOG="$command_log" \
     PATH="$fake_bin:$PATH" \
     APP_DIR="$release_source" \
@@ -1189,10 +1193,13 @@ grep -Fq '<api/dist/scripts/backfill-courses.js>' "$command_log" ||
   fail 'Course backfill did not invoke the compiled runtime entry point'
 grep -Fq '<api/dist/scripts/verify-course-backfill.js>' "$command_log" ||
   fail 'Course verification did not invoke the compiled runtime entry point'
+grep -Fq '<api/dist/scripts/apply-stt-cost-approval.js>' "$command_log" ||
+  fail 'STT approval did not invoke the compiled runtime entry point'
 for migration_unit in \
   studytube-release-migration.service \
   studytube-release-course-backfill.service \
-  studytube-release-course-verify.service; do
+  studytube-release-course-verify.service \
+  studytube-release-stt-approval.service; do
   migration_invocation="$(grep -F "<--unit=$migration_unit>" "$command_log" || true)"
   [[ -n "$migration_invocation" ]] ||
     fail "database operation did not use stable transient unit $migration_unit"

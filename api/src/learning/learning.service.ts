@@ -203,6 +203,86 @@ export class LearningService {
     return this.repository.listOwnerQuizAttempts(userId, quizId);
   }
 
+  requestAdaptiveQuiz(
+    userId: number,
+    studyContextId: string,
+    idempotencyKey: string | undefined,
+    body: { startSeconds: number; endSeconds: number },
+  ) {
+    const key = requiredKey(idempotencyKey);
+    const start = finiteNonnegative(body.startSeconds, 'startSeconds');
+    const end = finiteNonnegative(body.endSeconds, 'endSeconds');
+    if (end <= start) {
+      throw new LearningValidationError(
+        'endSeconds',
+        'endSeconds must be greater than startSeconds',
+      );
+    }
+    const watchedRange = { start, end };
+    return this.repository.requestAdaptiveQuiz({
+      userId,
+      studyContextId,
+      idempotencyKeyDigest: digest(key),
+      payloadHash: digest(canonicalJson({ watchedRange })),
+      watchedRange,
+    });
+  }
+
+  getAdaptiveQuiz(userId: number, loopId: string) {
+    return this.repository.findOwnerAdaptiveQuiz(userId, loopId);
+  }
+
+  loadAdaptiveQuizGeneration(loopId: string) {
+    return this.repository.loadAdaptiveQuizGeneration(loopId);
+  }
+
+  completeAdaptiveQuizGeneration(
+    command: Parameters<
+      LearningRepository['completeAdaptiveQuizGeneration']
+    >[0],
+  ) {
+    return this.repository.completeAdaptiveQuizGeneration(command);
+  }
+
+  failAdaptiveQuizGeneration(loopId: string, code: string) {
+    return this.repository.failAdaptiveQuizGeneration(loopId, code);
+  }
+
+  submitAdaptiveQuiz(
+    userId: number,
+    loopId: string,
+    idempotencyKey: string | undefined,
+    body: {
+      answers: Array<{ questionId: string; selectedChoiceIndex: number }>;
+    },
+  ) {
+    const key = requiredKey(idempotencyKey);
+    if (!Array.isArray(body.answers) || body.answers.length !== 5) {
+      throw new LearningValidationError(
+        'answers',
+        'Exactly 5 answers are required',
+      );
+    }
+    const answers = body.answers.map((answer) => {
+      if (
+        typeof answer.questionId !== 'string' ||
+        !/^[0-9a-f-]{36}$/iu.test(answer.questionId) ||
+        !Number.isInteger(answer.selectedChoiceIndex) ||
+        answer.selectedChoiceIndex < 0
+      ) {
+        throw new LearningValidationError('answers', 'Quiz answer is invalid');
+      }
+      return { ...answer };
+    });
+    return this.repository.submitAdaptiveQuiz({
+      userId,
+      loopId,
+      idempotencyKeyDigest: digest(key),
+      payloadHash: digest(canonicalJson({ answers })),
+      answers,
+    });
+  }
+
   recordAgentToolCall(command: RecordAgentToolCallCommand) {
     return this.repository.recordAgentToolCall(command);
   }

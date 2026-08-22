@@ -2,16 +2,28 @@ import { randomUUID } from 'node:crypto';
 import type { Pool } from 'pg';
 import {
   LearningAttemptLimitError,
+  LearningEvidenceNotReadyError,
   LearningIdempotencyConflictError,
+  LearningLifecycleError,
   LearningNotFoundError,
+  LearningQuizStaleError,
   LearningValidationError,
 } from './learning.errors';
 import type {
+  AdaptiveQuizGeneration,
+  CompleteAdaptiveQuizGenerationCommand,
   CreateQuizCommand,
   QuizQuestionInput,
+  RequestAdaptiveQuizCommand,
+  SubmitAdaptiveQuizCommand,
   SubmitQuizCommand,
 } from './learning.repository';
-import type { QuizAttemptResult, QuizPublic } from './learning.types';
+import type {
+  AdaptiveQuizLoopPublic,
+  AdaptiveQuizSubmission,
+  QuizAttemptResult,
+  QuizPublic,
+} from './learning.types';
 import {
   assertOrAdoptLegacyHash,
   iso,
@@ -413,6 +425,588 @@ export class PostgresQuizRepository {
     } catch (error) {
       throw translatePostgresError(error);
     }
+  }
+
+  async requestAdaptiveQuiz(
+    command: RequestAdaptiveQuizCommand,
+  ): Promise<AdaptiveQuizLoopPublic> {
+    return mutate(this.pool, async (client) => {
+      const context = await client.query<{
+        learningItemId: string;
+        videoSourceId: string;
+        captionArtifactId: string;
+        captionGeneration: number;
+        retrievalVersion: string;
+      }>(
+        `
+          SELECT context.learning_item_id::text AS "learningItemId",
+                 item.video_source_id::text AS "videoSourceId",
+                 artifact.id::text AS "captionArtifactId",
+                 artifact.generation AS "captionGeneration",
+                 context.retrieval_version::text AS "retrievalVersion"
+          FROM study_contexts AS context
+          JOIN learning_items AS item ON item.id = context.learning_item_id
+            AND item.user_id = context.user_id
+          JOIN caption_artifacts AS artifact ON artifact.id = COALESCE(
+            context.current_translation_caption_artifact_id,
+            context.current_source_caption_artifact_id
+          ) AND artifact.video_source_id = item.video_source_id
+          JOIN caption_generation_states AS state ON state.artifact_id = artifact.id
+            AND state.status = 'ready'
+          WHERE context.id = $1::bigint AND context.user_id = $2
+          FOR UPDATE OF context
+        `,
+        [command.studyContextId, command.userId],
+      );
+      const pinned = context.rows[0];
+      if (!pinned) throw new LearningEvidenceNotReadyError();
+
+      const duplicate = await client.query<{
+        id: string;
+        payloadHash: Buffer;
+      }>(
+        `SELECT id::text AS id, payload_hash AS "payloadHash"
+         FROM adaptive_quiz_loops
+         WHERE owner_id = $1 AND study_context_id = $2::bigint
+           AND idempotency_key_digest = $3`,
+        [command.userId, command.studyContextId, command.idempotencyKeyDigest],
+      );
+      if (duplicate.rows[0]) {
+        await assertOrAdoptLegacyHash(
+          client,
+          'adaptive_quiz_loops',
+          duplicate.rows[0].id,
+          duplicate.rows[0].payloadHash,
+          command.payloadHash,
+        );
+        return this.requireAdaptiveQuiz(
+          client,
+          command.userId,
+          duplicate.rows[0].id,
+        );
+      }
+
+      const evidence = await client.query<{
+        resourceId: string;
+        content: string;
+        sourceUrl: string;
+        startSeconds: number;
+        endSeconds: number;
+      }>(
+        `
+          SELECT resource_id AS "resourceId", content,
+                 source_url AS "sourceUrl", start_seconds AS "startSeconds",
+                 end_seconds AS "endSeconds"
+          FROM retrieval_embeddings
+          WHERE source_kind = 'learning_context'
+            AND source_id = $1::bigint AND owner_id = $2
+            AND visibility = 'private' AND evidence_kind = 'caption_segment'
+            AND readiness = 'ready'
+            AND evidence_artifact_id = $3::bigint
+            AND artifact_generation = $4
+            AND source_version = $5::bigint
+            AND start_seconds >= $6 AND end_seconds <= $7
+          ORDER BY start_seconds, chunk_index
+          LIMIT 5
+        `,
+        [
+          command.studyContextId,
+          command.userId,
+          pinned.captionArtifactId,
+          pinned.captionGeneration,
+          pinned.retrievalVersion,
+          command.watchedRange.start,
+          command.watchedRange.end,
+        ],
+      );
+      if (evidence.rows.length !== 5) {
+        throw new LearningEvidenceNotReadyError();
+      }
+
+      const loopId = randomUUID();
+      const eventId = randomUUID();
+      await client.query(
+        `
+          INSERT INTO adaptive_quiz_loops (
+            id, owner_id, study_context_id, learning_item_id, video_source_id,
+            caption_artifact_id, caption_generation, watched_ranges,
+            idempotency_key_digest, payload_hash, generation_event_id
+          ) VALUES ($1, $2, $3::bigint, $4::bigint, $5::bigint,
+                    $6::bigint, $7, $8::jsonb, $9, $10, $11)
+        `,
+        [
+          loopId,
+          command.userId,
+          command.studyContextId,
+          pinned.learningItemId,
+          pinned.videoSourceId,
+          pinned.captionArtifactId,
+          pinned.captionGeneration,
+          JSON.stringify([command.watchedRange]),
+          command.idempotencyKeyDigest,
+          command.payloadHash,
+          eventId,
+        ],
+      );
+      for (const [index, row] of evidence.rows.entries()) {
+        await client.query(
+          `INSERT INTO adaptive_quiz_evidence (
+             loop_id, position, resource_id, content, source_url,
+             start_seconds, end_seconds, artifact_id, artifact_generation
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::bigint, $9)`,
+          [
+            loopId,
+            index + 1,
+            row.resourceId,
+            row.content,
+            row.sourceUrl,
+            row.startSeconds,
+            row.endSeconds,
+            pinned.captionArtifactId,
+            pinned.captionGeneration,
+          ],
+        );
+      }
+      await client.query(
+        `INSERT INTO work_outbox_events (
+           id, event_type, aggregate_type, aggregate_id, aggregate_version,
+           payload_schema_version, payload
+         ) VALUES ($1, 'quiz_generation.requested', 'learning_quiz_loop',
+                   $2, 1, 2, $3::jsonb)`,
+        [eventId, loopId, JSON.stringify({ quizLoopId: loopId })],
+      );
+      return this.requireAdaptiveQuiz(client, command.userId, loopId);
+    });
+  }
+
+  async findOwnerAdaptiveQuiz(
+    userId: number,
+    loopId: string,
+  ): Promise<AdaptiveQuizLoopPublic | null> {
+    return mutate(this.pool, async (client) => {
+      const current = await client.query<{ stale: boolean }>(
+        `SELECT COALESCE(
+                  context.current_translation_caption_artifact_id,
+                  context.current_source_caption_artifact_id
+                ) IS DISTINCT FROM loop.caption_artifact_id AS stale
+         FROM adaptive_quiz_loops AS loop
+         JOIN study_contexts AS context ON context.id = loop.study_context_id
+         WHERE loop.id = $1 AND loop.owner_id = $2
+         FOR UPDATE OF loop`,
+        [loopId, userId],
+      );
+      if (!current.rows[0]) return null;
+      if (current.rows[0].stale) {
+        await client.query(
+          `UPDATE adaptive_quiz_loops SET state = 'stale', updated_at = statement_timestamp()
+           WHERE id = $1 AND state IN ('generating', 'ready')`,
+          [loopId],
+        );
+      }
+      return this.requireAdaptiveQuiz(client, userId, loopId);
+    });
+  }
+
+  async loadAdaptiveQuizGeneration(
+    loopId: string,
+  ): Promise<AdaptiveQuizGeneration | null> {
+    const loop = await this.pool.query<{
+      loopId: string;
+      state: AdaptiveQuizGeneration['state'];
+      ownerId: number;
+      studyContextId: string;
+      captionArtifactId: string;
+      captionGeneration: number;
+      watchedRanges: Array<{ start: number; end: number }>;
+    }>(
+      `SELECT id::text AS "loopId", state, owner_id AS "ownerId",
+              study_context_id::text AS "studyContextId",
+              caption_artifact_id::text AS "captionArtifactId",
+              caption_generation AS "captionGeneration",
+              watched_ranges AS "watchedRanges"
+       FROM adaptive_quiz_loops WHERE id = $1`,
+      [loopId],
+    );
+    const row = loop.rows[0];
+    if (!row) return null;
+    const evidence = await this.pool.query<
+      AdaptiveQuizGeneration['evidence'][number]
+    >(
+      `SELECT resource_id AS "resourceId", content,
+              source_url AS "sourceUrl", start_seconds AS "startSeconds",
+              end_seconds AS "endSeconds", artifact_id::text AS "artifactId",
+              artifact_generation AS "artifactGeneration"
+       FROM adaptive_quiz_evidence WHERE loop_id = $1 ORDER BY position`,
+      [loopId],
+    );
+    return {
+      ...row,
+      watchedRange: row.watchedRanges[0],
+      evidence: evidence.rows,
+    };
+  }
+
+  async completeAdaptiveQuizGeneration(
+    command: CompleteAdaptiveQuizGenerationCommand,
+  ): Promise<boolean> {
+    return mutate(this.pool, async (client) => {
+      const loop = await client.query<{
+        state: AdaptiveQuizGeneration['state'];
+        captionArtifactId: string;
+        captionGeneration: number;
+      }>(
+        `SELECT state, caption_artifact_id::text AS "captionArtifactId",
+                caption_generation AS "captionGeneration"
+         FROM adaptive_quiz_loops WHERE id = $1 FOR UPDATE`,
+        [command.loopId],
+      );
+      const row = loop.rows[0];
+      if (!row) return false;
+      if (row.state === 'ready' || row.state === 'evaluated') return true;
+      if (
+        row.state !== 'generating' ||
+        row.captionArtifactId !== command.captionArtifactId ||
+        row.captionGeneration !== command.captionGeneration
+      ) {
+        return false;
+      }
+      for (const [index, question] of command.questions.entries()) {
+        await client.query(
+          `INSERT INTO adaptive_quiz_questions (
+             id, loop_id, position, prompt, choices, correct_choice_index,
+             explanation, evidence_position
+           ) VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8)`,
+          [
+            question.id,
+            command.loopId,
+            index + 1,
+            question.prompt,
+            JSON.stringify(question.choices),
+            question.correctChoiceIndex,
+            question.explanation,
+            question.evidencePosition,
+          ],
+        );
+      }
+      await client.query(
+        `UPDATE adaptive_quiz_loops
+         SET state = 'ready', generator_version = $2,
+             updated_at = statement_timestamp(), failure_code = NULL
+         WHERE id = $1`,
+        [command.loopId, command.generatorVersion],
+      );
+      return true;
+    });
+  }
+
+  async failAdaptiveQuizGeneration(
+    loopId: string,
+    code: string,
+  ): Promise<void> {
+    if (!/^[A-Z][A-Z0-9_]{2,63}$/u.test(code)) {
+      throw new LearningValidationError(
+        'failureCode',
+        'Invalid safe failure code',
+      );
+    }
+    await this.pool.query(
+      `UPDATE adaptive_quiz_loops
+       SET state = 'failed', failure_code = $2, updated_at = statement_timestamp()
+       WHERE id = $1 AND state = 'generating'`,
+      [loopId, code],
+    );
+  }
+
+  async submitAdaptiveQuiz(
+    command: SubmitAdaptiveQuizCommand,
+  ): Promise<AdaptiveQuizSubmission> {
+    const result = await mutate(this.pool, async (client) => {
+      const loop = await client.query<{
+        state: AdaptiveQuizGeneration['state'];
+        captionArtifactId: string;
+        currentArtifactId: string | null;
+      }>(
+        `SELECT loop.state,
+                loop.caption_artifact_id::text AS "captionArtifactId",
+                COALESCE(context.current_translation_caption_artifact_id,
+                         context.current_source_caption_artifact_id)::text AS "currentArtifactId"
+         FROM adaptive_quiz_loops AS loop
+         JOIN study_contexts AS context ON context.id = loop.study_context_id
+         WHERE loop.id = $1 AND loop.owner_id = $2
+         FOR UPDATE OF loop`,
+        [command.loopId, command.userId],
+      );
+      const loopRow = loop.rows[0];
+      if (!loopRow) throw new LearningNotFoundError();
+      if (loopRow.currentArtifactId !== loopRow.captionArtifactId) {
+        await client.query(
+          `UPDATE adaptive_quiz_loops SET state = 'stale', updated_at = statement_timestamp()
+           WHERE id = $1`,
+          [command.loopId],
+        );
+        return { stale: true as const };
+      }
+
+      const duplicate = await client.query<{ id: string; payloadHash: Buffer }>(
+        `SELECT id::text AS id, payload_hash AS "payloadHash"
+         FROM adaptive_quiz_attempts
+         WHERE loop_id = $1 AND owner_id = $2 AND idempotency_key_digest = $3`,
+        [command.loopId, command.userId, command.idempotencyKeyDigest],
+      );
+      if (duplicate.rows[0]) {
+        await assertOrAdoptLegacyHash(
+          client,
+          'adaptive_quiz_attempts',
+          duplicate.rows[0].id,
+          duplicate.rows[0].payloadHash,
+          command.payloadHash,
+        );
+        return {
+          stale: false as const,
+          submission: await this.requireAdaptiveSubmission(
+            client,
+            command.userId,
+            command.loopId,
+          ),
+        };
+      }
+      if (loopRow.state !== 'ready') {
+        throw new LearningLifecycleError('Quiz is not ready for answers');
+      }
+
+      const questions = await client.query<{
+        id: string;
+        correctChoiceIndex: number;
+        choiceCount: number;
+      }>(
+        `SELECT id::text AS id, correct_choice_index AS "correctChoiceIndex",
+                jsonb_array_length(choices) AS "choiceCount"
+         FROM adaptive_quiz_questions WHERE loop_id = $1 ORDER BY position`,
+        [command.loopId],
+      );
+      const byQuestion = new Map(
+        command.answers.map((answer) => [answer.questionId, answer]),
+      );
+      if (
+        questions.rows.length !== 5 ||
+        byQuestion.size !== 5 ||
+        questions.rows.some(
+          (question) =>
+            !byQuestion.has(question.id) ||
+            byQuestion.get(question.id)!.selectedChoiceIndex >=
+              question.choiceCount,
+        )
+      ) {
+        throw new LearningValidationError(
+          'answers',
+          'Every quiz question must be answered once',
+        );
+      }
+      const correctCount = questions.rows.filter(
+        (question) =>
+          byQuestion.get(question.id)!.selectedChoiceIndex ===
+          question.correctChoiceIndex,
+      ).length;
+      const attemptId = randomUUID();
+      await client.query(
+        `INSERT INTO adaptive_quiz_attempts (
+           id, loop_id, owner_id, idempotency_key_digest, payload_hash, score
+         ) VALUES ($1, $2, $3, $4, $5, $6)`,
+        [
+          attemptId,
+          command.loopId,
+          command.userId,
+          command.idempotencyKeyDigest,
+          command.payloadHash,
+          (correctCount / 5) * 100,
+        ],
+      );
+      for (const question of questions.rows) {
+        const answer = byQuestion.get(question.id)!;
+        await client.query(
+          `INSERT INTO adaptive_quiz_answers (
+             attempt_id, question_id, selected_choice_index, correct
+           ) VALUES ($1, $2, $3, $4)`,
+          [
+            attemptId,
+            question.id,
+            answer.selectedChoiceIndex,
+            answer.selectedChoiceIndex === question.correctChoiceIndex,
+          ],
+        );
+      }
+      const wrong = await client.query<{
+        sourceUrl: string;
+        startSeconds: number;
+        endSeconds: number;
+      }>(
+        `SELECT evidence.source_url AS "sourceUrl",
+                evidence.start_seconds AS "startSeconds",
+                evidence.end_seconds AS "endSeconds"
+         FROM adaptive_quiz_answers AS answer
+         JOIN adaptive_quiz_questions AS question ON question.id = answer.question_id
+         JOIN adaptive_quiz_evidence AS evidence
+           ON evidence.loop_id = question.loop_id
+          AND evidence.position = question.evidence_position
+         WHERE answer.attempt_id = $1 AND answer.correct = false
+         ORDER BY question.position LIMIT 1`,
+        [attemptId],
+      );
+      if (wrong.rows[0]) {
+        await client.query(
+          `INSERT INTO adaptive_quiz_review_proposals (
+             id, loop_id, attempt_id, kind, reason_code,
+             source_url, start_seconds, end_seconds
+           ) VALUES ($1, $2, $3, 'review_range', 'INCORRECT_ANSWER', $4, $5, $6)`,
+          [
+            randomUUID(),
+            command.loopId,
+            attemptId,
+            wrong.rows[0].sourceUrl,
+            wrong.rows[0].startSeconds,
+            wrong.rows[0].endSeconds,
+          ],
+        );
+      }
+      await client.query(
+        `UPDATE adaptive_quiz_loops
+         SET state = 'evaluated', evaluated_at = statement_timestamp(),
+             updated_at = statement_timestamp()
+         WHERE id = $1`,
+        [command.loopId],
+      );
+      return {
+        stale: false as const,
+        submission: await this.requireAdaptiveSubmission(
+          client,
+          command.userId,
+          command.loopId,
+        ),
+      };
+    });
+    if (result.stale) throw new LearningQuizStaleError();
+    return result.submission;
+  }
+
+  private async requireAdaptiveQuiz(
+    client: SqlClient,
+    userId: number,
+    loopId: string,
+  ): Promise<AdaptiveQuizLoopPublic> {
+    const loop = await client.query<{
+      id: string;
+      studyContextId: string;
+      state: AdaptiveQuizLoopPublic['state'];
+      watchedRanges: Array<{ start: number; end: number }>;
+      captionArtifactId: string;
+      captionGeneration: number;
+      failureCode: string | null;
+    }>(
+      `SELECT id::text AS id, study_context_id::text AS "studyContextId",
+              state, watched_ranges AS "watchedRanges",
+              caption_artifact_id::text AS "captionArtifactId",
+              caption_generation AS "captionGeneration",
+              failure_code AS "failureCode"
+       FROM adaptive_quiz_loops WHERE id = $1 AND owner_id = $2`,
+      [loopId, userId],
+    );
+    const row = loop.rows[0];
+    if (!row) throw new LearningNotFoundError();
+    const questions = await client.query<
+      AdaptiveQuizLoopPublic['questions'][number]
+    >(
+      `SELECT question.id::text AS id, question.position, question.prompt,
+              question.choices,
+              jsonb_build_object(
+                'resourceId', evidence.resource_id,
+                'sourceUrl', evidence.source_url,
+                'startSeconds', evidence.start_seconds,
+                'endSeconds', evidence.end_seconds,
+                'artifactId', evidence.artifact_id::text,
+                'artifactGeneration', evidence.artifact_generation
+              ) AS citation
+       FROM adaptive_quiz_questions AS question
+       JOIN adaptive_quiz_evidence AS evidence
+         ON evidence.loop_id = question.loop_id
+        AND evidence.position = question.evidence_position
+       WHERE question.loop_id = $1 ORDER BY question.position`,
+      [loopId],
+    );
+    return {
+      ...row,
+      watchedRange: row.watchedRanges[0],
+      questions: questions.rows,
+    };
+  }
+
+  private async requireAdaptiveSubmission(
+    client: SqlClient,
+    userId: number,
+    loopId: string,
+  ): Promise<AdaptiveQuizSubmission> {
+    const attempt = await client.query<{
+      id: string;
+      score: string | number;
+      submittedAt: Date | string;
+    }>(
+      `SELECT id::text AS id, score, submitted_at AS "submittedAt"
+       FROM adaptive_quiz_attempts WHERE loop_id = $1 AND owner_id = $2`,
+      [loopId, userId],
+    );
+    const row = attempt.rows[0];
+    if (!row) throw new LearningNotFoundError();
+    const answers = await client.query<
+      AdaptiveQuizSubmission['attempt']['answers'][number]
+    >(
+      `SELECT question.id::text AS "questionId",
+              answer.selected_choice_index AS "selectedChoiceIndex",
+              answer.correct,
+              question.correct_choice_index AS "correctChoiceIndex",
+              question.explanation,
+              jsonb_build_object(
+                'resourceId', evidence.resource_id,
+                'sourceUrl', evidence.source_url,
+                'startSeconds', evidence.start_seconds,
+                'endSeconds', evidence.end_seconds,
+                'artifactId', evidence.artifact_id::text,
+                'artifactGeneration', evidence.artifact_generation
+              ) AS citation
+       FROM adaptive_quiz_answers AS answer
+       JOIN adaptive_quiz_questions AS question ON question.id = answer.question_id
+       JOIN adaptive_quiz_evidence AS evidence
+         ON evidence.loop_id = question.loop_id
+        AND evidence.position = question.evidence_position
+       WHERE answer.attempt_id = $1 ORDER BY question.position`,
+      [row.id],
+    );
+    const review = await client.query<{
+      kind: 'review_range';
+      reasonCode: 'INCORRECT_ANSWER';
+      citation: {
+        sourceUrl: string;
+        startSeconds: number;
+        endSeconds: number;
+      };
+    }>(
+      `SELECT kind, reason_code AS "reasonCode",
+              jsonb_build_object(
+                'sourceUrl', source_url,
+                'startSeconds', start_seconds,
+                'endSeconds', end_seconds
+              ) AS citation
+       FROM adaptive_quiz_review_proposals WHERE loop_id = $1`,
+      [loopId],
+    );
+    return {
+      state: 'evaluated',
+      attempt: {
+        id: row.id,
+        score: Number(row.score),
+        submittedAt: iso(row.submittedAt),
+        answers: answers.rows,
+      },
+      reviewProposal: review.rows[0] ?? null,
+    };
   }
 
   private async requireQuizAttempt(

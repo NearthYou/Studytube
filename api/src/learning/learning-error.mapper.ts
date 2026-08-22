@@ -2,10 +2,12 @@ import { HttpStatus } from '@nestjs/common';
 import { AuthHttpException } from '../auth/auth-http.exception';
 import {
   LearningAttemptLimitError,
+  LearningEvidenceNotReadyError,
   LearningIdempotencyConflictError,
   LearningLeaseLostError,
   LearningLifecycleError,
   LearningNotFoundError,
+  LearningQuizStaleError,
   LearningPersistenceUnavailableError,
   LearningValidationError,
   LearningVersionConflictError,
@@ -30,8 +32,12 @@ export function throwLearningHttpError(error: unknown): never {
     error instanceof LearningVersionConflictError ||
     error instanceof LearningIdempotencyConflictError ||
     error instanceof LearningLifecycleError ||
-    error instanceof LearningLeaseLostError
+    error instanceof LearningLeaseLostError ||
+    error instanceof LearningQuizStaleError
   ) {
+    throw new AuthHttpException(error.code, error.message, HttpStatus.CONFLICT);
+  }
+  if (error instanceof LearningEvidenceNotReadyError) {
     throw new AuthHttpException(error.code, error.message, HttpStatus.CONFLICT);
   }
   if (error instanceof LearningAttemptLimitError) {

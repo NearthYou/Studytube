@@ -19,7 +19,10 @@ import { UnsupportedWorkJobHandler } from './unsupported-work.worker';
 import { resolveValkeyUrl } from './work.module';
 import { LearningModule } from '../learning/learning.module';
 import { LearningService } from '../learning/learning.service';
-import { QuizGenerationJobHandler } from '../learning/quiz-generation.worker';
+import {
+  DeterministicGroundedQuizGenerator,
+  QuizGenerationJobHandler,
+} from '../learning/quiz-generation.worker';
 import { AgentRunProcessor } from '../learning/agent-run.processor';
 import { LoopbackMcpLearningClient } from '../mcp/mcp-learning.client';
 import { SESv2Client } from '@aws-sdk/client-sesv2';
@@ -136,12 +139,13 @@ import type { JobExecutionStore } from './job-execution.store';
     },
     {
       provide: QuizGenerationJobHandler,
-      useFactory: (
-        learning: LearningService,
-        aiProxy: AiProxyService,
-        executor: DurableJobExecutor,
-      ) => new QuizGenerationJobHandler(learning, aiProxy, executor),
-      inject: [LearningService, AiProxyService, DurableJobExecutor],
+      useFactory: (learning: LearningService, executor: DurableJobExecutor) =>
+        new QuizGenerationJobHandler(
+          learning,
+          new DeterministicGroundedQuizGenerator(),
+          executor,
+        ),
+      inject: [LearningService, DurableJobExecutor],
     },
     {
       provide: UnsupportedWorkJobHandler,

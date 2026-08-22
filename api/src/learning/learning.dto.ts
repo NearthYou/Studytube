@@ -73,6 +73,26 @@ export class QuizParamDto {
   quizId!: string;
 }
 
+export class LearningContextParamDto {
+  @Matches(/^[1-9]\d*$/u)
+  contextId!: string;
+}
+
+export class AdaptiveQuizLoopParamDto {
+  @IsUUID('4')
+  quizLoopId!: string;
+}
+
+export class RequestAdaptiveQuizDto {
+  @IsNumber({ maxDecimalPlaces: 3 })
+  @Min(0)
+  startSeconds!: number;
+
+  @IsNumber({ maxDecimalPlaces: 3 })
+  @Min(0)
+  endSeconds!: number;
+}
+
 export class ExpectedVersionDto {
   @IsInt()
   @Min(1)
@@ -113,3 +133,5 @@ export class SubmitQuizDto {
   @Type(() => QuizAnswerDto)
   answers!: QuizAnswerDto[];
 }
+
+export class SubmitAdaptiveQuizDto extends SubmitQuizDto {}

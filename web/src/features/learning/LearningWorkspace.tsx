@@ -4,8 +4,13 @@ import { Link, useSearchParams } from "react-router";
 import {
   createLearningNote,
   deleteLearningNote,
+  fetchAdaptiveQuiz,
   fetchLearningCaptions,
+  requestAdaptiveQuiz,
+  submitAdaptiveQuiz,
   updateLearningNote,
+  type AdaptiveQuizLoop,
+  type AdaptiveQuizSubmission,
 } from "../../api.ts";
 import type { LearningNote, Session } from "../../types.ts";
 import { formatTime } from "../../videoSummaryDetails.ts";
@@ -19,6 +24,11 @@ import {
   type ProgressiveCaptionState,
 } from "./captionState.ts";
 import { useLearningSession, type LearningTab } from "./useLearningSession.ts";
+import {
+  quizStateFromApi,
+  transitionQuizState,
+  type QuizUiState,
+} from "./adaptiveQuizFlow.ts";
 
 type LearningPlayer = {
   destroy: () => void;
@@ -100,14 +110,68 @@ function ActiveLearningWorkspace({
   const [captionRefresh, setCaptionRefresh] = useState(0);
   const [noteBusyId, setNoteBusyId] = useState("");
   const [noteStatus, setNoteStatus] = useState("");
+  const [adaptiveQuiz, setAdaptiveQuiz] = useState<AdaptiveQuizLoop | null>(
+    null,
+  );
+  const [quizAnswers, setQuizAnswers] = useState<Record<string, number>>({});
+  const [quizSubmission, setQuizSubmission] =
+    useState<AdaptiveQuizSubmission | null>(null);
+  const [quizUi, setQuizUi] = useState<QuizUiState>(() =>
+    quizStateFromApi(null, false),
+  );
   const playerRef = useRef<LearningPlayer | null>(null);
   const initialTimeRef = useRef(state.currentTime);
   const captionsRef = useRef(state.captions);
   const tablistRef = useRef<HTMLDivElement>(null);
   const errorRef = useRef<HTMLDivElement>(null);
+  const quizStatusRef = useRef<HTMLDivElement>(null);
   const currentCaption = captionPairAt(state.captions, state.currentTime);
   const quizState = quizPreparation(state.captions);
   const contextId = state.contextId || video.learningContextId || "";
+
+  useEffect(() => {
+    if (!adaptiveQuiz) setQuizUi(quizStateFromApi(null, quizState.ready));
+  }, [adaptiveQuiz, quizState.ready]);
+
+  useEffect(() => {
+    const loopId = adaptiveQuiz?.id;
+    if (!loopId || adaptiveQuiz.state !== "generating") return;
+    const activeLoopId = loopId;
+    let cancelled = false;
+    let attempts = 0;
+    let timeout = 0;
+    async function pollQuiz() {
+      attempts += 1;
+      try {
+        const next = await fetchAdaptiveQuiz(activeLoopId);
+        if (cancelled) return;
+        setAdaptiveQuiz(next);
+        setQuizUi(quizStateFromApi(next, quizState.ready));
+        if (next.state === "generating" && attempts < 10) {
+          timeout = window.setTimeout(pollQuiz, 1500);
+        }
+      } catch {
+        if (!cancelled) {
+          setQuizUi((current) => ({
+            ...current,
+            phase: "failed",
+            message: "퀴즈 상태를 확인하지 못했습니다. 다시 시도해주세요.",
+          }));
+        }
+      }
+    }
+    timeout = window.setTimeout(pollQuiz, 500);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+    };
+  }, [adaptiveQuiz, quizState.ready]);
+
+  useEffect(() => {
+    if (["failed", "stale", "evaluated"].includes(quizUi.phase)) {
+      quizStatusRef.current?.focus();
+    }
+  }, [quizUi.phase]);
 
   useEffect(() => {
     captionsRef.current = state.captions;
@@ -313,6 +377,89 @@ function ActiveLearningWorkspace({
     }
   }
 
+  async function startQuiz() {
+    if (!contextId || !quizState.ready) return;
+    setQuizSubmission(null);
+    setQuizAnswers({});
+    setQuizUi((current) => transitionQuizState(current, { type: "requested" }));
+    try {
+      const loop = await requestAdaptiveQuiz({
+        contextId,
+        startSeconds: 0,
+        endSeconds: Math.max(1, Math.floor(state.currentTime)),
+        idempotencyKey: crypto.randomUUID(),
+      });
+      setAdaptiveQuiz(loop);
+      setQuizUi(quizStateFromApi(loop, true));
+    } catch (error) {
+      setQuizUi((current) => ({
+        ...current,
+        phase: "failed",
+        message:
+          error instanceof Error
+            ? error.message
+            : "퀴즈를 만들지 못했습니다. 다시 시도해주세요.",
+      }));
+    }
+  }
+
+  function chooseQuizAnswer(questionId: string, choiceIndex: number) {
+    setQuizAnswers((current) => ({ ...current, [questionId]: choiceIndex }));
+    setQuizUi((current) =>
+      transitionQuizState(current, { type: "answer_changed" }),
+    );
+  }
+
+  async function submitQuizAnswers() {
+    if (!adaptiveQuiz || adaptiveQuiz.questions.length !== 5) return;
+    const answers = adaptiveQuiz.questions.map((question) => ({
+      questionId: question.id,
+      selectedChoiceIndex: quizAnswers[question.id],
+    }));
+    if (answers.some((answer) => answer.selectedChoiceIndex === undefined)) {
+      setQuizUi((current) => ({
+        ...current,
+        message: "모든 문제에 답해주세요.",
+      }));
+      return;
+    }
+    setQuizUi((current) =>
+      transitionQuizState(current, { type: "submit_started" }),
+    );
+    try {
+      const result = await submitAdaptiveQuiz({
+        loopId: adaptiveQuiz.id,
+        idempotencyKey: crypto.randomUUID(),
+        answers: answers as Array<{
+          questionId: string;
+          selectedChoiceIndex: number;
+        }>,
+      });
+      setQuizSubmission(result);
+      setQuizUi((current) =>
+        transitionQuizState(current, {
+          type: "submit_succeeded",
+          result: { score: result.attempt.score },
+        }),
+      );
+    } catch (error) {
+      try {
+        const latest = await fetchAdaptiveQuiz(adaptiveQuiz.id);
+        setAdaptiveQuiz(latest);
+        setQuizUi(quizStateFromApi(latest, quizState.ready));
+      } catch {
+        setQuizUi((current) => ({
+          ...current,
+          phase: "failed",
+          message:
+            error instanceof Error
+              ? error.message
+              : "답을 확인하지 못했습니다. 다시 시도해주세요.",
+        }));
+      }
+    }
+  }
+
   return (
     <main className="page-shell learning-workspace">
       <header className="learning-workspace-heading">
@@ -439,17 +586,148 @@ function ActiveLearningWorkspace({
             </section>
           )}
           {state.selectedTab === "quiz" && (
-            <section className="learning-preparing-state">
-              <h2>퀴즈 준비 상태</h2>
-              <p>{quizState.message}</p>
-              {!quizState.ready && (
-                <span>자막 근거가 준비되면 이 탭에서 알려드립니다.</span>
-              )}
-            </section>
+            <AdaptiveQuizPanel
+              answers={quizAnswers}
+              loop={adaptiveQuiz}
+              onAnswer={chooseQuizAnswer}
+              onRequest={startQuiz}
+              onSeek={seek}
+              onSubmit={submitQuizAnswers}
+              state={quizUi}
+              statusRef={quizStatusRef}
+              submission={quizSubmission}
+            />
           )}
         </div>
       </section>
     </main>
+  );
+}
+
+function AdaptiveQuizPanel({
+  answers,
+  loop,
+  onAnswer,
+  onRequest,
+  onSeek,
+  onSubmit,
+  state,
+  statusRef,
+  submission,
+}: {
+  answers: Record<string, number>;
+  loop: AdaptiveQuizLoop | null;
+  onAnswer: (questionId: string, choiceIndex: number) => void;
+  onRequest: () => void;
+  onSeek: (seconds: number) => void;
+  onSubmit: () => void;
+  state: QuizUiState;
+  statusRef: React.RefObject<HTMLDivElement | null>;
+  submission: AdaptiveQuizSubmission | null;
+}) {
+  if (["request", "generating", "failed", "stale"].includes(state.phase)) {
+    return (
+      <section className="learning-preparing-state">
+        <h2>지금까지 퀴즈</h2>
+        <div aria-live="polite" ref={statusRef} tabIndex={-1}>
+          {state.message}
+        </div>
+        {state.phase === "generating" && (
+          <span>완료되면 자동으로 표시됩니다.</span>
+        )}
+        {state.phase === "request" && state.evidenceReady && (
+          <button type="button" onClick={onRequest}>
+            퀴즈 만들기
+          </button>
+        )}
+        {state.phase === "request" && !state.evidenceReady && (
+          <span>자막 근거가 준비되면 시작할 수 있습니다.</span>
+        )}
+        {state.phase === "failed" && (
+          <button type="button" onClick={onRequest}>
+            다시 만들기
+          </button>
+        )}
+        {state.phase === "stale" && (
+          <button type="button" onClick={onRequest}>
+            새 퀴즈 만들기
+          </button>
+        )}
+      </section>
+    );
+  }
+
+  return (
+    <section className="adaptive-quiz-panel">
+      <h2>지금까지 퀴즈</h2>
+      {loop?.questions.map((question) => {
+        const evaluated = submission?.attempt.answers.find(
+          (answer) => answer.questionId === question.id,
+        );
+        return (
+          <fieldset key={question.id}>
+            <legend>
+              {question.position}. {question.prompt}
+            </legend>
+            {question.choices.map((choice, index) => (
+              <label key={choice}>
+                <input
+                  checked={answers[question.id] === index}
+                  disabled={
+                    state.phase === "submitting" || state.phase === "evaluated"
+                  }
+                  name={question.id}
+                  onChange={() => onAnswer(question.id, index)}
+                  type="radio"
+                />
+                {choice}
+              </label>
+            ))}
+            {evaluated && (
+              <div>
+                <p>
+                  {evaluated.correct
+                    ? "정답입니다."
+                    : "다시 볼 부분이 있습니다."}
+                </p>
+                <p>{evaluated.explanation}</p>
+                <button
+                  type="button"
+                  onClick={() => onSeek(evaluated.citation.startSeconds)}
+                >
+                  {formatTime(evaluated.citation.startSeconds)} 근거 보기
+                </button>
+              </div>
+            )}
+          </fieldset>
+        );
+      })}
+      {(state.phase === "ready" || state.phase === "answering") && (
+        <button
+          disabled={state.phase !== "answering"}
+          type="button"
+          onClick={onSubmit}
+        >
+          답 확인하기
+        </button>
+      )}
+      {state.phase === "submitting" && <p>답을 확인하고 있습니다.</p>}
+      {state.phase === "evaluated" && submission && (
+        <div ref={statusRef} tabIndex={-1}>
+          <p>점수 {submission.attempt.score}점</p>
+          {submission.reviewProposal && (
+            <button
+              type="button"
+              onClick={() =>
+                onSeek(submission.reviewProposal!.citation.startSeconds)
+              }
+            >
+              복습 구간으로 이동
+            </button>
+          )}
+        </div>
+      )}
+    </section>
   );
 }
 

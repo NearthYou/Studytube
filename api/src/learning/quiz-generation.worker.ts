@@ -1,29 +1,79 @@
-import { AiProxyService } from '../ai-proxy.service';
 import { DurableJobExecutor } from '../work/durable-job.executor';
 import { deterministicWorkUuid } from '../work/deterministic-work-id';
 import type { WorkAttemptContext, WorkQueueJob } from '../work/work.queue';
 import { WorkJobTerminalError } from '../work/work.errors';
-import type { QuizQuestionInput } from './learning.repository';
-import { LearningService } from './learning.service';
+import type { AdaptiveQuizGeneration } from './learning.repository';
+import type { LearningService } from './learning.service';
 
-type QuizPayload = {
-  courseStepId: string;
-  title: string;
-  sourceUrl: string;
-  timestampSeconds: number;
-  durationSeconds: number;
-};
+export type QuizGenerationSnapshot = AdaptiveQuizGeneration;
 
-type QuizResponse = {
+export type GroundedQuizResponse = {
   schemaVersion: 1;
   generatorVersion: string;
-  questions: QuizQuestionInput[];
+  questions: Array<{
+    prompt: string;
+    choices: string[];
+    correctChoiceIndex: number;
+    explanation: string;
+    citation: {
+      resourceId: string;
+      sourceUrl: string;
+      startSeconds: number;
+      endSeconds: number;
+      artifactId: string;
+      artifactGeneration: number;
+    };
+  }>;
 };
+
+export interface GroundedQuizGenerator {
+  generate(
+    snapshot: QuizGenerationSnapshot,
+    signal: AbortSignal,
+  ): Promise<GroundedQuizResponse>;
+}
+
+export class DeterministicGroundedQuizGenerator implements GroundedQuizGenerator {
+  generate(
+    snapshot: QuizGenerationSnapshot,
+    signal: AbortSignal,
+  ): Promise<GroundedQuizResponse> {
+    signal.throwIfAborted();
+    const questions = snapshot.evidence.map((evidence, index) => {
+      const distractors = snapshot.evidence
+        .filter((_, candidateIndex) => candidateIndex !== index)
+        .slice(0, 3)
+        .map((candidate) => candidate.content.slice(0, 220));
+      const correctChoiceIndex = index % 4;
+      const choices = [...distractors];
+      choices.splice(correctChoiceIndex, 0, evidence.content.slice(0, 220));
+      return {
+        prompt: `${evidence.startSeconds}초 근처에서 설명한 내용은 무엇인가요?`,
+        choices,
+        correctChoiceIndex,
+        explanation: `${evidence.startSeconds}초부터 ${evidence.endSeconds}초까지의 자막을 근거로 확인할 수 있습니다.`,
+        citation: {
+          resourceId: evidence.resourceId,
+          sourceUrl: evidence.sourceUrl,
+          startSeconds: evidence.startSeconds,
+          endSeconds: evidence.endSeconds,
+          artifactId: evidence.artifactId,
+          artifactGeneration: evidence.artifactGeneration,
+        },
+      };
+    });
+    return Promise.resolve({
+      schemaVersion: 1,
+      generatorVersion: 'evidence-grounded-quiz-v1',
+      questions,
+    });
+  }
+}
 
 export class QuizGenerationJobHandler {
   constructor(
     private readonly learning: LearningService,
-    private readonly ai: AiProxyService,
+    private readonly generator: GroundedQuizGenerator,
     private readonly executor: DurableJobExecutor,
   ) {}
 
@@ -31,19 +81,27 @@ export class QuizGenerationJobHandler {
     job: WorkQueueJob,
     attempt?: WorkAttemptContext,
   ): Promise<Record<string, unknown>> {
-    return this.executor.execute(
-      {
-        eventId: job.eventId,
-        handlerVersion: job.handlerVersion,
-      },
-      (signal) => this.process(job, signal),
-      attempt?.isFinalAttempt
-        ? {
-            code: 'QUIZ_GENERATION_ATTEMPTS_EXHAUSTED',
-            attemptsMade: attempt.attemptNumber,
-          }
-        : undefined,
-    );
+    const loopId = quizLoopId(job);
+    try {
+      return await this.executor.execute(
+        { eventId: job.eventId, handlerVersion: job.handlerVersion },
+        (signal) => this.process(job, signal),
+        attempt?.isFinalAttempt
+          ? {
+              code: 'QUIZ_GENERATION_ATTEMPTS_EXHAUSTED',
+              attemptsMade: attempt.attemptNumber,
+            }
+          : undefined,
+      );
+    } catch (error) {
+      if (attempt?.isFinalAttempt && loopId) {
+        await this.learning.failAdaptiveQuizGeneration(
+          loopId,
+          'QUIZ_GENERATION_ATTEMPTS_EXHAUSTED',
+        );
+      }
+      throw error;
+    }
   }
 
   private async process(
@@ -53,47 +111,54 @@ export class QuizGenerationJobHandler {
     signal.throwIfAborted();
     if (
       job.eventType !== 'quiz_generation.requested' ||
-      job.payloadSchemaVersion !== 1
+      job.payloadSchemaVersion !== 2
     ) {
       return this.terminal(job, 'UNSUPPORTED_QUIZ_SCHEMA');
     }
-    const payload = parseQuizPayload(job.payload);
-    if (!payload) {
-      return this.terminal(job, 'INVALID_QUIZ_PAYLOAD');
+    const loopId = quizLoopId(job);
+    if (!loopId) return this.terminal(job, 'INVALID_QUIZ_PAYLOAD');
+    const snapshot = await this.learning.loadAdaptiveQuizGeneration(loopId);
+    signal.throwIfAborted();
+    if (!snapshot) return this.terminal(job, 'QUIZ_LOOP_NOT_FOUND');
+    if (snapshot.state === 'ready' || snapshot.state === 'evaluated') {
+      return { quizLoopId: loopId, state: 'ready' };
+    }
+    if (snapshot.state !== 'generating') {
+      return this.terminal(job, 'QUIZ_LOOP_NOT_GENERATABLE');
     }
 
-    const generated = parseQuizResponse(
-      await this.ai.generateQuiz(
-        {
-          schemaVersion: 1,
-          ...payload,
-        },
-        signal,
-      ),
-      payload.sourceUrl,
-    );
+    const generated = await this.generator.generate(snapshot, signal);
     signal.throwIfAborted();
-    if (!generated) {
-      return this.terminal(job, 'INVALID_QUIZ_RESPONSE');
+    const parsed = validateGroundedQuiz(generated, snapshot);
+    if (!parsed) {
+      await this.learning.failAdaptiveQuizGeneration(
+        loopId,
+        'INVALID_GROUNDED_QUIZ_RESPONSE',
+      );
+      return this.terminal(job, 'INVALID_GROUNDED_QUIZ_RESPONSE');
     }
-    const quizId = deterministicWorkUuid(job.eventId, 'quiz');
-    signal.throwIfAborted();
-    await this.learning.createQuiz({
-      quizId,
-      courseStepId: payload.courseStepId,
-      schemaVersion: generated.schemaVersion,
-      generatorVersion: generated.generatorVersion,
-      maxAttempts: 3,
-      questions: generated.questions,
+    const completed = await this.learning.completeAdaptiveQuizGeneration({
+      loopId,
+      captionArtifactId: snapshot.captionArtifactId,
+      captionGeneration: snapshot.captionGeneration,
+      generatorVersion: parsed.generatorVersion,
+      questions: parsed.questions.map((question, index) => ({
+        id: deterministicWorkUuid(job.eventId, `adaptive-quiz-${index + 1}`),
+        prompt: question.prompt,
+        choices: question.choices,
+        correctChoiceIndex: question.correctChoiceIndex,
+        explanation: question.explanation,
+        evidencePosition: question.evidencePosition,
+      })),
     });
     signal.throwIfAborted();
-    const result = {
-      quizId,
-      courseStepId: payload.courseStepId,
-      questionCount: generated.questions.length,
-      generatorVersion: generated.generatorVersion,
+    if (!completed) return this.terminal(job, 'QUIZ_LOOP_CHECKPOINT_CONFLICT');
+    return {
+      quizLoopId: loopId,
+      state: 'ready',
+      questionCount: parsed.questions.length,
+      generatorVersion: parsed.generatorVersion,
     };
-    return result;
   }
 
   private terminal(job: WorkQueueJob, code: string): never {
@@ -104,120 +169,65 @@ export class QuizGenerationJobHandler {
   }
 }
 
-function parseQuizPayload(
-  payload: Record<string, unknown>,
-): QuizPayload | null {
-  const courseStepId = canonicalPositiveInteger(payload.courseStepId);
-  const title = typeof payload.title === 'string' ? payload.title.trim() : '';
-  const sourceUrl =
-    typeof payload.sourceUrl === 'string' ? payload.sourceUrl.trim() : '';
-  const timestampSeconds = Number(payload.timestampSeconds);
-  const durationSeconds = Number(payload.durationSeconds);
-  if (
-    !courseStepId ||
-    !title ||
-    title.length > 500 ||
-    !allowedYoutubeUrl(sourceUrl) ||
-    !Number.isInteger(timestampSeconds) ||
-    timestampSeconds < 0 ||
-    !Number.isInteger(durationSeconds) ||
-    durationSeconds <= 0 ||
-    payload.questionCount !== 5
-  ) {
-    return null;
-  }
-  return {
-    courseStepId,
-    title,
-    sourceUrl,
-    timestampSeconds,
-    durationSeconds,
-  };
-}
-
-function parseQuizResponse(
-  value: unknown,
-  expectedSourceUrl: string,
-): QuizResponse | null {
-  if (!value || typeof value !== 'object') return null;
-  const row = value as Record<string, unknown>;
-  if (
-    row.schemaVersion !== 1 ||
-    typeof row.generatorVersion !== 'string' ||
-    !row.generatorVersion.trim() ||
-    row.generatorVersion.length > 128 ||
-    !Array.isArray(row.questions) ||
-    row.questions.length !== 5
-  ) {
-    return null;
-  }
-  const questions: QuizQuestionInput[] = [];
-  for (const raw of row.questions) {
-    if (!raw || typeof raw !== 'object') return null;
-    const question = raw as Record<string, unknown>;
-    const choices = Array.isArray(question.choices)
-      ? question.choices.filter(
-          (choice): choice is string =>
-            typeof choice === 'string' && choice.trim().length > 0,
-        )
-      : [];
-    const correctChoiceIndex = Number(question.correctChoiceIndex);
-    const sourceStartSeconds = Number(question.sourceStartSeconds);
-    const sourceEndSeconds = Number(question.sourceEndSeconds);
-    if (
-      typeof question.prompt !== 'string' ||
-      !question.prompt.trim() ||
-      question.prompt.length > 1_000 ||
-      choices.length < 2 ||
-      choices.length > 8 ||
-      !Number.isInteger(correctChoiceIndex) ||
-      correctChoiceIndex < 0 ||
-      correctChoiceIndex >= choices.length ||
-      typeof question.explanation !== 'string' ||
-      !question.explanation.trim() ||
-      question.explanation.length > 2_000 ||
-      question.sourceUrl !== expectedSourceUrl ||
-      !Number.isInteger(sourceStartSeconds) ||
-      !Number.isInteger(sourceEndSeconds) ||
-      sourceStartSeconds < 0 ||
-      sourceEndSeconds <= sourceStartSeconds
-    ) {
-      return null;
-    }
-    questions.push({
-      prompt: question.prompt.trim(),
-      choices: choices.map((choice) => choice.trim()),
-      correctChoiceIndex,
-      explanation: question.explanation.trim(),
-      sourceUrl: expectedSourceUrl,
-      sourceStartSeconds,
-      sourceEndSeconds,
-    });
-  }
-  return {
-    schemaVersion: 1,
-    generatorVersion: row.generatorVersion.trim(),
-    questions,
-  };
-}
-
-function canonicalPositiveInteger(value: unknown): string | null {
-  const normalized = typeof value === 'number' ? String(value) : value;
-  return typeof normalized === 'string' && /^[1-9][0-9]*$/u.test(normalized)
-    ? normalized
+function quizLoopId(job: WorkQueueJob): string | null {
+  const value = job.payload.quizLoopId;
+  return typeof value === 'string' && UUID_PATTERN.test(value)
+    ? value.toLowerCase()
     : null;
 }
 
-function allowedYoutubeUrl(value: string): boolean {
-  try {
-    const url = new URL(value);
-    return (
-      url.protocol === 'https:' &&
-      ['youtube.com', 'www.youtube.com', 'm.youtube.com', 'youtu.be'].includes(
-        url.hostname.toLowerCase(),
-      )
-    );
-  } catch {
-    return false;
+function validateGroundedQuiz(
+  value: GroundedQuizResponse,
+  snapshot: QuizGenerationSnapshot,
+): {
+  generatorVersion: string;
+  questions: Array<
+    GroundedQuizResponse['questions'][number] & {
+      evidencePosition: number;
+    }
+  >;
+} | null {
+  if (
+    value.schemaVersion !== 1 ||
+    !value.generatorVersion.trim() ||
+    value.generatorVersion.length > 128 ||
+    value.questions.length !== 5 ||
+    snapshot.evidence.length !== 5
+  ) {
+    return null;
   }
+  const questions = [];
+  for (const question of value.questions) {
+    const evidenceIndex = snapshot.evidence.findIndex(
+      (evidence) =>
+        evidence.resourceId === question.citation.resourceId &&
+        evidence.sourceUrl === question.citation.sourceUrl &&
+        evidence.startSeconds === question.citation.startSeconds &&
+        evidence.endSeconds === question.citation.endSeconds &&
+        evidence.artifactId === question.citation.artifactId &&
+        evidence.artifactGeneration === question.citation.artifactGeneration,
+    );
+    if (
+      evidenceIndex < 0 ||
+      question.citation.startSeconds < snapshot.watchedRange.start ||
+      question.citation.endSeconds > snapshot.watchedRange.end ||
+      !question.prompt.trim() ||
+      question.prompt.length > 1_000 ||
+      question.choices.length < 2 ||
+      question.choices.length > 8 ||
+      question.choices.some((choice) => !choice.trim()) ||
+      !Number.isInteger(question.correctChoiceIndex) ||
+      question.correctChoiceIndex < 0 ||
+      question.correctChoiceIndex >= question.choices.length ||
+      !question.explanation.trim() ||
+      question.explanation.length > 2_000
+    ) {
+      return null;
+    }
+    questions.push({ ...question, evidencePosition: evidenceIndex + 1 });
+  }
+  return { generatorVersion: value.generatorVersion.trim(), questions };
 }
+
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;

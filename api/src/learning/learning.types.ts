@@ -135,3 +135,67 @@ export type QuizAttemptResult = {
   latestScore: number;
   attemptsRemaining: number;
 };
+
+export type AdaptiveQuizLoopState =
+  | 'generating'
+  | 'ready'
+  | 'evaluated'
+  | 'failed'
+  | 'stale';
+
+export type AdaptiveQuizCitation = {
+  resourceId: string;
+  sourceUrl: string;
+  startSeconds: number;
+  endSeconds: number;
+  artifactId: string;
+  artifactGeneration: number;
+};
+
+export type AdaptiveQuizQuestionPublic = {
+  id: string;
+  position: number;
+  prompt: string;
+  choices: string[];
+  citation: AdaptiveQuizCitation;
+};
+
+export type AdaptiveQuizLoopPublic = {
+  id: string;
+  studyContextId: string;
+  state: AdaptiveQuizLoopState;
+  watchedRange: WatchedRange;
+  captionArtifactId: string;
+  captionGeneration: number;
+  questions: AdaptiveQuizQuestionPublic[];
+  failureCode: string | null;
+};
+
+export type AdaptiveQuizReviewProposal = {
+  kind: 'review_range';
+  reasonCode: 'INCORRECT_ANSWER';
+  citation: Omit<
+    AdaptiveQuizCitation,
+    'resourceId' | 'artifactId' | 'artifactGeneration'
+  >;
+};
+
+export type AdaptiveQuizAttemptResult = {
+  id: string;
+  score: number;
+  submittedAt: string;
+  answers: Array<{
+    questionId: string;
+    selectedChoiceIndex: number;
+    correct: boolean;
+    correctChoiceIndex: number;
+    explanation: string;
+    citation: AdaptiveQuizCitation;
+  }>;
+};
+
+export type AdaptiveQuizSubmission = {
+  state: 'evaluated';
+  attempt: AdaptiveQuizAttemptResult;
+  reviewProposal: AdaptiveQuizReviewProposal | null;
+};

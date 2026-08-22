@@ -12,13 +12,17 @@ import {
 import { ApiHeader } from '@nestjs/swagger';
 import type { AuthenticatedRequest } from '../auth/session.guard';
 import {
+  AdaptiveQuizLoopParamDto,
   AgentRunParamDto,
   CourseStepParamDto,
   CreateAgentRunDto,
   ExpectedVersionDto,
+  LearningContextParamDto,
   QuizParamDto,
+  RequestAdaptiveQuizDto,
   RecordProgressDto,
   SubmitQuizDto,
+  SubmitAdaptiveQuizDto,
 } from './learning.dto';
 import { throwLearningHttpError } from './learning-error.mapper';
 import { LearningNotFoundError } from './learning.errors';
@@ -181,6 +185,67 @@ export class LearningController {
   ) {
     return boundary(() =>
       this.service.listQuizAttempts(request.principal.userId, params.quizId),
+    );
+  }
+
+  @Post('contexts/:contextId/quiz-loops')
+  @HttpCode(HttpStatus.ACCEPTED)
+  @ApiHeader({
+    name: 'Idempotency-Key',
+    required: true,
+    schema: { type: 'string', maxLength: 200 },
+  })
+  requestAdaptiveQuiz(
+    @Req() request: AuthenticatedRequest,
+    @Param() params: LearningContextParamDto,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
+    @Body() body: RequestAdaptiveQuizDto,
+  ) {
+    return boundary(() =>
+      this.service.requestAdaptiveQuiz(
+        request.principal.userId,
+        params.contextId,
+        idempotencyKey,
+        body,
+      ),
+    );
+  }
+
+  @Get('quiz-loops/:quizLoopId')
+  getAdaptiveQuiz(
+    @Req() request: AuthenticatedRequest,
+    @Param() params: AdaptiveQuizLoopParamDto,
+  ) {
+    return boundary(async () =>
+      required(
+        await this.service.getAdaptiveQuiz(
+          request.principal.userId,
+          params.quizLoopId,
+        ),
+      ),
+    );
+  }
+
+  @Post('quiz-loops/:quizLoopId/submit')
+  @HttpCode(HttpStatus.OK)
+  @ApiHeader({
+    name: 'Idempotency-Key',
+    required: true,
+    schema: { type: 'string', maxLength: 200 },
+  })
+  submitAdaptiveQuiz(
+    @Req() request: AuthenticatedRequest,
+    @Param() params: AdaptiveQuizLoopParamDto,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
+    @Body() body: SubmitAdaptiveQuizDto,
+  ) {
+    return boundary(() =>
+      this.service.submitAdaptiveQuiz(
+        request.principal.userId,
+        params.quizLoopId,
+        idempotencyKey,
+        body,
+      ),
     );
   }
 }

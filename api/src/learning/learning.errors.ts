@@ -5,6 +5,8 @@ export type LearningErrorCode =
   | 'LEARNING_IDEMPOTENCY_CONFLICT'
   | 'LEARNING_INVALID_LIFECYCLE'
   | 'LEARNING_ATTEMPT_LIMIT_REACHED'
+  | 'LEARNING_EVIDENCE_NOT_READY'
+  | 'LEARNING_QUIZ_STALE'
   | 'LEARNING_LEASE_LOST'
   | 'LEARNING_PERSISTENCE_UNAVAILABLE';
 
@@ -68,6 +70,22 @@ export class LearningAttemptLimitError extends LearningError {
 
   constructor() {
     super('Quiz attempt limit has been reached');
+  }
+}
+
+export class LearningEvidenceNotReadyError extends LearningError {
+  readonly code = 'LEARNING_EVIDENCE_NOT_READY' as const;
+
+  constructor() {
+    super('자막 근거를 준비하고 있습니다. 준비가 끝난 뒤 다시 시도해주세요.');
+  }
+}
+
+export class LearningQuizStaleError extends LearningError {
+  readonly code = 'LEARNING_QUIZ_STALE' as const;
+
+  constructor() {
+    super('자막이 바뀌었습니다. 새 퀴즈를 만들어주세요.');
   }
 }
 

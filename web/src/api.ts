@@ -457,6 +457,94 @@ export function deleteLearningNote(input: {
   );
 }
 
+export type AdaptiveQuizLoop = {
+  id: string;
+  studyContextId: string;
+  state: "generating" | "ready" | "evaluated" | "failed" | "stale";
+  watchedRange: { start: number; end: number };
+  captionArtifactId: string;
+  captionGeneration: number;
+  questions: Array<{
+    id: string;
+    position: number;
+    prompt: string;
+    choices: string[];
+    citation: {
+      resourceId: string;
+      sourceUrl: string;
+      startSeconds: number;
+      endSeconds: number;
+      artifactId: string;
+      artifactGeneration: number;
+    };
+  }>;
+  failureCode: string | null;
+};
+
+export type AdaptiveQuizSubmission = {
+  state: "evaluated";
+  attempt: {
+    id: string;
+    score: number;
+    submittedAt: string;
+    answers: Array<{
+      questionId: string;
+      selectedChoiceIndex: number;
+      correct: boolean;
+      correctChoiceIndex: number;
+      explanation: string;
+      citation: AdaptiveQuizLoop["questions"][number]["citation"];
+    }>;
+  };
+  reviewProposal: null | {
+    kind: "review_range";
+    reasonCode: "INCORRECT_ANSWER";
+    citation: {
+      sourceUrl: string;
+      startSeconds: number;
+      endSeconds: number;
+    };
+  };
+};
+
+export function requestAdaptiveQuiz(input: {
+  contextId: string;
+  startSeconds: number;
+  endSeconds: number;
+  idempotencyKey: string;
+}): Promise<AdaptiveQuizLoop> {
+  return requestJson<AdaptiveQuizLoop>(
+    `/learning/contexts/${input.contextId}/quiz-loops`,
+    {
+      method: "POST",
+      headers: { "Idempotency-Key": input.idempotencyKey },
+      body: JSON.stringify({
+        startSeconds: input.startSeconds,
+        endSeconds: input.endSeconds,
+      }),
+    },
+  );
+}
+
+export function fetchAdaptiveQuiz(loopId: string): Promise<AdaptiveQuizLoop> {
+  return requestJson<AdaptiveQuizLoop>(`/learning/quiz-loops/${loopId}`);
+}
+
+export function submitAdaptiveQuiz(input: {
+  loopId: string;
+  idempotencyKey: string;
+  answers: Array<{ questionId: string; selectedChoiceIndex: number }>;
+}): Promise<AdaptiveQuizSubmission> {
+  return requestJson<AdaptiveQuizSubmission>(
+    `/learning/quiz-loops/${input.loopId}/submit`,
+    {
+      method: "POST",
+      headers: { "Idempotency-Key": input.idempotencyKey },
+      body: JSON.stringify({ answers: input.answers }),
+    },
+  );
+}
+
 export function fetchVideoSummary(input: {
   videoId: string;
   title: string;

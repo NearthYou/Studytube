@@ -533,6 +533,32 @@ describe('database migration files', () => {
     expect(migration).not.toMatch(/(?:DELETE\s+FROM|TRUNCATE\s+TABLE)/i);
   });
 
+  it('adds durable adaptive quiz checkpoints without a user-wait lease', async () => {
+    const migration = await readFile(
+      join(
+        process.cwd(),
+        'migrations',
+        '1753660817000_adaptive-learning-loop.cjs',
+      ),
+      'utf8',
+    );
+    for (const table of [
+      'adaptive_quiz_loops',
+      'adaptive_quiz_evidence',
+      'adaptive_quiz_questions',
+      'adaptive_quiz_attempts',
+      'adaptive_quiz_review_proposals',
+    ]) {
+      expect(migration).toContain(`CREATE TABLE ${table}`);
+    }
+    expect(migration).toContain(
+      "'generating', 'ready', 'evaluated', 'failed', 'stale'",
+    );
+    expect(migration).toContain('generation_event_id');
+    expect(migration).not.toContain('lease_expires_at');
+    expect(migration).not.toMatch(/DROP TABLE|TRUNCATE|DELETE FROM/iu);
+  });
+
   it('checks in a complete legacy runtime fixture with data and sequence state', async () => {
     const fixturePath = join(
       process.cwd(),

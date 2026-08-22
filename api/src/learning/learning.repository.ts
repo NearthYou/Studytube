@@ -1,4 +1,6 @@
 import type {
+  AdaptiveQuizLoopPublic,
+  AdaptiveQuizSubmission,
   AgentBudgets,
   AgentRun,
   AgentUsage,
@@ -101,6 +103,58 @@ export type SubmitQuizCommand = {
   answers: Array<{ questionId: string; selectedChoiceIndex: number }>;
 };
 
+export type RequestAdaptiveQuizCommand = {
+  userId: number;
+  studyContextId: string;
+  idempotencyKeyDigest: Buffer;
+  payloadHash: Buffer;
+  watchedRange: { start: number; end: number };
+};
+
+export type AdaptiveQuizEvidence = {
+  resourceId: string;
+  content: string;
+  sourceUrl: string;
+  startSeconds: number;
+  endSeconds: number;
+  artifactId: string;
+  artifactGeneration: number;
+};
+
+export type AdaptiveQuizGeneration = {
+  loopId: string;
+  state: 'generating' | 'ready' | 'evaluated' | 'failed' | 'stale';
+  ownerId: number;
+  studyContextId: string;
+  captionArtifactId: string;
+  captionGeneration: number;
+  watchedRange: { start: number; end: number };
+  evidence: AdaptiveQuizEvidence[];
+};
+
+export type CompleteAdaptiveQuizGenerationCommand = {
+  loopId: string;
+  captionArtifactId: string;
+  captionGeneration: number;
+  generatorVersion: string;
+  questions: Array<{
+    id: string;
+    prompt: string;
+    choices: string[];
+    correctChoiceIndex: number;
+    explanation: string;
+    evidencePosition: number;
+  }>;
+};
+
+export type SubmitAdaptiveQuizCommand = {
+  userId: number;
+  loopId: string;
+  idempotencyKeyDigest: Buffer;
+  payloadHash: Buffer;
+  answers: Array<{ questionId: string; selectedChoiceIndex: number }>;
+};
+
 export type RecordAgentToolCallCommand = {
   ownerId: number;
   runId: string;
@@ -167,6 +221,23 @@ export interface LearningRepository {
     userId: number,
     quizId: string,
   ): Promise<QuizAttemptResult[]>;
+  requestAdaptiveQuiz(
+    command: RequestAdaptiveQuizCommand,
+  ): Promise<AdaptiveQuizLoopPublic>;
+  findOwnerAdaptiveQuiz(
+    userId: number,
+    loopId: string,
+  ): Promise<AdaptiveQuizLoopPublic | null>;
+  loadAdaptiveQuizGeneration(
+    loopId: string,
+  ): Promise<AdaptiveQuizGeneration | null>;
+  completeAdaptiveQuizGeneration(
+    command: CompleteAdaptiveQuizGenerationCommand,
+  ): Promise<boolean>;
+  failAdaptiveQuizGeneration(loopId: string, code: string): Promise<void>;
+  submitAdaptiveQuiz(
+    command: SubmitAdaptiveQuizCommand,
+  ): Promise<AdaptiveQuizSubmission>;
   recordAgentToolCall(command: RecordAgentToolCallCommand): Promise<boolean>;
   authorizeAgentMcpCall(
     command: AuthorizeAgentMcpCallCommand,

@@ -7,20 +7,25 @@ import type {
   AuthorizeAgentMcpCallCommand,
   ClaimAgentRun,
   CompleteAgentRunCommand,
+  CompleteAdaptiveQuizGenerationCommand,
   CreateAgentRunCommand,
   CreateQuizCommand,
   FailAgentRunCommand,
   LearningRepository,
   RecordAgentToolCallCommand,
   RecordProgressCommand,
+  RequestAdaptiveQuizCommand,
   ReserveAgentRunUsageCommand,
   ReserveAgentRunUsageResult,
   SettleAgentWorkItemCommand,
+  SubmitAdaptiveQuizCommand,
   SubmitQuizCommand,
   VersionedRunCommand,
 } from './learning.repository';
 import type {
   AgentRun,
+  AdaptiveQuizLoopPublic,
+  AdaptiveQuizSubmission,
   LearningProgress,
   QuizAttemptResult,
   QuizPublic,
@@ -133,5 +138,38 @@ export class PostgresLearningRepository implements LearningRepository {
     quizId: string,
   ): Promise<QuizAttemptResult[]> {
     return this.quizzes.listOwnerQuizAttempts(userId, quizId);
+  }
+
+  requestAdaptiveQuiz(
+    command: RequestAdaptiveQuizCommand,
+  ): Promise<AdaptiveQuizLoopPublic> {
+    return this.quizzes.requestAdaptiveQuiz(command);
+  }
+
+  findOwnerAdaptiveQuiz(
+    userId: number,
+    loopId: string,
+  ): Promise<AdaptiveQuizLoopPublic | null> {
+    return this.quizzes.findOwnerAdaptiveQuiz(userId, loopId);
+  }
+
+  loadAdaptiveQuizGeneration(loopId: string) {
+    return this.quizzes.loadAdaptiveQuizGeneration(loopId);
+  }
+
+  completeAdaptiveQuizGeneration(
+    command: CompleteAdaptiveQuizGenerationCommand,
+  ): Promise<boolean> {
+    return this.quizzes.completeAdaptiveQuizGeneration(command);
+  }
+
+  failAdaptiveQuizGeneration(loopId: string, code: string): Promise<void> {
+    return this.quizzes.failAdaptiveQuizGeneration(loopId, code);
+  }
+
+  submitAdaptiveQuiz(
+    command: SubmitAdaptiveQuizCommand,
+  ): Promise<AdaptiveQuizSubmission> {
+    return this.quizzes.submitAdaptiveQuiz(command);
   }
 }

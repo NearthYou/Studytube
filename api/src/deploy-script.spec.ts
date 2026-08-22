@@ -119,7 +119,7 @@ describe('EC2 deployment script', () => {
     );
     const postgresStart = script.indexOf('--no-recreate postgres valkey');
     const cutoverDataStart = script.lastIndexOf(
-      'docker compose -f infra/production.compose.yml up -d --wait postgres valkey',
+      'docker compose -f infra/production.compose.yml up -d --wait \\\n      postgres valkey youtube-pot',
     );
     const migration = script.indexOf(
       'bash scripts/install-production-runtime.sh run-migration',
@@ -518,6 +518,23 @@ describe('EC2 deployment script', () => {
       'docker compose -f infra/production.compose.yml create --force-recreate caddy',
     );
     expect(script).toContain('systemctl restart studytube-caddy.service');
+  });
+
+  it('runs the YouTube token provider only on host loopback', () => {
+    expect(productionCompose).toContain('youtube-pot:');
+    expect(productionCompose).toContain(
+      'brainicism/bgutil-ytdlp-pot-provider:1.3.1@sha256:1aaa43a0ca72dfca6a6d2129a0fb4a23465c25adb1b043f8aff829a20825646b',
+    );
+    expect(productionCompose).toContain('"127.0.0.1:4416:4416"');
+    const providerBlock = productionCompose.slice(
+      productionCompose.indexOf('  youtube-pot:'),
+      productionCompose.indexOf('\n  caddy:'),
+    );
+    expect(providerBlock).toContain('read_only: true');
+    expect(providerBlock).toContain('no-new-privileges:true');
+    expect(providerBlock).toContain('healthcheck:');
+    expect(script).toContain('--no-recreate postgres valkey youtube-pot');
+    expect(script).toContain('postgres valkey youtube-pot');
   });
 
   it('retains request paths and response statuses without logging query values', () => {
@@ -1364,7 +1381,7 @@ source '${deployScript}'
     expect(productionCompose).toContain('valkey/valkey:9.1.1-alpine');
     expect(productionCompose).toContain('127.0.0.1:6379:6379');
     expect(productionCompose).toContain('--appendonly');
-    expect(script).toContain('up -d --wait postgres valkey');
+    expect(script).toContain('postgres valkey youtube-pot');
     expect(script).toContain('studytube-worker.service');
     expect(autoDeployScript).toContain(
       'systemctl is-active --quiet studytube-worker.service',

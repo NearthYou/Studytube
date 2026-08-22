@@ -466,113 +466,88 @@ export class VideoAssetService {
     model: string,
     signal: AbortSignal,
   ): Promise<LearningCaptionResult> {
-    const windowSeconds = 30;
-    let effectiveDuration = request.durationSeconds;
-    let sourceArtifactId = '';
-    let translationArtifactId = '';
-    let sourceOrdinal = 0;
-    let translationOrdinal = 0;
-    let sourceLanguage = 'und';
-    for (let startSeconds = 0; startSeconds < effectiveDuration; ) {
-      signal.throwIfAborted();
-      const durationSeconds = Math.min(
-        windowSeconds,
-        effectiveDuration - startSeconds,
+    signal.throwIfAborted();
+    const transcription = this.normalizeTranscriptionResponse(
+      await this.aiProxyService.transcribe(
+        {
+          videoId: request.canonicalVideoId,
+          startSeconds: 0,
+          durationSeconds: request.durationSeconds,
+          targetLanguage: request.targetLanguage,
+          model,
+        },
+        signal,
+      ),
+    );
+    signal.throwIfAborted();
+    if (transcription.errorCode || transcription.segments.length === 0) {
+      return this.failLearningCaption(
+        artifacts,
+        request,
+        transcription.errorCode ?? 'TRANSCRIPTION_PROVIDER_UNAVAILABLE',
       );
-      const transcription = this.normalizeTranscriptionResponse(
-        await this.aiProxyService.transcribe(
-          {
-            videoId: request.canonicalVideoId,
-            startSeconds,
-            durationSeconds,
-            targetLanguage: request.targetLanguage,
-            model,
-          },
-          signal,
-        ),
-      );
-      signal.throwIfAborted();
-      if (startSeconds === 0 && transcription.mediaDurationSeconds) {
-        effectiveDuration = Math.min(
-          request.durationSeconds,
-          transcription.mediaDurationSeconds,
-        );
-      }
-      if (transcription.errorCode || transcription.segments.length === 0) {
-        return this.failLearningCaption(
-          artifacts,
-          request,
-          transcription.errorCode ?? 'TRANSCRIPTION_PROVIDER_UNAVAILABLE',
-        );
-      }
-      sourceLanguage = transcription.sourceLanguage || sourceLanguage;
-      if (!sourceArtifactId) {
-        const sourceGeneration = await artifacts.createGeneration({
-          kind: 'transcription',
-          sourceLanguage,
-          request,
-        });
-        sourceArtifactId = sourceGeneration.id;
-      }
+    }
+
+    const sourceLanguage = transcription.sourceLanguage || 'und';
+    const sourceGeneration = await artifacts.createGeneration({
+      kind: 'transcription',
+      sourceLanguage,
+      request,
+    });
+    await this.appendCaptionSegments(
+      artifacts,
+      sourceGeneration.id,
+      transcription.segments,
+      request,
+      signal,
+    );
+    await this.publishCaptionGeneration(
+      artifacts,
+      sourceGeneration.id,
+      request,
+      signal,
+    );
+
+    let translationArtifactId: string | null = null;
+    const needsTranslation = sourceLanguage !== request.targetLanguage;
+    if (needsTranslation && transcription.translatedSegments.length === 0) {
+      throw new CaptionTranslationPendingError();
+    }
+    if (transcription.translatedSegments.length > 0) {
+      const translationGeneration = await artifacts.createGeneration({
+        kind: 'translation',
+        parentArtifactId: sourceGeneration.id,
+        sourceLanguage,
+        targetLanguage: request.targetLanguage,
+        request,
+      });
+      translationArtifactId = translationGeneration.id;
       await this.appendCaptionSegments(
         artifacts,
-        sourceArtifactId,
-        transcription.segments,
+        translationArtifactId,
+        transcription.translatedSegments,
         request,
         signal,
-        sourceOrdinal,
       );
-      sourceOrdinal += transcription.segments.length;
-      if (sourceOrdinal === transcription.segments.length) {
-        await this.publishCaptionGeneration(
-          artifacts,
-          sourceArtifactId,
-          request,
-          signal,
-        );
-      }
-      const needsTranslation = sourceLanguage !== request.targetLanguage;
-      if (needsTranslation && transcription.translatedSegments.length === 0) {
-        throw new CaptionTranslationPendingError();
-      }
-      if (transcription.translatedSegments.length > 0) {
-        if (!translationArtifactId) {
-          const translationGeneration = await artifacts.createGeneration({
-            kind: 'translation',
-            parentArtifactId: sourceArtifactId,
-            sourceLanguage,
-            targetLanguage: request.targetLanguage,
-            request,
-          });
-          translationArtifactId = translationGeneration.id;
-        }
-        await this.appendCaptionSegments(
-          artifacts,
-          translationArtifactId,
-          transcription.translatedSegments,
-          request,
-          signal,
-          translationOrdinal,
-        );
-        translationOrdinal += transcription.translatedSegments.length;
-        if (translationOrdinal === transcription.translatedSegments.length) {
-          await this.publishCaptionGeneration(
-            artifacts,
-            translationArtifactId,
-            request,
-            signal,
-          );
-        }
-      }
-      startSeconds += durationSeconds;
+      await this.publishCaptionGeneration(
+        artifacts,
+        translationArtifactId,
+        request,
+        signal,
+      );
     }
+
+    const effectiveDuration = Math.min(
+      request.durationSeconds,
+      transcription.mediaDurationSeconds ?? request.durationSeconds,
+    );
     await artifacts.commitWork({
       request,
       actualCostMicrounits: Math.round(effectiveDuration * 50),
     });
     return {
-      sourceArtifactId,
-      translationArtifactId: translationArtifactId || null,
+      sourceArtifactId: sourceGeneration.id,
+      translationArtifactId,
       source: 'transcription',
       status: 'ready',
     };

@@ -1140,9 +1140,12 @@ def download_youtube_audio_window(
     media_duration = normalize_transcription_duration(
         metadata.get("duration") if isinstance(metadata, dict) else None
     ) or (start_seconds + requested_duration)
-    if start_seconds >= media_duration:
+    if (
+        start_seconds != 0
+        or start_seconds >= media_duration
+        or media_duration > requested_duration
+    ):
         raise RuntimeError("TRANSCRIPTION_PROVIDER_UNAVAILABLE")
-    end_seconds = min(start_seconds + requested_duration, media_duration)
     output_template = str(directory / "window.%(ext)s")
     with yt_dlp_secret_config_args() as secret_config_args:
         for command in yt_dlp_commands():
@@ -1155,14 +1158,7 @@ def download_youtube_audio_window(
                     "--quiet",
                     "--no-warnings",
                     "--format",
-                    "bestaudio/best",
-                    "--extract-audio",
-                    "--audio-format",
-                    "mp3",
-                    "--download-sections",
-                    f"*{start_seconds}-{end_seconds}",
-                    "--force-keyframes-at-cuts",
-                    *ffmpeg_location_args(),
+                    "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best",
                     "--output",
                     output_template,
                     f"https://www.youtube.com/watch?v={video_id}",

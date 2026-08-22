@@ -776,7 +776,7 @@ describe('VideoAssetService learning caption generations', () => {
       {
         videoId: request.canonicalVideoId,
         startSeconds: 0,
-        durationSeconds: 30,
+        durationSeconds: 120,
         targetLanguage: 'ko',
         model: 'gpt-4o-mini-transcribe-2025-12-15',
       },
@@ -790,7 +790,7 @@ describe('VideoAssetService learning caption generations', () => {
     expect(artifacts.committedCosts).toEqual([]);
   });
 
-  it('publishes the first approved transcription window before processing the rest', async () => {
+  it('transcribes one bounded recording and publishes it once', async () => {
     const artifacts = new RecordingCaptionArtifacts();
     artifacts.sttApproved = true;
     const transcribe = jest
@@ -807,14 +807,14 @@ describe('VideoAssetService learning caption generations', () => {
             segments: [
               {
                 start,
-                end: start + input.durationSeconds,
+                end: Math.min(start + input.durationSeconds, 95),
                 text: `source ${start}`,
               },
             ],
             translatedSegments: [
               {
                 start,
-                end: start + input.durationSeconds,
+                end: Math.min(start + input.durationSeconds, 95),
                 text: `번역 ${start}`,
               },
             ],
@@ -850,10 +850,7 @@ describe('VideoAssetService learning caption generations', () => {
       [{ startSeconds: number; durationSeconds: number }]
     >;
     expect(transcriptionRequests.map(([input]) => input)).toEqual([
-      expect.objectContaining({ startSeconds: 0, durationSeconds: 30 }),
-      expect.objectContaining({ startSeconds: 30, durationSeconds: 30 }),
-      expect.objectContaining({ startSeconds: 60, durationSeconds: 30 }),
-      expect.objectContaining({ startSeconds: 90, durationSeconds: 5 }),
+      expect.objectContaining({ startSeconds: 0, durationSeconds: 120 }),
     ]);
     expect(artifacts.events).toEqual([
       'transcribe:0',
@@ -863,15 +860,6 @@ describe('VideoAssetService learning caption generations', () => {
       'create:translation:2',
       'append:2:1',
       'publish:2',
-      'transcribe:30',
-      'append:1:1',
-      'append:2:1',
-      'transcribe:60',
-      'append:1:1',
-      'append:2:1',
-      'transcribe:90',
-      'append:1:1',
-      'append:2:1',
     ]);
     expect(artifacts.committedCosts).toEqual([4_750]);
   });

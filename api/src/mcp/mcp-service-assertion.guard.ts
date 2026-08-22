@@ -1,7 +1,13 @@
-import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
+import {
+  CanActivate,
+  ExecutionContext,
+  ForbiddenException,
+  Injectable,
+} from '@nestjs/common';
 import type { Request } from 'express';
 import {
   McpServiceAssertionVerifier,
+  type McpLearningCapability,
   type McpServiceClaims,
 } from './mcp-service-assertion';
 
@@ -22,5 +28,14 @@ export class McpServiceAssertionGuard implements CanActivate {
       typeof authorization === 'string' ? authorization : undefined,
     );
     return true;
+  }
+}
+
+export function requireMcpCapability(
+  request: McpAuthenticatedRequest,
+  capability: McpLearningCapability,
+): void {
+  if (!request.mcpClaims.capabilities.includes(capability)) {
+    throw new ForbiddenException('MCP capability rejected');
   }
 }

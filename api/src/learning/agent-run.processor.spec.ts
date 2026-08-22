@@ -1,6 +1,7 @@
 import type { ClaimAgentRun } from './learning.repository';
 import type { LearningService } from './learning.service';
 import type { BoardRepository, StudyPost } from '../study-board.types';
+import type { McpLearningClient } from '../mcp/mcp-learning.client';
 import {
   AgentRunProcessor,
   type AgentRunProcessorOptions,
@@ -84,6 +85,57 @@ function recommendation(ids: number[]) {
   };
 }
 
+async function emulateMcpPlan(
+  response: unknown,
+  posts: Map<number, StudyPost>,
+  board: Pick<BoardRepository, 'findPost' | 'findVideoAsset'>,
+) {
+  if (!response || typeof response !== 'object') return response as never;
+  const row = response as Record<string, unknown>;
+  if (!Array.isArray(row.sources)) return response as never;
+  const proposedSteps = [];
+  for (const value of row.sources) {
+    if (!value || typeof value !== 'object') continue;
+    const source = value as Record<string, unknown>;
+    const id = Number(source.sourceId);
+    const citation = source.citation as Record<string, unknown> | undefined;
+    const sourcePost = posts.get(id);
+    if (
+      source.sourceKind !== 'post' ||
+      !sourcePost ||
+      !citation ||
+      !String(citation.sourceUrl).includes(`-${id}`)
+    ) {
+      continue;
+    }
+    const asset = await board.findVideoAsset(id);
+    const timestamp = Number(citation.timestampSeconds);
+    const segment = asset?.sourceSegments.find(
+      (item) => timestamp >= item.start && timestamp < item.end,
+    );
+    proposedSteps.push({
+      position: proposedSteps.length + 1,
+      title: sourcePost.title,
+      videoUrl: sourcePost.videoUrl,
+      thumbnailUrl: sourcePost.thumbnailUrl,
+      channelName: sourcePost.channelName,
+      sourcePostId: id,
+      evidenceSourceUrl: String(citation.sourceUrl),
+      evidenceTimestampSeconds: timestamp,
+      evidenceConfidence: Number(source.score),
+      status: 'ready' as const,
+      durationSeconds: segment ? Math.ceil(segment.end - segment.start) : 300,
+    });
+  }
+  return {
+    schemaVersion: 1 as const,
+    proposedSteps,
+    usage: row.usage,
+    evidenceCount: proposedSteps.length,
+    proposalVersion: 1,
+  };
+}
+
 type LearningDouble = Pick<
   LearningService,
   | 'claimRunAttempt'
@@ -133,11 +185,6 @@ function harness(input?: {
       return Promise.resolve(true);
     },
   };
-  const ai = {
-    recommend: jest
-      .fn()
-      .mockResolvedValue(input?.response ?? recommendation([1, 2, 3])),
-  };
   const posts = new Map([1, 2, 3, 4, 5, 6].map((id) => [id, post(id)]));
   const board: Pick<BoardRepository, 'findPost' | 'findVideoAsset'> = {
     findPost: (id) => Promise.resolve(posts.get(id) ?? null),
@@ -165,7 +212,14 @@ function harness(input?: {
         updatedAt: '2026-07-29T00:00:00.000Z',
       }),
   };
-  const processor = new AgentRunProcessor(learning, ai, board, {
+  const buildGroundedPlan = jest.fn().mockImplementation(async () => {
+    const response = input?.response ?? recommendation([1, 2, 3]);
+    return emulateMcpPlan(response, posts, board);
+  });
+  const mcp: jest.Mocked<McpLearningClient> = {
+    buildGroundedPlan,
+  };
+  const processor = new AgentRunProcessor(learning, mcp, {
     workerId: 'agent-run-worker-test',
     leaseMs: 30_000,
     processTimeoutMs: 25_000,
@@ -175,7 +229,8 @@ function harness(input?: {
 
   return {
     processor,
-    ai,
+    mcp,
+    buildGroundedPlan,
     board,
     completeCommands,
     failureCommands,
@@ -191,7 +246,7 @@ describe('AgentRunProcessor', () => {
 
     await expect(test.processor.processOnce()).resolves.toBe(false);
 
-    expect(test.ai.recommend).not.toHaveBeenCalled();
+    expect(test.buildGroundedPlan).not.toHaveBeenCalled();
     expect(test.completeCommands).toEqual([]);
     expect(test.failureCommands).toEqual([]);
     expect(test.auditCommands).toEqual([]);
@@ -212,7 +267,7 @@ describe('AgentRunProcessor', () => {
 
     await expect(test.processor.processOnce()).resolves.toBe(true);
 
-    expect(test.ai.recommend).not.toHaveBeenCalled();
+    expect(test.buildGroundedPlan).not.toHaveBeenCalled();
     expect(test.completeCommands).toEqual([]);
     expect(test.failureCommands).toEqual([
       expect.objectContaining({
@@ -247,7 +302,7 @@ describe('AgentRunProcessor', () => {
         },
       }),
     ]);
-    expect(test.ai.recommend).not.toHaveBeenCalled();
+    expect(test.buildGroundedPlan).not.toHaveBeenCalled();
     expect(test.completeCommands).toEqual([]);
     expect(test.failureCommands).toEqual([
       expect.objectContaining({
@@ -264,7 +319,7 @@ describe('AgentRunProcessor', () => {
 
     await expect(test.processor.processOnce()).resolves.toBe(true);
 
-    expect(test.ai.recommend).not.toHaveBeenCalled();
+    expect(test.buildGroundedPlan).not.toHaveBeenCalled();
     expect(test.completeCommands).toEqual([]);
     expect(test.failureCommands).toEqual([]);
     expect(test.auditCommands).toEqual([]);
@@ -296,10 +351,10 @@ describe('AgentRunProcessor', () => {
 
     await expect(test.processor.processOnce()).resolves.toBe(true);
 
-    expect(test.ai.recommend).toHaveBeenCalledWith(
-      { query: OBJECTIVE, limit: 6 },
-      42,
-    );
+    expect(test.buildGroundedPlan).toHaveBeenCalledWith(claim(), {
+      objective: OBJECTIVE,
+      requestedStepCount: 3,
+    });
     expect(test.failureCommands).toEqual([]);
     expect(test.completeCommands).toHaveLength(1);
     expect(test.completeCommands[0]).toMatchObject({
@@ -337,19 +392,7 @@ describe('AgentRunProcessor', () => {
         },
       ],
     });
-    expect(test.auditCommands).toHaveLength(1);
-    expect(test.auditCommands[0]).toMatchObject({
-      ownerId: 42,
-      runId: '11111111-1111-4111-8111-111111111111',
-      attemptId: '22222222-2222-4222-8222-222222222222',
-      requestId: '22222222-2222-4222-8222-222222222222:recommend:1',
-      toolName: 'retrieval.recommend',
-      outcome: 'succeeded',
-      input: { queryLength: OBJECTIVE.length, requestedStepCount: 3 },
-      output: { sourceCount: 3, groundedStepCount: 3 },
-    });
-    expect(JSON.stringify(test.auditCommands[0])).not.toContain(OBJECTIVE);
-    expect(JSON.stringify(test.auditCommands[0])).not.toContain(YOUTUBE_URL);
+    expect(test.auditCommands).toEqual([]);
   });
 
   it('fails with a typed error when fewer than the requested grounded posts remain', async () => {
@@ -366,9 +409,8 @@ describe('AgentRunProcessor', () => {
     expect(test.completeCommands).toEqual([]);
     expect(test.failureCommands).toEqual([
       expect.objectContaining({
-        failureCode: 'INSUFFICIENT_GROUNDED_SOURCES',
-        failureMessage:
-          'The retrieval result did not contain enough verified post citations.',
+        failureCode: 'INVALID_RETRIEVAL_RESPONSE',
+        failureMessage: 'The grounded retrieval response was invalid.',
         usage: { toolCalls: 1, tokens: 321, estimatedCostUsd: 0.012 },
       }),
     ]);
@@ -376,9 +418,9 @@ describe('AgentRunProcessor', () => {
       expect.objectContaining({
         outcome: 'invalid_schema',
         output: {
-          failureCode: 'INSUFFICIENT_GROUNDED_SOURCES',
-          sourceCount: 3,
-          groundedStepCount: 2,
+          sourceCount: 0,
+          groundedStepCount: 0,
+          outcome: 'invalid_schema',
         },
       }),
     ]);
@@ -386,26 +428,23 @@ describe('AgentRunProcessor', () => {
 
   it('preserves returned usage when post verification fails', async () => {
     const test = harness();
-    test.board.findPost = jest
-      .fn()
-      .mockRejectedValue(new Error('database unavailable'));
+    test.buildGroundedPlan.mockRejectedValueOnce(new Error('MCP unavailable'));
 
     await expect(test.processor.processOnce()).resolves.toBe(true);
 
     expect(test.failureCommands).toEqual([
       expect.objectContaining({
-        failureCode: 'SOURCE_VERIFICATION_FAILED',
-        failureMessage: 'The retrieved post sources could not be verified.',
-        usage: { toolCalls: 1, tokens: 321, estimatedCostUsd: 0.012 },
+        failureCode: 'AGENT_RETRIEVAL_FAILED',
+        failureMessage: 'The grounded retrieval request failed.',
       }),
     ]);
     expect(test.auditCommands).toEqual([
       expect.objectContaining({
         outcome: 'failed',
         output: {
-          failureCode: 'SOURCE_VERIFICATION_FAILED',
-          sourceCount: 3,
+          sourceCount: 0,
           groundedStepCount: 0,
+          outcome: 'failed',
         },
       }),
     ]);
@@ -426,7 +465,7 @@ describe('AgentRunProcessor', () => {
       resolveRecommendation = resolve;
     });
     const test = harness();
-    test.ai.recommend.mockReturnValueOnce(pendingRecommendation);
+    test.buildGroundedPlan.mockReturnValueOnce(pendingRecommendation);
 
     const first = test.processor.processOnce();
     await Promise.resolve();
@@ -441,7 +480,7 @@ describe('AgentRunProcessor', () => {
   it('keeps the full reservation charged when a paid tool call times out without usage', async () => {
     jest.useFakeTimers();
     const test = harness({ options: { processTimeoutMs: 10 } });
-    test.ai.recommend.mockReturnValueOnce(new Promise(() => undefined));
+    test.buildGroundedPlan.mockReturnValueOnce(new Promise(() => undefined));
     try {
       const processing = test.processor.processOnce();
       await Promise.resolve();
@@ -489,7 +528,7 @@ describe('AgentRunProcessor', () => {
 
     await expect(test.processor.processOnce()).resolves.toBe(true);
 
-    expect(test.ai.recommend).not.toHaveBeenCalled();
+    expect(test.buildGroundedPlan).not.toHaveBeenCalled();
     expect(test.reserveCommands).toEqual([]);
     expect(test.failureCommands).toEqual([
       expect.objectContaining({

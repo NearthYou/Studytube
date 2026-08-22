@@ -34,7 +34,17 @@ DOWNSTREAM_ASSERTION_AUDIENCE = "studytube-api"
 DOWNSTREAM_ASSERTION_SCOPE = "studytube:internal:mcp"
 TOOL_SCHEMA_VERSION = 1
 YOUTUBE_OEMBED_URL = "https://www.youtube.com/oembed"
+VIDEO_ID_PATTERN = re.compile(r"[A-Za-z0-9_-]{11}")
 MAX_QUERY_LENGTH = 500
+LEARNING_CAPABILITIES = frozenset(
+    {
+        "learning:evidence:search",
+        "learning:state:read",
+        "learning:metadata:verify",
+        "learning:quiz:request",
+        "learning:proposal:create",
+    }
+)
 MAX_URL_LENGTH = 2048
 MAX_AUDIT_VALUE_LENGTH = 4096
 DEFAULT_MCP_ALLOWED_HOSTS = (
@@ -165,6 +175,9 @@ class ServiceClaims:
     subject: str
     run_id: str
     attempt_id: str
+    lease_token: str
+    context_snapshot_id: str
+    capabilities: tuple[str, ...]
     request_jti: str
     issued_at: int
     expires_at: int
@@ -265,7 +278,8 @@ class MCPGateway:
         claims: ServiceClaims,
         request_id: str,
     ) -> dict[str, Any]:
-        audit_input = {"query": query, "limit": limit}
+        _require_capability(claims, "learning:evidence:search")
+        audit_input = {"requestedCount": limit}
 
         async def operation() -> dict[str, Any]:
             normalized_query = query.strip() if isinstance(query, str) else ""
@@ -307,7 +321,8 @@ class MCPGateway:
         claims: ServiceClaims,
         request_id: str,
     ) -> dict[str, Any]:
-        audit_input = {"url": url}
+        _require_capability(claims, "learning:metadata:verify")
+        audit_input = {"resourceCount": 1}
 
         async def operation() -> dict[str, Any]:
             video_id, canonical_url = validate_youtube_url(url)
@@ -326,6 +341,42 @@ class MCPGateway:
         return await self._run_audited(
             tool_name="fetch_youtube_metadata",
             audit_input=audit_input,
+            claims=claims,
+            request_id=request_id,
+            operation=operation,
+        )
+
+    async def invoke_learning_tool(
+        self,
+        *,
+        tool_name: str,
+        capability: str,
+        body: Mapping[str, Any],
+        claims: ServiceClaims,
+        request_id: str,
+    ) -> dict[str, Any]:
+        _require_capability(claims, capability)
+
+        async def operation() -> dict[str, Any]:
+            path = (
+                "/internal/mcp/learning/plan"
+                if tool_name == "propose_next_learning"
+                else f"/internal/mcp/learning/tools/{tool_name}"
+            )
+            response = await self._nest_request(
+                path=path,
+                body={"schemaVersion": TOOL_SCHEMA_VERSION, **dict(body)},
+                claims=claims,
+                request_id=request_id,
+                timeout_seconds=self.settings.tool_timeout_seconds,
+            )
+            if not isinstance(response, Mapping) or response.get("schemaVersion") != 1:
+                raise GatewayResponseError("learning tool response is invalid")
+            return dict(response)
+
+        return await self._run_audited(
+            tool_name=tool_name,
+            audit_input={"resourceCount": 1},
             claims=claims,
             request_id=request_id,
             operation=operation,
@@ -353,7 +404,7 @@ class MCPGateway:
         audit_output = (
             _summarize_tool_output(tool_name, result)
             if result is not None
-            else {"errorType": type(failure).__name__ if failure else "unknown"}
+            else {"outcome": outcome}
         )
         event = {
             "schemaVersion": TOOL_SCHEMA_VERSION,
@@ -366,8 +417,8 @@ class MCPGateway:
             "durationMs": max(0, round((time.perf_counter() - started) * 1000)),
             "outcome": outcome,
             "source": "mcp-streamable-http",
-            "input": mask_sensitive(dict(audit_input)),
-            "output": mask_sensitive(audit_output),
+            "input": dict(audit_input),
+            "output": audit_output,
         }
         try:
             audit_response = await self._nest_request(
@@ -513,6 +564,125 @@ def create_mcp_server(
             request_id=_normalize_request_id(ctx.request_id, claims.request_jti),
         )
 
+    @server.tool(
+        name="search_learning_evidence",
+        description="Search evidence inside the signed learning context snapshot.",
+        annotations=read_only_closed_world,
+        meta=tool_meta,
+        structured_output=True,
+    )
+    async def search_learning_evidence(
+        query: str,
+        ctx: Context,
+        limit: int = 5,
+    ) -> dict[str, Any]:
+        claims = _current_service_claims(verifier)
+        return await gateway.search_studytube(
+            query=query,
+            limit=limit,
+            claims=claims,
+            request_id=_normalize_request_id(ctx.request_id, claims.request_jti),
+        )
+
+    @server.tool(
+        name="read_learning_state",
+        description="Read bounded progress and note counts for the signed context.",
+        annotations=read_only_closed_world,
+        meta=tool_meta,
+        structured_output=True,
+    )
+    async def read_learning_state(ctx: Context) -> dict[str, Any]:
+        claims = _current_service_claims(verifier)
+        return await gateway.invoke_learning_tool(
+            tool_name="read_learning_state",
+            capability="learning:state:read",
+            body={},
+            claims=claims,
+            request_id=_normalize_request_id(ctx.request_id, claims.request_jti),
+        )
+
+    @server.tool(
+        name="verify_learning_video_metadata",
+        description="Validate one canonical YouTube ID using bounded topic tokens.",
+        annotations=read_only_open_world,
+        meta=tool_meta,
+        structured_output=True,
+    )
+    async def verify_learning_video_metadata(
+        video_id: str,
+        topic_tokens: list[str],
+        ctx: Context,
+    ) -> dict[str, Any]:
+        claims = _current_service_claims(verifier)
+        _validate_topic_tokens(topic_tokens)
+        if not isinstance(video_id, str) or not VIDEO_ID_PATTERN.fullmatch(video_id):
+            raise GatewayInputError("canonical video id is invalid")
+        return await gateway.fetch_youtube_metadata(
+            url=f"https://www.youtube.com/watch?v={video_id}",
+            claims=claims,
+            request_id=_normalize_request_id(ctx.request_id, claims.request_jti),
+        )
+
+    @server.tool(
+        name="request_learning_quiz",
+        description="Create an idempotent quiz request for the signed watched range.",
+        annotations=ToolAnnotations(
+            readOnlyHint=False,
+            destructiveHint=False,
+            idempotentHint=True,
+            openWorldHint=False,
+        ),
+        meta=tool_meta,
+        structured_output=True,
+    )
+    async def request_learning_quiz(
+        range_start_seconds: int,
+        range_end_seconds: int,
+        idempotency_key: str,
+        ctx: Context,
+    ) -> dict[str, Any]:
+        claims = _current_service_claims(verifier)
+        return await gateway.invoke_learning_tool(
+            tool_name="request_learning_quiz",
+            capability="learning:quiz:request",
+            body={
+                "rangeStartSeconds": range_start_seconds,
+                "rangeEndSeconds": range_end_seconds,
+                "idempotencyKey": idempotency_key,
+            },
+            claims=claims,
+            request_id=_normalize_request_id(ctx.request_id, claims.request_jti),
+        )
+
+    @server.tool(
+        name="propose_next_learning",
+        description="Create a versioned Course change proposal without mutating a Course.",
+        annotations=ToolAnnotations(
+            readOnlyHint=False,
+            destructiveHint=False,
+            idempotentHint=True,
+            openWorldHint=False,
+        ),
+        meta=tool_meta,
+        structured_output=True,
+    )
+    async def propose_next_learning(
+        objective: str,
+        requested_step_count: int,
+        ctx: Context,
+    ) -> dict[str, Any]:
+        claims = _current_service_claims(verifier)
+        return await gateway.invoke_learning_tool(
+            tool_name="propose_next_learning",
+            capability="learning:proposal:create",
+            body={
+                "objective": objective,
+                "requestedStepCount": requested_step_count,
+            },
+            claims=claims,
+            request_id=_normalize_request_id(ctx.request_id, claims.request_jti),
+        )
+
     return server
 
 
@@ -617,11 +787,17 @@ class SignedServiceAssertionTokenVerifier:
         request_jti = _required_string(payload, "jti", maximum=128)
         run_id = _required_uuid(payload, "run_id")
         attempt_id = _required_uuid(payload, "attempt_id")
+        lease_token = _required_uuid(payload, "lease_token")
+        context_snapshot_id = _required_uuid(payload, "context_snapshot_id")
+        capabilities = _parse_capabilities(payload.get("capabilities"))
 
         return ServiceClaims(
             subject=subject,
             run_id=run_id,
             attempt_id=attempt_id,
+            lease_token=lease_token,
+            context_snapshot_id=context_snapshot_id,
+            capabilities=tuple(capabilities),
             request_jti=request_jti,
             issued_at=issued_at,
             expires_at=expires_at,
@@ -707,6 +883,37 @@ def _parse_scopes(value: Any) -> list[str]:
     return list(dict.fromkeys(scopes))
 
 
+def _parse_capabilities(value: Any) -> list[str]:
+    if not isinstance(value, list) or not value:
+        raise ServiceAssertionError("service assertion is invalid")
+    if any(not isinstance(item, str) or item not in LEARNING_CAPABILITIES for item in value):
+        raise ServiceAssertionError("service assertion is invalid")
+    capabilities = list(dict.fromkeys(value))
+    if len(capabilities) != len(value):
+        raise ServiceAssertionError("service assertion is invalid")
+    return capabilities
+
+
+def _validate_topic_tokens(value: Any) -> list[str]:
+    if not isinstance(value, list) or len(value) > 8:
+        raise GatewayInputError("topic tokens are invalid")
+    tokens: list[str] = []
+    for item in value:
+        if (
+            not isinstance(item, str)
+            or not 1 <= len(item) <= 32
+            or not re.fullmatch(r"[A-Za-z0-9_-]+", item)
+        ):
+            raise GatewayInputError("topic tokens are invalid")
+        tokens.append(item)
+    return tokens
+
+
+def _require_capability(claims: ServiceClaims, capability: str) -> None:
+    if capability not in claims.capabilities:
+        raise GatewayInputError("tool capability is not authorized")
+
+
 def mint_downstream_assertion(
     settings: GatewaySettings,
     claims: ServiceClaims,
@@ -729,6 +936,9 @@ def mint_downstream_assertion(
             "scope": settings.downstream_assertion_scope,
             "run_id": claims.run_id,
             "attempt_id": claims.attempt_id,
+            "lease_token": claims.lease_token,
+            "context_snapshot_id": claims.context_snapshot_id,
+            "capabilities": list(claims.capabilities),
             "actor_jti": claims.request_jti,
         }
     )
@@ -972,7 +1182,6 @@ def _summarize_tool_output(
         return {
             "schemaVersion": result.get("schemaVersion"),
             "videoId": result.get("videoId"),
-            "sourceUrl": result.get("sourceUrl"),
         }
     return {"schemaVersion": result.get("schemaVersion")}
 

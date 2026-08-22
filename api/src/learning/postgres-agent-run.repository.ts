@@ -8,6 +8,7 @@ import {
   LearningVersionConflictError,
 } from './learning.errors';
 import type {
+  AuthorizeAgentMcpCallCommand,
   ClaimAgentRun,
   CompleteAgentRunCommand,
   CreateAgentRunCommand,
@@ -416,6 +417,12 @@ export class PostgresAgentRunRepository {
     command: RecordAgentToolCallCommand,
   ): Promise<boolean> {
     return this.attempts.recordAgentToolCall(command);
+  }
+
+  async authorizeAgentMcpCall(
+    command: AuthorizeAgentMcpCallCommand,
+  ): Promise<boolean> {
+    return this.attempts.authorizeAgentMcpCall(command);
   }
 
   async settleAgentWorkItem(

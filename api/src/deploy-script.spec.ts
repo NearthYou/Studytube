@@ -336,6 +336,7 @@ describe('EC2 deployment script', () => {
     );
     const supportedKeys = [
       'DB_QUERY_TIMEOUT_MS',
+      'MCP_SERVICE_ASSERTION_SECRET',
       'OTEL_SERVICE_NAME',
       'OTEL_EXPORTER_OTLP_HEADERS',
       'OTEL_EXPORTER_OTLP_TRACES_HEADERS',

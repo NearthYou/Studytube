@@ -7,6 +7,7 @@ import type {
   QuizAttemptResult,
   QuizPublic,
 } from './learning.types';
+import type { McpLearningCapability } from '../mcp/mcp-service-assertion';
 
 export const LEARNING_REPOSITORY = Symbol('LEARNING_REPOSITORY');
 
@@ -120,6 +121,15 @@ export type RecordAgentToolCallCommand = {
   output: Record<string, unknown> | null;
 };
 
+export type AuthorizeAgentMcpCallCommand = {
+  ownerId: number;
+  runId: string;
+  attemptId: string;
+  leaseToken: string;
+  contextSnapshotId: string;
+  capability: McpLearningCapability;
+};
+
 export type SettleAgentWorkItemCommand = {
   courseStepId: string;
   kind: 'video_asset' | 'retrieval_embedding' | 'quiz_generation';
@@ -158,5 +168,8 @@ export interface LearningRepository {
     quizId: string,
   ): Promise<QuizAttemptResult[]>;
   recordAgentToolCall(command: RecordAgentToolCallCommand): Promise<boolean>;
+  authorizeAgentMcpCall(
+    command: AuthorizeAgentMcpCallCommand,
+  ): Promise<boolean>;
   settleAgentWorkItem(command: SettleAgentWorkItemCommand): Promise<void>;
 }

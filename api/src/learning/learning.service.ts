@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { LearningValidationError } from './learning.errors';
 import type {
+  AuthorizeAgentMcpCallCommand,
   CreateQuizCommand,
   LearningRepository,
   RecordAgentToolCallCommand,
@@ -204,6 +205,10 @@ export class LearningService {
 
   recordAgentToolCall(command: RecordAgentToolCallCommand) {
     return this.repository.recordAgentToolCall(command);
+  }
+
+  authorizeAgentMcpCall(command: AuthorizeAgentMcpCallCommand) {
+    return this.repository.authorizeAgentMcpCall(command);
   }
 
   settleAgentWorkItem(command: SettleAgentWorkItemCommand) {

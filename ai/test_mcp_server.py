@@ -44,6 +44,7 @@ def mint_assertion(
     audience: str = "studytube-mcp",
     lifetime_seconds: int = 60,
     scope: str = "studytube:mcp:invoke",
+    capabilities: list[str] | None = None,
 ) -> str:
     issued_at = int(time.time()) if now is None else now
     header = encode_segment({"alg": "HS256", "typ": "JWT"})
@@ -58,6 +59,16 @@ def mint_assertion(
             "scope": scope,
             "run_id": "11111111-1111-4111-8111-111111111111",
             "attempt_id": "22222222-2222-4222-8222-222222222222",
+            "lease_token": "33333333-3333-4333-8333-333333333333",
+            "context_snapshot_id": "11111111-1111-4111-8111-111111111111",
+            "capabilities": capabilities
+            or [
+                "learning:evidence:search",
+                "learning:metadata:verify",
+                "learning:state:read",
+                "learning:quiz:request",
+                "learning:proposal:create",
+            ],
         }
     )
     signing_input = f"{header}.{payload}"
@@ -307,6 +318,10 @@ class MCPGatewayBoundaryTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(downstream_payload["iss"], "studytube-mcp")
         self.assertEqual(downstream_payload["aud"], "studytube-api")
         self.assertEqual(downstream_payload["sub"], "42")
+        self.assertEqual(
+            downstream_payload["capabilities"],
+            list(self.claims(settings).capabilities),
+        )
         self.assertLessEqual(downstream_payload["exp"] - downstream_payload["iat"], 60)
         self.assertEqual(
             audit_request["url"],
@@ -321,7 +336,7 @@ class MCPGatewayBoundaryTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             audit_request["json_body"]["input"],
-            {"query": "리액트 상태 관리", "limit": 3},
+            {"requestedCount": 3},
         )
 
     async def test_youtube_metadata_uses_a_fixed_oembed_origin_and_canonical_url(self):
@@ -361,6 +376,89 @@ class MCPGatewayBoundaryTest(unittest.IsolatedAsyncioTestCase):
             },
         )
         self.assertIsNone(metadata_request["unix_socket"])
+
+    async def test_search_only_assertion_cannot_request_a_quiz_or_proposal(self):
+        gateway = load_gateway_module()
+        settings = self.settings()
+        claims = gateway.SignedServiceAssertionTokenVerifier(settings).verify(
+            mint_assertion(capabilities=["learning:evidence:search"])
+        )
+        transport = RecordingTransport([])
+        mcp_gateway = gateway.MCPGateway(settings, transport=transport)
+
+        for tool_name, capability in (
+            ("request_learning_quiz", "learning:quiz:request"),
+            ("propose_next_learning", "learning:proposal:create"),
+        ):
+            with self.subTest(tool_name=tool_name), self.assertRaisesRegex(
+                gateway.GatewayInputError, "capability"
+            ):
+                await mcp_gateway.invoke_learning_tool(
+                    tool_name=tool_name,
+                    capability=capability,
+                    body={},
+                    claims=claims,
+                    request_id=tool_name,
+                )
+
+        self.assertEqual(transport.requests, [])
+
+    async def test_proposal_tool_routes_to_the_versioned_api_resource(self):
+        gateway = load_gateway_module()
+        settings = self.settings()
+        transport = RecordingTransport(
+            [{"schemaVersion": 1, "proposalVersion": 1}, {"accepted": True}]
+        )
+        mcp_gateway = gateway.MCPGateway(settings, transport=transport)
+
+        result = await mcp_gateway.invoke_learning_tool(
+            tool_name="propose_next_learning",
+            capability="learning:proposal:create",
+            body={"objective": "state machines", "requestedStepCount": 3},
+            claims=self.claims(settings),
+            request_id="proposal-1",
+        )
+
+        self.assertEqual(result["proposalVersion"], 1)
+        self.assertEqual(
+            transport.requests[0]["url"],
+            "http://studytube-api.internal/internal/mcp/learning/plan",
+        )
+        self.assertEqual(
+            transport.requests[0]["json_body"],
+            {
+                "schemaVersion": 1,
+                "objective": "state machines",
+                "requestedStepCount": 3,
+            },
+        )
+
+    async def test_private_query_and_url_canaries_never_enter_audit_payload(self):
+        gateway = load_gateway_module()
+        settings = self.settings()
+        private_query = "private-note-caption-token-canary"
+        transport = RecordingTransport(
+            [
+                {"schemaVersion": 1, "query": private_query, "sources": []},
+                {"accepted": True},
+            ]
+        )
+        mcp_gateway = gateway.MCPGateway(settings, transport=transport)
+
+        await mcp_gateway.search_studytube(
+            query=private_query,
+            limit=3,
+            claims=self.claims(settings),
+            request_id="canary-search",
+        )
+
+        serialized_audit = json.dumps(transport.requests[1]["json_body"])
+        self.assertNotIn(private_query, serialized_audit)
+        self.assertNotIn("https://private.example", serialized_audit)
+        self.assertEqual(
+            transport.requests[1]["json_body"]["input"],
+            {"requestedCount": 3},
+        )
 
     async def test_rejects_non_https_host_confusion_credentials_and_invalid_video_ids(
         self,
@@ -481,7 +579,18 @@ class OfficialMCPContractTest(unittest.IsolatedAsyncioTestCase):
 
         tools = {tool.name: tool for tool in await server.list_tools()}
 
-        self.assertEqual(set(tools), {"search_studytube", "fetch_youtube_metadata"})
+        self.assertEqual(
+            set(tools),
+            {
+                "search_studytube",
+                "fetch_youtube_metadata",
+                "search_learning_evidence",
+                "read_learning_state",
+                "verify_learning_video_metadata",
+                "request_learning_quiz",
+                "propose_next_learning",
+            },
+        )
         search_schema = tools["search_studytube"].input_schema
         youtube_schema = tools["fetch_youtube_metadata"].input_schema
         self.assertEqual(set(search_schema["properties"]), {"query", "limit"})
@@ -501,6 +610,12 @@ class OfficialMCPContractTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(tools["search_studytube"].annotations.read_only_hint)
         self.assertFalse(tools["search_studytube"].annotations.open_world_hint)
         self.assertTrue(tools["fetch_youtube_metadata"].annotations.open_world_hint)
+        self.assertEqual(
+            set(tools["verify_learning_video_metadata"].input_schema["properties"]),
+            {"video_id", "topic_tokens"},
+        )
+        self.assertNotIn("course_mutation", tools)
+        self.assertNotIn("approve_course_change", tools)
 
     async def test_builds_an_internal_streamable_http_app_without_oauth_metadata(self):
         gateway = load_gateway_module()
@@ -644,7 +759,15 @@ class OfficialMCPContractTest(unittest.IsolatedAsyncioTestCase):
                 tools = await client.list_tools()
                 self.assertEqual(
                     {tool.name for tool in tools.tools},
-                    {"search_studytube", "fetch_youtube_metadata"},
+                    {
+                        "search_studytube",
+                        "fetch_youtube_metadata",
+                        "search_learning_evidence",
+                        "read_learning_state",
+                        "verify_learning_video_metadata",
+                        "request_learning_quiz",
+                        "propose_next_learning",
+                    },
                 )
                 result = await client.call_tool(
                     "search_studytube", {"query": "query", "limit": 3}

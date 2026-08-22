@@ -25,6 +25,7 @@ describe('McpServiceAssertionVerifier', () => {
     expect(claims.requestId).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u,
     );
+    expect(claims.capabilities).toEqual(['learning:evidence:search']);
   });
 
   it.each([
@@ -84,6 +85,9 @@ function mintAssertion(
     scope: overrides.scope ?? 'studytube:internal:mcp',
     run_id: '11111111-1111-4111-8111-111111111111',
     attempt_id: '22222222-2222-4222-8222-222222222222',
+    lease_token: '33333333-3333-4333-8333-333333333333',
+    context_snapshot_id: '11111111-1111-4111-8111-111111111111',
+    capabilities: ['learning:evidence:search'],
   });
   const signingInput = `${header}.${payload}`;
   const signature = createHmac('sha256', overrides.signingSecret ?? SECRET)

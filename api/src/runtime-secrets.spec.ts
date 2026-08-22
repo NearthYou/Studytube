@@ -9,7 +9,24 @@ const validProductionSecrets = {
 } satisfies NodeJS.ProcessEnv;
 
 describe('production runtime secrets', () => {
-  it('does not require the API-only MCP secret for the worker runtime', () => {
+  it('requires the MCP signing secret for the worker runtime', () => {
+    expect(() =>
+      assertProductionRuntimeSecrets(
+        {
+          NODE_ENV: 'production',
+          INTERNAL_AI_API_KEY: validProductionSecrets.INTERNAL_AI_API_KEY,
+          AUTH_VERIFICATION_PEPPER:
+            validProductionSecrets.AUTH_VERIFICATION_PEPPER,
+          AUTH_RATE_LIMIT_PEPPER: validProductionSecrets.AUTH_RATE_LIMIT_PEPPER,
+          MCP_SERVICE_ASSERTION_SECRET:
+            validProductionSecrets.MCP_SERVICE_ASSERTION_SECRET,
+        },
+        'worker',
+      ),
+    ).not.toThrow();
+  });
+
+  it('rejects a worker without the MCP signing secret', () => {
     expect(() =>
       assertProductionRuntimeSecrets(
         {
@@ -21,7 +38,7 @@ describe('production runtime secrets', () => {
         },
         'worker',
       ),
-    ).not.toThrow();
+    ).toThrow(/MCP_SERVICE_ASSERTION_SECRET/u);
   });
 
   it('accepts distinct non-placeholder secrets', () => {

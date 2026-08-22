@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import supertest from 'supertest';
 import { AiProxyService } from '../ai-proxy.service';
+import { DatabaseService } from '../database.service';
 import { LearningService } from '../learning/learning.service';
 import { McpController } from './mcp.controller';
 import { McpServiceAssertionGuard } from './mcp-service-assertion.guard';
@@ -54,10 +55,18 @@ describe('MCP internal HTTP boundary', () => {
         {
           provide: LearningService,
           useValue: {
+            authorizeAgentMcpCall: () => Promise.resolve(true),
             recordAgentToolCall: (command: Record<string, unknown>) => {
               auditCalls.push(command);
               return Promise.resolve(true);
             },
+          },
+        },
+        {
+          provide: DatabaseService,
+          useValue: {
+            findPost: () => Promise.resolve(null),
+            findVideoAsset: () => Promise.resolve(null),
           },
         },
       ],
@@ -112,6 +121,23 @@ describe('MCP internal HTTP boundary', () => {
       .expect(HttpStatus.UNAUTHORIZED);
   });
 
+  it('rejects a Course proposal when the assertion has search-only capability', async () => {
+    await request()
+      .post('/internal/mcp/learning/plan')
+      .set(
+        'Authorization',
+        `Bearer ${mintAssertion(['learning:evidence:search'])}`,
+      )
+      .send({
+        schemaVersion: 1,
+        objective: 'bounded objective',
+        requestedStepCount: 3,
+      })
+      .expect(HttpStatus.FORBIDDEN);
+
+    expect(auditCalls).toHaveLength(0);
+  });
+
   it('binds audit identity to the assertion instead of request data', async () => {
     await request()
       .post('/internal/mcp/tool-calls')
@@ -127,8 +153,8 @@ describe('MCP internal HTTP boundary', () => {
         durationMs: 23,
         outcome: 'succeeded',
         source: 'mcp-streamable-http',
-        input: { query: 'state machines', limit: 3 },
-        output: { schemaVersion: 1, sourceCount: 1 },
+        input: { requestedCount: 3 },
+        output: { schemaVersion: 1, sourceCount: 1, outcome: 'succeeded' },
       })
       .expect(HttpStatus.OK, { accepted: true });
 
@@ -157,8 +183,31 @@ describe('MCP internal HTTP boundary', () => {
         durationMs: 23,
         outcome: 'succeeded',
         source: 'mcp-streamable-http',
-        input: { query: 'state machines', limit: 3 },
+        input: { requestedCount: 3 },
         output: { schemaVersion: 1, sourceCount: 1 },
+      })
+      .expect(HttpStatus.BAD_REQUEST);
+
+    expect(auditCalls).toHaveLength(0);
+  });
+
+  it('rejects private text and URL canaries from the audit summary', async () => {
+    await request()
+      .post('/internal/mcp/tool-calls')
+      .set('Authorization', `Bearer ${mintAssertion()}`)
+      .send({
+        schemaVersion: 1,
+        runId: RUN_ID,
+        attemptId: ATTEMPT_ID,
+        requestId: 'tool-call-canary',
+        toolName: 'search_learning_evidence',
+        inputSchemaVersion: 1,
+        outputSchemaVersion: null,
+        durationMs: 1,
+        outcome: 'failed',
+        source: 'mcp-streamable-http',
+        input: { query: 'private-note-canary' },
+        output: { sourceUrl: 'https://private.example/token=canary' },
       })
       .expect(HttpStatus.BAD_REQUEST);
 
@@ -170,7 +219,13 @@ describe('MCP internal HTTP boundary', () => {
   }
 });
 
-function mintAssertion(): string {
+function mintAssertion(
+  capabilities = [
+    'learning:evidence:search',
+    'learning:metadata:verify',
+    'learning:proposal:create',
+  ],
+): string {
   const issuedAt = Math.floor(Date.now() / 1000);
   const header = encode({ alg: 'HS256', typ: 'JWT' });
   const payload = encode({
@@ -183,6 +238,9 @@ function mintAssertion(): string {
     scope: 'studytube:internal:mcp',
     run_id: RUN_ID,
     attempt_id: ATTEMPT_ID,
+    lease_token: '33333333-3333-4333-8333-333333333333',
+    context_snapshot_id: RUN_ID,
+    capabilities,
   });
   const signingInput = `${header}.${payload}`;
   const signature = createHmac('sha256', SECRET)

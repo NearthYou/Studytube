@@ -4,6 +4,7 @@ import {
   type ObservabilityRuntime,
 } from '../observability/runtime';
 import type {
+  AuthorizeAgentMcpCallCommand,
   ClaimAgentRun,
   CompleteAgentRunCommand,
   CreateAgentRunCommand,
@@ -87,6 +88,10 @@ export class PostgresLearningRepository implements LearningRepository {
     command: RecordAgentToolCallCommand,
   ): Promise<boolean> {
     return this.agentRuns.recordAgentToolCall(command);
+  }
+
+  authorizeAgentMcpCall(command: AuthorizeAgentMcpCallCommand) {
+    return this.agentRuns.authorizeAgentMcpCall(command);
   }
 
   async settleAgentWorkItem(

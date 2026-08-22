@@ -7,6 +7,7 @@ import {
 } from './learning.domain';
 import { LearningValidationError } from './learning.errors';
 import type {
+  AuthorizeAgentMcpCallCommand,
   ClaimAgentRun,
   CompleteAgentRunCommand,
   FailAgentRunCommand,
@@ -408,6 +409,47 @@ export class PostgresAgentRunAttemptRepository {
     } catch (error) {
       throw translatePostgresError(error);
     }
+  }
+
+  async authorizeAgentMcpCall(
+    command: AuthorizeAgentMcpCallCommand,
+  ): Promise<boolean> {
+    return mutate(this.pool, async (client) => {
+      const authorized = await client.query<{ authorized: boolean }>(
+        `
+          SELECT EXISTS (
+            SELECT 1
+            FROM agent_runs AS run
+            JOIN agent_run_attempts AS attempt
+              ON attempt.run_id = run.id
+             AND attempt.id = $3::uuid
+            JOIN learning_retrieval_context_snapshots AS snapshot
+              ON snapshot.agent_run_id = run.id
+             AND snapshot.owner_id = run.owner_id
+            JOIN study_contexts AS context
+              ON context.id = snapshot.study_context_id
+             AND context.user_id = snapshot.owner_id
+             AND context.learning_item_id = snapshot.learning_item_id
+            WHERE run.id = $2::uuid
+              AND run.owner_id = $1
+              AND run.state = 'running'
+              AND run.cancellation_requested_at IS NULL
+              AND attempt.state = 'running'
+              AND attempt.lease_token = $4::uuid
+              AND attempt.lease_expires_at > statement_timestamp()
+              AND snapshot.agent_run_id = $5::uuid
+          ) AS authorized
+        `,
+        [
+          command.ownerId,
+          command.runId,
+          command.attemptId,
+          command.leaseToken,
+          command.contextSnapshotId,
+        ],
+      );
+      return authorized.rows[0]?.authorized === true;
+    });
   }
 
   private async lockLeasedAttempt(

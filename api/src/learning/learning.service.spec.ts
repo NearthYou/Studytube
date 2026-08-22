@@ -204,6 +204,10 @@ class RecordingLearningRepository implements LearningRepository {
     return Promise.resolve(true);
   }
 
+  authorizeAgentMcpCall() {
+    return Promise.resolve(true);
+  }
+
   settleAgentWorkItem() {
     return Promise.resolve();
   }

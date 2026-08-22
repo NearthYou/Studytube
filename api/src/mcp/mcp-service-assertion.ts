@@ -16,7 +16,20 @@ export type McpServiceClaims = Readonly<{
   runId: string;
   attemptId: string;
   requestId: string;
+  leaseToken: string;
+  contextSnapshotId: string;
+  capabilities: readonly McpLearningCapability[];
 }>;
+
+export const MCP_LEARNING_CAPABILITIES = [
+  'learning:evidence:search',
+  'learning:state:read',
+  'learning:metadata:verify',
+  'learning:quiz:request',
+  'learning:proposal:create',
+] as const;
+
+export type McpLearningCapability = (typeof MCP_LEARNING_CAPABILITIES)[number];
 
 @Injectable()
 export class McpServiceAssertionVerifier {
@@ -112,9 +125,36 @@ export class McpServiceAssertionVerifier {
     const runId = uuidClaim(payload.run_id);
     const attemptId = uuidClaim(payload.attempt_id);
     const requestId = stringClaim(payload.jti, 128);
+    const leaseToken = uuidClaim(payload.lease_token);
+    const contextSnapshotId = uuidClaim(payload.context_snapshot_id);
+    const capabilities = capabilityClaims(payload.capabilities);
 
-    return Object.freeze({ ownerId, subject, runId, attemptId, requestId });
+    return Object.freeze({
+      ownerId,
+      subject,
+      runId,
+      attemptId,
+      requestId,
+      leaseToken,
+      contextSnapshotId,
+      capabilities,
+    });
   }
+}
+
+function capabilityClaims(value: unknown): readonly McpLearningCapability[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error('Invalid assertion capabilities');
+  }
+  const allowed = new Set<string>(MCP_LEARNING_CAPABILITIES);
+  const unique = new Set<string>();
+  for (const item of value) {
+    if (typeof item !== 'string' || !allowed.has(item) || unique.has(item)) {
+      throw new Error('Invalid assertion capabilities');
+    }
+    unique.add(item);
+  }
+  return Object.freeze([...unique] as McpLearningCapability[]);
 }
 
 function decodeObject(segment: string): Record<string, unknown> {

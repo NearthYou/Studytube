@@ -1,4 +1,5 @@
 import {
+  assertLearningCutoverAuthority,
   assertRequiredMigrationsApplied,
   resolveDatabaseUrl,
 } from './database-migration-readiness';
@@ -41,5 +42,48 @@ describe('database migration readiness', () => {
     expect(resolveDatabaseUrl({ NODE_ENV: 'test' }, undefined)).toBe(
       'postgresql://app:app@localhost:5432/app_dev',
     );
+  });
+
+  it('refuses legacy startup after permanent learning activation', async () => {
+    const query = jest.fn().mockResolvedValue({
+      rows: [{ writerRelease: 'release-a' }],
+    });
+
+    await expect(
+      assertLearningCutoverAuthority(
+        { query },
+        { mode: 'legacy', writerRelease: 'release-a' },
+      ),
+    ).rejects.toThrow('legacy rollback is disabled');
+  });
+
+  it('requires the activated writer release for course startup', async () => {
+    const query = jest.fn().mockResolvedValue({
+      rows: [{ writerRelease: 'release-a' }],
+    });
+
+    await expect(
+      assertLearningCutoverAuthority(
+        { query },
+        { mode: 'course', writerRelease: 'release-b' },
+      ),
+    ).rejects.toThrow('release-a');
+    await expect(
+      assertLearningCutoverAuthority(
+        { query },
+        { mode: 'course', writerRelease: 'release-a' },
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it('keeps legacy startup available before activation', async () => {
+    const query = jest.fn().mockResolvedValue({ rows: [] });
+
+    await expect(
+      assertLearningCutoverAuthority(
+        { query },
+        { mode: 'legacy', writerRelease: 'release-a' },
+      ),
+    ).resolves.toBeUndefined();
   });
 });

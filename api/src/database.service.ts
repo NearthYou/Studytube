@@ -75,10 +75,12 @@ import type { WorkRepository } from './work/work.repository';
 import { PostgresRetrievalRepository } from './retrieval/postgres-retrieval.repository';
 import type { RetrievalRepository } from './retrieval/retrieval.repository';
 import {
+  assertLearningCutoverAuthority,
   assertRequiredMigrationsApplied,
   requiredMigrationNames,
   resolveDatabaseUrl,
 } from './database-migration-readiness';
+import { resolveCourseCutoverMode } from './course/course-cutover.policy';
 import {
   observabilityRuntime,
   type ObservabilityRuntime,
@@ -156,6 +158,13 @@ export class DatabaseService
             this.pool,
             requiredMigrationNames(process.env),
           );
+          await assertLearningCutoverAuthority(this.pool, {
+            mode: resolveCourseCutoverMode(
+              process.env.COURSE_CUTOVER_MODE,
+              process.env.NODE_ENV,
+            ),
+            writerRelease: process.env.DEPLOY_SHA?.trim() ?? '',
+          });
         }
         return;
       } catch (error) {

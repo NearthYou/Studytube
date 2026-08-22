@@ -1,6 +1,7 @@
 import { existsSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { Pool } from 'pg';
+import type { CourseCutoverMode } from './course/course-cutover.policy';
 
 const LOCAL_DATABASE_URL = 'postgresql://app:app@localhost:5432/app_dev';
 
@@ -30,6 +31,37 @@ export async function assertRequiredMigrationsApplied(
   if (pending.length > 0) {
     throw new Error(
       `Production startup refused because database migrations are pending: ${pending.join(', ')}`,
+    );
+  }
+}
+
+export async function assertLearningCutoverAuthority(
+  pool: Pick<Pool, 'query'>,
+  runtime: { mode: CourseCutoverMode; writerRelease: string },
+): Promise<void> {
+  const result = await pool.query<{ writerRelease: string }>(
+    `SELECT writer_release AS "writerRelease"
+     FROM learning_cutover_authority
+     WHERE singleton = true`,
+  );
+  const marker = result.rows[0];
+
+  if (!marker) {
+    if (runtime.mode === 'course') {
+      throw new Error(
+        'Production startup refused because learning cutover authority is not activated',
+      );
+    }
+    return;
+  }
+  if (runtime.mode !== 'course') {
+    throw new Error(
+      'Production startup refused because legacy rollback is disabled after learning cutover activation',
+    );
+  }
+  if (marker.writerRelease !== runtime.writerRelease) {
+    throw new Error(
+      `Production startup refused because learning cutover authority requires writer release ${marker.writerRelease}`,
     );
   }
 }

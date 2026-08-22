@@ -89,36 +89,7 @@ export class VideoAssetService {
       if (!(await artifacts.hasActiveSttApproval(model))) {
         return this.failLearningCaption(artifacts, request, 'STT_NOT_APPROVED');
       }
-      signal.throwIfAborted();
-      const transcription = this.normalizeTranscriptionResponse(
-        await this.aiProxyService.transcribe(
-          {
-            videoId: request.canonicalVideoId,
-            durationSeconds: request.durationSeconds,
-            model,
-          },
-          signal,
-        ),
-      );
-      signal.throwIfAborted();
-      if (transcription.errorCode) {
-        return this.failLearningCaption(
-          artifacts,
-          request,
-          transcription.errorCode,
-        );
-      }
-      if (transcription.segments.length === 0) {
-        return this.failLearningCaption(
-          artifacts,
-          request,
-          'TRANSCRIPTION_PROVIDER_UNAVAILABLE',
-        );
-      }
-      source = transcription.segments;
-      translated = transcription.translatedSegments;
-      sourceLanguage = transcription.sourceLanguage || 'und';
-      sourceKind = 'transcription';
+      return this.prepareTranscribedCaptions(artifacts, request, model, signal);
     }
 
     const sourceGeneration = await artifacts.createGeneration({
@@ -477,6 +448,7 @@ export class VideoAssetService {
     segments: VideoAssetSegment[];
     translatedSegments: VideoAssetSegment[];
     errorCode: CaptionSafeErrorCode | null;
+    mediaDurationSeconds: number | null;
   } {
     const value = this.objectValue(response);
     return {
@@ -484,6 +456,127 @@ export class VideoAssetService {
       segments: this.normalizeSegments(value.segments),
       translatedSegments: this.normalizeSegments(value.translatedSegments),
       errorCode: this.captionSafeErrorCode(value.errorCode),
+      mediaDurationSeconds: this.positiveDuration(value.mediaDurationSeconds),
+    };
+  }
+
+  private async prepareTranscribedCaptions(
+    artifacts: CaptionArtifactRepository,
+    request: CaptionPipelineRequest,
+    model: string,
+    signal: AbortSignal,
+  ): Promise<LearningCaptionResult> {
+    const windowSeconds = 30;
+    let effectiveDuration = request.durationSeconds;
+    let sourceArtifactId = '';
+    let translationArtifactId = '';
+    let sourceOrdinal = 0;
+    let translationOrdinal = 0;
+    let sourceLanguage = 'und';
+    for (let startSeconds = 0; startSeconds < effectiveDuration; ) {
+      signal.throwIfAborted();
+      const durationSeconds = Math.min(
+        windowSeconds,
+        effectiveDuration - startSeconds,
+      );
+      const transcription = this.normalizeTranscriptionResponse(
+        await this.aiProxyService.transcribe(
+          {
+            videoId: request.canonicalVideoId,
+            startSeconds,
+            durationSeconds,
+            targetLanguage: request.targetLanguage,
+            model,
+          },
+          signal,
+        ),
+      );
+      signal.throwIfAborted();
+      if (startSeconds === 0 && transcription.mediaDurationSeconds) {
+        effectiveDuration = Math.min(
+          request.durationSeconds,
+          transcription.mediaDurationSeconds,
+        );
+      }
+      if (transcription.errorCode || transcription.segments.length === 0) {
+        return this.failLearningCaption(
+          artifacts,
+          request,
+          transcription.errorCode ?? 'TRANSCRIPTION_PROVIDER_UNAVAILABLE',
+        );
+      }
+      sourceLanguage = transcription.sourceLanguage || sourceLanguage;
+      if (!sourceArtifactId) {
+        const sourceGeneration = await artifacts.createGeneration({
+          kind: 'transcription',
+          sourceLanguage,
+          request,
+        });
+        sourceArtifactId = sourceGeneration.id;
+      }
+      await this.appendCaptionSegments(
+        artifacts,
+        sourceArtifactId,
+        transcription.segments,
+        request,
+        signal,
+        sourceOrdinal,
+      );
+      sourceOrdinal += transcription.segments.length;
+      if (sourceOrdinal === transcription.segments.length) {
+        await this.publishCaptionGeneration(
+          artifacts,
+          sourceArtifactId,
+          request,
+          signal,
+        );
+      }
+      const needsTranslation = sourceLanguage !== request.targetLanguage;
+      if (needsTranslation && transcription.translatedSegments.length === 0) {
+        throw new CaptionTranslationPendingError();
+      }
+      if (transcription.translatedSegments.length > 0) {
+        if (!translationArtifactId) {
+          const translationGeneration = await artifacts.createGeneration({
+            kind: 'translation',
+            parentArtifactId: sourceArtifactId,
+            sourceLanguage,
+            targetLanguage: request.targetLanguage,
+            request,
+          });
+          translationArtifactId = translationGeneration.id;
+        }
+        await this.appendCaptionSegments(
+          artifacts,
+          translationArtifactId,
+          transcription.translatedSegments,
+          request,
+          signal,
+          translationOrdinal,
+        );
+        translationOrdinal += transcription.translatedSegments.length;
+        if (
+          translationOrdinal === transcription.translatedSegments.length
+        ) {
+          await this.publishCaptionGeneration(
+            artifacts,
+            translationArtifactId,
+            request,
+            signal,
+          );
+        }
+      }
+      startSeconds += durationSeconds;
+    }
+    await artifacts.commitWork({
+      request,
+      actualCostMicrounits: Math.round(effectiveDuration * 50),
+    });
+    return {
+      sourceArtifactId,
+      translationArtifactId: translationArtifactId || null,
+      source: 'transcription',
+      status: 'ready',
     };
   }
 
@@ -493,6 +586,7 @@ export class VideoAssetService {
     segments: VideoAssetSegment[],
     request: CaptionPipelineRequest,
     signal: AbortSignal,
+    startOrdinal = 0,
   ): Promise<void> {
     for (let offset = 0; offset < segments.length; offset += 50) {
       signal.throwIfAborted();
@@ -500,7 +594,7 @@ export class VideoAssetService {
         artifactId,
         request,
         segments: segments.slice(offset, offset + 50).map((segment, index) => ({
-          ordinal: offset + index,
+          ordinal: startOrdinal + offset + index,
           ...segment,
         })),
       });
@@ -687,6 +781,13 @@ export class VideoAssetService {
 
   private stringValue(value: unknown): string {
     return typeof value === 'string' ? value : '';
+  }
+
+  private positiveDuration(value: unknown): number | null {
+    const duration = Number(value);
+    return Number.isFinite(duration) && duration > 0 && duration <= 14_400
+      ? duration
+      : null;
   }
 }
 

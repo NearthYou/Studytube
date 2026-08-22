@@ -541,7 +541,7 @@ run_isolated_migration_command() {
   local executor
   # The isolated child shell expands these positional and allowlisted variables.
   # shellcheck disable=SC2016
-  executor='exec /usr/bin/env -i HOME=/nonexistent PATH="$1" LANG=C.UTF-8 LC_ALL=C.UTF-8 NODE_ENV=production DATABASE_URL="$DATABASE_URL" COURSE_CUTOVER_MODE="${COURSE_CUTOVER_MODE:-}" REQUIRED_MIGRATIONS_DIR="${REQUIRED_MIGRATIONS_DIR:-}" ALLOW_COURSE_BACKFILL="$2" "${@:3}"'
+  executor='exec /usr/bin/env -i HOME=/nonexistent PATH="$1" LANG=C.UTF-8 LC_ALL=C.UTF-8 NODE_ENV=production DATABASE_URL="$DATABASE_URL" COURSE_CUTOVER_MODE="${COURSE_CUTOVER_MODE:-}" REQUIRED_MIGRATIONS_DIR="${REQUIRED_MIGRATIONS_DIR:-}" STT_PROVIDER_ENABLED="${STT_PROVIDER_ENABLED:-false}" STT_COST_APPROVAL_MODEL="${STT_COST_APPROVAL_MODEL:-}" STT_COST_APPROVAL_MAX_USD="${STT_COST_APPROVAL_MAX_USD:-}" STT_COST_APPROVAL_EXPIRES_AT="${STT_COST_APPROVAL_EXPIRES_AT:-}" ALLOW_COURSE_BACKFILL="$2" "${@:3}"'
   assert_transient_unit_inactive "$unit_name"
   acquire_deployment_control
   trap cleanup_active_transient_unit EXIT
@@ -596,6 +596,11 @@ case "$installer_command" in
   run-migration)
     run_isolated_migration_command studytube-release-migration.service \
       false "$(command -v npm)" --prefix api run db:migrate:up
+    exit 0
+    ;;
+  run-stt-approval)
+    run_isolated_migration_command studytube-release-stt-approval.service \
+      false "$(command -v node)" api/dist/scripts/apply-stt-cost-approval.js
     exit 0
     ;;
   run-course-backfill)
@@ -695,6 +700,13 @@ api_environment_keys=(
   AI_SUMMARY_TIMEOUT_MS
   AI_AGENT_TIMEOUT_MS
   AI_QUIZ_TIMEOUT_MS
+  AI_GLOBAL_DAILY_AUDIO_SECONDS
+  AI_USER_DAILY_AUDIO_SECONDS
+  AI_MAX_CONCURRENT_WORKS
+  AI_MAX_CONCURRENT_WORKS_PER_USER
+  AI_ESTIMATED_MICROUNITS_PER_AUDIO_SECOND
+  AI_GLOBAL_DAILY_COST_MICROUNITS
+  AI_GLOBAL_MONTHLY_COST_MICROUNITS
   INTERNAL_AI_API_KEY
   MCP_SERVICE_ASSERTION_SECRET
   AUTH_VERIFICATION_PEPPER
@@ -805,6 +817,13 @@ worker_environment_keys=(
   AI_SUMMARY_TIMEOUT_MS
   AI_AGENT_TIMEOUT_MS
   AI_QUIZ_TIMEOUT_MS
+  AI_GLOBAL_DAILY_AUDIO_SECONDS
+  AI_USER_DAILY_AUDIO_SECONDS
+  AI_MAX_CONCURRENT_WORKS
+  AI_MAX_CONCURRENT_WORKS_PER_USER
+  AI_ESTIMATED_MICROUNITS_PER_AUDIO_SECOND
+  AI_GLOBAL_DAILY_COST_MICROUNITS
+  AI_GLOBAL_MONTHLY_COST_MICROUNITS
   INTERNAL_AI_API_KEY
   MCP_SERVICE_ASSERTION_SECRET
   AUTH_VERIFICATION_PEPPER
@@ -856,6 +875,10 @@ migration_environment_keys=(
   DATABASE_URL
   COURSE_CUTOVER_MODE
   REQUIRED_MIGRATIONS_DIR
+  STT_PROVIDER_ENABLED
+  STT_COST_APPROVAL_MODEL
+  STT_COST_APPROVAL_MAX_USD
+  STT_COST_APPROVAL_EXPIRES_AT
 )
 
 write_runtime_environment \

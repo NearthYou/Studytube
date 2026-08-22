@@ -32,6 +32,7 @@ export interface ProviderBudgetRepository {
 export type ProviderBudgetUnavailableReason =
   | 'DISABLED'
   | 'DAILY_CAP'
+  | 'MONTHLY_CAP'
   | 'USER_DAILY_CAP'
   | 'CONCURRENCY_CAP'
   | 'USER_CONCURRENCY_CAP';

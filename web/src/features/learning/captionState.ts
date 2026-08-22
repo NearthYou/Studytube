@@ -103,6 +103,7 @@ function captionFailureMessage(errorCode?: string) {
     VIDEO_TOO_LONG: "처리할 수 있는 길이를 넘은 영상입니다.",
     CAPTION_PROVIDER_UNAVAILABLE: "원문 자막을 가져오지 못했습니다.",
     TRANSCRIPTION_PROVIDER_UNAVAILABLE: "음성에서 자막을 만들지 못했습니다.",
+    TRANSLATION_PROVIDER_UNAVAILABLE: "한국어 자막을 만들지 못했습니다.",
   };
   return errorCode ? messages[errorCode] : undefined;
 }

@@ -2,21 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Link, useSearchParams } from "react-router";
 import {
-  createNextLearningProposal,
-  createNextLearningRun,
   createLearningNote,
   deleteLearningNote,
-  fetchAdaptiveQuiz,
-  fetchNextLearningRun,
   fetchLearningCaptions,
-  requestAdaptiveQuiz,
-  submitAdaptiveQuiz,
   updateLearningNote,
   type AdaptiveQuizLoop,
   type AdaptiveQuizSubmission,
-  type LearningProposal,
 } from "../../api.ts";
-import { fetchOwnerCourses } from "../../courseApi.ts";
 import type { LearningNote, Session } from "../../types.ts";
 import { formatTime } from "../../videoSummaryDetails.ts";
 import type { QueueVideo } from "../../watchQueue.ts";
@@ -29,40 +21,14 @@ import {
   type ProgressiveCaptionState,
 } from "./captionState.ts";
 import { useLearningSession, type LearningTab } from "./useLearningSession.ts";
+import type { QuizUiState } from "./adaptiveQuizFlow.ts";
+import { NextLearningProposal } from "./NextLearningProposal.tsx";
 import {
-  quizStateFromApi,
-  transitionQuizState,
-  type QuizUiState,
-} from "./adaptiveQuizFlow.ts";
-import {
-  NextLearningProposal,
-  type CourseChoice,
-} from "./NextLearningProposal.tsx";
-
-type LearningPlayer = {
-  destroy: () => void;
-  getCurrentTime: () => number;
-  seekTo: (seconds: number, allowSeekAhead: boolean) => void;
-};
-
-type LearningYoutubeApi = {
-  Player: new (
-    elementId: string,
-    options: {
-      videoId: string;
-      playerVars: Record<string, number>;
-      events: {
-        onReady: (event: { target: LearningPlayer }) => void;
-        onError: () => void;
-      };
-    },
-  ) => LearningPlayer;
-};
-
-type LearningWindow = Window & {
-  YT?: LearningYoutubeApi;
-  onYouTubeIframeAPIReady?: () => void;
-};
+  LearningVideoPlayer,
+  type LearningVideoPlayerHandle,
+} from "./LearningVideoPlayer.tsx";
+import { useAdaptiveQuiz } from "./useAdaptiveQuiz.ts";
+import { useNextLearningProposal } from "./useNextLearningProposal.ts";
 
 const TABS: Array<{ id: LearningTab; label: string }> = [
   { id: "transcript", label: "전체 자막" },
@@ -70,7 +36,6 @@ const TABS: Array<{ id: LearningTab; label: string }> = [
   { id: "quiz", label: "퀴즈" },
 ];
 const MAX_CAPTION_POLLS = 8;
-const MAX_QUIZ_POLLS = 10;
 
 export function LearningWorkspace({ session }: { session: Session }) {
   const [searchParams] = useSearchParams();
@@ -116,98 +81,26 @@ function ActiveLearningWorkspace({
   video: QueueVideo;
 }) {
   const { state, update } = useLearningSession(userId, video.videoId);
-  const [playerError, setPlayerError] = useState("");
   const [captionRefresh, setCaptionRefresh] = useState(0);
   const [noteBusyId, setNoteBusyId] = useState("");
   const [noteStatus, setNoteStatus] = useState("");
-  const [adaptiveQuiz, setAdaptiveQuiz] = useState<AdaptiveQuizLoop | null>(
-    null,
-  );
-  const [quizAnswers, setQuizAnswers] = useState<Record<string, number>>({});
-  const [quizSubmission, setQuizSubmission] =
-    useState<AdaptiveQuizSubmission | null>(null);
-  const [nextProposal, setNextProposal] = useState<LearningProposal | null>(
-    null,
-  );
-  const [proposalCourses, setProposalCourses] = useState<CourseChoice[]>([]);
-  const [proposalStatus, setProposalStatus] = useState("");
-  const [proposalInFlight, setProposalInFlight] = useState(false);
-  const [quizUi, setQuizUi] = useState<QuizUiState>(() =>
-    quizStateFromApi(null, false),
-  );
-  const playerRef = useRef<LearningPlayer | null>(null);
-  const initialTimeRef = useRef(state.currentTime);
+  const playerRef = useRef<LearningVideoPlayerHandle | null>(null);
   const captionsRef = useRef(state.captions);
   const tablistRef = useRef<HTMLDivElement>(null);
-  const errorRef = useRef<HTMLDivElement>(null);
-  const quizStatusRef = useRef<HTMLDivElement>(null);
-  const quizReadyRef = useRef(false);
-  const proposalRequestRef = useRef<{
-    controller: AbortController;
-    idempotencyKey: string;
-  } | null>(null);
   const currentCaption = captionPairAt(state.captions, state.currentTime);
   const quizState = quizPreparation(state.captions);
   const contextId = state.contextId || video.learningContextId || "";
-  const quizLoopId = adaptiveQuiz?.id;
-  const quizLoopState = adaptiveQuiz?.state;
-
-  useEffect(() => {
-    quizReadyRef.current = quizState.ready;
-  }, [quizState.ready]);
-
-  useEffect(() => {
-    if (!adaptiveQuiz) setQuizUi(quizStateFromApi(null, quizState.ready));
-  }, [adaptiveQuiz, quizState.ready]);
-
-  useEffect(() => {
-    if (!quizLoopId || quizLoopState !== "generating") return;
-    const activeLoopId = quizLoopId;
-    const controller = new AbortController();
-    const { signal } = controller;
-
-    async function pollQuiz() {
-      if (!(await waitForPoll(500, signal))) return;
-      for (let attempts = 0; attempts < MAX_QUIZ_POLLS; attempts += 1) {
-        try {
-          const next = await fetchAdaptiveQuiz(activeLoopId, { signal });
-          if (signal.aborted) return;
-          setAdaptiveQuiz(next);
-          setQuizUi(quizStateFromApi(next, quizReadyRef.current));
-          if (next.state !== "generating") return;
-          if (attempts + 1 >= MAX_QUIZ_POLLS) return;
-          if (!(await waitForPoll(1_500, signal))) return;
-        } catch {
-          if (!signal.aborted) {
-            setQuizUi((current) => ({
-              ...current,
-              phase: "failed",
-              message: "퀴즈 상태를 확인하지 못했습니다. 다시 시도해주세요.",
-            }));
-          }
-          return;
-        }
-      }
-    }
-    void pollQuiz();
-    return () => {
-      controller.abort();
-    };
-  }, [quizLoopId, quizLoopState]);
-
-  useEffect(
-    () => () => {
-      proposalRequestRef.current?.controller.abort();
-      proposalRequestRef.current = null;
-    },
-    [],
-  );
-
-  useEffect(() => {
-    if (["failed", "stale", "evaluated"].includes(quizUi.phase)) {
-      quizStatusRef.current?.focus();
-    }
-  }, [quizUi.phase]);
+  const quiz = useAdaptiveQuiz({
+    contextId,
+    currentTime: state.currentTime,
+    evidenceReady: quizState.ready,
+  });
+  const nextLearning = useNextLearningProposal({
+    contextId,
+    currentTime: state.currentTime,
+    evaluated: quiz.state.phase === "evaluated",
+    videoTitle: video.title,
+  });
 
   useEffect(() => {
     captionsRef.current = state.captions;
@@ -221,61 +114,6 @@ function ActiveLearningWorkspace({
       });
     }
   }, [state.contextId, update, video.learningContextId, video.learningWorkId]);
-
-  useEffect(() => {
-    let cancelled = false;
-    let interval = 0;
-    async function mountPlayer() {
-      try {
-        const youtube = await loadYoutubeApi();
-        if (cancelled) return;
-        playerRef.current?.destroy();
-        playerRef.current = new youtube.Player("learning-youtube-player", {
-          videoId: video.videoId,
-          playerVars: { rel: 0, playsinline: 1, enablejsapi: 1 },
-          events: {
-            onReady: ({ target }) => {
-              playerRef.current = target;
-              target.seekTo(initialTimeRef.current, true);
-              setPlayerError("");
-            },
-            onError: () => {
-              setPlayerError(
-                "영상을 재생할 수 없습니다. 원본 영상이 공개 상태인지 확인해주세요.",
-              );
-            },
-          },
-        });
-        interval = window.setInterval(() => {
-          try {
-            const seconds = playerRef.current?.getCurrentTime();
-            if (typeof seconds === "number" && Number.isFinite(seconds)) {
-              update({ currentTime: seconds });
-            }
-          } catch {
-            // Preserve the last valid position while the player is changing state.
-          }
-        }, 500);
-      } catch {
-        if (!cancelled) {
-          setPlayerError(
-            "플레이어를 불러오지 못했습니다. 네트워크를 확인한 뒤 다시 시도해주세요.",
-          );
-        }
-      }
-    }
-    void mountPlayer();
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-      playerRef.current?.destroy();
-      playerRef.current = null;
-    };
-  }, [update, video.videoId]);
-
-  useEffect(() => {
-    if (playerError) errorRef.current?.focus();
-  }, [playerError]);
 
   useEffect(() => {
     if (!contextId) return;
@@ -317,7 +155,7 @@ function ActiveLearningWorkspace({
   }, [captionRefresh, contextId, update]);
 
   function seek(seconds: number) {
-    playerRef.current?.seekTo(seconds, true);
+    playerRef.current?.seek(seconds);
     update({ currentTime: seconds });
   }
 
@@ -413,152 +251,6 @@ function ActiveLearningWorkspace({
     }
   }
 
-  async function startQuiz() {
-    if (!contextId || !quizState.ready) return;
-    setQuizSubmission(null);
-    setQuizAnswers({});
-    setQuizUi((current) => transitionQuizState(current, { type: "requested" }));
-    try {
-      const loop = await requestAdaptiveQuiz({
-        contextId,
-        startSeconds: 0,
-        endSeconds: Math.max(1, Math.floor(state.currentTime)),
-        idempotencyKey: crypto.randomUUID(),
-      });
-      setAdaptiveQuiz(loop);
-      setQuizUi(quizStateFromApi(loop, true));
-    } catch (error) {
-      setQuizUi((current) => ({
-        ...current,
-        phase: "failed",
-        message:
-          error instanceof Error
-            ? error.message
-            : "퀴즈를 만들지 못했습니다. 다시 시도해주세요.",
-      }));
-    }
-  }
-
-  function chooseQuizAnswer(questionId: string, choiceIndex: number) {
-    setQuizAnswers((current) => ({ ...current, [questionId]: choiceIndex }));
-    setQuizUi((current) =>
-      transitionQuizState(current, { type: "answer_changed" }),
-    );
-  }
-
-  async function submitQuizAnswers() {
-    if (!adaptiveQuiz || adaptiveQuiz.questions.length !== 5) return;
-    const answers = adaptiveQuiz.questions.map((question) => ({
-      questionId: question.id,
-      selectedChoiceIndex: quizAnswers[question.id],
-    }));
-    if (answers.some((answer) => answer.selectedChoiceIndex === undefined)) {
-      setQuizUi((current) => ({
-        ...current,
-        message: "모든 문제에 답해주세요.",
-      }));
-      return;
-    }
-    setQuizUi((current) =>
-      transitionQuizState(current, { type: "submit_started" }),
-    );
-    try {
-      const result = await submitAdaptiveQuiz({
-        loopId: adaptiveQuiz.id,
-        idempotencyKey: crypto.randomUUID(),
-        answers: answers as Array<{
-          questionId: string;
-          selectedChoiceIndex: number;
-        }>,
-      });
-      setQuizSubmission(result);
-      setQuizUi((current) =>
-        transitionQuizState(current, {
-          type: "submit_succeeded",
-          result: { score: result.attempt.score },
-        }),
-      );
-    } catch (error) {
-      try {
-        const latest = await fetchAdaptiveQuiz(adaptiveQuiz.id);
-        setAdaptiveQuiz(latest);
-        setQuizUi(quizStateFromApi(latest, quizState.ready));
-      } catch {
-        setQuizUi((current) => ({
-          ...current,
-          phase: "failed",
-          message:
-            error instanceof Error
-              ? error.message
-              : "답을 확인하지 못했습니다. 다시 시도해주세요.",
-        }));
-      }
-    }
-  }
-
-  async function requestNextProposal() {
-    if (
-      !contextId ||
-      quizUi.phase !== "evaluated" ||
-      proposalRequestRef.current
-    )
-      return;
-    const request = {
-      controller: new AbortController(),
-      idempotencyKey: crypto.randomUUID(),
-    };
-    proposalRequestRef.current = request;
-    const { signal } = request.controller;
-    setProposalInFlight(true);
-    setProposalStatus("다음 학습을 찾고 있습니다.");
-    setNextProposal(null);
-    try {
-      const [run, courses] = await Promise.all([
-        createNextLearningRun(
-          {
-            objective: `${video.title} 다음에 학습할 내용`,
-            studyContextId: contextId,
-            watchedRanges: [
-              { start: 0, end: Math.max(1, Math.floor(state.currentTime)) },
-            ],
-            idempotencyKey: request.idempotencyKey,
-          },
-          { signal },
-        ),
-        fetchOwnerCourses(),
-      ]);
-      if (signal.aborted) return;
-      setProposalCourses(
-        courses
-          .filter((course) => course.status !== "archived")
-          .map(({ id, title, version }) => ({ id, title, version })),
-      );
-      const readyRun = await waitForProposalRun(run, signal);
-      if (signal.aborted) return;
-      if (readyRun.state !== "awaiting_approval") {
-        throw new Error("다음 학습을 찾지 못했습니다. 다시 시도해주세요.");
-      }
-      const proposal = await createNextLearningProposal(readyRun.id, {
-        signal,
-      });
-      if (signal.aborted) return;
-      setNextProposal(proposal);
-      setProposalStatus("");
-    } catch (error) {
-      if (signal.aborted) return;
-      setProposalStatus(
-        error instanceof Error
-          ? error.message
-          : "다음 학습을 찾지 못했습니다. 다시 시도해주세요.",
-      );
-    } finally {
-      if (proposalRequestRef.current === request) {
-        proposalRequestRef.current = null;
-        if (!signal.aborted) setProposalInFlight(false);
-      }
-    }
-  }
-
   return (
     <main className="page-shell learning-workspace">
       <header className="learning-workspace-heading">
@@ -569,21 +261,12 @@ function ActiveLearningWorkspace({
         <Link to="/">다른 영상 학습</Link>
       </header>
 
-      <section className="learning-player" aria-label="YouTube 영상 플레이어">
-        <div id="learning-youtube-player" />
-        {playerError && (
-          <div
-            className="learning-player-error"
-            ref={errorRef}
-            role="alert"
-            tabIndex={-1}
-          >
-            <strong>영상을 열 수 없습니다</strong>
-            <p>{playerError}</p>
-            <Link to="/">다른 영상 선택</Link>
-          </div>
-        )}
-      </section>
+      <LearningVideoPlayer
+        initialTime={state.currentTime}
+        onTimeChange={(currentTime) => update({ currentTime })}
+        ref={playerRef}
+        videoId={video.videoId}
+      />
 
       <section className="current-caption" aria-label="현재 자막">
         <div>
@@ -686,85 +369,47 @@ function ActiveLearningWorkspace({
           )}
           {state.selectedTab === "quiz" && (
             <AdaptiveQuizPanel
-              answers={quizAnswers}
-              loop={adaptiveQuiz}
-              onAnswer={chooseQuizAnswer}
-              onRequest={startQuiz}
+              answers={quiz.answers}
+              loop={quiz.loop}
+              onAnswer={quiz.chooseAnswer}
+              onRequest={() => void quiz.request()}
               onSeek={seek}
-              onSubmit={submitQuizAnswers}
-              state={quizUi}
-              statusRef={quizStatusRef}
-              submission={quizSubmission}
+              onSubmit={() => void quiz.submit()}
+              state={quiz.state}
+              statusRef={quiz.statusRef}
+              submission={quiz.submission}
             />
           )}
         </div>
       </section>
-      {quizUi.phase === "evaluated" && !nextProposal && (
+      {quiz.state.phase === "evaluated" && !nextLearning.proposal && (
         <section className="next-learning-entry" aria-live="polite">
           <h2>다음 학습</h2>
           <p>
             퀴즈 결과와 지금까지 본 구간을 바탕으로 이어서 볼 영상을 찾습니다.
           </p>
           <button
-            aria-busy={proposalInFlight}
-            disabled={proposalInFlight}
+            aria-busy={nextLearning.inFlight}
+            disabled={nextLearning.inFlight}
             type="button"
-            onClick={() => void requestNextProposal()}
+            onClick={() => void nextLearning.request()}
           >
-            {proposalInFlight ? "다음 학습 찾는 중" : "다음 학습 제안 받기"}
+            {nextLearning.inFlight
+              ? "다음 학습 찾는 중"
+              : "다음 학습 제안 받기"}
           </button>
-          <p>{proposalStatus}</p>
+          <p>{nextLearning.status}</p>
         </section>
       )}
-      {nextProposal && (
+      {nextLearning.proposal && (
         <NextLearningProposal
-          proposal={nextProposal}
-          courses={proposalCourses}
-          onRequestAnother={() => void requestNextProposal()}
+          proposal={nextLearning.proposal}
+          courses={nextLearning.courses}
+          onRequestAnother={() => void nextLearning.request()}
         />
       )}
     </main>
   );
-}
-
-async function waitForProposalRun(
-  initial: {
-    id: string;
-    state: string;
-    failureCode: string | null;
-  },
-  signal: AbortSignal,
-) {
-  let current = initial;
-  for (let attempt = 0; attempt < 30; attempt += 1) {
-    if (
-      current.state === "awaiting_approval" ||
-      ["failed", "cancelled"].includes(current.state)
-    ) {
-      return current;
-    }
-    if (!(await waitForPoll(1_000, signal))) return current;
-    current = await fetchNextLearningRun(current.id, { signal });
-  }
-  return current;
-}
-
-function waitForPoll(delayMs: number, signal: AbortSignal) {
-  return new Promise<boolean>((resolve) => {
-    if (signal.aborted) {
-      resolve(false);
-      return;
-    }
-    const timeout = window.setTimeout(() => {
-      signal.removeEventListener("abort", stop);
-      resolve(true);
-    }, delayMs);
-    function stop() {
-      window.clearTimeout(timeout);
-      resolve(false);
-    }
-    signal.addEventListener("abort", stop, { once: true });
-  });
 }
 
 function AdaptiveQuizPanel({
@@ -981,40 +626,4 @@ function NoteEditor({
       </div>
     </article>
   );
-}
-
-let youtubeApiPromise: Promise<LearningYoutubeApi> | null = null;
-
-function loadYoutubeApi(): Promise<LearningYoutubeApi> {
-  const learningWindow = window as unknown as LearningWindow;
-  if (learningWindow.YT?.Player) return Promise.resolve(learningWindow.YT);
-  if (youtubeApiPromise) return youtubeApiPromise;
-  youtubeApiPromise = new Promise((resolve, reject) => {
-    const timeout = window.setTimeout(
-      () => reject(new Error("플레이어 준비 시간이 초과되었습니다.")),
-      8000,
-    );
-    const previousReady = learningWindow.onYouTubeIframeAPIReady;
-    learningWindow.onYouTubeIframeAPIReady = () => {
-      previousReady?.();
-      if (!learningWindow.YT?.Player) return;
-      window.clearTimeout(timeout);
-      resolve(learningWindow.YT);
-    };
-    if (
-      !document.querySelector(
-        'script[src="https://www.youtube.com/iframe_api"]',
-      )
-    ) {
-      const script = document.createElement("script");
-      script.src = "https://www.youtube.com/iframe_api";
-      script.async = true;
-      script.onerror = () => {
-        window.clearTimeout(timeout);
-        reject(new Error("플레이어 스크립트를 불러오지 못했습니다."));
-      };
-      document.head.append(script);
-    }
-  });
-  return youtubeApiPromise;
 }

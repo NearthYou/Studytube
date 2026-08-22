@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   captionPairAt,
+  captionPhaseMessage,
   mergeCaptionState,
   quizPreparation,
   type ProgressiveCaptionState,
@@ -54,4 +55,15 @@ test("keeps quiz unavailable until caption evidence is indexed", () => {
     ready: true,
     message: "퀴즈를 시작할 수 있습니다.",
   });
+});
+
+test("shows a Korean message when caption translation is unavailable", () => {
+  assert.equal(
+    captionPhaseMessage({
+      ...pending,
+      phase: "failed",
+      errorCode: "TRANSLATION_PROVIDER_UNAVAILABLE",
+    }),
+    "한국어 자막을 만들지 못했습니다.",
+  );
 });

@@ -6,6 +6,8 @@ import subprocess
 import tempfile
 import time
 import unittest
+from contextlib import nullcontext
+from pathlib import Path
 from unittest import mock
 from urllib.parse import parse_qsl, urlparse
 
@@ -186,6 +188,44 @@ class AiServiceTest(unittest.TestCase):
             captured["transcription"]["model"],
             "gpt-4o-mini-transcribe-2025-12-15",
         )
+
+    def test_audio_download_keeps_the_original_format_without_ffmpeg(self):
+        captured_command = []
+
+        def fake_run(command, **_kwargs):
+            captured_command.extend(command)
+            output = command[command.index("--output") + 1]
+            Path(output.replace("%(ext)s", "webm")).write_bytes(b"audio")
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(
+            main,
+            "fetch_yt_dlp_metadata",
+            return_value=({"duration": 190}, ""),
+        ), mock.patch.object(
+            main,
+            "yt_dlp_commands",
+            return_value=[["python", "-m", "yt_dlp"]],
+        ), mock.patch.object(
+            main,
+            "yt_dlp_secret_config_args",
+            return_value=nullcontext([]),
+        ), mock.patch.object(main.subprocess, "run", side_effect=fake_run):
+            audio_path, duration = main.download_youtube_audio_window(
+                {
+                    "videoId": "caption0001",
+                    "startSeconds": 0,
+                    "durationSeconds": 600,
+                },
+                Path(directory),
+            )
+
+        self.assertEqual(audio_path.suffix, ".webm")
+        self.assertEqual(duration, 190)
+        self.assertNotIn("--extract-audio", captured_command)
+        self.assertNotIn("--audio-format", captured_command)
+        self.assertNotIn("--download-sections", captured_command)
+        self.assertNotIn("--force-keyframes-at-cuts", captured_command)
 
     def test_production_transcription_translates_the_ready_source_window(self):
         source = [{"start": 0, "end": 5, "text": "hello"}]

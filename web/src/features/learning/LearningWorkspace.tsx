@@ -10,12 +10,14 @@ import {
   type AdaptiveQuizSubmission,
 } from "../../api.ts";
 import type { LearningNote, Session } from "../../types.ts";
+import { startLearningIntake } from "../../learningIntake.ts";
 import { formatTime } from "../../videoSummaryDetails.ts";
 import type { QueueVideo } from "../../watchQueue.ts";
 import { readWatchQueue } from "../../watchQueueStorage.ts";
 import {
   captionPairAt,
   captionPhaseMessage,
+  EMPTY_CAPTION_STATE,
   mergeCaptionState,
   quizPreparation,
   type ProgressiveCaptionState,
@@ -31,11 +33,13 @@ import { useAdaptiveQuiz } from "./useAdaptiveQuiz.ts";
 import { useNextLearningProposal } from "./useNextLearningProposal.ts";
 
 const TABS: Array<{ id: LearningTab; label: string }> = [
+  { id: "summary", label: "핵심 내용" },
   { id: "transcript", label: "전체 자막" },
   { id: "notes", label: "메모" },
   { id: "quiz", label: "퀴즈" },
 ];
-const MAX_CAPTION_POLLS = 8;
+const MAX_CAPTION_POLLS = 170;
+const REQUESTED_AUDIO_SECONDS = 600;
 
 export function LearningWorkspace({ session }: { session: Session }) {
   const [searchParams] = useSearchParams();
@@ -82,11 +86,14 @@ function ActiveLearningWorkspace({
 }) {
   const { state, update } = useLearningSession(userId, video.videoId);
   const [captionRefresh, setCaptionRefresh] = useState(0);
+  const [captionRetrying, setCaptionRetrying] = useState(false);
   const [noteBusyId, setNoteBusyId] = useState("");
   const [noteStatus, setNoteStatus] = useState("");
   const playerRef = useRef<LearningVideoPlayerHandle | null>(null);
   const captionsRef = useRef(state.captions);
   const tablistRef = useRef<HTMLDivElement>(null);
+  const notePositionSeconds =
+    state.notePositionSeconds ?? state.currentTime;
   const currentCaption = captionPairAt(state.captions, state.currentTime);
   const quizState = quizPreparation(state.captions);
   const contextId = state.contextId || video.learningContextId || "";
@@ -130,8 +137,26 @@ function ActiveLearningWorkspace({
         if (cancelled) return;
         latest = mergeCaptionState(latest, response);
         update({ captions: latest });
-        if (attempts < MAX_CAPTION_POLLS && latest.phase !== "complete") {
+        if (
+          attempts < MAX_CAPTION_POLLS &&
+          latest.phase !== "complete" &&
+          latest.phase !== "failed"
+        ) {
           timeout = window.setTimeout(poll, 1800);
+        } else if (
+          attempts >= MAX_CAPTION_POLLS &&
+          latest.phase !== "complete" &&
+          latest.phase !== "failed"
+        ) {
+          latest = {
+            ...latest,
+            phase: latest.sourceSegments.length > 0 ? "partial" : "failed",
+            stale: latest.sourceSegments.length > 0,
+            errorMessage: latest.sourceSegments.length > 0
+              ? "나머지 자막이 늦어지고 있어요. 잠시 후 다시 확인해주세요."
+              : "자막 준비가 늦어지고 있어요. 다시 시도해주세요.",
+          };
+          update({ captions: latest });
         }
       } catch (error) {
         if (cancelled) return;
@@ -153,6 +178,36 @@ function ActiveLearningWorkspace({
       window.clearTimeout(timeout);
     };
   }, [captionRefresh, contextId, update]);
+
+  async function retryCaptions() {
+    setCaptionRetrying(true);
+    update({ captions: EMPTY_CAPTION_STATE });
+    try {
+      const result = await startLearningIntake({
+        videoUrl: video.videoUrl,
+        requestedAudioSeconds: REQUESTED_AUDIO_SECONDS,
+      });
+      update({
+        contextId: result.context.studyContext.id,
+        workId: result.workId,
+        captions: EMPTY_CAPTION_STATE,
+      });
+      setCaptionRefresh((value) => value + 1);
+    } catch (error) {
+      update({
+        captions: {
+          ...EMPTY_CAPTION_STATE,
+          phase: "failed",
+          errorMessage:
+            error instanceof Error
+              ? error.message
+              : "자막을 다시 만들지 못했습니다. 잠시 후 다시 시도해주세요.",
+        },
+      });
+    } finally {
+      setCaptionRetrying(false);
+    }
+  }
 
   function seek(seconds: number) {
     playerRef.current?.seek(seconds);
@@ -180,6 +235,15 @@ function ActiveLearningWorkspace({
     buttons?.[nextIndex]?.focus();
   }
 
+  function updateNoteDraft(noteDraft: string) {
+    update({
+      noteDraft,
+      notePositionSeconds: noteDraft
+        ? (state.notePositionSeconds ?? state.currentTime)
+        : null,
+    });
+  }
+
   async function saveNote() {
     const body = state.noteDraft.trim();
     if (!body) {
@@ -197,10 +261,14 @@ function ActiveLearningWorkspace({
     try {
       const note = await createLearningNote({
         contextId,
-        positionSeconds: state.currentTime,
+        positionSeconds: notePositionSeconds,
         body,
       });
-      update({ notes: [note, ...state.notes], noteDraft: "" });
+      update({
+        notes: [note, ...state.notes],
+        noteDraft: "",
+        notePositionSeconds: null,
+      });
       setNoteStatus(`${formatTime(note.positionSeconds)} 메모를 저장했습니다.`);
     } catch (error) {
       setNoteStatus(
@@ -262,8 +330,10 @@ function ActiveLearningWorkspace({
       </header>
 
       <LearningVideoPlayer
+        caption={currentCaption}
         initialTime={state.currentTime}
         onTimeChange={(currentTime) => update({ currentTime })}
+        preferNativeCaptions={state.captions.sourceSegments.length === 0}
         ref={playerRef}
         videoId={video.videoId}
       />
@@ -275,11 +345,11 @@ function ActiveLearningWorkspace({
             {state.captions.sourceLanguage &&
               `(${state.captions.sourceLanguage})`}
           </small>
-          <p>{currentCaption.source || "원문 자막 확인 중"}</p>
+          <p>{currentCaption.source || "자막을 불러오는 중이에요."}</p>
         </div>
         <div>
           <small>한국어</small>
-          <p>{currentCaption.korean || "한국어 자막을 준비하고 있습니다."}</p>
+          <p>{currentCaption.korean || "한국어로 옮기는 중이에요."}</p>
         </div>
         <p className="caption-progress" aria-live="polite">
           {contextId
@@ -287,14 +357,22 @@ function ActiveLearningWorkspace({
             : "이 영상을 새 학습으로 등록한 뒤 자막을 준비할 수 있습니다."}
         </p>
         {!contextId && <Link to="/">새 학습으로 등록</Link>}
-        {contextId && state.captions.phase !== "complete" && (
+        {contextId && state.captions.phase === "failed" ? (
+          <button
+            disabled={captionRetrying}
+            type="button"
+            onClick={() => void retryCaptions()}
+          >
+            {captionRetrying ? "다시 준비하고 있어요" : "자막 다시 만들기"}
+          </button>
+        ) : contextId && state.captions.phase !== "complete" ? (
           <button
             type="button"
             onClick={() => setCaptionRefresh((value) => value + 1)}
           >
             상태 새로고침
           </button>
-        )}
+        ) : null}
       </section>
 
       <section className="learning-tabs">
@@ -328,27 +406,45 @@ function ActiveLearningWorkspace({
           role="tabpanel"
           tabIndex={0}
         >
+          {state.selectedTab === "summary" && (
+            <LearningSummaryPanel
+              captions={state.captions}
+              onSeek={seek}
+              video={video}
+            />
+          )}
           {state.selectedTab === "transcript" && (
             <TranscriptPanel captions={state.captions} onSeek={seek} />
           )}
           {state.selectedTab === "notes" && (
             <section className="learning-notes-panel">
               <label htmlFor="learning-note">
-                {formatTime(state.currentTime)} 메모
+                {formatTime(notePositionSeconds)}에 메모
               </label>
               <textarea
                 id="learning-note"
                 value={state.noteDraft}
-                onChange={(event) => update({ noteDraft: event.target.value })}
+                onChange={(event) => updateNoteDraft(event.target.value)}
                 placeholder="지금 구간에서 기억할 내용을 적어보세요."
               />
-              <button
-                disabled={noteBusyId === "new"}
-                type="button"
-                onClick={saveNote}
-              >
-                현재 시점에 저장
-              </button>
+              <div className="learning-note-actions">
+                <button
+                  disabled={noteBusyId === "new" || !state.noteDraft.trim()}
+                  type="button"
+                  onClick={() =>
+                    update({ notePositionSeconds: state.currentTime })
+                  }
+                >
+                  현재 위치로 바꾸기
+                </button>
+                <button
+                  disabled={noteBusyId === "new"}
+                  type="button"
+                  onClick={saveNote}
+                >
+                  메모 저장
+                </button>
+              </div>
               <p aria-live="polite">{noteStatus}</p>
               <div className="learning-note-list">
                 {state.notes.map((note) => (
@@ -412,6 +508,54 @@ function ActiveLearningWorkspace({
   );
 }
 
+function LearningSummaryPanel({
+  captions,
+  onSeek,
+  video,
+}: {
+  captions: ProgressiveCaptionState;
+  onSeek: (seconds: number) => void;
+  video: QueueVideo;
+}) {
+  const segments =
+    captions.koreanSegments.length > 0
+      ? captions.koreanSegments
+      : captions.sourceSegments;
+  const highlightIndexes = Array.from(
+    new Set(
+      segments.length > 0
+        ? [0, Math.floor((segments.length - 1) / 2), segments.length - 1]
+        : [],
+    ),
+  );
+  return (
+    <section className="learning-summary-panel">
+      <h2>핵심 내용</h2>
+      <p>
+        {video.summary.trim() ||
+          `${video.channelName || "YouTube"}의 ${video.title} 영상입니다.`}
+      </p>
+      {highlightIndexes.length > 0 ? (
+        <ol>
+          {highlightIndexes.map((index) => {
+            const segment = segments[index];
+            return (
+              <li key={`${segment.start}:${segment.end}`}>
+                <button type="button" onClick={() => onSeek(segment.start)}>
+                  {formatTime(segment.start)}
+                </button>
+                <p>{segment.text}</p>
+              </li>
+            );
+          })}
+        </ol>
+      ) : (
+        <p>자막이 준비되면 중요한 내용을 여기에서 바로 볼 수 있어요.</p>
+      )}
+    </section>
+  );
+}
+
 function AdaptiveQuizPanel({
   answers,
   loop,
@@ -449,7 +593,7 @@ function AdaptiveQuizPanel({
           </button>
         )}
         {state.phase === "request" && !state.evidenceReady && (
-          <span>자막 근거가 준비되면 시작할 수 있습니다.</span>
+          <span>자막이 준비되면 퀴즈를 시작할 수 있어요.</span>
         )}
         {state.phase === "failed" && (
           <button type="button" onClick={onRequest}>
@@ -578,7 +722,7 @@ function TranscriptPanel({
                 <p lang={captions.sourceLanguage || undefined}>{pair.source}</p>
               )}
               <p lang="ko">
-                {pair.korean || "한국어 자막을 준비하고 있습니다."}
+                {pair.korean || "한국어로 옮기는 중이에요."}
               </p>
             </div>
           </li>

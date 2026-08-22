@@ -61,5 +61,5 @@ test("quiz stays blocked until caption evidence is ready", () => {
   const state = quizStateFromApi(null, false);
   assert.equal(state.phase, "request");
   assert.equal(quizControls(state).request, false);
-  assert.match(state.message, /근거/);
+  assert.equal(state.message, "퀴즈를 준비하고 있어요.");
 });

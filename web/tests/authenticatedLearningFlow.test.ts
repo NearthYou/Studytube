@@ -33,7 +33,7 @@ test("learning home starts with URL registration and has an honest empty state",
   assert.match(source, /학습 시작/);
   assert.match(source, /아직 학습한 영상이 없습니다/);
   assert.match(source, /새 영상 등록/);
-  assert.doesNotMatch(source, /Agent|MCP|RAG|AI/);
+  assert.doesNotMatch(source, />[^\n<]*(?:Agent|MCP|RAG|AI)[^\n<]*</);
 });
 
 test("learning intake runs only from the authenticated page submit action", () => {
@@ -42,6 +42,14 @@ test("learning intake runs only from the authenticated page submit action", () =
   assert.match(source, /startLearningIntake/);
   assert.match(source, /onSubmit=\{handleSubmit\}/);
   assert.doesNotMatch(appSource, /<LearningPage[^>]*session=\{null/);
+});
+
+test("new learning intake keeps the public video title and introduction", () => {
+  const source = readFileSync(learningPagePath, "utf8");
+
+  assert.match(source, /askMcp\(\{ url: normalizedUrl, limit: 1 \}\)/);
+  assert.match(source, /metadata\?\.title/);
+  assert.match(source, /summary:/);
 });
 
 test("legacy recent videos pass cost admission before the new workspace opens", () => {

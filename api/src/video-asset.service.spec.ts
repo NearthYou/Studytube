@@ -793,33 +793,35 @@ describe('VideoAssetService learning caption generations', () => {
   it('publishes the first approved transcription window before processing the rest', async () => {
     const artifacts = new RecordingCaptionArtifacts();
     artifacts.sttApproved = true;
-    const transcribe = jest.fn().mockImplementation(
-      (input: { startSeconds?: number; durationSeconds: number }) => {
-        const start = input.startSeconds ?? 0;
-        artifacts.events.push(`transcribe:${start}`);
-        return Promise.resolve({
-          provider: 'openai-audio-transcription',
-          status: 'ready',
-          sourceLanguage: 'en',
-          mediaDurationSeconds: 95,
-          segments: [
-            {
-              start,
-              end: start + input.durationSeconds,
-              text: `source ${start}`,
-            },
-          ],
-          translatedSegments: [
-            {
-              start,
-              end: start + input.durationSeconds,
-              text: `번역 ${start}`,
-            },
-          ],
-          errorCode: '',
-        });
-      },
-    );
+    const transcribe = jest
+      .fn()
+      .mockImplementation(
+        (input: { startSeconds?: number; durationSeconds: number }) => {
+          const start = input.startSeconds ?? 0;
+          artifacts.events.push(`transcribe:${start}`);
+          return Promise.resolve({
+            provider: 'openai-audio-transcription',
+            status: 'ready',
+            sourceLanguage: 'en',
+            mediaDurationSeconds: 95,
+            segments: [
+              {
+                start,
+                end: start + input.durationSeconds,
+                text: `source ${start}`,
+              },
+            ],
+            translatedSegments: [
+              {
+                start,
+                end: start + input.durationSeconds,
+                text: `번역 ${start}`,
+              },
+            ],
+            errorCode: '',
+          });
+        },
+      );
     const service = new VideoAssetService(
       new RecordingRepository(),
       {
@@ -844,7 +846,10 @@ describe('VideoAssetService learning caption generations', () => {
       source: 'transcription',
       status: 'ready',
     });
-    expect(transcribe.mock.calls.map(([input]) => input)).toEqual([
+    const transcriptionRequests = transcribe.mock.calls as Array<
+      [{ startSeconds: number; durationSeconds: number }]
+    >;
+    expect(transcriptionRequests.map(([input]) => input)).toEqual([
       expect.objectContaining({ startSeconds: 0, durationSeconds: 30 }),
       expect.objectContaining({ startSeconds: 30, durationSeconds: 30 }),
       expect.objectContaining({ startSeconds: 60, durationSeconds: 30 }),

@@ -68,21 +68,21 @@ export class VideoAssetService {
     );
     signal.throwIfAborted();
 
-    let source = captions.sourceSegments.length
+    const source = captions.sourceSegments.length
       ? captions.sourceSegments
       : captions.translated
         ? []
         : captions.segments;
-    let translated = captions.translatedSegments.length
+    const translated = captions.translatedSegments.length
       ? captions.translatedSegments
       : captions.translated
         ? captions.segments
         : [];
-    let sourceKind: Extract<
+    const sourceKind: Extract<
       CaptionArtifactKind,
       'youtube_caption' | 'transcription'
     > = 'youtube_caption';
-    let sourceLanguage = captions.sourceLanguage || 'und';
+    const sourceLanguage = captions.sourceLanguage || 'und';
 
     if (source.length === 0) {
       const model = 'gpt-4o-mini-transcribe-2025-12-15';
@@ -555,9 +555,7 @@ export class VideoAssetService {
           translationOrdinal,
         );
         translationOrdinal += transcription.translatedSegments.length;
-        if (
-          translationOrdinal === transcription.translatedSegments.length
-        ) {
+        if (translationOrdinal === transcription.translatedSegments.length) {
           await this.publishCaptionGeneration(
             artifacts,
             translationArtifactId,

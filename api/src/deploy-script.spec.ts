@@ -170,9 +170,13 @@ describe('EC2 deployment script', () => {
     expect(processStart).toBeGreaterThan(migration);
     expect(sttApproval).toBeGreaterThan(migration);
     expect(sttApproval).toBeLessThan(processStart);
-    expect(runtimeInstaller).toContain('api/dist/scripts/apply-stt-cost-approval.js');
+    expect(runtimeInstaller).toContain(
+      'api/dist/scripts/apply-stt-cost-approval.js',
+    );
     expect(runtimeInstaller).toContain('AI_GLOBAL_MONTHLY_COST_MICROUNITS');
-    expect(environmentExample).toContain('AI_GLOBAL_MONTHLY_COST_MICROUNITS=1000000');
+    expect(environmentExample).toContain(
+      'AI_GLOBAL_MONTHLY_COST_MICROUNITS=1000000',
+    );
   });
 
   it('fails closed when the checked-out release contains unverified files', () => {

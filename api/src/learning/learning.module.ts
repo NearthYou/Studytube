@@ -61,11 +61,11 @@ import { PostgresRetrievalRepository } from '../retrieval/postgres-retrieval.rep
           enabled: process.env.AI_INTAKE_ENABLED !== 'false',
           maxGlobalDailyAudioSeconds: environmentInteger(
             'AI_GLOBAL_DAILY_AUDIO_SECONDS',
-            28_800,
+            1_800,
           ),
           maxUserDailyAudioSeconds: environmentInteger(
             'AI_USER_DAILY_AUDIO_SECONDS',
-            7_200,
+            1_200,
           ),
           maxConcurrentWorks: environmentInteger('AI_MAX_CONCURRENT_WORKS', 4),
           maxConcurrentWorksPerUser: environmentInteger(
@@ -74,12 +74,16 @@ import { PostgresRetrievalRepository } from '../retrieval/postgres-retrieval.rep
           ),
           microsPerAudioSecond: environmentInteger(
             'AI_ESTIMATED_MICROUNITS_PER_AUDIO_SECOND',
-            1,
+            50,
             true,
           ),
           maxGlobalDailyCostMicrounits: environmentInteger(
             'AI_GLOBAL_DAILY_COST_MICROUNITS',
-            28_800,
+            90_000,
+          ),
+          maxGlobalMonthlyCostMicrounits: environmentInteger(
+            'AI_GLOBAL_MONTHLY_COST_MICROUNITS',
+            1_000_000,
           ),
         }),
       inject: [LearningDatabase],

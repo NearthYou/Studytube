@@ -775,7 +775,9 @@ describe('VideoAssetService learning caption generations', () => {
     expect(transcribe).toHaveBeenCalledWith(
       {
         videoId: request.canonicalVideoId,
-        durationSeconds: request.durationSeconds,
+        startSeconds: 0,
+        durationSeconds: 30,
+        targetLanguage: 'ko',
         model: 'gpt-4o-mini-transcribe-2025-12-15',
       },
       expect.any(AbortSignal),
@@ -786,6 +788,92 @@ describe('VideoAssetService learning caption generations', () => {
       'publish:1',
     ]);
     expect(artifacts.committedCosts).toEqual([]);
+  });
+
+  it('publishes the first approved transcription window before processing the rest', async () => {
+    const artifacts = new RecordingCaptionArtifacts();
+    artifacts.sttApproved = true;
+    const transcribe = jest
+      .fn()
+      .mockImplementation(
+        (input: { startSeconds?: number; durationSeconds: number }) => {
+          const start = input.startSeconds ?? 0;
+          artifacts.events.push(`transcribe:${start}`);
+          return Promise.resolve({
+            provider: 'openai-audio-transcription',
+            status: 'ready',
+            sourceLanguage: 'en',
+            mediaDurationSeconds: 95,
+            segments: [
+              {
+                start,
+                end: start + input.durationSeconds,
+                text: `source ${start}`,
+              },
+            ],
+            translatedSegments: [
+              {
+                start,
+                end: start + input.durationSeconds,
+                text: `번역 ${start}`,
+              },
+            ],
+            errorCode: '',
+          });
+        },
+      );
+    const service = new VideoAssetService(
+      new RecordingRepository(),
+      {
+        captions: jest.fn().mockResolvedValue({
+          provider: 'youtube-native-captions',
+          sourceLanguage: '',
+          translated: false,
+          sourceSegments: [],
+          translatedSegments: [],
+          segments: [],
+          message: '',
+        }),
+        transcribe,
+        summary: jest.fn(),
+      } as unknown as AiProxyService,
+      artifacts,
+    );
+
+    await expect(service.prepareLearningCaptions(request)).resolves.toEqual({
+      sourceArtifactId: '1',
+      translationArtifactId: '2',
+      source: 'transcription',
+      status: 'ready',
+    });
+    const transcriptionRequests = transcribe.mock.calls as Array<
+      [{ startSeconds: number; durationSeconds: number }]
+    >;
+    expect(transcriptionRequests.map(([input]) => input)).toEqual([
+      expect.objectContaining({ startSeconds: 0, durationSeconds: 30 }),
+      expect.objectContaining({ startSeconds: 30, durationSeconds: 30 }),
+      expect.objectContaining({ startSeconds: 60, durationSeconds: 30 }),
+      expect.objectContaining({ startSeconds: 90, durationSeconds: 5 }),
+    ]);
+    expect(artifacts.events).toEqual([
+      'transcribe:0',
+      'create:transcription:1',
+      'append:1:1',
+      'publish:1',
+      'create:translation:2',
+      'append:2:1',
+      'publish:2',
+      'transcribe:30',
+      'append:1:1',
+      'append:2:1',
+      'transcribe:60',
+      'append:1:1',
+      'append:2:1',
+      'transcribe:90',
+      'append:1:1',
+      'append:2:1',
+    ]);
+    expect(artifacts.committedCosts).toEqual([4_750]);
   });
 
   it('completes without translation when the source is already Korean', async () => {

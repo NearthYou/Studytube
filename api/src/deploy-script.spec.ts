@@ -124,6 +124,9 @@ describe('EC2 deployment script', () => {
     const migration = script.indexOf(
       'bash scripts/install-production-runtime.sh run-migration',
     );
+    const sttApproval = script.indexOf(
+      'bash scripts/install-production-runtime.sh run-stt-approval',
+    );
     const learningCutover = script.indexOf(
       'bash scripts/install-production-runtime.sh run-learning-cutover',
     );
@@ -165,6 +168,15 @@ describe('EC2 deployment script', () => {
     expect(migration).toBeGreaterThan(isolatedPreparation);
     expect(migration).toBeGreaterThan(migrationGuards[1]?.index ?? -1);
     expect(processStart).toBeGreaterThan(migration);
+    expect(sttApproval).toBeGreaterThan(migration);
+    expect(sttApproval).toBeLessThan(processStart);
+    expect(runtimeInstaller).toContain(
+      'api/dist/scripts/apply-stt-cost-approval.js',
+    );
+    expect(runtimeInstaller).toContain('AI_GLOBAL_MONTHLY_COST_MICROUNITS');
+    expect(environmentExample).toContain(
+      'AI_GLOBAL_MONTHLY_COST_MICROUNITS=1000000',
+    );
   });
 
   it('fails closed when the checked-out release contains unverified files', () => {

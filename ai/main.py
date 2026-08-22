@@ -1074,6 +1074,121 @@ def read_caption_response_cache(cache_key: str) -> dict[str, Any] | None:
 STT_MODEL_SNAPSHOT = "gpt-4o-mini-transcribe-2025-12-15"
 
 
+def production_transcription_adapter(
+    request: dict[str, Any],
+    *,
+    downloader: Any | None = None,
+    client: Any | None = None,
+) -> dict[str, Any]:
+    start_seconds = normalize_transcription_start(request.get("startSeconds"))
+    duration_seconds = normalize_transcription_duration(
+        request.get("durationSeconds")
+    )
+    if not duration_seconds:
+        raise RuntimeError("TRANSCRIPTION_PROVIDER_UNAVAILABLE")
+    with tempfile.TemporaryDirectory(prefix="studytube-transcription-") as temp_dir:
+        audio_path, media_duration = (downloader or download_youtube_audio_window)(
+            request,
+            Path(temp_dir),
+        )
+        window_duration = min(
+            duration_seconds,
+            max(float(media_duration) - start_seconds, 0),
+        )
+        if window_duration <= 0:
+            raise RuntimeError("TRANSCRIPTION_PROVIDER_UNAVAILABLE")
+        active_client = client or (
+            OpenAI(timeout=90.0, max_retries=2) if OpenAI is not None else None
+        )
+        if active_client is None:
+            raise RuntimeError("TRANSCRIPTION_PROVIDER_UNAVAILABLE")
+        with audio_path.open("rb") as audio_file:
+            response = active_client.audio.transcriptions.create(
+                model=str(request.get("model") or STT_MODEL_SNAPSHOT),
+                file=audio_file,
+            )
+        text = clean_caption_text(str(getattr(response, "text", "") or ""))
+        if not text:
+            raise RuntimeError("TRANSCRIPTION_PROVIDER_UNAVAILABLE")
+        segments = fallback_caption_segments(text, window_duration)
+        for segment in segments:
+            segment["start"] = round(segment["start"] + start_seconds, 3)
+            segment["end"] = round(segment["end"] + start_seconds, 3)
+        return {
+            "provider": "openai-audio-transcription",
+            "sourceLanguage": "und",
+            "segments": segments,
+            "translatedSegments": [],
+            "mediaDurationSeconds": media_duration,
+        }
+
+
+def download_youtube_audio_window(
+    request: dict[str, Any],
+    directory: Path,
+) -> tuple[Path, float]:
+    video_id = str(request.get("videoId") or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9_-]{11}", video_id):
+        raise RuntimeError("TRANSCRIPTION_PROVIDER_UNAVAILABLE")
+    start_seconds = normalize_transcription_start(request.get("startSeconds"))
+    requested_duration = normalize_transcription_duration(
+        request.get("durationSeconds")
+    )
+    if not requested_duration:
+        raise RuntimeError("TRANSCRIPTION_PROVIDER_UNAVAILABLE")
+    metadata, _metadata_error = fetch_yt_dlp_metadata(video_id)
+    media_duration = normalize_transcription_duration(
+        metadata.get("duration") if isinstance(metadata, dict) else None
+    ) or (start_seconds + requested_duration)
+    if start_seconds >= media_duration:
+        raise RuntimeError("TRANSCRIPTION_PROVIDER_UNAVAILABLE")
+    end_seconds = min(start_seconds + requested_duration, media_duration)
+    output_template = str(directory / "window.%(ext)s")
+    with yt_dlp_secret_config_args() as secret_config_args:
+        for command in yt_dlp_commands():
+            completed = subprocess.run(
+                [
+                    *command,
+                    *yt_dlp_recovery_args(),
+                    *secret_config_args,
+                    "--no-playlist",
+                    "--quiet",
+                    "--no-warnings",
+                    "--format",
+                    "bestaudio/best",
+                    "--extract-audio",
+                    "--audio-format",
+                    "mp3",
+                    "--download-sections",
+                    f"*{start_seconds}-{end_seconds}",
+                    "--force-keyframes-at-cuts",
+                    *ffmpeg_location_args(),
+                    "--output",
+                    output_template,
+                    f"https://www.youtube.com/watch?v={video_id}",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=max(60, min(180, int(requested_duration * 3))),
+                check=False,
+                env=youtube_subprocess_environment(),
+            )
+            if completed.returncode != 0:
+                continue
+            candidates = [
+                path
+                for path in directory.iterdir()
+                if path.is_file()
+                and path.suffix.lower()
+                in {".mp3", ".m4a", ".mp4", ".ogg", ".wav", ".webm"}
+            ]
+            if candidates:
+                return max(candidates, key=lambda path: path.stat().st_size), float(
+                    media_duration
+                )
+    raise RuntimeError("TRANSCRIPTION_PROVIDER_UNAVAILABLE")
+
+
 def transcribe_youtube_audio(
     payload: dict[str, Any],
     *,
@@ -1103,10 +1218,10 @@ def transcribe_youtube_audio(
         return transcription_failure("TRANSCRIPTION_PROVIDER_UNAVAILABLE")
     if model != STT_MODEL_SNAPSHOT:
         return transcription_failure("STT_DISABLED")
+    selected_adapter = adapter or production_transcription_adapter
     if (
         os.getenv("STT_PROVIDER_ENABLED", "").strip().casefold() != "true"
         or not os.getenv("STT_COST_APPROVAL_ID", "").strip()
-        or adapter is None
     ):
         return transcription_failure("STT_DISABLED")
 
@@ -1115,8 +1230,11 @@ def transcribe_youtube_audio(
         "durationSeconds": int(duration_seconds or 0),
         "model": STT_MODEL_SNAPSHOT,
     }
+    start_seconds = normalize_transcription_start(payload.get("startSeconds"))
+    if start_seconds > 0:
+        adapter_request["startSeconds"] = start_seconds
     try:
-        raw = adapter(adapter_request)
+        raw = selected_adapter(adapter_request)
         value = raw if isinstance(raw, dict) else {}
         raw_segments = value.get("segments")
         segments = normalize_caption_segments(
@@ -1124,21 +1242,47 @@ def transcribe_youtube_audio(
         )
         if not segments:
             return transcription_failure("TRANSCRIPTION_PROVIDER_UNAVAILABLE")
-        return {
-            "provider": "fake-transcription",
-            "status": "ready",
-            "sourceLanguage": normalize_language(
-                str(value.get("sourceLanguage") or "")
+        translated_segments = normalize_caption_segments(
+            value.get("translatedSegments")
+            if isinstance(value.get("translatedSegments"), list)
+            else []
+        )
+        target_language = normalize_language(
+            str(payload.get("targetLanguage") or "ko")
+        ) or "ko"
+        source_language = normalize_language(
+            str(value.get("sourceLanguage") or "")
+        ) or "und"
+        if (
+            adapter is None
+            and not translated_segments
+            and source_language != target_language
+        ):
+            translated_segments = translate_caption_segments(
+                segments,
+                target_language,
             )
-            or "und",
-            "segments": segments,
-            "translatedSegments": normalize_caption_segments(
-                value.get("translatedSegments")
-                if isinstance(value.get("translatedSegments"), list)
-                else []
+        response = {
+            "provider": str(
+                value.get("provider")
+                or (
+                    "fake-transcription"
+                    if adapter is not None
+                    else "openai-audio-transcription"
+                )
             ),
+            "status": "ready",
+            "sourceLanguage": source_language,
+            "segments": segments,
+            "translatedSegments": translated_segments,
             "errorCode": "",
         }
+        media_duration = normalize_transcription_duration(
+            value.get("mediaDurationSeconds")
+        )
+        if media_duration:
+            response["mediaDurationSeconds"] = media_duration
+        return response
     except Exception:
         return transcription_failure("TRANSCRIPTION_PROVIDER_UNAVAILABLE")
 
@@ -1173,6 +1317,14 @@ def normalize_transcription_duration(value: Any) -> float | None:
     if not math.isfinite(duration) or duration <= 0 or duration > 14_400:
         return None
     return round(duration, 3)
+
+
+def normalize_transcription_start(value: Any) -> float:
+    try:
+        start = float(value or 0)
+    except (TypeError, ValueError):
+        return 0
+    return round(start, 3) if math.isfinite(start) and start >= 0 else 0
 
 
 def transcription_failure(error_code: str) -> dict[str, Any]:

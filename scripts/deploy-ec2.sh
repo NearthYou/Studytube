@@ -1243,6 +1243,10 @@ if [ "$prepared_reactivation" = 'false' ]; then
   fi
 fi
 
+APP_DIR="$app_dir" COURSE_CUTOVER_MODE="$course_cutover_mode" \
+  timeout --signal=TERM --kill-after=30s 2m \
+    bash scripts/install-production-runtime.sh run-stt-approval
+
 release_deployment_guard
 timeout --signal=TERM --kill-after=5s 45s \
   sudo systemctl restart studytube-ai.service studytube-api.service studytube-worker.service

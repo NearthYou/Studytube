@@ -46,7 +46,7 @@ export function quizStateFromApi(
       loopId: "",
       message: evidenceReady
         ? "지금까지 본 구간으로 퀴즈를 만들 수 있습니다."
-        : "자막 근거를 준비하고 있습니다.",
+        : "퀴즈를 준비하고 있어요.",
     };
   }
   return {

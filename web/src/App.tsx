@@ -17,6 +17,8 @@ import {
   useSearchParams,
 } from "react-router";
 import "./App.css";
+import { LearningPage } from "./features/learning/LearningPage";
+import { LearningWorkspace } from "./features/learning/LearningWorkspace";
 import { normalizeSession, readSession, saveSession } from "./authSession";
 import {
   addCourseFeedback,
@@ -358,7 +360,7 @@ function App() {
           path="/"
           element={
             <ProtectedRoute session={session}>
-              <HomePage session={session!} />
+              <LearningPage session={session!} />
             </ProtectedRoute>
           }
         />
@@ -401,7 +403,7 @@ function App() {
           path="/watch"
           element={
             <ProtectedRoute session={session}>
-              <WatchPage session={session!} />
+              <LearningWorkspace session={session!} />
             </ProtectedRoute>
           }
         />
@@ -455,7 +457,13 @@ function ProtectedRoute({
   const location = useLocation();
 
   if (!session) {
-    return <Navigate replace state={{ from: location.pathname }} to="/login" />;
+    return (
+      <Navigate
+        replace
+        state={{ from: location.pathname + location.search + location.hash }}
+        to="/login"
+      />
+    );
   }
 
   return children;
@@ -479,7 +487,7 @@ function SiteNav({
             <GuardedNavLink to="/watch">학습</GuardedNavLink>
             <GuardedNavLink to="/explore">보드</GuardedNavLink>
             <GuardedNavLink to="/board">등록</GuardedNavLink>
-            <GuardedNavLink to="/search">AI 추천</GuardedNavLink>
+            <GuardedNavLink to="/search">학습 코스</GuardedNavLink>
             <GuardedNavLink to="/me">내 정보</GuardedNavLink>
           </nav>
           <div className="nav-account">
@@ -6450,5 +6458,9 @@ function loadYouTubeApi(): Promise<YouTubeApi> {
     document.body.appendChild(script);
   });
 }
+
+// U10 removes these legacy implementations after the data and route cutover.
+void HomePage;
+void WatchPage;
 
 export default App;

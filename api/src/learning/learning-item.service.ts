@@ -62,6 +62,10 @@ export class LearningItemService {
       context,
     });
   }
+
+  getCaptions(userId: number, contextId: string) {
+    return this.items.findOwnerCaptionSnapshot(userId, contextId);
+  }
 }
 
 export class LearningIntakeCompensationError extends Error {

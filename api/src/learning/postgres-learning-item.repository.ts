@@ -4,10 +4,31 @@ import type {
   LearningItemRepository,
 } from './learning-item.repository';
 import type {
+  LearningCaptionPhase,
+  LearningCaptionSegment,
+  LearningCaptionSnapshot,
   LearningContext,
   LearningContextProvenance,
   VideoProvider,
 } from './learning-item.types';
+
+type CaptionSnapshotRow = {
+  contextId: string;
+  sourceArtifactId: string | null;
+  sourceKind: 'youtube_caption' | 'transcription' | null;
+  sourceGeneration: number | null;
+  sourceLanguage: string | null;
+  sourceStatus: 'pending' | 'partial' | 'ready' | 'failed' | null;
+  translationArtifactId: string | null;
+  translationGeneration: number | null;
+  translationStatus: 'pending' | 'partial' | 'ready' | 'failed' | null;
+  indexArtifactId: string | null;
+  indexGeneration: number | null;
+  indexStatus: 'pending' | 'partial' | 'ready' | 'failed' | null;
+  sourceSegments: LearningCaptionSegment[];
+  koreanSegments: LearningCaptionSegment[];
+  errorCode: string | null;
+};
 
 type LearningContextRow = {
   videoSourceId: string;
@@ -186,6 +207,198 @@ export class PostgresLearningItemRepository implements LearningItemRepository {
       [contextId, userId],
     );
     return result.rows[0] ? map(result.rows[0]) : null;
+  }
+
+  async findOwnerCaptionSnapshot(
+    userId: number,
+    contextId: string,
+  ): Promise<LearningCaptionSnapshot | null> {
+    validateOwnerLookup(userId, contextId);
+    const result = await this.pool.query<CaptionSnapshotRow>(
+      `
+        WITH owned AS (
+          SELECT context.id, context.current_source_caption_artifact_id,
+                 context.current_translation_caption_artifact_id,
+                 context.current_caption_index_artifact_id,
+                 item.video_source_id
+          FROM study_contexts AS context
+          JOIN learning_items AS item ON item.id = context.learning_item_id
+          WHERE context.id = $1::bigint AND context.user_id = $2
+        )
+        SELECT owned.id::text AS "contextId",
+               source.id::text AS "sourceArtifactId",
+               source.kind AS "sourceKind",
+               source.generation AS "sourceGeneration",
+               source.source_language AS "sourceLanguage",
+               source.status AS "sourceStatus",
+               translation.id::text AS "translationArtifactId",
+               translation.generation AS "translationGeneration",
+               translation.status AS "translationStatus",
+               caption_index.id::text AS "indexArtifactId",
+               caption_index.generation AS "indexGeneration",
+               caption_index.status AS "indexStatus",
+               COALESCE(source.segments, '[]'::jsonb) AS "sourceSegments",
+               COALESCE(translation.segments, '[]'::jsonb) AS "koreanSegments",
+               failure.safe_error_code AS "errorCode"
+        FROM owned
+        LEFT JOIN LATERAL (
+          SELECT artifact.id, artifact.kind, artifact.generation,
+                 artifact.source_language, state.status,
+                 (
+                   SELECT jsonb_agg(
+                     jsonb_build_object(
+                       'start', segment.start_seconds::float8,
+                       'end', segment.end_seconds::float8,
+                       'text', segment.text
+                     ) ORDER BY segment.ordinal
+                   )
+                   FROM caption_artifact_segments AS segment
+                   WHERE segment.artifact_id = artifact.id
+                 ) AS segments
+          FROM caption_artifacts AS artifact
+          JOIN caption_generation_states AS state
+            ON state.artifact_id = artifact.id
+          WHERE artifact.video_source_id = owned.video_source_id
+            AND artifact.kind IN ('youtube_caption', 'transcription')
+            AND (
+              artifact.id = owned.current_source_caption_artifact_id
+              OR EXISTS (
+                SELECT 1
+                FROM provider_subscription_reservations AS subscription
+                JOIN provider_work_reservations AS work
+                  ON work.id = subscription.work_reservation_id
+                WHERE subscription.study_context_id = owned.id
+                  AND subscription.state IN ('reserved', 'committed')
+                  AND work.state IN ('reserved', 'committed')
+                  AND work.work_id = artifact.work_event_id
+              )
+            )
+          ORDER BY
+            (artifact.id = owned.current_source_caption_artifact_id) DESC,
+            artifact.generation DESC, artifact.id DESC
+          LIMIT 1
+        ) AS source ON true
+        LEFT JOIN LATERAL (
+          SELECT artifact.id, artifact.generation, state.status,
+                 (
+                   SELECT jsonb_agg(
+                     jsonb_build_object(
+                       'start', segment.start_seconds::float8,
+                       'end', segment.end_seconds::float8,
+                       'text', segment.text
+                     ) ORDER BY segment.ordinal
+                   )
+                   FROM caption_artifact_segments AS segment
+                   WHERE segment.artifact_id = artifact.id
+                 ) AS segments
+          FROM caption_artifacts AS artifact
+          JOIN caption_generation_states AS state
+            ON state.artifact_id = artifact.id
+          WHERE source.id IS NOT NULL
+            AND artifact.video_source_id = owned.video_source_id
+            AND artifact.kind = 'translation'
+            AND artifact.target_language = 'ko'
+            AND artifact.parent_artifact_id = source.id
+            AND (
+              artifact.id = owned.current_translation_caption_artifact_id
+              OR EXISTS (
+                SELECT 1
+                FROM provider_subscription_reservations AS subscription
+                JOIN provider_work_reservations AS work
+                  ON work.id = subscription.work_reservation_id
+                WHERE subscription.study_context_id = owned.id
+                  AND subscription.state IN ('reserved', 'committed')
+                  AND work.state IN ('reserved', 'committed')
+                  AND work.work_id = artifact.work_event_id
+              )
+            )
+          ORDER BY
+            (artifact.id = owned.current_translation_caption_artifact_id) DESC,
+            artifact.generation DESC, artifact.id DESC
+          LIMIT 1
+        ) AS translation ON true
+        LEFT JOIN LATERAL (
+          SELECT artifact.id, artifact.generation, state.status
+          FROM caption_artifacts AS artifact
+          JOIN caption_generation_states AS state
+            ON state.artifact_id = artifact.id
+          WHERE translation.id IS NOT NULL
+            AND artifact.id = owned.current_caption_index_artifact_id
+            AND artifact.video_source_id = owned.video_source_id
+            AND artifact.kind = 'index'
+            AND artifact.parent_artifact_id = translation.id
+          LIMIT 1
+        ) AS caption_index ON true
+        LEFT JOIN LATERAL (
+          SELECT latest_failure.safe_error_code
+          FROM provider_subscription_reservations AS subscription
+          JOIN provider_work_reservations AS work
+            ON work.id = subscription.work_reservation_id
+          LEFT JOIN LATERAL (
+            SELECT work_failure.safe_error_code
+            FROM caption_work_failures AS work_failure
+            WHERE work_failure.work_event_id = work.work_id
+            ORDER BY work_failure.created_at DESC, work_failure.handler_version DESC
+            LIMIT 1
+          ) AS latest_failure ON true
+          WHERE subscription.study_context_id = owned.id
+          ORDER BY work.created_at DESC, work.id DESC
+          LIMIT 1
+        ) AS failure ON true
+      `,
+      [contextId, userId],
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+    return {
+      contextId: row.contextId,
+      generation: Math.max(
+        row.sourceGeneration ?? 0,
+        row.translationGeneration ?? 0,
+        row.indexGeneration ?? 0,
+      ),
+      phase: captionPhase(row),
+      sourceLanguage: row.sourceLanguage ?? '',
+      sourceSegments: row.sourceSegments,
+      koreanSegments:
+        row.sourceLanguage === 'ko' && row.koreanSegments.length === 0
+          ? row.sourceSegments
+          : row.koreanSegments,
+      stale: Boolean(row.errorCode && row.sourceArtifactId),
+      ...(row.errorCode ? { errorCode: row.errorCode } : {}),
+    };
+  }
+}
+
+function captionPhase(row: CaptionSnapshotRow): LearningCaptionPhase {
+  if (!row.sourceArtifactId) {
+    return row.errorCode ? 'failed' : 'source_pending';
+  }
+  if (row.sourceStatus === 'failed') return 'failed';
+  if (row.sourceStatus === 'pending') {
+    return row.sourceKind === 'transcription'
+      ? 'transcription_pending'
+      : 'source_pending';
+  }
+  if (row.sourceStatus === 'partial') return 'partial';
+  if (row.sourceLanguage === 'ko') {
+    return row.indexStatus === 'ready' ? 'complete' : 'index_pending';
+  }
+  if (!row.translationArtifactId) {
+    return row.errorCode ? 'failed' : 'translation_pending';
+  }
+  if (row.translationStatus === 'failed') return 'failed';
+  if (row.translationStatus === 'partial') return 'partial';
+  if (row.translationStatus !== 'ready') return 'translation_pending';
+  return row.indexStatus === 'ready' ? 'complete' : 'index_pending';
+}
+
+function validateOwnerLookup(userId: number, contextId: string): void {
+  if (!Number.isInteger(userId) || userId < 1) {
+    throw new RangeError('userId must be a positive integer');
+  }
+  if (!/^[1-9]\d*$/u.test(contextId)) {
+    throw new RangeError('contextId must be a positive integer string');
   }
 }
 

@@ -32,3 +32,29 @@ export type LearningContext = {
   learningItem: LearningItem;
   studyContext: StudyContext;
 };
+
+export type LearningCaptionPhase =
+  | 'source_pending'
+  | 'transcription_pending'
+  | 'translation_pending'
+  | 'index_pending'
+  | 'partial'
+  | 'failed'
+  | 'complete';
+
+export type LearningCaptionSegment = Readonly<{
+  start: number;
+  end: number;
+  text: string;
+}>;
+
+export type LearningCaptionSnapshot = Readonly<{
+  contextId: string;
+  generation: number;
+  phase: LearningCaptionPhase;
+  sourceLanguage: string;
+  sourceSegments: LearningCaptionSegment[];
+  koreanSegments: LearningCaptionSegment[];
+  stale: boolean;
+  errorCode?: string;
+}>;

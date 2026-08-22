@@ -260,6 +260,34 @@ export type CaptionResponse = {
   message: string;
 };
 
+export type LearningNote = {
+  id: string;
+  userId: number;
+  studyContextId: string;
+  positionSeconds: number;
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type LearningCaptionSnapshotResponse = {
+  contextId: string;
+  generation: number;
+  phase:
+    | "source_pending"
+    | "transcription_pending"
+    | "translation_pending"
+    | "index_pending"
+    | "partial"
+    | "failed"
+    | "complete";
+  sourceLanguage: string;
+  sourceSegments: CaptionSegment[];
+  koreanSegments: CaptionSegment[];
+  stale: boolean;
+  errorCode?: string;
+};
+
 export type VideoSummarySection = {
   label: string;
   body: string;

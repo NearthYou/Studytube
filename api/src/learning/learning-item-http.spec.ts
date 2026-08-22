@@ -1,4 +1,5 @@
 import { Test } from '@nestjs/testing';
+import type { INestApplication } from '@nestjs/common';
 import type { ExecutionContext } from '@nestjs/common';
 import { UnauthorizedException } from '@nestjs/common';
 import type { Reflector } from '@nestjs/core';
@@ -8,6 +9,9 @@ import { SessionGuard } from '../auth/session.guard';
 import type { LearningItemRepository } from './learning-item.repository';
 import { LEARNING_ITEM_REPOSITORY } from './learning-item.repository';
 import { LearningItemService } from './learning-item.service';
+import { LearningItemController } from './learning-item.controller';
+import { LEARNING_NOTE_REPOSITORY } from './learning-note.repository';
+import { createOpenApiDocument } from '../openapi';
 import {
   PROVIDER_BUDGET_REPOSITORY,
   ProviderBudgetUnavailableError,
@@ -15,6 +19,28 @@ import {
 } from './provider-budget.repository';
 
 describe('LearningItemService intake boundary', () => {
+  it('reads an owner caption snapshot without cost admission or provider work', async () => {
+    const reserve = jest.fn();
+    const snapshot = {
+      contextId: '13',
+      generation: 4,
+      phase: 'index_pending',
+      sourceLanguage: 'zh',
+      sourceSegments: [{ start: 0, end: 4, text: '你好' }],
+      koreanSegments: [{ start: 0, end: 4, text: '안녕하세요' }],
+      stale: false,
+    } as const;
+    const findOwnerCaptionSnapshot = jest.fn().mockResolvedValue(snapshot);
+    const service = await createService(
+      { reserve },
+      { ensureContext: jest.fn(), findOwnerCaptionSnapshot },
+    );
+
+    await expect(service.getCaptions(7, '13')).resolves.toEqual(snapshot);
+    expect(findOwnerCaptionSnapshot).toHaveBeenCalledWith(7, '13');
+    expect(reserve).not.toHaveBeenCalled();
+  });
+
   it('persists a context only after cost admission succeeds', async () => {
     const attachContext = jest.fn().mockResolvedValue(true);
     const reserve = jest.fn().mockResolvedValue({
@@ -255,12 +281,52 @@ describe('SessionGuard learning boundary', () => {
   });
 });
 
+describe('Learning caption OpenAPI boundary', () => {
+  let app: INestApplication;
+
+  afterEach(async () => {
+    await app?.close();
+  });
+
+  it('documents the owner caption snapshot response', async () => {
+    const module = await Test.createTestingModule({
+      controllers: [LearningItemController],
+      providers: [
+        { provide: LearningItemService, useValue: {} },
+        { provide: LEARNING_NOTE_REPOSITORY, useValue: {} },
+      ],
+    }).compile();
+    app = module.createNestApplication();
+    await app.init();
+    const document = createOpenApiDocument(app);
+
+    expect(
+      document.paths?.['/learning/contexts/{contextId}/captions']?.get
+        ?.responses?.['200'],
+    ).toMatchObject({
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            properties: {
+              phase: { type: 'string' },
+              sourceSegments: { type: 'array' },
+              koreanSegments: { type: 'array' },
+            },
+          },
+        },
+      },
+    });
+  });
+});
+
 async function createService(
   budget: Pick<ProviderBudgetRepository, 'reserve'> &
     Partial<
       Pick<ProviderBudgetRepository, 'releaseSubscription' | 'attachContext'>
     >,
-  items: Pick<LearningItemRepository, 'ensureContext'>,
+  items: Pick<LearningItemRepository, 'ensureContext'> &
+    Partial<Pick<LearningItemRepository, 'findOwnerCaptionSnapshot'>>,
 ): Promise<LearningItemService> {
   const module = await Test.createTestingModule({
     providers: [

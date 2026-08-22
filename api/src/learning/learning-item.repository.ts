@@ -1,5 +1,6 @@
 import type {
   LearningContext,
+  LearningCaptionSnapshot,
   LearningContextProvenance,
   VideoProvider,
 } from './learning-item.types';
@@ -24,4 +25,8 @@ export interface LearningItemRepository {
     userId: number,
     contextId: string,
   ): Promise<LearningContext | null>;
+  findOwnerCaptionSnapshot(
+    userId: number,
+    contextId: string,
+  ): Promise<LearningCaptionSnapshot | null>;
 }

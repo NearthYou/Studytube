@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Delete,
+  Get,
   HttpCode,
   HttpStatus,
   Inject,
@@ -13,6 +14,7 @@ import {
   Req,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { ApiNotFoundResponse, ApiOkResponse } from '@nestjs/swagger';
 import type { AuthenticatedRequest } from '../auth/session.guard';
 import {
   CreateLearningNoteDto,
@@ -89,6 +91,57 @@ export class LearningItemController {
     return note;
   }
 
+  @Get('contexts/:contextId/captions')
+  @ApiOkResponse({
+    schema: {
+      type: 'object',
+      required: [
+        'contextId',
+        'generation',
+        'phase',
+        'sourceLanguage',
+        'sourceSegments',
+        'koreanSegments',
+        'stale',
+      ],
+      properties: {
+        contextId: { type: 'string' },
+        generation: { type: 'integer', minimum: 0 },
+        phase: {
+          type: 'string',
+          enum: [
+            'source_pending',
+            'transcription_pending',
+            'translation_pending',
+            'index_pending',
+            'partial',
+            'failed',
+            'complete',
+          ],
+        },
+        sourceLanguage: { type: 'string' },
+        sourceSegments: { type: 'array', items: captionSegmentSchema() },
+        koreanSegments: { type: 'array', items: captionSegmentSchema() },
+        stale: { type: 'boolean', enum: [false] },
+        errorCode: { type: 'string', nullable: true },
+      },
+    },
+  })
+  @ApiNotFoundResponse({ description: '학습 자료를 찾을 수 없습니다.' })
+  async getCaptions(
+    @Req() request: AuthenticatedRequest,
+    @Param() params: LearningContextParamDto,
+  ) {
+    const snapshot = await this.service.getCaptions(
+      request.principal.userId,
+      params.contextId,
+    );
+    if (!snapshot) {
+      throw new NotFoundException('학습 자료를 찾을 수 없습니다.');
+    }
+    return snapshot;
+  }
+
   @Patch('contexts/:contextId/notes/:noteId')
   async updateNote(
     @Req() request: AuthenticatedRequest,
@@ -121,4 +174,16 @@ export class LearningItemController {
     if (!deleted) throw new NotFoundException('메모를 찾을 수 없습니다.');
     return { deleted: true };
   }
+}
+
+function captionSegmentSchema() {
+  return {
+    type: 'object' as const,
+    required: ['start', 'end', 'text'],
+    properties: {
+      start: { type: 'number' as const },
+      end: { type: 'number' as const },
+      text: { type: 'string' as const },
+    },
+  };
 }

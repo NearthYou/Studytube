@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { startLearningIntake } from "../src/learningIntake.ts";
+import { fetchLearningCaptions } from "../src/api.ts";
 
 test("submits only the URL and bounded requested audio duration", async () => {
   const originalFetch = globalThis.fetch;
@@ -29,6 +30,34 @@ test("submits only the URL and bounded requested audio duration", async () => {
       videoUrl: "https://youtu.be/dQw4w9WgXcQ",
       requestedAudioSeconds: 600,
     });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("polls only the stored owner caption snapshot endpoint", async () => {
+  const originalFetch = globalThis.fetch;
+  let capturedUrl = "";
+  globalThis.fetch = async (input) => {
+    capturedUrl = String(input);
+    return new Response(
+      JSON.stringify({
+        contextId: "13",
+        generation: 0,
+        phase: "source_pending",
+        sourceLanguage: "",
+        sourceSegments: [],
+        koreanSegments: [],
+        stale: false,
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  };
+
+  try {
+    await fetchLearningCaptions("13");
+    assert.match(capturedUrl, /\/learning\/contexts\/13\/captions$/);
+    assert.doesNotMatch(capturedUrl, /\/ai\//);
   } finally {
     globalThis.fetch = originalFetch;
   }

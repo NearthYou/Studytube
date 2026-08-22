@@ -7,6 +7,8 @@ import type {
   RagResponse,
   Session,
   StudyPost,
+  LearningNote,
+  LearningCaptionSnapshotResponse,
   User,
   VideoSummaryResponse,
 } from "./types";
@@ -407,6 +409,52 @@ export function fetchTranslatedCaptions(input: {
       targetLanguage: input.targetLanguage ?? "ko",
     }),
   });
+}
+
+export function createLearningNote(input: {
+  contextId: string;
+  positionSeconds: number;
+  body: string;
+}): Promise<LearningNote> {
+  return requestJson<LearningNote>(
+    `/learning/contexts/${input.contextId}/notes`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        positionSeconds: input.positionSeconds,
+        body: input.body,
+      }),
+    },
+  );
+}
+
+export function fetchLearningCaptions(
+  contextId: string,
+): Promise<LearningCaptionSnapshotResponse> {
+  return requestJson<LearningCaptionSnapshotResponse>(
+    `/learning/contexts/${contextId}/captions`,
+  );
+}
+
+export function updateLearningNote(input: {
+  contextId: string;
+  noteId: string;
+  body: string;
+}): Promise<LearningNote> {
+  return requestJson<LearningNote>(
+    `/learning/contexts/${input.contextId}/notes/${input.noteId}`,
+    { method: "PATCH", body: JSON.stringify({ body: input.body }) },
+  );
+}
+
+export function deleteLearningNote(input: {
+  contextId: string;
+  noteId: string;
+}): Promise<{ deleted: true }> {
+  return requestJson<{ deleted: true }>(
+    `/learning/contexts/${input.contextId}/notes/${input.noteId}`,
+    { method: "DELETE" },
+  );
 }
 
 export function fetchVideoSummary(input: {

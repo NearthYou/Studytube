@@ -120,6 +120,12 @@ describe('authenticated learning intake', () => {
         userIds,
       ]);
     }
+    await pool.query(
+      `DELETE FROM caption_artifacts
+       WHERE video_source_id IN (
+         SELECT id FROM video_sources WHERE canonical_video_id LIKE 'u2test%'
+       )`,
+    );
     const work = await pool.query<{ workId: string }>(
       `SELECT work_id::text AS "workId"
        FROM provider_work_reservations
@@ -382,6 +388,179 @@ describe('authenticated learning intake', () => {
     await expect(
       budget.releaseSubscription(secondUser, secondBody.reservationId),
     ).resolves.toBe(true);
+  });
+
+  it('reads only the owner caption snapshot without calling a provider', async () => {
+    const ownerId = await insertUser('caption-owner');
+    const otherId = await insertUser('caption-other');
+    const source = await pool.query<{ id: string }>(
+      `INSERT INTO video_sources (provider, canonical_video_id, canonical_url)
+       VALUES ('youtube', 'u2testH0008', $1)
+       RETURNING id::text AS id`,
+      [youtube('u2testH0008')],
+    );
+    const sourceId = source.rows[0]?.id;
+    if (!sourceId) throw new Error('Expected a video source');
+    const item = await pool.query<{ id: string }>(
+      `INSERT INTO learning_items (user_id, video_source_id)
+       VALUES ($1, $2) RETURNING id::text AS id`,
+      [ownerId, sourceId],
+    );
+    const context = await pool.query<{ id: string }>(
+      `INSERT INTO study_contexts (user_id, learning_item_id, kind)
+       VALUES ($1, $2, 'standalone') RETURNING id::text AS id`,
+      [ownerId, item.rows[0]?.id],
+    );
+    const contextId = context.rows[0]?.id;
+    if (!contextId) throw new Error('Expected a study context');
+    const oldWorkId = randomUUID();
+    const oldWork = await pool.query<{ id: string }>(
+      `INSERT INTO provider_work_reservations (
+         work_id, work_key, provider, canonical_video_id,
+         processing_range_key, usage_day, state, reserved_audio_seconds,
+         estimated_cost_microunits, released_at
+       ) VALUES ($1, $2, 'openai', 'u2testH0008', '0:600', current_date,
+                 'released', 600, 600, statement_timestamp() - interval '1 minute')
+       RETURNING id::text AS id`,
+      [oldWorkId, `caption-old-e2e:${oldWorkId}`],
+    );
+    await pool.query(
+      `INSERT INTO provider_subscription_reservations (
+         work_reservation_id, user_id, usage_day, state,
+         reserved_audio_seconds, study_context_id, released_at
+       ) VALUES ($1, $2, current_date, 'released', 600, $3,
+                 statement_timestamp() - interval '1 minute')`,
+      [oldWork.rows[0]?.id, ownerId, contextId],
+    );
+    await pool.query(
+      `INSERT INTO caption_work_failures (
+         work_event_id, handler_version, safe_error_code, created_at
+       ) VALUES ($1, 'test-v1', 'CAPTION_PROVIDER_UNAVAILABLE',
+                 statement_timestamp() - interval '1 minute')`,
+      [oldWorkId],
+    );
+    const workId = randomUUID();
+    const work = await pool.query<{ id: string }>(
+      `INSERT INTO provider_work_reservations (
+         work_id, work_key, provider, canonical_video_id,
+         processing_range_key, usage_day, reserved_audio_seconds,
+         estimated_cost_microunits
+       ) VALUES ($1, $2, 'openai', 'u2testH0008', '0:600', current_date,
+                 600, 600)
+       RETURNING id::text AS id`,
+      [workId, `caption-e2e:${workId}`],
+    );
+    await pool.query(
+      `INSERT INTO provider_subscription_reservations (
+         work_reservation_id, user_id, usage_day, reserved_audio_seconds,
+         study_context_id
+       ) VALUES ($1, $2, current_date, 600, $3)`,
+      [work.rows[0]?.id, ownerId, contextId],
+    );
+
+    const pendingResponse = await request(server)
+      .get(`/learning/contexts/${contextId}/captions`)
+      .set('Cookie', cookie(tokenFor(ownerId)))
+      .expect(200);
+    expect(pendingResponse.body).toEqual({
+      contextId,
+      generation: 0,
+      phase: 'source_pending',
+      sourceLanguage: '',
+      sourceSegments: [],
+      koreanSegments: [],
+      stale: false,
+    });
+
+    const sourceArtifact = await pool.query<{ id: string }>(
+      `INSERT INTO caption_artifacts (
+         video_source_id, kind, generation, source_language, provider,
+         work_event_id, handler_version
+       ) VALUES ($1, 'youtube_caption', 1, 'zh', 'youtube', $2, 'test-v1')
+       RETURNING id::text AS id`,
+      [sourceId, workId],
+    );
+    const sourceArtifactId = sourceArtifact.rows[0]?.id;
+    if (!sourceArtifactId) throw new Error('Expected a source artifact');
+    await pool.query(
+      `INSERT INTO caption_generation_states (artifact_id, status, last_ordinal)
+       VALUES ($1, 'partial', 0)`,
+      [sourceArtifactId],
+    );
+    await pool.query(
+      `INSERT INTO caption_artifact_segments (
+         artifact_id, ordinal, start_seconds, end_seconds, text
+       ) VALUES ($1, 0, 0, 4, '你好')`,
+      [sourceArtifactId],
+    );
+
+    const partialResponse = await request(server)
+      .get(`/learning/contexts/${contextId}/captions`)
+      .set('Cookie', cookie(tokenFor(ownerId)))
+      .expect(200);
+    expect(partialResponse.body).toEqual({
+      contextId,
+      generation: 1,
+      phase: 'partial',
+      sourceLanguage: 'zh',
+      sourceSegments: [{ start: 0, end: 4, text: '你好' }],
+      koreanSegments: [],
+      stale: false,
+    });
+
+    await pool.query(
+      `UPDATE caption_generation_states SET status = 'ready'
+       WHERE artifact_id = $1`,
+      [sourceArtifactId],
+    );
+    const translationArtifact = await pool.query<{ id: string }>(
+      `INSERT INTO caption_artifacts (
+         video_source_id, kind, parent_artifact_id, generation,
+         source_language, target_language, provider, work_event_id,
+         handler_version
+       ) VALUES ($1, 'translation', $2, 2, 'zh', 'ko', 'openai', $3, 'test-v1')
+       RETURNING id::text AS id`,
+      [sourceId, sourceArtifactId, workId],
+    );
+    const translationArtifactId = translationArtifact.rows[0]?.id;
+    if (!translationArtifactId) throw new Error('Expected a translation');
+    await pool.query(
+      `INSERT INTO caption_generation_states (artifact_id, status, last_ordinal)
+       VALUES ($1, 'ready', 0)`,
+      [translationArtifactId],
+    );
+    await pool.query(
+      `INSERT INTO caption_artifact_segments (
+         artifact_id, ordinal, start_seconds, end_seconds, text
+       ) VALUES ($1, 0, 0, 4, '안녕하세요')`,
+      [translationArtifactId],
+    );
+    await pool.query(
+      `UPDATE study_contexts
+       SET current_source_caption_artifact_id = $1,
+           current_translation_caption_artifact_id = $2
+       WHERE id = $3`,
+      [sourceArtifactId, translationArtifactId, contextId],
+    );
+
+    const ownerResponse = await request(server)
+      .get(`/learning/contexts/${contextId}/captions`)
+      .set('Cookie', cookie(tokenFor(ownerId)))
+      .expect(200);
+    expect(ownerResponse.body).toEqual({
+      contextId,
+      generation: 2,
+      phase: 'index_pending',
+      sourceLanguage: 'zh',
+      sourceSegments: [{ start: 0, end: 4, text: '你好' }],
+      koreanSegments: [{ start: 0, end: 4, text: '안녕하세요' }],
+      stale: false,
+    });
+
+    await request(server)
+      .get(`/learning/contexts/${contextId}/captions`)
+      .set('Cookie', cookie(tokenFor(otherId)))
+      .expect(404);
   });
 
   async function intake(userId: number, videoId: string) {

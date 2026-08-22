@@ -1,18 +1,21 @@
-import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import test from 'node:test';
-import { fileURLToPath } from 'node:url';
+import assert from "node:assert/strict";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 const testDirectory = dirname(fileURLToPath(import.meta.url));
-const appSource = readFileSync(resolve(testDirectory, '../src/App.tsx'), 'utf8');
+const appSource = readFileSync(
+  resolve(testDirectory, "../src/App.tsx"),
+  "utf8",
+);
 
-test('loop range number inputs have explicit accessible labels', () => {
+test("loop range number inputs have explicit accessible labels", () => {
   assert.match(appSource, /aria-label="구간 반복 시작"/);
   assert.match(appSource, /aria-label="구간 반복 끝"/);
 });
 
-test('summary timestamps expose seek buttons wired to the parsed seconds', () => {
+test("summary timestamps expose seek buttons wired to the parsed seconds", () => {
   assert.match(appSource, /className="summary-time-link label-time"/);
   assert.match(appSource, /className="summary-time-link"/);
   assert.match(appSource, /aria-label=\{`\$\{timestamp\.text\}[^`]+`\}/);
@@ -20,14 +23,14 @@ test('summary timestamps expose seek buttons wired to the parsed seconds', () =>
   assert.match(appSource, /onClick=\{\(\) => onSeek\(part\.seconds\)\}/);
 });
 
-test('youtube player has loading and failure fallbacks', () => {
+test("youtube player has loading and failure fallbacks", () => {
   assert.match(appSource, /YOUTUBE_API_LOAD_TIMEOUT_MS/);
   assert.match(appSource, /YouTube iframe API load timed out/);
   assert.match(appSource, /playerLoadError/);
   assert.match(appSource, /className="youtube-unavailable youtube-loading"/);
 });
 
-test('empty watch state never reads a missing player error and guides first registration', () => {
+test("empty watch state never reads a missing player error and guides first registration", () => {
   assert.doesNotMatch(
     appSource,
     /playerLoadError\?\.videoId\s*===\s*currentVideo\?\.videoId\s*\?\s*playerLoadError\.message/,
@@ -36,8 +39,11 @@ test('empty watch state never reads a missing player error and guides first regi
   assert.match(appSource, /첫 영상 등록하기/);
 });
 
-test('translated captions are loaded through playback windows instead of the whole video', () => {
-  assert.match(appSource, /const initialCaptionWindow = captionTranslationWindow\(/);
+test("translated captions are loaded through playback windows instead of the whole video", () => {
+  assert.match(
+    appSource,
+    /const initialCaptionWindow = captionTranslationWindow\(/,
+  );
   assert.match(appSource, /\.\.\.initialCaptionWindow/);
   assert.match(appSource, /const captionWindow = captionTranslationWindow\(/);
   assert.match(appSource, /\.\.\.captionWindow/);
@@ -47,17 +53,32 @@ test('translated captions are loaded through playback windows instead of the who
   );
 });
 
-test('watch page treats rate-limited caption responses as native YouTube fallback', () => {
+test("watch page treats rate-limited caption responses as native YouTube fallback", () => {
   assert.match(
     appSource,
     /captionResponse\?\.provider === "youtube-caption-rate-limited"/,
   );
 });
 
-test('login page does not expose demo account shortcuts', () => {
+test("login page does not expose demo account shortcuts", () => {
   assert.doesNotMatch(appSource, /demoSession/);
   assert.doesNotMatch(appSource, /demo-login-button/);
   assert.doesNotMatch(appSource, /demo@studytube\.local/);
   assert.doesNotMatch(appSource, /demo1234/);
   assert.doesNotMatch(appSource, /데모 계정/);
+});
+
+test("new learning workspace exposes keyboard tabs and non-disruptive status updates", () => {
+  const workspacePath = resolve(
+    testDirectory,
+    "../src/features/learning/LearningWorkspace.tsx",
+  );
+  assert.equal(existsSync(workspacePath), true);
+  const workspaceSource = readFileSync(workspacePath, "utf8");
+
+  assert.match(workspaceSource, /role="tablist"/);
+  assert.match(workspaceSource, /aria-selected=/);
+  assert.match(workspaceSource, /role="tabpanel"/);
+  assert.match(workspaceSource, /aria-live="polite"/);
+  assert.match(workspaceSource, /onKeyDown=\{handleTabKeyDown\}/);
 });

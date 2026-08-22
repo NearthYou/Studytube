@@ -439,6 +439,38 @@ describe('database migration files', () => {
     expect(migration).not.toMatch(/DELETE FROM|DROP TABLE/i);
   });
 
+  it('adds learning contexts without backfilling or deleting legacy learning rows', async () => {
+    const migrationPath = join(
+      process.cwd(),
+      'migrations',
+      '1753660813000_video-sources-and-learning-items.cjs',
+    );
+    expect(existsSync(migrationPath)).toBe(true);
+    if (!existsSync(migrationPath)) return;
+
+    const migration = await readFile(migrationPath, 'utf8');
+    expect(migration).toContain("SET LOCAL lock_timeout = '5s'");
+    expect(migration).toContain("SET LOCAL statement_timeout = '45s'");
+    for (const table of [
+      'video_sources',
+      'learning_items',
+      'study_contexts',
+      'learning_notes',
+      'legacy_learning_context_mappings',
+    ]) {
+      expect(migration).toContain(`CREATE TABLE ${table}`);
+    }
+    expect(migration).toContain('NOT VALID');
+    expect(migration).toContain('learning_progress_study_context_owner_fk');
+    expect(migration).toContain('quiz_attempts_study_context_owner_fk');
+    expect(migration).not.toMatch(
+      /(?:DELETE|TRUNCATE)\s+(?:FROM\s+)?(?:posts|course_steps|learning_progress|quiz_attempts)/i,
+    );
+    expect(migration).not.toMatch(
+      /UPDATE\s+(?:posts|course_steps|learning_progress|quiz_attempts)/i,
+    );
+  });
+
   it('checks in a complete legacy runtime fixture with data and sequence state', async () => {
     const fixturePath = join(
       process.cwd(),

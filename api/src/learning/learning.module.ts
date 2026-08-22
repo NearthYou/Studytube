@@ -3,6 +3,11 @@ import { ConfigModule } from '@nestjs/config';
 import { AuthModule } from '../auth/auth.module';
 import { LearningController } from './learning.controller';
 import { LearningDatabase } from './learning.database';
+import { DatabaseService } from '../database.service';
+import {
+  LEARNING_ITEM_REPOSITORY,
+  type LearningItemRepository,
+} from './learning-item.repository';
 import {
   LEARNING_REPOSITORY,
   type LearningRepository,
@@ -16,6 +21,12 @@ import { PostgresLearningRepository } from './postgres-learning.repository';
   providers: [
     LearningDatabase,
     {
+      provide: LEARNING_ITEM_REPOSITORY,
+      useFactory: (database: DatabaseService) =>
+        database.getLearningItemRepository(),
+      inject: [DatabaseService],
+    },
+    {
       provide: LEARNING_REPOSITORY,
       useFactory: (database: LearningDatabase) =>
         new PostgresLearningRepository(database.pool),
@@ -28,6 +39,6 @@ import { PostgresLearningRepository } from './postgres-learning.repository';
       inject: [LEARNING_REPOSITORY],
     },
   ],
-  exports: [LEARNING_REPOSITORY, LearningService],
+  exports: [LEARNING_ITEM_REPOSITORY, LEARNING_REPOSITORY, LearningService],
 })
 export class LearningModule {}

@@ -66,6 +66,8 @@ import type {
 import { COURSE_CUTOVER_ADVISORY_LOCK_KEY } from './course/course-cutover.policy';
 import type { CourseRepository } from './course/course.repository';
 import { PostgresCourseRepository } from './course/postgres-course.repository';
+import type { LearningItemRepository } from './learning/learning-item.repository';
+import { PostgresLearningItemRepository } from './learning/postgres-learning-item.repository';
 import { PostgresWorkRepository } from './work/postgres-work.repository';
 import type { WorkRepository } from './work/work.repository';
 import { PostgresRetrievalRepository } from './retrieval/postgres-retrieval.repository';
@@ -93,6 +95,7 @@ export class DatabaseService
   private readonly verificationEmailMaxAttempts: number;
   private readonly stopPoolObservation: () => void;
   private courseRepository?: CourseRepository;
+  private learningItemRepository?: LearningItemRepository;
   private workRepository?: WorkRepository;
   private retrievalRepository?: RetrievalRepository;
   private verificationEmailOutboxRepository?: VerificationEmailOutboxRepository;
@@ -191,6 +194,13 @@ export class DatabaseService
   getCourseRepository(): CourseRepository {
     this.courseRepository ??= new PostgresCourseRepository(this.pool);
     return this.courseRepository;
+  }
+
+  getLearningItemRepository(): LearningItemRepository {
+    this.learningItemRepository ??= new PostgresLearningItemRepository(
+      this.pool,
+    );
+    return this.learningItemRepository;
   }
 
   getWorkRepository(): WorkRepository {

@@ -124,6 +124,9 @@ describe('EC2 deployment script', () => {
     const migration = script.indexOf(
       'bash scripts/install-production-runtime.sh run-migration',
     );
+    const learningCutover = script.indexOf(
+      'bash scripts/install-production-runtime.sh run-learning-cutover',
+    );
     const serviceStop = script.search(
       /^\s*seal_deployment_guard_for_cutover$/mu,
     );
@@ -138,6 +141,9 @@ describe('EC2 deployment script', () => {
     );
 
     expect(staleDeploymentGuard).toBeGreaterThanOrEqual(0);
+    expect(script).toContain('if [ "$course_cutover_mode" = \'course\' ]');
+    expect(learningCutover).toBeGreaterThan(migration);
+    expect(learningCutover).toBeLessThan(processStart);
     expect(immutableCheckout).toBeGreaterThan(staleDeploymentGuard);
     expect(cleanCheckout).toBeGreaterThan(immutableCheckout);
     expect(isolatedPreparation).toBeGreaterThan(immutableCheckout);

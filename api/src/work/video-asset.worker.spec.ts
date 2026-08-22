@@ -10,6 +10,7 @@ import type { AppendOutboxEvent, JobResult } from './work.types';
 import type { WorkQueueJob } from './work.queue';
 import { WorkJobBusyError } from './work.errors';
 import { VideoAssetJobHandler } from './video-asset.worker';
+import { CaptionTranslationPendingError } from '../video-asset.service';
 
 const POST: StudyPost = {
   id: 42,
@@ -208,6 +209,67 @@ describe('VideoAssetJobHandler', () => {
     expect(preparePostAsset).toHaveBeenCalledTimes(1);
   });
 
+  it('releases a pending translation for a later BullMQ attempt', async () => {
+    const results = new MemoryResults();
+    const execution = jobExecution();
+    const prepareLearningCaptions = jest
+      .fn()
+      .mockRejectedValue(new CaptionTranslationPendingError());
+    const handler = new VideoAssetJobHandler(
+      { findPost: () => Promise.resolve(POST) },
+      {
+        preparePostAsset: () => Promise.resolve(ASSET),
+        prepareLearningCaptions,
+      },
+      results,
+      execution.executor,
+    );
+
+    await expect(handler.handle(learningJob())).rejects.toBeInstanceOf(
+      CaptionTranslationPendingError,
+    );
+    expect(execution.store.findResult(learningJob())).toBeNull();
+  });
+
+  it('records a safe caption failure after the final translation attempt', async () => {
+    const results = new MemoryResults();
+    const execution = jobExecution();
+    const failLearningCaptions = jest.fn().mockResolvedValue({
+      sourceArtifactId: null,
+      translationArtifactId: null,
+      source: 'none',
+      status: 'failed',
+      errorCode: 'TRANSLATION_PROVIDER_UNAVAILABLE',
+    });
+    const handler = new VideoAssetJobHandler(
+      { findPost: () => Promise.resolve(POST) },
+      {
+        preparePostAsset: () => Promise.resolve(ASSET),
+        prepareLearningCaptions: () =>
+          Promise.reject(new CaptionTranslationPendingError()),
+        failLearningCaptions,
+      },
+      results,
+      execution.executor,
+    );
+
+    await expect(
+      handler.handle(learningJob(), {
+        attemptNumber: 8,
+        maxAttempts: 8,
+        isFinalAttempt: true,
+      }),
+    ).resolves.toMatchObject({
+      status: 'failed',
+      errorCode: 'TRANSLATION_PROVIDER_UNAVAILABLE',
+    });
+    expect(failLearningCaptions).toHaveBeenCalledWith(
+      expect.objectContaining({ canonicalVideoId: 'caption0001' }),
+      'TRANSLATION_PROVIDER_UNAVAILABLE',
+    );
+    expect(execution.store.findDeadLetter(learningJob())).toBeNull();
+  });
+
   it('persists one result and skips the side effect on duplicate delivery', async () => {
     const results = new MemoryResults();
     const execution = jobExecution();
@@ -368,5 +430,19 @@ function jobExecution(): {
       leaseOwner: 'video-worker',
       leaseMs: 30_000,
     }),
+  };
+}
+
+function learningJob(): WorkQueueJob {
+  return {
+    eventId: '33333333-3333-4333-8333-333333333333',
+    eventType: 'learning_intake.requested',
+    handlerVersion: 'learning-caption-v1',
+    payloadSchemaVersion: 1,
+    payload: {
+      canonicalVideoId: 'caption0001',
+      processingRangeKey: '0-120',
+      reservationId: '31',
+    },
   };
 }

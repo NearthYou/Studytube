@@ -2,8 +2,10 @@ import type { BoardRepository, StudyPost } from '../study-board.types';
 import type { VideoAsset } from '../video-asset.types';
 import type {
   CaptionPipelineRequest,
+  CaptionSafeErrorCode,
   LearningCaptionResult,
 } from '../video-asset.types';
+import { CaptionTranslationPendingError } from '../video-asset.service';
 import type { WorkRepository } from './work.repository';
 import type { WorkAttemptContext, WorkQueueJob } from './work.queue';
 import { deterministicWorkUuid } from './deterministic-work-id';
@@ -19,6 +21,10 @@ type VideoAssetPreparer = {
   prepareLearningCaptions?(
     request: CaptionPipelineRequest,
     signal?: AbortSignal,
+  ): Promise<LearningCaptionResult>;
+  failLearningCaptions?(
+    request: CaptionPipelineRequest,
+    errorCode: CaptionSafeErrorCode,
   ): Promise<LearningCaptionResult>;
 };
 type FollowUpEventStore = Pick<
@@ -43,7 +49,13 @@ export class VideoAssetJobHandler {
         eventId: job.eventId,
         handlerVersion: job.handlerVersion,
       },
-      (signal, lease) => this.process(job, signal, lease.leaseToken),
+      (signal, lease) =>
+        this.process(
+          job,
+          signal,
+          lease.leaseToken,
+          attempt?.isFinalAttempt === true,
+        ),
       attempt?.isFinalAttempt
         ? {
             code: 'JOB_ATTEMPTS_EXHAUSTED',
@@ -57,10 +69,16 @@ export class VideoAssetJobHandler {
     job: WorkQueueJob,
     signal: AbortSignal,
     leaseToken: string,
+    isFinalAttempt: boolean,
   ): Promise<Record<string, unknown>> {
     signal.throwIfAborted();
     if (job.eventType === 'learning_intake.requested') {
-      return this.processLearningIntake(job, signal, leaseToken);
+      return this.processLearningIntake(
+        job,
+        signal,
+        leaseToken,
+        isFinalAttempt,
+      );
     }
     if (job.eventType !== 'video_asset.requested') {
       return this.terminal(job, 'UNSUPPORTED_EVENT_TYPE');
@@ -128,6 +146,7 @@ export class VideoAssetJobHandler {
     job: WorkQueueJob,
     signal: AbortSignal,
     leaseToken: string,
+    isFinalAttempt: boolean,
   ): Promise<Record<string, unknown>> {
     if (job.payloadSchemaVersion !== 1) {
       return this.terminal(job, 'UNSUPPORTED_PAYLOAD_SCHEMA');
@@ -148,17 +167,26 @@ export class VideoAssetJobHandler {
       return this.terminal(job, 'INVALID_LEARNING_INTAKE_PAYLOAD');
     }
     signal.throwIfAborted();
-    const result = await this.videoAssets.prepareLearningCaptions(
-      {
-        eventId: job.eventId,
-        handlerVersion: job.handlerVersion,
-        leaseToken,
-        canonicalVideoId,
-        targetLanguage: 'ko',
-        durationSeconds,
-      },
-      signal,
-    );
+    const request: CaptionPipelineRequest = {
+      eventId: job.eventId,
+      handlerVersion: job.handlerVersion,
+      leaseToken,
+      canonicalVideoId,
+      targetLanguage: 'ko',
+      durationSeconds,
+    };
+    let result: LearningCaptionResult;
+    try {
+      result = await this.videoAssets.prepareLearningCaptions(request, signal);
+    } catch (error) {
+      if (!(error instanceof CaptionTranslationPendingError)) throw error;
+      if (!isFinalAttempt) throw error;
+      if (!this.videoAssets.failLearningCaptions) throw error;
+      result = await this.videoAssets.failLearningCaptions(
+        request,
+        'TRANSLATION_PROVIDER_UNAVAILABLE',
+      );
+    }
     signal.throwIfAborted();
     const captionArtifactId =
       result.translationArtifactId ?? result.sourceArtifactId;

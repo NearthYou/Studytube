@@ -608,6 +608,20 @@ case "$installer_command" in
       false "$(command -v node)" api/dist/scripts/verify-course-backfill.js
     exit 0
     ;;
+  run-learning-cutover)
+    [[ "$course_cutover_mode" == 'course' ]] ||
+      fail "learning cutover requires COURSE_CUTOVER_MODE=course"
+    [[ "${DEPLOY_SHA:-}" =~ ^[0-9a-f]{40}$ ]] ||
+      fail "DEPLOY_SHA must be a full release SHA for learning cutover"
+    run_isolated_migration_command studytube-release-learning-cutover.service \
+      true "$(command -v env)" \
+      "NODE_ENV=production" \
+      "LEARNING_CUTOVER_WRITER_RELEASE=$DEPLOY_SHA" \
+      "LEARNING_CUTOVER_ACTIVATE=true" \
+      "LEARNING_CUTOVER_MAX_FREEZE_MS=${LEARNING_CUTOVER_MAX_FREEZE_MS:-30000}" \
+      "$(command -v node)" api/dist/scripts/backfill-learning-items.js
+    exit 0
+    ;;
   install-runtime) ;;
   *) fail "unknown installer command: $installer_command" ;;
 esac
@@ -665,6 +679,7 @@ sudo install -d -o root -g root -m 0755 \
   "$web_release_root/releases"
 
 api_environment_keys=(
+  DEPLOY_SHA
   DATABASE_URL
   VALKEY_URL
   OUTBOX_POLL_INTERVAL_MS
@@ -774,6 +789,7 @@ ai_environment_keys=(
   OTEL_EXPORTER_OTLP_TRACES_CLIENT_CERTIFICATE
 )
 worker_environment_keys=(
+  DEPLOY_SHA
   DATABASE_URL
   VALKEY_URL
   OUTBOX_POLL_INTERVAL_MS

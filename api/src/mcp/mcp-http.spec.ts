@@ -17,6 +17,7 @@ const ATTEMPT_ID = '22222222-2222-4222-8222-222222222222';
 describe('MCP internal HTTP boundary', () => {
   let app: INestApplication;
   const auditCalls: Array<Record<string, unknown>> = [];
+  const recommendCalls: Array<Record<string, unknown>> = [];
 
   beforeAll(async () => {
     const module = await Test.createTestingModule({
@@ -31,25 +32,47 @@ describe('MCP internal HTTP boundary', () => {
         {
           provide: AiProxyService,
           useValue: {
-            recommend: (body: unknown, ownerId: number) =>
-              Promise.resolve({
-                mode: 'hybrid',
-                query: (body as { query: string }).query,
-                sources: [
-                  {
-                    sourceKind: 'post',
-                    sourceId: '7',
-                    visibility: 'private',
-                    title: `owner-${ownerId}`,
-                    content: 'Grounded source',
-                    score: 0.9,
-                    citation: {
-                      sourceUrl: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
-                      timestampSeconds: 12,
+            recommend: (body: unknown, ownerId: number) => {
+              const input = body as Record<string, unknown>;
+              recommendCalls.push(input);
+              if (
+                input.contextSnapshotId &&
+                input.query === 'bounded objective'
+              ) {
+                return Promise.resolve({
+                  sources: [
+                    {
+                      sourceKind: 'learning_context',
+                      sourceId: input.contextSnapshotId,
+                      visibility: 'private',
+                      score: 0.95,
+                      citation: {
+                        sourceUrl:
+                          'https://www.youtube.com/watch?v=context0001',
+                        timestampSeconds: 3,
+                      },
                     },
+                  ],
+                });
+              }
+              const ids = input.query === 'bounded objective' ? [7, 8, 9] : [7];
+              return Promise.resolve({
+                mode: 'hybrid',
+                query: input.query,
+                sources: ids.map((id) => ({
+                  sourceKind: 'post',
+                  sourceId: String(id),
+                  visibility: 'private',
+                  title: `owner-${ownerId}`,
+                  content: 'Grounded source',
+                  score: 0.9,
+                  citation: {
+                    sourceUrl: `https://www.youtube.com/watch?v=video00000${id}`,
+                    timestampSeconds: 12,
                   },
-                ],
-              }),
+                })),
+              });
+            },
           },
         },
         {
@@ -65,7 +88,18 @@ describe('MCP internal HTTP boundary', () => {
         {
           provide: DatabaseService,
           useValue: {
-            findPost: () => Promise.resolve(null),
+            findPost: (id: number) =>
+              Promise.resolve(
+                [7, 8, 9].includes(id)
+                  ? {
+                      id,
+                      title: `추천 영상 ${id}`,
+                      videoUrl: `https://www.youtube.com/watch?v=video00000${id}`,
+                      thumbnailUrl: '',
+                      channelName: 'StudyTube',
+                    }
+                  : null,
+              ),
             findVideoAsset: () => Promise.resolve(null),
           },
         },
@@ -79,7 +113,10 @@ describe('MCP internal HTTP boundary', () => {
     await app.close();
   });
 
-  beforeEach(() => auditCalls.splice(0));
+  beforeEach(() => {
+    auditCalls.splice(0);
+    recommendCalls.splice(0);
+  });
 
   it('uses only the signed subject as the search owner', async () => {
     const response = await request()
@@ -98,6 +135,32 @@ describe('MCP internal HTTP boundary', () => {
         }),
       ],
     });
+  });
+
+  it('uses private context evidence without crowding out public proposal candidates', async () => {
+    const response = await request()
+      .post('/internal/mcp/learning/plan')
+      .set('Authorization', `Bearer ${mintAssertion()}`)
+      .send({
+        schemaVersion: 1,
+        objective: 'bounded objective',
+        requestedStepCount: 3,
+      })
+      .expect(HttpStatus.OK);
+
+    expect(response.body).toMatchObject({
+      schemaVersion: 1,
+      evidenceCount: 1,
+      usage: { toolCalls: 2 },
+      proposedSteps: [
+        { sourcePostId: 7 },
+        { sourcePostId: 8 },
+        { sourcePostId: 9 },
+      ],
+    });
+    expect(recommendCalls).toHaveLength(2);
+    expect(recommendCalls[0]).toMatchObject({ contextSnapshotId: RUN_ID });
+    expect(recommendCalls[1]).not.toHaveProperty('contextSnapshotId');
   });
 
   it('rejects request-body owner injection', async () => {

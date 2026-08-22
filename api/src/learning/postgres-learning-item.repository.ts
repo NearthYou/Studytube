@@ -25,6 +25,7 @@ type CaptionSnapshotRow = {
   indexArtifactId: string | null;
   indexGeneration: number | null;
   indexStatus: 'pending' | 'partial' | 'ready' | 'failed' | null;
+  retrievalReady: boolean;
   sourceSegments: LearningCaptionSegment[];
   koreanSegments: LearningCaptionSegment[];
   errorCode: string | null;
@@ -220,6 +221,7 @@ export class PostgresLearningItemRepository implements LearningItemRepository {
           SELECT context.id, context.current_source_caption_artifact_id,
                  context.current_translation_caption_artifact_id,
                  context.current_caption_index_artifact_id,
+                 context.retrieval_version,
                  item.video_source_id
           FROM study_contexts AS context
           JOIN learning_items AS item ON item.id = context.learning_item_id
@@ -239,6 +241,17 @@ export class PostgresLearningItemRepository implements LearningItemRepository {
                caption_index.status AS "indexStatus",
                COALESCE(source.segments, '[]'::jsonb) AS "sourceSegments",
                COALESCE(translation.segments, '[]'::jsonb) AS "koreanSegments",
+               EXISTS (
+                 SELECT 1 FROM retrieval_embeddings AS retrieval
+                 WHERE retrieval.source_kind = 'learning_context'
+                   AND retrieval.source_id = owned.id
+                   AND retrieval.owner_id = $2
+                   AND retrieval.source_version = owned.retrieval_version
+                   AND retrieval.artifact_generation = COALESCE(
+                     translation.generation, source.generation
+                   )
+                   AND retrieval.readiness IN ('partial', 'ready')
+               ) AS "retrievalReady",
                failure.safe_error_code AS "errorCode"
         FROM owned
         LEFT JOIN LATERAL (
@@ -382,7 +395,9 @@ function captionPhase(row: CaptionSnapshotRow): LearningCaptionPhase {
   }
   if (row.sourceStatus === 'partial') return 'partial';
   if (row.sourceLanguage === 'ko') {
-    return row.indexStatus === 'ready' ? 'complete' : 'index_pending';
+    return row.retrievalReady || row.indexStatus === 'ready'
+      ? 'complete'
+      : 'index_pending';
   }
   if (!row.translationArtifactId) {
     return row.errorCode ? 'failed' : 'translation_pending';
@@ -390,7 +405,9 @@ function captionPhase(row: CaptionSnapshotRow): LearningCaptionPhase {
   if (row.translationStatus === 'failed') return 'failed';
   if (row.translationStatus === 'partial') return 'partial';
   if (row.translationStatus !== 'ready') return 'translation_pending';
-  return row.indexStatus === 'ready' ? 'complete' : 'index_pending';
+  return row.retrievalReady || row.indexStatus === 'ready'
+    ? 'complete'
+    : 'index_pending';
 }
 
 function validateOwnerLookup(userId: number, contextId: string): void {

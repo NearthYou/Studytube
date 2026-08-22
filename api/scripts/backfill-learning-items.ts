@@ -7,8 +7,9 @@ import {
   type LearningItemBackfillVerification,
 } from './verify-learning-item-backfill';
 
-export const LEARNING_CUTOVER_MIGRATION_VERSION =
-  '1753660819000_learning-cutover-authority';
+import { LEARNING_CUTOVER_MIGRATION_VERSION } from '../src/learning/learning-cutover.constants';
+
+export { LEARNING_CUTOVER_MIGRATION_VERSION };
 
 type MappingKind =
   | 'post'
@@ -773,6 +774,26 @@ async function main(): Promise<void> {
   const environment = requiredEnvironment();
   const pool = new Pool({ connectionString: environment.databaseUrl });
   try {
+    const authority = await pool.query<{ migrationVersion: string }>(
+      `SELECT migration_version AS "migrationVersion"
+       FROM learning_cutover_authority WHERE singleton = true`,
+    );
+    if (authority.rows[0]) {
+      if (
+        authority.rows[0].migrationVersion !==
+        LEARNING_CUTOVER_MIGRATION_VERSION
+      ) {
+        throw new Error('Existing learning cutover authority is incompatible');
+      }
+      console.log(
+        JSON.stringify({
+          activated: true,
+          alreadyActivated: true,
+          migrationVersion: LEARNING_CUTOVER_MIGRATION_VERSION,
+        }),
+      );
+      return;
+    }
     const batchSize = Number(process.env.LEARNING_BACKFILL_BATCH_SIZE ?? 250);
     const run = await backfillLearningItems(pool, {
       batchSize,

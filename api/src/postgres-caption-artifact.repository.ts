@@ -549,6 +549,7 @@ const SAFE_CODES = new Set<CaptionSafeErrorCode>([
   'VIDEO_TOO_LONG',
   'CAPTION_PROVIDER_UNAVAILABLE',
   'TRANSCRIPTION_PROVIDER_UNAVAILABLE',
+  'TRANSLATION_PROVIDER_UNAVAILABLE',
 ]);
 
 function providerFor(kind: CaptionArtifactKind): string {

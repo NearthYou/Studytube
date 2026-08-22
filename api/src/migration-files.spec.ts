@@ -529,6 +529,7 @@ describe('database migration files', () => {
       "provider_subscription_context_active_key\n      ON provider_subscription_reservations (study_context_id)\n      WHERE study_context_id IS NOT NULL\n        AND state IN ('reserved', 'committed')",
     );
     expect(migration).toContain('STT_NOT_APPROVED');
+    expect(migration).toContain('TRANSLATION_PROVIDER_UNAVAILABLE');
     expect(migration).toContain('learning caption artifacts rollback refused');
     expect(migration).not.toMatch(/(?:DELETE\s+FROM|TRUNCATE\s+TABLE)/i);
   });

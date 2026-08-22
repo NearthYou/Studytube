@@ -2,6 +2,7 @@ import { AiProxyService } from './ai-proxy.service';
 import { MemoryBoardRepository } from './memory-board.repository';
 import type { StudyPost } from './study-board.types';
 import {
+  CaptionTranslationPendingError,
   VideoAssetPreparationRetryableError,
   VideoAssetService,
 } from './video-asset.service';
@@ -770,11 +771,7 @@ describe('VideoAssetService learning caption generations', () => {
 
     await expect(
       service.prepareLearningCaptions(request),
-    ).resolves.toMatchObject({
-      sourceArtifactId: '1',
-      source: 'transcription',
-      status: 'partial',
-    });
+    ).rejects.toBeInstanceOf(CaptionTranslationPendingError);
     expect(transcribe).toHaveBeenCalledWith(
       {
         videoId: request.canonicalVideoId,
@@ -788,6 +785,35 @@ describe('VideoAssetService learning caption generations', () => {
       'append:1:2',
       'publish:1',
     ]);
+    expect(artifacts.committedCosts).toEqual([]);
+  });
+
+  it('completes without translation when the source is already Korean', async () => {
+    const artifacts = new RecordingCaptionArtifacts();
+    const service = new VideoAssetService(
+      new RecordingRepository(),
+      {
+        captions: jest.fn().mockResolvedValue({
+          provider: 'youtube-timedtext',
+          sourceLanguage: 'ko',
+          translated: false,
+          sourceSegments: [{ start: 0, end: 2, text: '안녕하세요' }],
+          translatedSegments: [],
+          segments: [],
+          message: '',
+        }),
+        transcribe: jest.fn(),
+        summary: jest.fn(),
+      } as unknown as AiProxyService,
+      artifacts,
+    );
+
+    await expect(service.prepareLearningCaptions(request)).resolves.toEqual({
+      sourceArtifactId: '1',
+      translationArtifactId: null,
+      source: 'youtube_caption',
+      status: 'ready',
+    });
     expect(artifacts.committedCosts).toEqual([0]);
   });
 

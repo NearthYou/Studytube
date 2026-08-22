@@ -1,7 +1,7 @@
 import { ValidationPipe, type INestApplication } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
 import request from 'supertest';
 import { AuthCookiePolicy } from '../src/auth/auth-cookie';
@@ -556,6 +556,39 @@ describe('authenticated learning intake', () => {
       koreanSegments: [{ start: 0, end: 4, text: '안녕하세요' }],
       stale: false,
     });
+
+    const translationSegment = await pool.query<{ id: string }>(
+      `SELECT id::text AS id FROM caption_artifact_segments
+       WHERE artifact_id = $1 AND ordinal = 0`,
+      [translationArtifactId],
+    );
+    await pool.query(
+      `INSERT INTO retrieval_embeddings (
+         source_kind, source_id, owner_id, visibility, model, dimensions,
+         content, content_hash, source_url, timestamp_seconds, embedding,
+         chunk_index, start_seconds, end_seconds, source_version,
+         evidence_kind, resource_id, readiness, evidence_artifact_id,
+         evidence_segment_id, artifact_generation
+       )
+       SELECT 'learning_context', context.id, context.user_id, 'private',
+              'test-embedding', 1536, '안녕하세요', $1,
+              'https://www.youtube.com/watch?v=u2testH0008', 0,
+              array_fill(0.001::real, ARRAY[1536])::vector,
+              0, 0, 4, context.retrieval_version,
+              'caption_segment', 'caption-segment-1', 'ready', $2, $3, 2
+       FROM study_contexts AS context WHERE context.id = $4`,
+      [
+        createHash('sha256').update('안녕하세요').digest(),
+        translationArtifactId,
+        translationSegment.rows[0]?.id,
+        contextId,
+      ],
+    );
+    await request(server)
+      .get(`/learning/contexts/${contextId}/captions`)
+      .set('Cookie', cookie(tokenFor(ownerId)))
+      .expect(200)
+      .expect(({ body }) => expect(body).toMatchObject({ phase: 'complete' }));
 
     await request(server)
       .get(`/learning/contexts/${contextId}/captions`)

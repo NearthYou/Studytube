@@ -108,20 +108,28 @@ export class McpController {
     if (!objective) throw invalidRequest();
     const startedAt = performance.now();
     try {
-      const response = await this.aiProxy.recommend(
-        {
-          query: objective,
-          limit: Math.min(10, requestedStepCount * 2),
-          contextSnapshotId: claims.contextSnapshotId,
-        },
-        claims.ownerId,
-      );
+      const limit = Math.min(10, requestedStepCount * 2);
+      const [evidenceResponse, candidateResponse] = await Promise.all([
+        this.aiProxy.recommend(
+          {
+            query: objective,
+            limit,
+            contextSnapshotId: claims.contextSnapshotId,
+          },
+          claims.ownerId,
+        ),
+        this.aiProxy.recommend({ query: objective, limit }, claims.ownerId),
+      ]);
+      const evidenceCount = sourceCount(evidenceResponse);
+      if (evidenceCount === 0) {
+        throw new TypeError('Insufficient learning context evidence');
+      }
       const proposedSteps = await verifiedProposedSteps(
-        response,
+        candidateResponse,
         requestedStepCount,
         this.database,
       );
-      const usage = safeUsage(response);
+      const usage = combineUsage(evidenceResponse, candidateResponse);
       const resourceIds = proposedSteps.map((step) => step.sourcePostId);
       const accepted = await this.learning.recordAgentToolCall({
         ownerId: claims.ownerId,
@@ -151,7 +159,7 @@ export class McpController {
         schemaVersion: 1,
         proposedSteps,
         usage,
-        evidenceCount: proposedSteps.length,
+        evidenceCount,
         proposalVersion: 1,
       };
     } catch (error) {
@@ -500,6 +508,22 @@ function safeUsage(value: unknown) {
       usage.estimatedCostUsd ?? usage.costUsd,
     ),
   };
+}
+
+function sourceCount(value: unknown): number {
+  const sources = objectValue(value).sources;
+  return Array.isArray(sources) ? sources.length : 0;
+}
+
+function combineUsage(...values: unknown[]) {
+  return values.map(safeUsage).reduce(
+    (total, usage) => ({
+      toolCalls: total.toolCalls + usage.toolCalls,
+      tokens: total.tokens + usage.tokens,
+      estimatedCostUsd: total.estimatedCostUsd + usage.estimatedCostUsd,
+    }),
+    { toolCalls: 0, tokens: 0, estimatedCostUsd: 0 },
+  );
 }
 
 function safeNonNegativeInteger(value: unknown, fallback: number): number {

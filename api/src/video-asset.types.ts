@@ -123,7 +123,8 @@ export type CaptionSafeErrorCode =
   | 'VIDEO_AUTH_REQUIRED'
   | 'VIDEO_TOO_LONG'
   | 'CAPTION_PROVIDER_UNAVAILABLE'
-  | 'TRANSCRIPTION_PROVIDER_UNAVAILABLE';
+  | 'TRANSCRIPTION_PROVIDER_UNAVAILABLE'
+  | 'TRANSLATION_PROVIDER_UNAVAILABLE';
 
 export type LearningCaptionResult = Readonly<{
   sourceArtifactId: string | null;

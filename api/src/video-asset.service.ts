@@ -29,6 +29,14 @@ type SummaryResponse = {
   failed: boolean;
 };
 
+export class CaptionTranslationPendingError extends Error {
+  readonly code = 'CAPTION_TRANSLATION_PENDING';
+
+  constructor() {
+    super('CAPTION_TRANSLATION_PENDING');
+  }
+}
+
 @Injectable()
 export class VideoAssetService {
   constructor(
@@ -132,14 +140,17 @@ export class VideoAssetService {
       signal,
     );
 
-    if (translated.length === 0) {
+    if (translated.length === 0 && sourceLanguage === request.targetLanguage) {
       await artifacts.commitWork({ request, actualCostMicrounits: 0 });
       return {
         sourceArtifactId: sourceGeneration.id,
         translationArtifactId: null,
         source: sourceKind,
-        status: 'partial',
+        status: 'ready',
       };
+    }
+    if (translated.length === 0) {
+      throw new CaptionTranslationPendingError();
     }
 
     const translationGeneration = await artifacts.createGeneration({
@@ -214,6 +225,17 @@ export class VideoAssetService {
     });
 
     return processing ?? asset;
+  }
+
+  async failLearningCaptions(
+    request: CaptionPipelineRequest,
+    errorCode: CaptionSafeErrorCode,
+  ): Promise<LearningCaptionResult> {
+    const artifacts = this.captionArtifacts;
+    if (!artifacts) {
+      throw new Error('Caption artifact repository is unavailable');
+    }
+    return this.failLearningCaption(artifacts, request, errorCode);
   }
 
   async preparePostAsset(
@@ -524,6 +546,7 @@ export class VideoAssetService {
       'VIDEO_TOO_LONG',
       'CAPTION_PROVIDER_UNAVAILABLE',
       'TRANSCRIPTION_PROVIDER_UNAVAILABLE',
+      'TRANSLATION_PROVIDER_UNAVAILABLE',
     ].includes(code)
       ? (code as CaptionSafeErrorCode)
       : null;

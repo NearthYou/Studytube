@@ -16,6 +16,7 @@ $prometheusDrill = Join-Path $repoRoot 'operations\monitoring\Invoke-PrometheusR
 $operationsCommon = Join-Path $repoRoot 'operations\lib\Operations.Common.ps1'
 $composeFile = Join-Path $repoRoot 'docker-compose.yml'
 $ciWorkflow = Join-Path $repoRoot '.github\workflows\ci-cd.yml'
+$runtimeInstaller = Join-Path $repoRoot 'scripts\install-production-runtime.sh'
 $failures = New-Object System.Collections.Generic.List[string]
 $passes = 0
 
@@ -294,6 +295,22 @@ try {
   Assert-True (
     $ciWorkflowText -match '(?s)Invoke-K6ProgressWriteSmoke\.ps1\s+-Execute'
   ) 'CI must execute the original progress-write workload through the actual pinned k6 runtime.'
+  $runtimeInstallerText = Get-Content -LiteralPath $runtimeInstaller -Raw -Encoding UTF8
+  foreach ($approvalField in @(
+      'STT_COST_APPROVAL_RECORD',
+      'STT_COST_APPROVAL_MODEL',
+      'STT_COST_APPROVAL_ENVIRONMENT',
+      'STT_COST_APPROVAL_MAX_USD',
+      'STT_COST_APPROVAL_EXPIRES_AT',
+      'STT_COST_APPROVAL_ID'
+    )) {
+    Assert-True (
+      $runtimeInstallerText -match [regex]::Escape($approvalField)
+    ) "STT deployment gate must require $approvalField."
+  }
+  Assert-True (
+    $runtimeInstallerText -match 'validate_stt_cost_approval'
+  ) 'Production runtime installation must run the STT cost approval gate.'
 
   Assert-True (
     Test-DockerContextRejected `

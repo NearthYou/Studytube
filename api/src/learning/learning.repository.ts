@@ -17,7 +17,12 @@ export type CreateAgentRunCommand = {
   ownerId: number;
   idempotencyKeyDigest: Buffer;
   payloadHash: Buffer;
-  input: { objective: string; requestedStepCount: number };
+  input: {
+    objective: string;
+    requestedStepCount: number;
+    studyContextId?: string;
+    watchedRanges?: Array<{ start: number; end: number }>;
+  };
   budgets: AgentBudgets;
 };
 

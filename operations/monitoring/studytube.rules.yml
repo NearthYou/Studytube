@@ -55,3 +55,53 @@ groups:
         annotations:
           summary: StudyTube database connection pool is saturated
           action: Inspect query latency and waiting work before changing the pool size.
+
+      - alert: StudyTubeCaptionPipelineFailed
+        expr: increase(studytube_learning_events_total{area="caption_stage",code="failed"}[10m]) > 0
+        for: 1m
+        labels:
+          service: studytube
+          severity: warning
+        annotations:
+          summary: StudyTube caption preparation failed
+          action: Inspect the bounded caption stage code and sanitized worker logs.
+
+      - alert: StudyTubeReservationDenied
+        expr: increase(studytube_learning_events_total{area="reservation",code="denied"}[10m]) > 0
+        for: 1m
+        labels:
+          service: studytube
+          severity: warning
+        annotations:
+          summary: StudyTube learning cost reservation was denied
+          action: Check configured count limits before changing any provider budget.
+
+      - alert: StudyTubeRetrievalMcpFailed
+        expr: increase(studytube_learning_events_total{area="retrieval_mcp",code="failed"}[10m]) > 0
+        for: 1m
+        labels:
+          service: studytube
+          severity: warning
+        annotations:
+          summary: StudyTube grounded retrieval failed
+          action: Inspect bounded MCP outcome codes without recording queries or source text.
+
+      - alert: StudyTubeQuizBecameStale
+        expr: increase(studytube_learning_events_total{area="stale_quiz",code="stale"}[10m]) > 0
+        for: 1m
+        labels:
+          service: studytube
+          severity: info
+        annotations:
+          summary: StudyTube quiz context became stale
+          action: Confirm a fresh quiz can be generated from the current caption generation.
+
+      - alert: StudyTubeProposalApprovalConflict
+        expr: increase(studytube_learning_events_total{area="approval_conflict",code=~"version_conflict|expired|rejected"}[10m]) > 0
+        for: 1m
+        labels:
+          service: studytube
+          severity: info
+        annotations:
+          summary: StudyTube Course approval conflicted
+          action: Confirm the learner can refresh the Course choice or request a new proposal.

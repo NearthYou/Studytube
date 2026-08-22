@@ -2,16 +2,21 @@ import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Link, useSearchParams } from "react-router";
 import {
+  createNextLearningProposal,
+  createNextLearningRun,
   createLearningNote,
   deleteLearningNote,
   fetchAdaptiveQuiz,
+  fetchNextLearningRun,
   fetchLearningCaptions,
   requestAdaptiveQuiz,
   submitAdaptiveQuiz,
   updateLearningNote,
   type AdaptiveQuizLoop,
   type AdaptiveQuizSubmission,
+  type LearningProposal,
 } from "../../api.ts";
+import { fetchOwnerCourses } from "../../courseApi.ts";
 import type { LearningNote, Session } from "../../types.ts";
 import { formatTime } from "../../videoSummaryDetails.ts";
 import type { QueueVideo } from "../../watchQueue.ts";
@@ -29,6 +34,10 @@ import {
   transitionQuizState,
   type QuizUiState,
 } from "./adaptiveQuizFlow.ts";
+import {
+  NextLearningProposal,
+  type CourseChoice,
+} from "./NextLearningProposal.tsx";
 
 type LearningPlayer = {
   destroy: () => void;
@@ -116,6 +125,11 @@ function ActiveLearningWorkspace({
   const [quizAnswers, setQuizAnswers] = useState<Record<string, number>>({});
   const [quizSubmission, setQuizSubmission] =
     useState<AdaptiveQuizSubmission | null>(null);
+  const [nextProposal, setNextProposal] = useState<LearningProposal | null>(
+    null,
+  );
+  const [proposalCourses, setProposalCourses] = useState<CourseChoice[]>([]);
+  const [proposalStatus, setProposalStatus] = useState("");
   const [quizUi, setQuizUi] = useState<QuizUiState>(() =>
     quizStateFromApi(null, false),
   );
@@ -460,6 +474,42 @@ function ActiveLearningWorkspace({
     }
   }
 
+  async function requestNextProposal() {
+    if (!contextId || quizUi.phase !== "evaluated") return;
+    setProposalStatus("다음 학습을 찾고 있습니다.");
+    setNextProposal(null);
+    try {
+      const [run, courses] = await Promise.all([
+        createNextLearningRun({
+          objective: `${video.title} 다음에 학습할 내용`,
+          studyContextId: contextId,
+          watchedRanges: [
+            { start: 0, end: Math.max(1, Math.floor(state.currentTime)) },
+          ],
+          idempotencyKey: crypto.randomUUID(),
+        }),
+        fetchOwnerCourses(),
+      ]);
+      setProposalCourses(
+        courses
+          .filter((course) => course.status !== "archived")
+          .map(({ id, title, version }) => ({ id, title, version })),
+      );
+      const readyRun = await waitForProposalRun(run);
+      if (readyRun.state !== "awaiting_approval") {
+        throw new Error("다음 학습을 찾지 못했습니다. 다시 시도해주세요.");
+      }
+      setNextProposal(await createNextLearningProposal(readyRun.id));
+      setProposalStatus("");
+    } catch (error) {
+      setProposalStatus(
+        error instanceof Error
+          ? error.message
+          : "다음 학습을 찾지 못했습니다. 다시 시도해주세요.",
+      );
+    }
+  }
+
   return (
     <main className="page-shell learning-workspace">
       <header className="learning-workspace-heading">
@@ -600,8 +650,46 @@ function ActiveLearningWorkspace({
           )}
         </div>
       </section>
+      {quizUi.phase === "evaluated" && !nextProposal && (
+        <section className="next-learning-entry" aria-live="polite">
+          <h2>다음 학습</h2>
+          <p>
+            퀴즈 결과와 지금까지 본 구간을 바탕으로 이어서 볼 영상을 찾습니다.
+          </p>
+          <button type="button" onClick={() => void requestNextProposal()}>
+            다음 학습 제안 받기
+          </button>
+          <p>{proposalStatus}</p>
+        </section>
+      )}
+      {nextProposal && (
+        <NextLearningProposal
+          proposal={nextProposal}
+          courses={proposalCourses}
+          onRequestAnother={() => void requestNextProposal()}
+        />
+      )}
     </main>
   );
+}
+
+async function waitForProposalRun(initial: {
+  id: string;
+  state: string;
+  failureCode: string | null;
+}) {
+  let current = initial;
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    if (
+      current.state === "awaiting_approval" ||
+      ["failed", "cancelled"].includes(current.state)
+    ) {
+      return current;
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, 1_000));
+    current = await fetchNextLearningRun(current.id);
+  }
+  return current;
 }
 
 function AdaptiveQuizPanel({

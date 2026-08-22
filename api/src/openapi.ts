@@ -39,14 +39,14 @@ const jsonResponseSchemas: Record<string, Schema> = {
   AppController_getDbHealth: {
     $ref: '#/components/schemas/DatabaseHealth',
   },
-  StudyBoardController_deletePost: deletedSchema(),
-  StudyBoardController_deleteComment: deletedSchema(),
-  StudyBoardController_deletePlaylist: deletedSchema(),
   McpController_search: { $ref: '#/components/schemas/McpSearchResult' },
   McpController_recordToolCall: {
     type: 'object',
     required: ['accepted'],
     properties: { accepted: { type: 'boolean', enum: [true] } },
+  },
+  McpController_createLearningPlan: {
+    $ref: '#/components/schemas/McpLearningPlan',
   },
   LearningItemController_start: {
     $ref: '#/components/schemas/LearningIntakeResponse',
@@ -69,6 +69,15 @@ const jsonResponseSchemas: Record<string, Schema> = {
   },
   LearningController_approveLearningProposal: {
     $ref: '#/components/schemas/LearningProposal',
+  },
+  LearningController_requestAdaptiveQuiz: {
+    $ref: '#/components/schemas/AdaptiveQuizLoop',
+  },
+  LearningController_getAdaptiveQuiz: {
+    $ref: '#/components/schemas/AdaptiveQuizLoop',
+  },
+  LearningController_submitAdaptiveQuiz: {
+    $ref: '#/components/schemas/AdaptiveQuizSubmission',
   },
 };
 
@@ -271,6 +280,68 @@ export function createOpenApiDocument(app: INestApplication) {
           minimum: 1,
           nullable: true,
         },
+      },
+    },
+    AdaptiveQuizLoop: {
+      type: 'object',
+      required: [
+        'id',
+        'studyContextId',
+        'state',
+        'watchedRange',
+        'captionArtifactId',
+        'captionGeneration',
+        'questions',
+        'failureCode',
+      ],
+      properties: {
+        id: { type: 'string', format: 'uuid' },
+        studyContextId: { type: 'string', pattern: '^[1-9]\\d*$' },
+        state: {
+          type: 'string',
+          enum: ['generating', 'ready', 'evaluated', 'failed', 'stale'],
+        },
+        watchedRange: { type: 'object', additionalProperties: true },
+        captionArtifactId: { type: 'string', pattern: '^[1-9]\\d*$' },
+        captionGeneration: { type: 'integer', minimum: 1 },
+        questions: {
+          type: 'array',
+          items: { type: 'object', additionalProperties: true },
+        },
+        failureCode: { type: 'string', nullable: true },
+      },
+    },
+    AdaptiveQuizSubmission: {
+      type: 'object',
+      required: ['state', 'attempt', 'reviewProposal'],
+      properties: {
+        state: { type: 'string', enum: ['evaluated'] },
+        attempt: { type: 'object', additionalProperties: true },
+        reviewProposal: {
+          type: 'object',
+          nullable: true,
+          additionalProperties: true,
+        },
+      },
+    },
+    McpLearningPlan: {
+      type: 'object',
+      required: [
+        'schemaVersion',
+        'proposedSteps',
+        'usage',
+        'evidenceCount',
+        'proposalVersion',
+      ],
+      properties: {
+        schemaVersion: { type: 'integer', enum: [1] },
+        proposedSteps: {
+          type: 'array',
+          items: { type: 'object', additionalProperties: true },
+        },
+        usage: { type: 'object', additionalProperties: true },
+        evidenceCount: { type: 'integer', minimum: 0 },
+        proposalVersion: { type: 'integer', minimum: 1 },
       },
     },
   };

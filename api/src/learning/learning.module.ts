@@ -31,6 +31,11 @@ import {
   type LearningProposalRepository,
 } from './learning-proposal.repository';
 import { PostgresLearningProposalRepository } from './postgres-learning-proposal.repository';
+import {
+  RETRIEVAL_REPOSITORY,
+  type RetrievalRepository,
+} from '../retrieval/retrieval.repository';
+import { PostgresRetrievalRepository } from '../retrieval/postgres-retrieval.repository';
 
 @Module({
   imports: [AuthModule, ConfigModule],
@@ -100,12 +105,23 @@ import { PostgresLearningProposalRepository } from './postgres-learning-proposal
       inject: [LearningDatabase],
     },
     {
+      provide: RETRIEVAL_REPOSITORY,
+      useFactory: (database: LearningDatabase): RetrievalRepository =>
+        new PostgresRetrievalRepository(database.pool),
+      inject: [LearningDatabase],
+    },
+    {
       provide: LearningService,
       useFactory: (
         repository: LearningRepository,
         proposals: LearningProposalRepository,
-      ) => new LearningService(repository, proposals),
-      inject: [LEARNING_REPOSITORY, LEARNING_PROPOSAL_REPOSITORY],
+        retrieval: RetrievalRepository,
+      ) => new LearningService(repository, proposals, retrieval),
+      inject: [
+        LEARNING_REPOSITORY,
+        LEARNING_PROPOSAL_REPOSITORY,
+        RETRIEVAL_REPOSITORY,
+      ],
     },
   ],
   exports: [

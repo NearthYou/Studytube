@@ -57,6 +57,28 @@ export class CreateAgentRunDto {
   @ValidateNested()
   @Type(() => AgentRunBudgetsDto)
   budgets?: AgentRunBudgetsDto;
+
+  @IsOptional()
+  @Matches(/^[1-9]\d*$/u)
+  studyContextId?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(20)
+  @ValidateNested({ each: true })
+  @Type(() => AgentRunWatchedRangeDto)
+  watchedRanges?: AgentRunWatchedRangeDto[];
+}
+
+export class AgentRunWatchedRangeDto {
+  @IsNumber({ maxDecimalPlaces: 3 })
+  @Min(0)
+  start!: number;
+
+  @IsNumber({ maxDecimalPlaces: 3 })
+  @Min(0)
+  end!: number;
 }
 
 export class AgentRunParamDto {

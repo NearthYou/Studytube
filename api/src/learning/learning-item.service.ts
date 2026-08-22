@@ -9,6 +9,7 @@ import {
   type ProviderBudgetRepository,
 } from './provider-budget.repository';
 import { canonicalizeYoutubeUrl } from './youtube-url.policy';
+import { observabilityRuntime } from '../observability';
 
 @Injectable()
 export class LearningItemService {
@@ -26,6 +27,10 @@ export class LearningItemService {
       ...video,
       requestedAudioSeconds: input.requestedAudioSeconds,
     });
+    observabilityRuntime.metrics.learningEvent(
+      'reservation',
+      reservation.admission,
+    );
     let context;
     try {
       context = await this.items.ensureContext({

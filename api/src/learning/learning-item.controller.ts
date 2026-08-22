@@ -33,6 +33,7 @@ import {
 } from './learning-note.repository';
 import { ProviderBudgetUnavailableError } from './provider-budget.repository';
 import { InvalidYoutubeUrlError } from './youtube-url.policy';
+import { observabilityRuntime } from '../observability';
 
 @Controller('learning')
 export class LearningItemController {
@@ -57,6 +58,7 @@ export class LearningItemController {
         });
       }
       if (error instanceof ProviderBudgetUnavailableError) {
+        observabilityRuntime.metrics.learningEvent('reservation', 'denied');
         throw new ServiceUnavailableException({
           code: error.code,
           reason: error.reason,
@@ -139,6 +141,7 @@ export class LearningItemController {
     if (!snapshot) {
       throw new NotFoundException('학습 자료를 찾을 수 없습니다.');
     }
+    observabilityRuntime.metrics.learningEvent('caption_stage', snapshot.phase);
     return snapshot;
   }
 

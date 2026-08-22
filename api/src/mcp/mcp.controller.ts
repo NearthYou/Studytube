@@ -22,6 +22,7 @@ import {
 } from './mcp-service-assertion.guard';
 import type { ProposedCourseStep } from '../learning/learning.types';
 import type { McpLearningCapability } from './mcp-service-assertion';
+import { observabilityRuntime } from '../observability';
 
 const SEARCH_KEYS = new Set(['schemaVersion', 'query', 'limit']);
 const LEARNING_PLAN_KEYS = new Set([
@@ -145,6 +146,7 @@ export class McpController {
         },
       });
       if (!accepted) throw new ForbiddenException('MCP audit rejected');
+      observabilityRuntime.metrics.learningEvent('retrieval_mcp', 'succeeded');
       return {
         schemaVersion: 1,
         proposedSteps,
@@ -154,6 +156,7 @@ export class McpController {
       };
     } catch (error) {
       if (error instanceof ForbiddenException) throw error;
+      observabilityRuntime.metrics.learningEvent('retrieval_mcp', 'failed');
       throw new BadGatewayException('MCP learning plan unavailable');
     }
   }

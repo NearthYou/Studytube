@@ -13,6 +13,8 @@ describe('bounded Prometheus metrics', () => {
     metrics.outboxFailure('video_asset.requested', true);
     metrics.workerJob('durable-work', 'video_asset.requested', 'failed', 910);
     metrics.aiRequest('study_plan', 'gpt-5-mini', 'failed', 1_200, 420, 0.0042);
+    metrics.learningEvent('caption_stage', 'translation_pending');
+    metrics.learningEvent('approval_conflict', 'version_conflict');
 
     const output = registry.toPrometheus();
     expect(output).toContain('studytube_http_request_duration_ms');
@@ -32,8 +34,26 @@ describe('bounded Prometheus metrics', () => {
     expect(output).toContain('studytube_ai_request_duration_ms');
     expect(output).toContain('studytube_ai_tokens_total');
     expect(output).toContain('studytube_ai_cost_usd_total');
+    expect(output).toContain(
+      'studytube_learning_events_total{area="caption_stage",code="translation_pending"} 1',
+    );
+    expect(output).toContain(
+      'studytube_learning_events_total{area="approval_conflict",code="version_conflict"} 1',
+    );
     expect(output).toContain('route="/api/posts/:id"');
     expect(output).not.toContain('/api/posts/123');
+  });
+
+  it('keeps learning event labels to bounded code and area values', () => {
+    const registry = new MetricRegistry();
+    const metrics = new StudyTubeMetrics(registry);
+    const canary = 'private note https://example.test/?token=secret';
+
+    metrics.learningEvent(canary, canary);
+
+    const output = registry.toPrometheus();
+    expect(output).toContain('area="other",code="other"');
+    expect(output).not.toContain(canary);
   });
 
   it('caps unseen label values instead of creating unbounded time series', () => {

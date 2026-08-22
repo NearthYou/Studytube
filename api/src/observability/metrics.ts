@@ -439,6 +439,7 @@ export class StudyTubeMetrics {
   private readonly aiDuration: Histogram;
   private readonly aiTokens: Counter;
   private readonly aiCost: Counter;
+  private readonly learningEvents: Counter;
 
   constructor(registry: MetricRegistry) {
     const httpLabels = {
@@ -546,6 +547,45 @@ export class StudyTubeMetrics {
       help: 'Estimated AI cost in US dollars',
       labels: aiLabels,
     });
+    this.learningEvents = registry.counter({
+      name: 'studytube_learning_events_total',
+      help: 'Bounded learning pipeline states and conflicts',
+      labels: {
+        area: {
+          allowedValues: [
+            'caption_stage',
+            'reservation',
+            'retrieval_mcp',
+            'stale_quiz',
+            'approval_conflict',
+          ],
+          fallback: 'other',
+        },
+        code: {
+          allowedValues: [
+            'source_pending',
+            'transcription_pending',
+            'translation_pending',
+            'index_pending',
+            'partial',
+            'failed',
+            'complete',
+            'created',
+            'joined',
+            'denied',
+            'released',
+            'succeeded',
+            'timeout',
+            'invalid_schema',
+            'stale',
+            'version_conflict',
+            'expired',
+            'rejected',
+          ],
+          fallback: 'other',
+        },
+      },
+    });
   }
 
   httpRequest(
@@ -615,6 +655,10 @@ export class StudyTubeMetrics {
     this.aiDuration.observe(durationMs, labels);
     this.aiTokens.add(tokens, labels);
     this.aiCost.add(costUsd, labels);
+  }
+
+  learningEvent(area: string, code: string, count = 1): void {
+    this.learningEvents.add(count, { area, code });
   }
 }
 

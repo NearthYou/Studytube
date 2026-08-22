@@ -199,6 +199,38 @@ case "$course_cutover_mode" in
   *) fail "COURSE_CUTOVER_MODE must be legacy, freeze, or course" ;;
 esac
 
+validate_stt_cost_approval() {
+  [[ "${STT_PROVIDER_ENABLED:-false}" == 'true' ]] || return 0
+  local key value
+  local required=(
+    STT_COST_APPROVAL_RECORD
+    STT_COST_APPROVAL_MODEL
+    STT_COST_APPROVAL_ENVIRONMENT
+    STT_COST_APPROVAL_MAX_USD
+    STT_COST_APPROVAL_EXPIRES_AT
+    STT_COST_APPROVAL_ID
+  )
+  for key in "${required[@]}"; do
+    value="${!key:-}"
+    [[ -n "$value" && "$value" != *$'\n'* && "$value" != *$'\r'* ]] ||
+      fail "STT-enabled deployment requires a complete cost approval record"
+  done
+  [[ "$STT_COST_APPROVAL_MODEL" == 'gpt-4o-mini-transcribe-2025-12-15' ]] ||
+    fail "STT cost approval model is not the pinned snapshot"
+  [[ "$STT_COST_APPROVAL_ENVIRONMENT" == 'production' ]] ||
+    fail "STT cost approval is not for production"
+  [[ "$STT_COST_APPROVAL_MAX_USD" =~ ^[0-9]+([.][0-9]{1,2})?$ ]] ||
+    fail "STT cost approval maximum is invalid"
+  awk -v amount="$STT_COST_APPROVAL_MAX_USD" 'BEGIN { exit !(amount > 0) }' ||
+    fail "STT cost approval maximum must be greater than zero"
+  local expiry_epoch
+  expiry_epoch="$(date -u -d "$STT_COST_APPROVAL_EXPIRES_AT" +%s 2>/dev/null || true)"
+  [[ "$expiry_epoch" =~ ^[0-9]+$ && "$expiry_epoch" -gt "$(date -u +%s)" ]] ||
+    fail "STT cost approval is invalid or expired"
+}
+
+validate_stt_cost_approval
+
 ensure_build_principal() {
   if ! getent group "$build_group" >/dev/null 2>&1; then
     sudo groupadd --system "$build_group"
@@ -694,6 +726,11 @@ ai_environment_keys=(
   MCP_SERVICE_ASSERTION_SECRET
   OPENAI_API_KEY
   STT_PROVIDER_ENABLED
+  STT_COST_APPROVAL_RECORD
+  STT_COST_APPROVAL_MODEL
+  STT_COST_APPROVAL_ENVIRONMENT
+  STT_COST_APPROVAL_MAX_USD
+  STT_COST_APPROVAL_EXPIRES_AT
   STT_COST_APPROVAL_ID
   LLM_MODEL
   EMBEDDING_MODEL

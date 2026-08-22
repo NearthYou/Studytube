@@ -1,6 +1,8 @@
 # StudyTube 운영 검증
 
-이 디렉터리는 운영 환경의 데이터를 노출하지 않고 복구 가능성과 핵심 API 성능을 재현하는 도구를 제공합니다. 모든 PowerShell 드릴은 먼저 계획 모드로 대상과 복구 순서를 확인할 수 있습니다.
+이 디렉터리는 운영 환경의 데이터를 노출하지 않고 복구 가능성과 핵심 API 성능을 재현하는 도구를 제공합니다. 모든 PowerShell 드릴은 먼저 계획 모드로 대상과 복구 순서를 확인할 수 있습니다. 학습 metric은 caption stage, 비용 reservation, retrieval/MCP 결과, stale quiz, Course approval conflict의 허용된 code와 count만 사용하며 자막 원문, 검색 query, 메모, URL, provider error를 기록하지 않습니다.
+
+STT를 켠 production 배포는 `STT_COST_APPROVAL_RECORD`, 고정 model, production 환경, 최대 금액, 만료 시각과 승인 ID가 모두 있어야 합니다. 하나라도 없거나 만료되면 runtime 설치가 중단되며 기존 YouTube 자막 경로는 유지합니다.
 
 ## 사전 조건
 

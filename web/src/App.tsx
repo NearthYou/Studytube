@@ -376,23 +376,7 @@ function App() {
           }
         />
         <Route
-          path="/board"
-          element={
-            <ProtectedRoute session={session}>
-              <BoardPage session={session!} />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/explore"
-          element={
-            <ProtectedRoute session={session}>
-              <ExplorePage session={session!} />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/search"
+          path="/courses"
           element={
             <ProtectedRoute session={session}>
               <CoursePage session={session!} />
@@ -404,14 +388,6 @@ function App() {
           element={
             <ProtectedRoute session={session}>
               <LearningWorkspace session={session!} />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/playlists"
-          element={
-            <ProtectedRoute session={session}>
-              <CoursePage session={session!} />
             </ProtectedRoute>
           }
         />
@@ -434,14 +410,7 @@ function App() {
             </ProtectedRoute>
           }
         />
-        <Route
-          path="/me/posts"
-          element={
-            <ProtectedRoute session={session}>
-              <MyPostsPage session={session!} />
-            </ProtectedRoute>
-          }
-        />
+        <Route path="*" element={<Navigate replace to="/" />} />
       </Routes>
     </>
   );
@@ -485,9 +454,7 @@ function SiteNav({
         <>
           <nav>
             <GuardedNavLink to="/watch">학습</GuardedNavLink>
-            <GuardedNavLink to="/explore">보드</GuardedNavLink>
-            <GuardedNavLink to="/board">등록</GuardedNavLink>
-            <GuardedNavLink to="/search">학습 코스</GuardedNavLink>
+            <GuardedNavLink to="/courses">내 Course</GuardedNavLink>
             <GuardedNavLink to="/me">내 정보</GuardedNavLink>
           </nav>
           <div className="nav-account">
@@ -510,6 +477,12 @@ function SiteNav({
     </header>
   );
 }
+
+// Kept temporarily for reading legacy local data during the cutover, but no
+// longer mounted or linked from the product surface.
+void BoardPage;
+void ExplorePage;
+void MyPostsPage;
 
 function GuardedLink({
   children,

@@ -8,8 +8,8 @@ import {
   type NextProposalSelection,
 } from "./nextLearningProposalState.ts";
 
-type CourseChoice = { id: number; title: string; version: number };
-type Proposal = {
+export type CourseChoice = { id: number; title: string; version: number };
+export type NextProposal = {
   id: string;
   candidate: {
     title: string;
@@ -24,7 +24,7 @@ export function NextLearningProposal({
   courses,
   onRequestAnother,
 }: {
-  proposal: Proposal;
+  proposal: NextProposal;
   courses: CourseChoice[];
   onRequestAnother: () => void;
 }) {

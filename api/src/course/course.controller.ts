@@ -16,7 +16,6 @@ import {
   CourseIdParamDto,
   CourseVersionDto,
   CreateCourseDto,
-  CreateCourseFeedbackDto,
   ListCoursesQueryDto,
   ReplaceCourseStepsDto,
   UpdateCourseDto,
@@ -126,17 +125,6 @@ export class CourseController {
         params.id,
         body.expectedVersion,
       ),
-    );
-  }
-
-  @Post(':id/feedback')
-  feedback(
-    @Req() request: AuthenticatedRequest,
-    @Param() params: CourseIdParamDto,
-    @Body() body: CreateCourseFeedbackDto,
-  ) {
-    return boundary(() =>
-      this.service.addFeedback(request.principal.userId, params.id, body),
     );
   }
 }

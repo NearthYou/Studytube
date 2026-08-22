@@ -14,8 +14,22 @@ import {
   LearningValidationError,
   LearningVersionConflictError,
 } from './learning.errors';
+import { observabilityRuntime } from '../observability';
 
 export function throwLearningHttpError(error: unknown): never {
+  if (error instanceof LearningQuizStaleError) {
+    observabilityRuntime.metrics.learningEvent('stale_quiz', 'stale');
+  }
+  if (error instanceof LearningVersionConflictError) {
+    observabilityRuntime.metrics.learningEvent(
+      'approval_conflict',
+      'version_conflict',
+    );
+  } else if (error instanceof LearningProposalExpiredError) {
+    observabilityRuntime.metrics.learningEvent('approval_conflict', 'expired');
+  } else if (error instanceof LearningProposalRejectedError) {
+    observabilityRuntime.metrics.learningEvent('approval_conflict', 'rejected');
+  }
   if (error instanceof LearningValidationError) {
     throw new AuthHttpException(
       error.code,

@@ -507,6 +507,58 @@ export type AdaptiveQuizSubmission = {
   };
 };
 
+export type NextLearningRun = {
+  id: string;
+  state:
+    | "queued"
+    | "running"
+    | "awaiting_approval"
+    | "approved"
+    | "completed"
+    | "failed"
+    | "cancelled";
+  failureCode: string | null;
+};
+
+export type LearningProposal = {
+  id: string;
+  candidate: {
+    title: string;
+    thumbnailUrl: string;
+    channelName: string;
+    reason: string;
+  };
+};
+
+export function createNextLearningRun(input: {
+  objective: string;
+  studyContextId: string;
+  watchedRanges: Array<{ start: number; end: number }>;
+  idempotencyKey: string;
+}): Promise<NextLearningRun> {
+  return requestJson<NextLearningRun>("/learning/agent-runs", {
+    method: "POST",
+    headers: { "Idempotency-Key": input.idempotencyKey },
+    body: JSON.stringify({
+      objective: input.objective,
+      requestedStepCount: 3,
+      studyContextId: input.studyContextId,
+      watchedRanges: input.watchedRanges,
+    }),
+  });
+}
+
+export function fetchNextLearningRun(runId: string) {
+  return requestJson<NextLearningRun>(`/learning/agent-runs/${runId}`);
+}
+
+export function createNextLearningProposal(runId: string) {
+  return requestJson<LearningProposal>(
+    `/learning/agent-runs/${runId}/next-learning-proposal`,
+    { method: "POST", body: "{}" },
+  );
+}
+
 export function requestAdaptiveQuiz(input: {
   contextId: string;
   startSeconds: number;

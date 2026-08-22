@@ -6,6 +6,7 @@ import type {
 } from './learning.repository';
 import { LearningService } from './learning.service';
 import type { AgentRun } from './learning.types';
+import type { RetrievalRepository } from '../retrieval/retrieval.repository';
 
 describe('LearningService', () => {
   it('canonicalizes and hashes an idempotent AgentRun request before enqueueing it', async () => {
@@ -39,6 +40,32 @@ describe('LearningService', () => {
     });
     expect(repository.created[0].idempotencyKeyDigest).toHaveLength(32);
     expect(repository.created[0].payloadHash).toHaveLength(32);
+  });
+
+  it('captures an immutable retrieval context before a context-bound run is claimable', async () => {
+    const repository = new RecordingLearningRepository();
+    const captureLearningContext = jest.fn().mockResolvedValue({});
+    const service = new LearningService(repository, undefined, {
+      captureLearningContext,
+    } as unknown as RetrievalRepository);
+
+    const created = await service.createRun(17, 'next-learning-1', {
+      objective: '다음 학습 찾기',
+      requestedStepCount: 3,
+      studyContextId: '42',
+      watchedRanges: [{ start: 0, end: 90 }],
+    });
+
+    expect(repository.created[0].input).toMatchObject({
+      studyContextId: '42',
+      watchedRanges: [{ start: 0, end: 90 }],
+    });
+    expect(captureLearningContext).toHaveBeenCalledWith({
+      agentRunId: created.id,
+      ownerId: 17,
+      studyContextId: '42',
+      watchedRanges: [{ start: 0, end: 90 }],
+    });
   });
 
   it('hashes the raw progress event payload independently of the idempotency key', async () => {

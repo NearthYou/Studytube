@@ -14,6 +14,7 @@ import type {
   AgentUsage,
   ProposedCourseStep,
 } from './learning.types';
+import type { RetrievalRepository } from '../retrieval/retrieval.repository';
 
 const DEFAULT_BUDGETS: AgentBudgets = {
   wallTimeBudgetMs: 180_000,
@@ -26,15 +27,18 @@ export class LearningService {
   constructor(
     private readonly repository: LearningRepository,
     private readonly proposals?: LearningProposalRepository,
+    private readonly retrieval?: RetrievalRepository,
   ) {}
 
-  createRun(
+  async createRun(
     ownerId: number,
     idempotencyKey: string | undefined,
     body: {
       objective: string;
       requestedStepCount?: number;
       budgets?: Partial<AgentBudgets>;
+      studyContextId?: string;
+      watchedRanges?: Array<{ start: number; end: number }>;
     },
   ) {
     const key = requiredKey(idempotencyKey);
@@ -51,14 +55,46 @@ export class LearningService {
       );
     }
     const budgets = validateBudgets({ ...DEFAULT_BUDGETS, ...body.budgets });
-    const input = { objective, requestedStepCount };
-    return this.repository.createRun({
+    const hasContext = body.studyContextId !== undefined;
+    const hasRanges = body.watchedRanges !== undefined;
+    if (hasContext !== hasRanges) {
+      throw new LearningValidationError(
+        'studyContextId',
+        '학습 맥락과 시청 구간을 함께 보내주세요.',
+      );
+    }
+    const input = {
+      objective,
+      requestedStepCount,
+      ...(hasContext
+        ? {
+            studyContextId: body.studyContextId,
+            watchedRanges: body.watchedRanges,
+          }
+        : {}),
+    };
+    const run = await this.repository.createRun({
       ownerId,
       idempotencyKeyDigest: digest(key),
       payloadHash: digest(canonicalJson({ input, budgets })),
       input,
       budgets,
     });
+    if (hasContext) {
+      if (!this.retrieval) {
+        throw new Error('Learning retrieval context is unavailable');
+      }
+      await this.retrieval.captureLearningContext({
+        agentRunId: run.id,
+        ownerId,
+        studyContextId: body.studyContextId as string,
+        watchedRanges: body.watchedRanges as Array<{
+          start: number;
+          end: number;
+        }>,
+      });
+    }
+    return run;
   }
 
   async getRun(ownerId: number, runId: string) {

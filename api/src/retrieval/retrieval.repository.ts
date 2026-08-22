@@ -11,6 +11,8 @@ import type {
   LearningRetrievalContextSnapshot,
 } from './retrieval.types';
 
+export const RETRIEVAL_REPOSITORY = Symbol('RETRIEVAL_REPOSITORY');
+
 export type RemoveMissingSourceChunksOutcome = 'removed' | 'superseded';
 
 export type PruneEmbeddingCacheInput = {

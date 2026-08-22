@@ -77,6 +77,15 @@ export class PostgresAgentRunAttemptRepository {
           JOIN agent_run_attempts a ON a.run_id = r.id
           WHERE r.cancellation_requested_at IS NULL
             AND (
+              NOT (r.input ? 'studyContextId')
+              OR EXISTS (
+                SELECT 1
+                FROM learning_retrieval_context_snapshots snapshot
+                WHERE snapshot.agent_run_id = r.id
+                  AND snapshot.owner_id = r.owner_id
+              )
+            )
+            AND (
               (r.state = 'queued' AND a.state = 'queued')
               OR (
                 r.state = 'running' AND a.state = 'running'

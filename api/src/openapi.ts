@@ -48,6 +48,16 @@ const jsonResponseSchemas: Record<string, Schema> = {
     required: ['accepted'],
     properties: { accepted: { type: 'boolean', enum: [true] } },
   },
+  LearningItemController_start: {
+    $ref: '#/components/schemas/LearningIntakeResponse',
+  },
+  LearningItemController_createNote: {
+    $ref: '#/components/schemas/LearningNote',
+  },
+  LearningItemController_updateNote: {
+    $ref: '#/components/schemas/LearningNote',
+  },
+  LearningItemController_deleteNote: deletedSchema(),
 };
 
 export function createOpenApiDocument(app: INestApplication) {
@@ -157,6 +167,44 @@ export function createOpenApiDocument(app: INestApplication) {
           type: 'array',
           items: { $ref: '#/components/schemas/RetrievalSourceResponse' },
         },
+      },
+    },
+    LearningIntakeResponse: {
+      type: 'object',
+      required: [
+        'reservationId',
+        'workId',
+        'admission',
+        'reservedAudioSeconds',
+        'context',
+      ],
+      properties: {
+        reservationId: { type: 'string', pattern: '^[1-9]\\d*$' },
+        workId: { type: 'string', format: 'uuid' },
+        admission: { type: 'string', enum: ['created', 'joined'] },
+        reservedAudioSeconds: { type: 'integer', minimum: 1, maximum: 14400 },
+        context: { type: 'object', additionalProperties: true },
+      },
+    },
+    LearningNote: {
+      type: 'object',
+      required: [
+        'id',
+        'userId',
+        'studyContextId',
+        'positionSeconds',
+        'body',
+        'createdAt',
+        'updatedAt',
+      ],
+      properties: {
+        id: { type: 'string', pattern: '^[1-9]\\d*$' },
+        userId: { type: 'integer', minimum: 1 },
+        studyContextId: { type: 'string', pattern: '^[1-9]\\d*$' },
+        positionSeconds: { type: 'number', minimum: 0 },
+        body: { type: 'string', minLength: 1, maxLength: 4000 },
+        createdAt: { type: 'string', format: 'date-time' },
+        updatedAt: { type: 'string', format: 'date-time' },
       },
     },
   };

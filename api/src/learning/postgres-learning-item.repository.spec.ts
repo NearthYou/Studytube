@@ -6,6 +6,7 @@ describe('PostgresLearningItemRepository', () => {
     const query = jest
       .fn()
       .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({
         rows: [
           {
@@ -55,17 +56,17 @@ describe('PostgresLearningItemRepository', () => {
       },
     });
 
-    expect(query.mock.calls[0]?.[0]).toBe('BEGIN');
-    expect(query.mock.calls[1]?.[0]).toContain(
-      'ON CONFLICT (user_id, course_step_id)',
-    );
-    expect(query.mock.calls.at(-1)?.[0]).toBe('COMMIT');
+    expect(sqlAt(query, 0)).toBe('BEGIN');
+    expect(sqlAt(query, 1)).toContain('pg_advisory_xact_lock');
+    expect(sqlAt(query, 2)).toContain('ON CONFLICT (user_id, course_step_id)');
+    expect(sqlAt(query, -1)).toBe('COMMIT');
     expect(release).toHaveBeenCalledTimes(1);
   });
 
   it('rolls back when an owner-scoped context cannot be created', async () => {
     const query = jest
       .fn()
+      .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] })
       .mockRejectedValueOnce(
         Object.assign(new Error('owner mismatch'), { code: '23503' }),
@@ -88,7 +89,12 @@ describe('PostgresLearningItemRepository', () => {
       }),
     ).rejects.toMatchObject({ code: '23503' });
 
-    expect(query.mock.calls.at(-1)?.[0]).toBe('ROLLBACK');
+    expect(sqlAt(query, -1)).toBe('ROLLBACK');
     expect(release).toHaveBeenCalledTimes(1);
   });
 });
+
+function sqlAt(query: { mock: { calls: unknown[][] } }, index: number): string {
+  const call = index < 0 ? query.mock.calls.at(index) : query.mock.calls[index];
+  return typeof call?.[0] === 'string' ? call[0] : '';
+}

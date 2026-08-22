@@ -30,15 +30,15 @@ export class SessionGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
+    const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
     const isPublic = this.reflector.getAllAndOverride<boolean>(
       IS_PUBLIC_ROUTE,
       [context.getHandler(), context.getClass()],
     );
-    if (isPublic) {
+    if (isPublic && !isAlwaysAuthenticatedPath(request.path)) {
       return true;
     }
 
-    const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
     const sessionToken = this.cookies.readSessionCookie(request.headers.cookie);
     if (!sessionToken) {
       throw new UnauthorizedException('Authentication required');
@@ -53,4 +53,8 @@ export class SessionGuard implements CanActivate {
     request.principal = Object.freeze({ ...result.principal, user });
     return true;
   }
+}
+
+function isAlwaysAuthenticatedPath(path: string | undefined): boolean {
+  return /^(?:\/ai|\/learning|\/courses)(?:\/|$)/u.test(path ?? '');
 }

@@ -153,6 +153,7 @@ function localizedApiError(
       "가입 세션이 없거나 만료되었습니다. 이메일 인증부터 다시 시작해주세요.",
     INVALID_PROFILE_UPDATE: "수정할 계정 정보를 확인해주세요.",
     INVALID_REQUEST: "입력값을 확인해주세요.",
+    INVALID_YOUTUBE_URL: "지원되는 YouTube 주소를 입력해주세요.",
     INVALID_VERIFICATION: "인증 링크가 유효하지 않거나 만료되었습니다.",
     PROFILE_NOT_FOUND: "계정 정보를 찾을 수 없습니다.",
     RATE_LIMITED: "요청이 너무 많습니다. 잠시 후 다시 시도해주세요.",
@@ -160,6 +161,8 @@ function localizedApiError(
       "이미 처리된 가입 요청입니다. 이메일 인증부터 다시 시작해주세요.",
     SERVICE_UNAVAILABLE:
       "서비스가 일시적으로 불안정합니다. 잠시 후 다시 시도해주세요.",
+    PROVIDER_BUDGET_UNAVAILABLE:
+      "현재 영상 처리를 시작할 수 없습니다. 잠시 후 다시 시도해주세요.",
     UNAUTHORIZED: "로그인이 필요합니다.",
   };
   if (code && codeMessages[code]) {

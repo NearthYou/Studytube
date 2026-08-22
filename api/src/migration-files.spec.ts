@@ -471,6 +471,33 @@ describe('database migration files', () => {
     );
   });
 
+  it('adds separate global work and user subscription cost ledgers', async () => {
+    const migrationPath = join(
+      process.cwd(),
+      'migrations',
+      '1753660814000_ai-cost-reservations.cjs',
+    );
+    expect(existsSync(migrationPath)).toBe(true);
+    if (!existsSync(migrationPath)) return;
+
+    const migration = await readFile(migrationPath, 'utf8');
+    expect(migration).toContain('CREATE TABLE provider_work_reservations');
+    expect(migration).toContain(
+      'CREATE TABLE provider_subscription_reservations',
+    );
+    expect(migration).toContain(
+      'provider_subscription_reservations_work_user_key',
+    );
+    expect(migration).toContain(
+      'CREATE UNIQUE INDEX provider_work_reservations_active_work_key',
+    );
+    expect(migration).toContain("WHERE state IN ('reserved', 'committed')");
+    expect(migration).toContain(
+      "state IN ('reserved', 'committed', 'released')",
+    );
+    expect(migration).not.toMatch(/(?:DELETE\s+FROM|TRUNCATE\s+TABLE)/i);
+  });
+
   it('checks in a complete legacy runtime fixture with data and sequence state', async () => {
     const fixturePath = join(
       process.cwd(),

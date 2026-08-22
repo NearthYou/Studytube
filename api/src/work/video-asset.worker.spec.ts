@@ -1,5 +1,9 @@
 import type { StudyPost } from '../study-board.types';
-import type { VideoAsset } from '../video-asset.types';
+import type {
+  CaptionPipelineRequest,
+  LearningCaptionResult,
+  VideoAsset,
+} from '../video-asset.types';
 import { DurableJobExecutor } from './durable-job.executor';
 import { MemoryJobExecutionStore } from './memory-job-execution.store';
 import type { AppendOutboxEvent, JobResult } from './work.types';
@@ -85,6 +89,62 @@ class MemoryResults {
 }
 
 describe('VideoAssetJobHandler', () => {
+  it('handles canonical learning intake without changing the legacy post path', async () => {
+    const results = new MemoryResults();
+    const execution = jobExecution();
+    const prepareLearningCaptions = jest
+      .fn<
+        Promise<LearningCaptionResult>,
+        [CaptionPipelineRequest, AbortSignal?]
+      >()
+      .mockResolvedValue({
+        sourceArtifactId: '17',
+        translationArtifactId: '18',
+        source: 'youtube_caption',
+        status: 'ready',
+      });
+    const handler = new VideoAssetJobHandler(
+      { findPost: () => Promise.resolve(POST) },
+      {
+        preparePostAsset: () => Promise.resolve(ASSET),
+        prepareLearningCaptions,
+      },
+      results,
+      execution.executor,
+    );
+    const job: WorkQueueJob = {
+      eventId: '33333333-3333-4333-8333-333333333333',
+      eventType: 'learning_intake.requested',
+      handlerVersion: 'learning-caption-v1',
+      payloadSchemaVersion: 1,
+      payload: {
+        canonicalVideoId: 'caption0001',
+        processingRangeKey: '0-120',
+        reservationId: '31',
+      },
+    };
+
+    await expect(handler.handle(job)).resolves.toMatchObject({
+      sourceArtifactId: '17',
+      translationArtifactId: '18',
+      status: 'ready',
+    });
+    expect(prepareLearningCaptions).toHaveBeenCalledTimes(1);
+    const requestArg: unknown = prepareLearningCaptions.mock.calls[0]?.[0];
+    const signalArg: unknown = prepareLearningCaptions.mock.calls[0]?.[1];
+    expect(requestArg).toMatchObject({
+      eventId: job.eventId,
+      handlerVersion: 'learning-caption-v1',
+      canonicalVideoId: 'caption0001',
+      targetLanguage: 'ko',
+      durationSeconds: 120,
+    });
+    expect((requestArg as { leaseToken?: unknown }).leaseToken).toEqual(
+      expect.stringMatching(/^[0-9a-f-]{36}$/u),
+    );
+    expect(signalArg).toBeInstanceOf(AbortSignal);
+  });
+
   it('runs one provider call for concurrent delivery and replays the completed result', async () => {
     const results = new MemoryResults();
     const store = new MemoryJobExecutionStore();

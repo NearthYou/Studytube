@@ -49,6 +49,122 @@ class ProductionSecretConfigTest(unittest.TestCase):
 
 
 class AiServiceTest(unittest.TestCase):
+    def test_transcription_is_disabled_by_default_before_adapter_or_upload(self):
+        adapter = mock.Mock()
+        with mock.patch.dict(os.environ, {}, clear=True):
+            response = main.transcribe_youtube_audio(
+                {
+                    "videoId": "caption0001",
+                    "durationSeconds": 120,
+                    "model": "gpt-4o-mini-transcribe-2025-12-15",
+                },
+                adapter=adapter,
+            )
+
+        self.assertEqual(response["errorCode"], "STT_DISABLED")
+        self.assertEqual(response["segments"], [])
+        adapter.assert_not_called()
+
+    def test_transcription_fake_adapter_returns_normalized_progressive_segments(self):
+        adapter = mock.Mock(
+            return_value={
+                "sourceLanguage": "zh",
+                "segments": [
+                    {"start": 0, "end": 2, "text": "你好"},
+                    {"start": 2, "end": 4, "text": "世界"},
+                ],
+            }
+        )
+        with mock.patch.dict(
+            os.environ,
+            {
+                "STT_PROVIDER_ENABLED": "true",
+                "STT_COST_APPROVAL_ID": "test-only-approval",
+            },
+            clear=True,
+        ):
+            response = main.transcribe_youtube_audio(
+                {
+                    "videoId": "caption0001",
+                    "durationSeconds": 120,
+                    "model": "gpt-4o-mini-transcribe-2025-12-15",
+                },
+                adapter=adapter,
+            )
+
+        self.assertEqual(response["provider"], "fake-transcription")
+        self.assertEqual(response["status"], "ready")
+        self.assertEqual(response["sourceLanguage"], "zh")
+        self.assertEqual(response["segments"][0]["text"], "你好")
+        adapter.assert_called_once_with(
+            {
+                "videoId": "caption0001",
+                "durationSeconds": 120,
+                "model": "gpt-4o-mini-transcribe-2025-12-15",
+            }
+        )
+
+    def test_transcription_rejects_media_capability_before_adapter(self):
+        cases = [
+            ({"isLive": True}, "VIDEO_LIVE_UNSUPPORTED"),
+            ({"restriction": "region"}, "VIDEO_RESTRICTED"),
+            ({"authenticationRequired": True}, "VIDEO_AUTH_REQUIRED"),
+            ({"durationSeconds": 14401}, "VIDEO_TOO_LONG"),
+        ]
+        for capability, error_code in cases:
+            with self.subTest(error_code=error_code):
+                adapter = mock.Mock()
+                with mock.patch.dict(
+                    os.environ,
+                    {
+                        "STT_PROVIDER_ENABLED": "true",
+                        "STT_COST_APPROVAL_ID": "test-only-approval",
+                    },
+                    clear=True,
+                ):
+                    response = main.transcribe_youtube_audio(
+                        {
+                            "videoId": "caption0001",
+                            "durationSeconds": 120,
+                            "model": "gpt-4o-mini-transcribe-2025-12-15",
+                            "mediaCapability": capability,
+                        },
+                        adapter=adapter,
+                    )
+                self.assertEqual(response["errorCode"], error_code)
+                adapter.assert_not_called()
+
+    def test_transcription_exception_does_not_expose_credentials_or_urls(self):
+        adapter = mock.Mock(
+            side_effect=RuntimeError(
+                "Bearer stt-secret https://u:url-secret@example.invalid/?token=query-secret"
+            )
+        )
+        with mock.patch.dict(
+            os.environ,
+            {
+                "STT_PROVIDER_ENABLED": "true",
+                "STT_COST_APPROVAL_ID": "test-only-approval",
+            },
+            clear=True,
+        ):
+            response = main.transcribe_youtube_audio(
+                {
+                    "videoId": "caption0001",
+                    "durationSeconds": 120,
+                    "model": "gpt-4o-mini-transcribe-2025-12-15",
+                },
+                adapter=adapter,
+            )
+
+        serialized = json.dumps(response)
+        self.assertEqual(
+            response["errorCode"], "TRANSCRIPTION_PROVIDER_UNAVAILABLE"
+        )
+        self.assertNotIn("stt-secret", serialized)
+        self.assertNotIn("url-secret", serialized)
+        self.assertNotIn("query-secret", serialized)
+
     def test_internal_youtube_lookup_route_preserves_the_json_rpc_contract(self):
         original_handler = main.handle_mcp_request
         captured = []
@@ -332,6 +448,10 @@ class AiServiceTest(unittest.TestCase):
         self.assertEqual(response["provider"], "openai-caption-translation")
         self.assertTrue(response["translated"])
         self.assertEqual(response["segments"][0]["text"], "안녕하세요 세계")
+        self.assertEqual(response["sourceSegments"][0]["text"], "Hello world")
+        self.assertEqual(
+            response["translatedSegments"][0]["text"], "안녕하세요 세계"
+        )
 
     def test_caption_segment_translation_batches_all_segments(self):
         class FakeOpenAI:

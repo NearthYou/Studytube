@@ -35,7 +35,10 @@ export class DurableWorkRouter {
   }
 
   private handler(job: WorkQueueJob): DurableHandler {
-    if (job.eventType === 'video_asset.requested') {
+    if (
+      job.eventType === 'video_asset.requested' ||
+      job.eventType === 'learning_intake.requested'
+    ) {
       return this.videoAssets;
     }
     if (job.eventType === 'retrieval_embedding.requested') {

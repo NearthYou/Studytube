@@ -13,6 +13,31 @@ const KEY = {
 };
 
 describe('DurableJobExecutor', () => {
+  it('passes the opaque active lease to lease-fenced persistence', async () => {
+    const store: JobExecutionStore = {
+      acquire: () =>
+        Promise.resolve({
+          status: 'acquired',
+          leaseToken: '22222222-2222-4222-8222-222222222222',
+        }),
+      renew: () => Promise.resolve(true),
+      complete: () => Promise.resolve(),
+      release: () => Promise.resolve(true),
+    };
+    const executor = new DurableJobExecutor(store, {
+      leaseOwner: 'worker-a',
+      leaseMs: 30_000,
+    });
+
+    await expect(
+      executor.execute(KEY, (_signal, lease) =>
+        Promise.resolve({ leaseToken: lease.leaseToken }),
+      ),
+    ).resolves.toEqual({
+      leaseToken: '22222222-2222-4222-8222-222222222222',
+    });
+  });
+
   it('allows one active callback and replays its completed result', async () => {
     const store = new MemoryJobExecutionStore();
     const executor = new DurableJobExecutor(store, {

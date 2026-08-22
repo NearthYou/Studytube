@@ -61,3 +61,74 @@ export type UpdateVideoAssetInput = Partial<
     | 'errorMessage'
   >
 >;
+
+export type CaptionArtifactKind =
+  | 'youtube_caption'
+  | 'transcription'
+  | 'translation';
+
+export type CaptionPipelineRequest = Readonly<{
+  eventId: string;
+  handlerVersion: string;
+  leaseToken: string;
+  canonicalVideoId: string;
+  targetLanguage: 'ko';
+  durationSeconds: number;
+}>;
+
+export type CaptionGeneration = Readonly<{
+  id: string;
+  generation: number;
+}>;
+
+export type CaptionArtifactSegment = VideoAssetSegment & {
+  ordinal: number;
+};
+
+export type CaptionSegmentBatch = Readonly<{
+  artifactId: string;
+  request: CaptionPipelineRequest;
+  segments: CaptionArtifactSegment[];
+}>;
+
+export interface CaptionArtifactRepository {
+  hasActiveSttApproval(model: string): Promise<boolean>;
+  createGeneration(input: {
+    kind: CaptionArtifactKind;
+    parentArtifactId?: string;
+    sourceLanguage: string;
+    targetLanguage?: string;
+    request: CaptionPipelineRequest;
+  }): Promise<CaptionGeneration>;
+  appendSegments(input: CaptionSegmentBatch): Promise<boolean>;
+  publishGeneration(input: {
+    artifactId: string;
+    request: CaptionPipelineRequest;
+  }): Promise<boolean>;
+  failGeneration(input: {
+    request: CaptionPipelineRequest;
+    errorCode: CaptionSafeErrorCode;
+  }): Promise<void>;
+  commitWork(input: {
+    request: CaptionPipelineRequest;
+    actualCostMicrounits: number;
+  }): Promise<void>;
+}
+
+export type CaptionSafeErrorCode =
+  | 'STT_NOT_APPROVED'
+  | 'STT_DISABLED'
+  | 'VIDEO_LIVE_UNSUPPORTED'
+  | 'VIDEO_RESTRICTED'
+  | 'VIDEO_AUTH_REQUIRED'
+  | 'VIDEO_TOO_LONG'
+  | 'CAPTION_PROVIDER_UNAVAILABLE'
+  | 'TRANSCRIPTION_PROVIDER_UNAVAILABLE';
+
+export type LearningCaptionResult = Readonly<{
+  sourceArtifactId: string | null;
+  translationArtifactId: string | null;
+  source: 'youtube_caption' | 'transcription' | 'none';
+  status: 'partial' | 'ready' | 'failed';
+  errorCode?: CaptionSafeErrorCode;
+}>;

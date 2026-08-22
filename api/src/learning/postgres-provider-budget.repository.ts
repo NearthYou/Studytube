@@ -158,6 +158,88 @@ export class PostgresProviderBudgetRepository implements ProviderBudgetRepositor
     return (result.rowCount ?? 0) > 0;
   }
 
+  async attachContext(
+    userId: number,
+    reservationId: string,
+    studyContextId: string,
+  ): Promise<boolean> {
+    validatePositiveInteger(userId, 'userId');
+    validateDecimalId(reservationId, 'reservationId');
+    validateDecimalId(studyContextId, 'studyContextId');
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const attached = await client.query<{ contextId: string }>(
+        `UPDATE provider_subscription_reservations AS subscription
+         SET study_context_id = $3::bigint,
+             state = CASE WHEN work.state = 'committed'
+               THEN 'committed' ELSE subscription.state END,
+             committed_at = CASE WHEN work.state = 'committed'
+               THEN COALESCE(subscription.committed_at, statement_timestamp())
+               ELSE subscription.committed_at END
+         FROM study_contexts AS context,
+              provider_work_reservations AS work
+         WHERE subscription.id = $1::bigint
+           AND subscription.user_id = $2
+           AND subscription.state IN ('reserved', 'committed')
+           AND work.id = subscription.work_reservation_id
+           AND work.state IN ('reserved', 'committed')
+           AND context.id = $3::bigint
+           AND context.user_id = $2
+           AND (
+             subscription.study_context_id IS NULL OR
+             subscription.study_context_id = context.id
+           )
+         RETURNING context.id::text AS "contextId"`,
+        [reservationId, userId, studyContextId],
+      );
+      if (!attached.rows[0]) {
+        await client.query('ROLLBACK');
+        return false;
+      }
+      await client.query(
+        `UPDATE study_contexts AS context
+         SET current_source_caption_artifact_id = source.current_source_caption_artifact_id,
+             updated_at = statement_timestamp()
+         FROM learning_items AS item
+         JOIN video_sources AS source ON source.id = item.video_source_id
+         WHERE context.id = $1::bigint
+           AND context.learning_item_id = item.id`,
+        [studyContextId],
+      );
+      await client.query(
+        `UPDATE study_contexts AS context
+         SET current_translation_caption_artifact_id = (
+               SELECT artifact.id
+               FROM learning_items AS item
+               JOIN video_sources AS source ON source.id = item.video_source_id
+               JOIN caption_artifacts AS artifact
+                 ON artifact.video_source_id = source.id
+               JOIN caption_generation_states AS state
+                 ON state.artifact_id = artifact.id AND state.status = 'ready'
+               WHERE item.id = context.learning_item_id
+                 AND artifact.kind = 'translation'
+                 AND artifact.parent_artifact_id =
+                     source.current_source_caption_artifact_id
+                 AND artifact.target_language = 'ko'
+               ORDER BY artifact.generation DESC, artifact.id DESC
+               LIMIT 1
+             ),
+             updated_at = statement_timestamp()
+         WHERE context.id = $1::bigint
+           AND context.source_language_override IS NULL`,
+        [studyContextId],
+      );
+      await client.query('COMMIT');
+      return true;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async releaseSubscription(
     userId: number,
     reservationId: string,

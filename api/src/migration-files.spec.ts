@@ -498,6 +498,41 @@ describe('database migration files', () => {
     expect(migration).not.toMatch(/(?:DELETE\s+FROM|TRUNCATE\s+TABLE)/i);
   });
 
+  it('adds immutable caption generations with lease-fenced current pointers', async () => {
+    const migrationPath = join(
+      process.cwd(),
+      'migrations',
+      '1753660815000_learning-caption-artifacts.cjs',
+    );
+    expect(existsSync(migrationPath)).toBe(true);
+    if (!existsSync(migrationPath)) return;
+
+    const migration = await readFile(migrationPath, 'utf8');
+    for (const table of [
+      'caption_artifacts',
+      'caption_artifact_segments',
+      'caption_generation_states',
+      'caption_work_failures',
+      'stt_provider_approvals',
+    ]) {
+      expect(migration).toContain(`CREATE TABLE ${table}`);
+    }
+    expect(migration).toContain('parent_artifact_video_source_fk');
+    expect(migration).toContain('current_source_caption_artifact_id');
+    expect(migration).toContain('current_translation_caption_artifact_id');
+    expect(migration).toContain('caption_artifact_segments_no_overlap');
+    expect(migration).toContain(
+      'CREATE UNIQUE INDEX provider_subscription_context_active_key',
+    );
+    expect(migration).toContain("AND state = 'reserved'");
+    expect(migration).not.toContain(
+      "provider_subscription_context_active_key\n      ON provider_subscription_reservations (study_context_id)\n      WHERE study_context_id IS NOT NULL\n        AND state IN ('reserved', 'committed')",
+    );
+    expect(migration).toContain('STT_NOT_APPROVED');
+    expect(migration).toContain('learning caption artifacts rollback refused');
+    expect(migration).not.toMatch(/(?:DELETE\s+FROM|TRUNCATE\s+TABLE)/i);
+  });
+
   it('checks in a complete legacy runtime fixture with data and sequence state', async () => {
     const fixturePath = join(
       process.cwd(),

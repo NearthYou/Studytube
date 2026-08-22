@@ -22,9 +22,15 @@ describe('DurableWorkRouter', () => {
     const router = new DurableWorkRouter(video, retrieval, unsupported);
 
     await router.handle(job('video_asset.requested'));
+    await router.handle(job('learning_intake.requested'));
     await router.handle(job('retrieval_embedding.requested'));
 
-    expect(video.handle).toHaveBeenCalledTimes(1);
+    expect(video.handle).toHaveBeenCalledTimes(2);
+    expect(video.handle).toHaveBeenNthCalledWith(
+      2,
+      job('learning_intake.requested'),
+      undefined,
+    );
     expect(retrieval.handle).toHaveBeenCalledTimes(1);
     expect(unsupported.handle).not.toHaveBeenCalled();
   });

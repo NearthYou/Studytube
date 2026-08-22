@@ -205,6 +205,24 @@ export class AiProxyService {
     );
   }
 
+  transcribe(body: unknown, signal?: AbortSignal): Promise<unknown> {
+    return this.post(
+      '/youtube/transcribe',
+      body,
+      {
+        provider: 'stt-disabled',
+        status: 'disabled',
+        sourceLanguage: '',
+        segments: [],
+        translatedSegments: [],
+        errorCode: 'STT_DISABLED',
+      },
+      Number(this.configService.get<string>('AI_TRANSCRIPTION_TIMEOUT_MS')) ||
+        300_000,
+      signal,
+    );
+  }
+
   summary(body: unknown, signal?: AbortSignal): Promise<unknown> {
     return this.post(
       '/youtube/summary',

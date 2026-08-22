@@ -5,7 +5,13 @@ import {
   VideoAssetPreparationRetryableError,
   VideoAssetService,
 } from './video-asset.service';
-import type { UpdateVideoAssetInput } from './video-asset.types';
+import type {
+  CaptionArtifactRepository,
+  CaptionGeneration,
+  CaptionPipelineRequest,
+  CaptionSegmentBatch,
+  UpdateVideoAssetInput,
+} from './video-asset.types';
 
 class RecordingRepository extends MemoryBoardRepository {
   readonly updatedPostIds: number[] = [];
@@ -629,3 +635,243 @@ describe('VideoAssetService', () => {
     expect(repository.requestedPostIds).toEqual([post.id]);
   });
 });
+
+describe('VideoAssetService learning caption generations', () => {
+  const request: CaptionPipelineRequest = {
+    eventId: '11111111-1111-4111-8111-111111111111',
+    handlerVersion: 'learning-caption-v1',
+    leaseToken: '22222222-2222-4222-8222-222222222222',
+    canonicalVideoId: 'caption0001',
+    targetLanguage: 'ko',
+    durationSeconds: 120,
+  };
+
+  it('publishes YouTube source and translated segments without transcription', async () => {
+    const artifacts = new RecordingCaptionArtifacts();
+    const transcribe = jest.fn();
+    const service = new VideoAssetService(
+      new RecordingRepository(),
+      {
+        captions: jest.fn().mockResolvedValue({
+          provider: 'youtube-timedtext',
+          sourceLanguage: 'en',
+          translated: true,
+          sourceSegments: [
+            { start: 0, end: 2, text: 'hello' },
+            { start: 2, end: 4, text: 'world' },
+          ],
+          translatedSegments: [
+            { start: 0, end: 2, text: '안녕하세요' },
+            { start: 2, end: 4, text: '세계' },
+          ],
+          segments: [],
+          message: '',
+        }),
+        transcribe,
+        summary: jest.fn(),
+      } as unknown as AiProxyService,
+      artifacts,
+    );
+
+    await expect(service.prepareLearningCaptions(request)).resolves.toEqual({
+      sourceArtifactId: '1',
+      translationArtifactId: '2',
+      source: 'youtube_caption',
+      status: 'ready',
+    });
+    expect(transcribe).not.toHaveBeenCalled();
+    expect(artifacts.batches).toEqual([
+      {
+        artifactId: '1',
+        segments: [
+          { ordinal: 0, start: 0, end: 2, text: 'hello' },
+          { ordinal: 1, start: 2, end: 4, text: 'world' },
+        ],
+      },
+      {
+        artifactId: '2',
+        segments: [
+          { ordinal: 0, start: 0, end: 2, text: '안녕하세요' },
+          { ordinal: 1, start: 2, end: 4, text: '세계' },
+        ],
+      },
+    ]);
+    expect(artifacts.published).toEqual(['1', '2']);
+    expect(artifacts.committedCosts).toEqual([0]);
+  });
+
+  it('does not request audio transcription without active cost approval', async () => {
+    const artifacts = new RecordingCaptionArtifacts();
+    const transcribe = jest.fn();
+    const service = new VideoAssetService(
+      new RecordingRepository(),
+      {
+        captions: jest.fn().mockResolvedValue({
+          provider: 'youtube-caption-rate-limited',
+          sourceLanguage: '',
+          translated: false,
+          sourceSegments: [],
+          translatedSegments: [],
+          segments: [],
+          message:
+            'Bearer credential-canary https://u:p@example.invalid/?token=query-canary',
+        }),
+        transcribe,
+        summary: jest.fn(),
+      } as unknown as AiProxyService,
+      artifacts,
+    );
+
+    await expect(service.prepareLearningCaptions(request)).resolves.toEqual({
+      sourceArtifactId: null,
+      translationArtifactId: null,
+      source: 'none',
+      status: 'failed',
+      errorCode: 'STT_NOT_APPROVED',
+    });
+    expect(transcribe).not.toHaveBeenCalled();
+    expect(artifacts.failures).toEqual(['STT_NOT_APPROVED']);
+    expect(JSON.stringify(artifacts.failures)).not.toContain(
+      'credential-canary',
+    );
+    expect(JSON.stringify(artifacts.failures)).not.toContain('query-canary');
+  });
+
+  it('uses an approved fake transcription response and publishes appended segments', async () => {
+    const artifacts = new RecordingCaptionArtifacts();
+    artifacts.sttApproved = true;
+    const transcribe = jest.fn().mockResolvedValue({
+      provider: 'fake-transcription',
+      status: 'ready',
+      sourceLanguage: 'zh',
+      segments: [
+        { start: 0, end: 3, text: '你好' },
+        { start: 3, end: 6, text: '世界' },
+      ],
+      errorCode: '',
+    });
+    const service = new VideoAssetService(
+      new RecordingRepository(),
+      {
+        captions: jest.fn().mockResolvedValue({
+          provider: 'youtube-native-captions',
+          sourceLanguage: '',
+          translated: false,
+          sourceSegments: [],
+          translatedSegments: [],
+          segments: [],
+          message: '',
+        }),
+        transcribe,
+        summary: jest.fn(),
+      } as unknown as AiProxyService,
+      artifacts,
+    );
+
+    await expect(
+      service.prepareLearningCaptions(request),
+    ).resolves.toMatchObject({
+      sourceArtifactId: '1',
+      source: 'transcription',
+      status: 'partial',
+    });
+    expect(transcribe).toHaveBeenCalledWith(
+      {
+        videoId: request.canonicalVideoId,
+        durationSeconds: request.durationSeconds,
+        model: 'gpt-4o-mini-transcribe-2025-12-15',
+      },
+      expect.any(AbortSignal),
+    );
+    expect(artifacts.events).toEqual([
+      'create:transcription:1',
+      'append:1:2',
+      'publish:1',
+    ]);
+    expect(artifacts.committedCosts).toEqual([0]);
+  });
+
+  it('stops before a pointer update after losing the durable lease', async () => {
+    const artifacts = new RecordingCaptionArtifacts();
+    artifacts.acceptAppend = false;
+    const service = new VideoAssetService(
+      new RecordingRepository(),
+      {
+        captions: jest.fn().mockResolvedValue({
+          provider: 'youtube-timedtext',
+          sourceLanguage: 'en',
+          translated: false,
+          sourceSegments: [{ start: 0, end: 1, text: 'late' }],
+          translatedSegments: [],
+          segments: [],
+          message: '',
+        }),
+        transcribe: jest.fn(),
+        summary: jest.fn(),
+      } as unknown as AiProxyService,
+      artifacts,
+    );
+
+    await expect(
+      service.prepareLearningCaptions(request),
+    ).rejects.toMatchObject({
+      code: 'CAPTION_LEASE_LOST',
+    });
+    expect(artifacts.published).toEqual([]);
+  });
+});
+
+class RecordingCaptionArtifacts implements CaptionArtifactRepository {
+  sttApproved = false;
+  acceptAppend = true;
+  batches: Array<Pick<CaptionSegmentBatch, 'artifactId' | 'segments'>> = [];
+  published: string[] = [];
+  failures: string[] = [];
+  events: string[] = [];
+  committedCosts: number[] = [];
+  private nextId = 1;
+
+  hasActiveSttApproval(): Promise<boolean> {
+    return Promise.resolve(this.sttApproved);
+  }
+
+  createGeneration(input: {
+    kind: 'youtube_caption' | 'transcription' | 'translation';
+    parentArtifactId?: string;
+    sourceLanguage: string;
+    targetLanguage?: string;
+    request: CaptionPipelineRequest;
+  }): Promise<CaptionGeneration> {
+    const id = String(this.nextId++);
+    this.events.push(`create:${input.kind}:${id}`);
+    return Promise.resolve({ id, generation: this.nextId - 1 });
+  }
+
+  appendSegments(input: CaptionSegmentBatch): Promise<boolean> {
+    this.events.push(`append:${input.artifactId}:${input.segments.length}`);
+    this.batches.push({
+      artifactId: input.artifactId,
+      segments: input.segments,
+    });
+    return Promise.resolve(this.acceptAppend);
+  }
+
+  publishGeneration(input: {
+    artifactId: string;
+    request: CaptionPipelineRequest;
+  }): Promise<boolean> {
+    this.events.push(`publish:${input.artifactId}`);
+    if (this.acceptAppend) this.published.push(input.artifactId);
+    return Promise.resolve(this.acceptAppend);
+  }
+
+  failGeneration(input: { errorCode: string }): Promise<void> {
+    this.failures.push(input.errorCode);
+    return Promise.resolve();
+  }
+
+  commitWork(input: { actualCostMicrounits: number }): Promise<void> {
+    this.committedCosts.push(input.actualCostMicrounits);
+    return Promise.resolve();
+  }
+}

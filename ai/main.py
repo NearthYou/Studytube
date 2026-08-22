@@ -294,6 +294,11 @@ def youtube_captions_endpoint(payload: dict[str, Any]):
     return load_translated_captions(payload)
 
 
+@app.post("/youtube/transcribe")
+def youtube_transcribe_endpoint(payload: dict[str, Any]):
+    return transcribe_youtube_audio(payload)
+
+
 @app.post("/youtube/summary")
 def youtube_summary_endpoint(payload: dict[str, Any]):
     return build_youtube_summary(payload)
@@ -788,6 +793,8 @@ def load_translated_captions_uncached(
                     "sourceLanguage": source_language,
                     "translated": False,
                     "segments": source_segments,
+                    "sourceSegments": source_segments,
+                    "translatedSegments": [],
                     "message": "YouTube source timed-text captions loaded.",
                 }
 
@@ -810,6 +817,8 @@ def load_translated_captions_uncached(
                     "sourceLanguage": source_language,
                     "translated": True,
                     "segments": translated_segments,
+                    "sourceSegments": source_segments,
+                    "translatedSegments": translated_segments,
                     "message": "YouTube source caption window translated for live playback.",
                 }
 
@@ -899,6 +908,8 @@ def load_translated_captions_uncached(
                     "sourceLanguage": source_language or "youtube",
                     "translated": True,
                     "segments": translated_segments,
+                    "sourceSegments": normalized_segments,
+                    "translatedSegments": translated_segments,
                     "message": "YouTube timed-text caption window translated for live playback.",
                 }
 
@@ -926,6 +937,12 @@ def load_translated_captions_uncached(
             "sourceLanguage": source_language,
             "translated": source_language != target_language,
             "segments": normalized_segments,
+            "sourceSegments": (
+                [] if source_language != target_language else normalized_segments
+            ),
+            "translatedSegments": (
+                normalized_segments if source_language != target_language else []
+            ),
             "message": "YouTube timed-text captions loaded for live playback.",
         }
     except Exception as exc:
@@ -1054,6 +1071,125 @@ def read_caption_response_cache(cache_key: str) -> dict[str, Any] | None:
     return copy.deepcopy(response)
 
 
+STT_MODEL_SNAPSHOT = "gpt-4o-mini-transcribe-2025-12-15"
+
+
+def transcribe_youtube_audio(
+    payload: dict[str, Any],
+    *,
+    adapter: Any | None = None,
+) -> dict[str, Any]:
+    """Run only an explicitly enabled, approved adapter.
+
+    Production intentionally supplies no adapter until the separate cost approval
+    is deployed. Tests inject a fake adapter; this function never acquires media or
+    uploads audio itself.
+    """
+    video_id = str(payload.get("videoId") or "").strip()
+    model = str(payload.get("model") or "").strip()
+    duration_seconds = normalize_transcription_duration(
+        payload.get("durationSeconds")
+    )
+    capability = payload.get("mediaCapability")
+    capability = capability if isinstance(capability, dict) else {}
+
+    capability_error = transcription_capability_error(
+        capability,
+        duration_seconds,
+    )
+    if capability_error:
+        return transcription_failure(capability_error)
+    if not re.fullmatch(r"[A-Za-z0-9_-]{11}", video_id):
+        return transcription_failure("TRANSCRIPTION_PROVIDER_UNAVAILABLE")
+    if model != STT_MODEL_SNAPSHOT:
+        return transcription_failure("STT_DISABLED")
+    if (
+        os.getenv("STT_PROVIDER_ENABLED", "").strip().casefold() != "true"
+        or not os.getenv("STT_COST_APPROVAL_ID", "").strip()
+        or adapter is None
+    ):
+        return transcription_failure("STT_DISABLED")
+
+    adapter_request = {
+        "videoId": video_id,
+        "durationSeconds": int(duration_seconds or 0),
+        "model": STT_MODEL_SNAPSHOT,
+    }
+    try:
+        raw = adapter(adapter_request)
+        value = raw if isinstance(raw, dict) else {}
+        raw_segments = value.get("segments")
+        segments = normalize_caption_segments(
+            raw_segments if isinstance(raw_segments, list) else []
+        )
+        if not segments:
+            return transcription_failure("TRANSCRIPTION_PROVIDER_UNAVAILABLE")
+        return {
+            "provider": "fake-transcription",
+            "status": "ready",
+            "sourceLanguage": normalize_language(
+                str(value.get("sourceLanguage") or "")
+            )
+            or "und",
+            "segments": segments,
+            "translatedSegments": normalize_caption_segments(
+                value.get("translatedSegments")
+                if isinstance(value.get("translatedSegments"), list)
+                else []
+            ),
+            "errorCode": "",
+        }
+    except Exception:
+        return transcription_failure("TRANSCRIPTION_PROVIDER_UNAVAILABLE")
+
+
+def transcription_capability_error(
+    capability: dict[str, Any],
+    duration_seconds: float | None,
+) -> str:
+    if capability.get("isLive") is True:
+        return "VIDEO_LIVE_UNSUPPORTED"
+    if str(capability.get("restriction") or "").strip():
+        return "VIDEO_RESTRICTED"
+    if capability.get("authenticationRequired") is True:
+        return "VIDEO_AUTH_REQUIRED"
+    capability_duration_value = capability.get("durationSeconds")
+    if capability_duration_value is not None and not normalize_transcription_duration(
+        capability_duration_value
+    ):
+        return "VIDEO_TOO_LONG"
+    capability_duration = normalize_transcription_duration(capability_duration_value)
+    effective_duration = capability_duration or duration_seconds
+    if not effective_duration or effective_duration > 14_400:
+        return "VIDEO_TOO_LONG"
+    return ""
+
+
+def normalize_transcription_duration(value: Any) -> float | None:
+    try:
+        duration = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(duration) or duration <= 0 or duration > 14_400:
+        return None
+    return round(duration, 3)
+
+
+def transcription_failure(error_code: str) -> dict[str, Any]:
+    return {
+        "provider": "stt-disabled"
+        if error_code in ("STT_DISABLED", "STT_NOT_APPROVED")
+        else "transcription-unavailable",
+        "status": "disabled"
+        if error_code in ("STT_DISABLED", "STT_NOT_APPROVED")
+        else "failed",
+        "sourceLanguage": "",
+        "segments": [],
+        "translatedSegments": [],
+        "errorCode": error_code,
+    }
+
+
 def write_caption_response_cache(
     cache_key: str,
     response: dict[str, Any],
@@ -1162,6 +1298,8 @@ def run_caption_translation_job(
                     "sourceLanguage": normalize_language(source_language) or "youtube",
                     "translated": True,
                     "segments": translated_segments,
+                    "sourceSegments": normalize_caption_segments(segments),
+                    "translatedSegments": translated_segments,
                     "message": "Source captions translated in the background.",
                 },
             )
@@ -2385,8 +2523,12 @@ def yt_dlp_secret_config_args():
         text=True,
     )
     try:
-        os.fchmod(descriptor, 0o600)
+        if hasattr(os, "fchmod"):
+            os.fchmod(descriptor, 0o600)
+        else:
+            os.chmod(config_path, 0o600)
         with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as config_file:
+            descriptor = -1
             for index in range(0, len(sensitive_args), 2):
                 option = sensitive_args[index]
                 value = sensitive_args[index + 1]
@@ -2395,6 +2537,8 @@ def yt_dlp_secret_config_args():
             os.fsync(config_file.fileno())
         yield ["--config-locations", config_path]
     finally:
+        if descriptor >= 0:
+            os.close(descriptor)
         try:
             os.unlink(config_path)
         except FileNotFoundError:
@@ -3271,6 +3415,8 @@ def transcript_api_caption_response(
                 "sourceLanguage": source_language or "youtube",
                 "translated": True,
                 "segments": translated_segments,
+                "sourceSegments": normalized_segments,
+                "translatedSegments": translated_segments,
                 "message": "YouTube transcript captions translated for live playback.",
             }
 
@@ -3282,6 +3428,8 @@ def transcript_api_caption_response(
         "sourceLanguage": source_language or "youtube",
         "translated": translated,
         "segments": normalized_segments,
+        "sourceSegments": [] if translated else normalized_segments,
+        "translatedSegments": normalized_segments if translated else [],
         "message": "YouTube transcript API captions loaded for live playback.",
     }
 
@@ -3321,6 +3469,8 @@ def yt_dlp_caption_response(
                 "sourceLanguage": normalized_source_language,
                 "translated": True,
                 "segments": translated_segments,
+                "sourceSegments": normalized_segments,
+                "translatedSegments": translated_segments,
                 "message": "yt-dlp source caption window translated for live playback.",
             }
 
@@ -3348,6 +3498,8 @@ def yt_dlp_caption_response(
         "sourceLanguage": normalized_source_language,
         "translated": translated,
         "segments": normalized_segments,
+        "sourceSegments": [] if translated else normalized_segments,
+        "translatedSegments": normalized_segments if translated else [],
         "message": "yt-dlp captions loaded for live playback.",
     }
 
@@ -3367,6 +3519,8 @@ def source_caption_response(
         "sourceLanguage": normalize_language(source_language) or "youtube",
         "translated": False,
         "segments": normalize_caption_segments(segments),
+        "sourceSegments": normalize_caption_segments(segments),
+        "translatedSegments": [],
         "message": message,
     }
 

@@ -16,6 +16,7 @@ import {
 
 describe('LearningItemService intake boundary', () => {
   it('persists a context only after cost admission succeeds', async () => {
+    const attachContext = jest.fn().mockResolvedValue(true);
     const reserve = jest.fn().mockResolvedValue({
       reservationId: '41',
       workId: '8f8de73b-6f6a-42a4-a550-a515b4206cb1',
@@ -33,7 +34,10 @@ describe('LearningItemService intake boundary', () => {
       learningItem: { id: '12' },
       studyContext: { id: '13' },
     });
-    const service = await createService({ reserve }, { ensureContext });
+    const service = await createService(
+      { reserve, attachContext },
+      { ensureContext },
+    );
 
     const result = await service.start(7, {
       videoUrl: 'https://youtu.be/dQw4w9WgXcQ',
@@ -53,6 +57,7 @@ describe('LearningItemService intake boundary', () => {
       }),
     );
     expect(ensureContext).toHaveBeenCalledTimes(1);
+    expect(attachContext).toHaveBeenCalledWith(7, '41', '13');
   });
 
   it('does not create learning data when cost admission is unavailable', async () => {
@@ -252,13 +257,21 @@ describe('SessionGuard learning boundary', () => {
 
 async function createService(
   budget: Pick<ProviderBudgetRepository, 'reserve'> &
-    Partial<Pick<ProviderBudgetRepository, 'releaseSubscription'>>,
+    Partial<
+      Pick<ProviderBudgetRepository, 'releaseSubscription' | 'attachContext'>
+    >,
   items: Pick<LearningItemRepository, 'ensureContext'>,
 ): Promise<LearningItemService> {
   const module = await Test.createTestingModule({
     providers: [
       LearningItemService,
-      { provide: PROVIDER_BUDGET_REPOSITORY, useValue: budget },
+      {
+        provide: PROVIDER_BUDGET_REPOSITORY,
+        useValue: {
+          attachContext: jest.fn().mockResolvedValue(true),
+          ...budget,
+        },
+      },
       { provide: LEARNING_ITEM_REPOSITORY, useValue: items },
     ],
   }).compile();

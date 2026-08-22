@@ -20,6 +20,11 @@ export interface ProviderBudgetRepository {
   reserve(
     command: ReserveProviderWorkCommand,
   ): Promise<ProviderBudgetReservation>;
+  attachContext(
+    userId: number,
+    reservationId: string,
+    studyContextId: string,
+  ): Promise<boolean>;
   commitWork(workId: string, actualCostMicrounits: number): Promise<boolean>;
   releaseSubscription(userId: number, reservationId: string): Promise<boolean>;
 }

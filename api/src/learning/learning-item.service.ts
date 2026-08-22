@@ -35,6 +35,12 @@ export class LearningItemService {
         courseStepId: null,
         provenance: { origin: 'direct_intake' },
       });
+      const attached = await this.budget.attachContext(
+        userId,
+        reservation.reservationId,
+        context.studyContext.id,
+      );
+      if (!attached) throw new LearningIntakeContextAttachError();
     } catch (error) {
       if (!reservation.subscriptionCreated) throw error;
       try {
@@ -63,5 +69,13 @@ export class LearningIntakeCompensationError extends Error {
 
   constructor() {
     super('LEARNING_INTAKE_COMPENSATION_FAILED');
+  }
+}
+
+export class LearningIntakeContextAttachError extends Error {
+  readonly code = 'LEARNING_INTAKE_CONTEXT_ATTACH_FAILED';
+
+  constructor() {
+    super('LEARNING_INTAKE_CONTEXT_ATTACH_FAILED');
   }
 }

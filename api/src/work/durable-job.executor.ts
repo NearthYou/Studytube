@@ -20,6 +20,10 @@ export type DurableJobExhaustion = {
   attemptsMade: number;
 };
 
+export type DurableJobLease = Readonly<{
+  leaseToken: string;
+}>;
+
 type JobHeartbeat = {
   signal: AbortSignal;
   stop(): Promise<boolean>;
@@ -40,7 +44,10 @@ export class DurableJobExecutor {
 
   async execute(
     key: JobExecutionKey,
-    task: (signal: AbortSignal) => Promise<Record<string, unknown>>,
+    task: (
+      signal: AbortSignal,
+      lease: DurableJobLease,
+    ) => Promise<Record<string, unknown>>,
     exhaustion?: DurableJobExhaustion,
   ): Promise<Record<string, unknown>> {
     const acquisition = await this.store.acquire(
@@ -58,7 +65,9 @@ export class DurableJobExecutor {
     const heartbeat = this.startHeartbeat(key, acquisition.leaseToken);
     let result: Record<string, unknown>;
     try {
-      result = await task(heartbeat.signal);
+      result = await task(heartbeat.signal, {
+        leaseToken: acquisition.leaseToken,
+      });
     } catch (error) {
       const leaseLost = await heartbeat.stop();
       if (leaseLost) {

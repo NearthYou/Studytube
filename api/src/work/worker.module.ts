@@ -51,7 +51,11 @@ import type { JobExecutionStore } from './job-execution.store';
     {
       provide: VideoAssetService,
       useFactory: (database: DatabaseService, aiProxy: AiProxyService) =>
-        new VideoAssetService(database, aiProxy),
+        new VideoAssetService(
+          database,
+          aiProxy,
+          database.getCaptionArtifactRepository(),
+        ),
       inject: [DatabaseService, AiProxyService],
     },
     {

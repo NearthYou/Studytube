@@ -1,8 +1,12 @@
 # StudyTube backend architecture evidence
 
-This directory supplies the code-to-test evidence requested by [GitHub issue #5](https://github.com/NearthYou/studytube/issues/5). Each diagram has an editable Mermaid source and a rendered SVG with the same basename. The sections below connect every architectural claim to its implementation and verification anchors.
+This directory supplies the code-to-test evidence requested by [GitHub issue #5](https://github.com/NearthYou/studytube/issues/5). Each diagram has an editable Mermaid source and a rendered SVG with the same basename.
 
-These are structural design artifacts, not production measurement results. They do not claim current public deployment health, DNS convergence, throughput, latency, queue lag, or recovery duration. The learning thresholds shown below are product rules, not observed service metrics.
+The sections below connect every architectural claim to its implementation and verification anchors.
+
+These are structural design artifacts, not production measurement results. They do not claim current public deployment health, DNS convergence, throughput, latency, queue lag, or recovery duration.
+
+The learning thresholds shown below are product rules, not observed service metrics.
 
 ## Evidence index
 
@@ -26,7 +30,11 @@ The enrollment path deliberately separates proof of mailbox ownership from crede
 2. A lease-based worker reconstructs the versioned token from the pending-registration identity and server pepper, verifies the frozen payload hash, and sends through the configured provider.
 3. Consuming the verification link installs a digest-backed, expiring enrollment cookie. Registration readiness and completion use that cookie. Completion creates the user and first digest-backed session atomically, then replaces the enrollment cookie with the session cookie.
 
-The SES v2 `EmailTags` value is a stable, non-secret correlation tag. It is not provider idempotency. If SES accepts a message but the worker loses the response or cannot acknowledge PostgreSQL before losing its lease, the row can be reclaimed and the email can be sent again. A duplicate contains the same expiring, single-use verification token, so delivery is at-least-once while token consumption remains single-use.
+The SES v2 `EmailTags` value is a stable, non-secret correlation tag. It is not provider idempotency.
+
+If SES accepts a message but the worker loses the response or cannot acknowledge PostgreSQL before losing its lease, the row can be reclaimed and the email can be sent again.
+
+A duplicate contains the same expiring, single-use verification token, so delivery is at-least-once while token consumption remains single-use.
 
 | Claim | Implementation evidence | Verification evidence |
 | --- | --- | --- |
@@ -39,9 +47,17 @@ The SES v2 `EmailTags` value is a stable, non-secret correlation tag. It is not 
 
 ![Course aggregate expand-contract cutover](./course-expand-contract-cutover.svg)
 
-The Course schema is introduced additively before native Course traffic is activated. The backfill transforms one legacy playlist aggregate at a time, writes source and target fingerprints into the audit trail, and can skip an aggregate only when the fingerprints still match. The shadow verifier checks counts, ordered snapshots, feedback, and identifier sequences.
+The Course schema is introduced additively before native Course traffic is activated.
 
-Cutover uses three explicit modes. `legacy` admits legacy mutation routes, `freeze` rejects both mutation families while admitted writers drain, and `course` admits Course writers while retiring legacy mutation routes. Shared writer leases and the cutover's exclusive advisory lease close the gap between the final delta backfill and activation. Before the first native Course write, retained legacy tables support audit and bounded rollback. After activation, recovery is freeze and roll forward so stale legacy data cannot overwrite native edits.
+The backfill transforms one legacy playlist aggregate at a time, writes source and target fingerprints into the audit trail, and can skip an aggregate only when the fingerprints still match.
+
+The shadow verifier checks counts, ordered snapshots, feedback, and identifier sequences.
+
+Cutover uses three explicit modes. `legacy` admits legacy mutation routes, `freeze` rejects both mutation families while admitted writers drain, and `course` admits Course writers while retiring legacy mutation routes.
+
+Shared writer leases and the cutover's exclusive advisory lease close the gap between the final delta backfill and activation. Before the first native Course write, retained legacy tables support audit and bounded rollback.
+
+After activation, recovery is freeze and roll forward so stale legacy data cannot overwrite native edits.
 
 | Claim | Implementation evidence | Verification evidence |
 | --- | --- | --- |
@@ -53,9 +69,15 @@ Cutover uses three explicit modes. `legacy` admits legacy mutation routes, `free
 
 ![PostgreSQL outbox to BullMQ state transition](./outbox-bullmq-state-transition.svg)
 
-Domain mutations append `work_outbox_events` in their database transaction. A relay claims available rows with `FOR UPDATE SKIP LOCKED`, gives each claim a lease token, and publishes a retained BullMQ job whose ID combines the event identity with the handler version. PostgreSQL acknowledgement succeeds only for the current lease holder. A relay crash after queue acceptance therefore leaves a reclaimable row; republishing the same retained job ID converges on the same logical queue job.
+Domain mutations append `work_outbox_events` in their database transaction.
 
-Workers address results by `(event_id, handler_version)`. An already persisted result short-circuits duplicate handling, and PostgreSQL uniqueness chooses one canonical result when deliveries race. This is an at-least-once design. The result table and retained job identity do not provide exactly-once guarantees for arbitrary external side effects, so each handler still owns an explicit duplicate-safety contract.
+A relay claims available rows with `FOR UPDATE SKIP LOCKED`, gives each claim a lease token, and publishes a retained BullMQ job whose ID combines the event identity with the handler version.
+
+PostgreSQL acknowledgement succeeds only for the current lease holder. A relay crash after queue acceptance therefore leaves a reclaimable row; republishing the same retained job ID converges on the same logical queue job.
+
+Workers address results by `(event_id, handler_version)`. An already persisted result short-circuits duplicate handling, and PostgreSQL uniqueness chooses one canonical result when deliveries race. This is an at-least-once design.
+
+The result table and retained job identity do not provide exactly-once guarantees for arbitrary external side effects, so each handler still owns an explicit duplicate-safety contract.
 
 | Claim | Implementation evidence | Verification evidence |
 | --- | --- | --- |
@@ -67,9 +89,17 @@ Workers address results by `(event_id, handler_version)`. An already persisted r
 
 ![Hybrid retrieval, RRF, and visibility](./hybrid-retrieval-rrf-visibility.svg)
 
-Lexical and vector candidate paths both apply owner scope to private pools and independently admit eligible public pools. Each candidate is joined back to the authoritative post or Course step so owner, visibility, lifecycle status, and source version must still match. That authoritative join prevents a stale or orphaned chunk from becoming visible before cleanup finishes.
+Lexical and vector candidate paths both apply owner scope to private pools and independently admit eligible public pools.
 
-Lexical candidates use trigram similarity order. Vector candidates use strict cosine-distance order compatible with the vector index. Reciprocal rank fusion combines both ranks by chunk identity, the highest scoring chunk is selected per source, and the caller's private results fill the requested limit before public results. Returned citations identify the matched chunk, source URL, and source timestamp.
+Each candidate is joined back to the authoritative post or Course step so owner, visibility, lifecycle status, and source version must still match.
+
+That authoritative join prevents a stale or orphaned chunk from becoming visible before cleanup finishes.
+
+Lexical candidates use trigram similarity order. Vector candidates use strict cosine-distance order compatible with the vector index.
+
+Reciprocal rank fusion combines both ranks by chunk identity, the highest scoring chunk is selected per source, and the caller's private results fill the requested limit before public results.
+
+Returned citations identify the matched chunk, source URL, and source timestamp.
 
 | Claim | Implementation evidence | Verification evidence |
 | --- | --- | --- |
@@ -83,11 +113,19 @@ No retrieval quality score or latency claim is inferred from this diagram. Those
 
 ![AgentRun and learning state machine](./agent-learning-state-machine.svg)
 
-An AgentRun is claimed as a leased attempt. Before the processor starts a paid recommendation call, the repository locks the leased run and attempt, validates cumulative usage against the immutable run-level limits, and atomically reserves tool-call, token, and estimated-cost usage. The returned lifetime wall-time deadline bounds the call. Retries append attempts but reconcile against cumulative run usage, so they cannot reset the original budget.
+An AgentRun is claimed as a leased attempt.
 
-A grounded plan moves to `awaiting_approval`. Approval creates and publishes the Course, materializes cited step snapshots, creates the asynchronous work items, and appends their outbox events in one transaction. Settlement drives the approved run to `completed` only after every required work item succeeds, or to `failed` when a required work item fails. Retry after approval requeues failed materialization work instead of creating a second Course.
+Before the processor starts a paid recommendation call, the repository locks the leased run and attempt, validates cumulative usage against the immutable run-level limits, and atomically reserves tool-call, token, and estimated-cost usage.
 
-Learning progress stores idempotent raw intervals, takes a user-and-step advisory lock, clips and merges ranges, and derives coverage without double counting. Published quizzes contain exactly five cited questions. Attempts are serialized per user and quiz, answers remain private, and the best score is retained. Completion is a server-side product rule: watched coverage at least 80 percent and best quiz score at least 70 percent.
+The returned lifetime wall-time deadline bounds the call. Retries append attempts but reconcile against cumulative run usage, so they cannot reset the original budget.
+
+A grounded plan moves to `awaiting_approval`. Approval creates and publishes the Course, materializes cited step snapshots, creates the asynchronous work items, and appends their outbox events in one transaction.
+
+Settlement drives the approved run to `completed` only after every required work item succeeds, or to `failed` when a required work item fails. Retry after approval requeues failed materialization work instead of creating a second Course.
+
+Learning progress stores idempotent raw intervals, takes a user-and-step advisory lock, clips and merges ranges, and derives coverage without double counting. Published quizzes contain exactly five cited questions.
+
+Attempts are serialized per user and quiz, answers remain private, and the best score is retained. Completion is a server-side product rule: watched coverage at least 80 percent and best quiz score at least 70 percent.
 
 | Claim | Implementation evidence | Verification evidence |
 | --- | --- | --- |
@@ -100,7 +138,13 @@ Learning progress stores idempotent raw intervals, takes a user-and-step advisor
 
 ![Course writer concurrency lock timeline](./course-concurrency-lock-timeline.svg)
 
-Every aggregate mutation locks the same Course root row before checking the expected aggregate version and lifecycle invariants. The concurrency test holds that root lock, starts two incompatible version-1 writers, observes both waiting at PostgreSQL, and then releases the blocker. Whichever contender PostgreSQL admits first performs the single valid mutation and increments the aggregate version. The second contender reads the new version and exits without a second mutation. The winner is intentionally nondeterministic; the invariant is one version increment and one valid final aggregate state.
+Every aggregate mutation locks the same Course root row before checking the expected aggregate version and lifecycle invariants.
+
+The concurrency test holds that root lock, starts two incompatible version-1 writers, observes both waiting at PostgreSQL, and then releases the blocker.
+
+Whichever contender PostgreSQL admits first performs the single valid mutation and increments the aggregate version. The second contender reads the new version and exits without a second mutation.
+
+The winner is intentionally nondeterministic; the invariant is one version increment and one valid final aggregate state.
 
 | Claim | Implementation evidence | Verification evidence |
 | --- | --- | --- |
@@ -111,9 +155,17 @@ Every aggregate mutation locks the same Course root row before checking the expe
 
 ![Relay and worker recovery timeline](./worker-kill-duplicate-recovery-timeline.svg)
 
-The first half of the timeline covers a relay dying after BullMQ accepts a job but before PostgreSQL records publication. Lease expiry allows another relay to claim the event, and the deterministic retained job ID converges on the same logical job. The second half covers a worker process being killed during handling. BullMQ can deliver the logical job again after lock expiry or retry, and the replacement worker checks the durable result key before handling it.
+The first half of the timeline covers a relay dying after BullMQ accepts a job but before PostgreSQL records publication.
 
-If the first worker committed a result before process loss, the replacement returns it without repeating handler work. If no result exists, the replacement may perform the work again and PostgreSQL uniqueness selects one result. This proves an at-least-once convergence boundary, not exactly-once external effects. The separately polled verification-email outbox does not use BullMQ, but has an analogous accepted-before-ack window: a retry can resend the same expiring, single-use token with the same non-secret correlation tag.
+Lease expiry allows another relay to claim the event, and the deterministic retained job ID converges on the same logical job. The second half covers a worker process being killed during handling.
+
+BullMQ can deliver the logical job again after lock expiry or retry, and the replacement worker checks the durable result key before handling it.
+
+If the first worker committed a result before process loss, the replacement returns it without repeating handler work. If no result exists, the replacement may perform the work again and PostgreSQL uniqueness selects one result.
+
+This proves an at-least-once convergence boundary, not exactly-once external effects.
+
+The separately polled verification-email outbox does not use BullMQ, but has an analogous accepted-before-ack window: a retry can resend the same expiring, single-use token with the same non-secret correlation tag.
 
 | Claim | Implementation evidence | Verification evidence |
 | --- | --- | --- |
@@ -124,7 +176,9 @@ If the first worker committed a result before process loss, the replacement retu
 
 ## Reproduce and verify the rendered artifacts
 
-The rendering script pins `@mermaid-js/mermaid-cli` to `11.16.0`; the repository does not depend on whichever Mermaid CLI happens to be installed globally. [`mermaid.config.json`](./mermaid.config.json) fixes strict SVG rendering, font selection, and deterministic IDs.
+The rendering script pins `@mermaid-js/mermaid-cli` to `11.16.0`; the repository does not depend on whichever Mermaid CLI happens to be installed globally.
+
+[`mermaid.config.json`](./mermaid.config.json) fixes strict SVG rendering, font selection, and deterministic IDs.
 
 From the repository root, regenerate every SVG:
 
@@ -138,6 +192,12 @@ Verify that every committed SVG is byte-for-byte current with its Mermaid source
 powershell -NoProfile -ExecutionPolicy Bypass -File docs/evidence/architecture/render.ps1 -Check
 ```
 
-[`render.ps1`](./render.ps1) discovers all `.mmd` files in this directory, rejects orphaned SVG artifacts, renders each source to a same-basename `.svg`, checks that the output is a complete SVG, and in `-Check` mode compares SHA-256 hashes from a safely isolated temporary directory. The first invocation can populate the local npm cache for the pinned CLI.
+[`render.ps1`](./render.ps1) discovers all `.mmd` files in this directory, rejects orphaned SVG artifacts, renders each source to a same-basename `.svg`, and checks that the output is a complete SVG.
 
-Database-backed end-to-end specs require the repository's PostgreSQL and Valkey test dependencies. The links above identify the narrowest unit and integration evidence for each diagram; passing tests demonstrate the coded contract, while real service health and timing still require separately captured deployment evidence.
+`-Check` mode renders in a safely isolated temporary directory and compares SHA-256 hashes with the committed SVG files.
+
+The first invocation can populate the local npm cache for the pinned CLI.
+
+Database-backed end-to-end specs require the repository's PostgreSQL and Valkey test dependencies.
+
+The links above identify the narrowest unit and integration evidence for each diagram; passing tests demonstrate the coded contract, while real service health and timing still require separately captured deployment evidence.

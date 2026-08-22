@@ -89,7 +89,9 @@
 | `thresholds` | object | 각 k6 임계값의 통과 여부 |
 | `retention` | object | 자격 증명, 응답 본문, Cookie 미보존 확인 |
 
-세션 cookie는 환경에서 각 VU의 명시적 request header로만 전달되며 setup return이나 k6 cookie jar를 거치지 않습니다. VU는 번호에 따라 세션 풀을 순환 배정받고 실행 중에는 같은 세션을 재사용합니다. summary에는 readiness URL, `preprovisioned-session` 방식과 풀 크기만 기록하고 session cookie 값과 자격 증명은 기록하지 않습니다. 스크립트가 로그인이나 로그아웃을 호출하지 않으므로 `latency.login`은 null입니다.
+세션 cookie는 환경에서 각 VU의 명시적 request header로만 전달되며 setup return이나 k6 cookie jar를 거치지 않습니다. VU는 번호에 따라 세션 풀을 순환 배정받고 실행 중에는 같은 세션을 재사용합니다. summary에는 readiness URL, `preprovisioned-session` 방식과 풀 크기만 기록하고 session cookie 값과 자격 증명은 기록하지 않습니다.
+
+스크립트가 로그인이나 로그아웃을 호출하지 않으므로 `latency.login`은 null입니다.
 
 ## 진도 쓰기 증거 스키마
 

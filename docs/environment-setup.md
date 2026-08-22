@@ -1,120 +1,72 @@
-# 개발 환경 세팅 기록
+# 개발 환경 설정
 
-이 저장소는 아직 어떤 서비스를 만들지 정하지 않은 상태에서, 클론 코딩으로 학습하기 위한 개발 환경만 준비한 것이다. 목표는 React, NestJS, FastAPI, PostgreSQL + pgvector를 각각 실행해 보고 서로 연결되는 구조를 이해하는 데 있다.
+StudyTube는 React Web, NestJS API, FastAPI AI service, PostgreSQL과 Valkey worker를 함께 실행하는 monorepo다.
 
-## 폴더 구조
+## 요구 버전
 
-```txt
-studytube/
-  web/                 React + Vite + TypeScript
-  api/                 NestJS
-  ai/                  FastAPI
-  docs/                환경 설명 문서
-  docs/study/          3일 학습 자료
-  docker-compose.yml   PostgreSQL + pgvector
-  .env.example         공통 환경변수 예시
-```
+- Node.js 24.8 이상
+- npm lockfile을 지원하는 npm
+- Python 3.12
+- Docker와 Docker Compose v2
+- Windows에서는 PowerShell 7 권장
 
-## 왜 이렇게 나눴는가
+CI는 Node.js 24와 Python 3.12를 사용한다. 로컬 version이 다르면 dependency와 type 결과가 달라질 수 있다.
 
-- `web`: 화면을 담당한다. React와 TypeScript 문법, 라우팅, API 호출 연습에 집중한다.
-- `api`: 메인 백엔드 역할을 연습한다. NestJS의 Controller, Service, Module 구조를 익힌다.
-- `ai`: Python 기반 AI 서버 역할을 연습한다. FastAPI, Pydantic, 외부 API 호출, 추후 OpenAI API 사용법을 익힌다.
-- `postgres`: 데이터베이스를 Docker로만 띄운다. 로컬 설치 문제를 줄이고, pgvector까지 같은 환경에서 연습한다.
-- `docs/study`: 3일 안에 따라칠 수 있는 학습 순서만 남긴다.
+## 설치
 
-## 현재 로컬 도구
-
-현재 확인된 환경은 다음과 같다.
-
-```txt
-Node.js 24.14.1
-npm 11.15.0
-Docker 29.4.3
-Python 3.14 / 3.13 / 3.10 설치됨
-```
-
-Python 패키지 호환성을 위해 FastAPI 가상환경은 `py -3.13`으로 만드는 것을 기본값으로 잡았다. 문제가 생기면 `py -3.10`으로 바꿔도 된다.
-
-## 처음 실행 순서
-
-Windows PowerShell 기준이다.
+root 환경 파일을 만든다. 실제 secret은 commit하지 않는다.
 
 ```powershell
-npm.cmd --prefix web install
-npm.cmd --prefix api install
-
-py -3.13 -m venv ai\.venv
-ai\.venv\Scripts\python.exe -m pip install --upgrade pip
-ai\.venv\Scripts\python.exe -m pip install -r ai\requirements.txt
+Copy-Item .env.example .env
+npm --prefix api ci
+npm --prefix web ci
+python -m venv ai/.venv
+ai/.venv/Scripts/python.exe -m pip install --require-hashes -r ai/requirements.txt
 ```
 
-환경변수 예시는 필요할 때 복사한다.
+## PostgreSQL과 Valkey
 
 ```powershell
-Copy-Item web\.env.example web\.env
-Copy-Item api\.env.example api\.env
-Copy-Item ai\.env.example ai\.env
+npm run db:up
+npm run db:migrate:up
 ```
 
-DB 실행:
+`docker compose ps`에서 PostgreSQL과 Valkey가 ready인지 확인한다. migration은 공유 database가 아닌 로컬 development database에서 실행한다.
+
+## 서비스 시작 순서
 
 ```powershell
-npm.cmd run db:up
+npm run dev:ai
+npm run dev:api
+npm run dev:web
 ```
 
-서버 실행:
+세 command는 별도 terminal에서 실행한다. root의 `npm run all`은 local helper로 같은 service를 함께 시작한다.
+
+| service | address |
+| --- | --- |
+| Web | `http://127.0.0.1:5173` |
+| API | `http://127.0.0.1:3000` |
+| AI | `http://127.0.0.1:8000` |
+
+Background worker는 API build 뒤 별도 process로 실행한다.
 
 ```powershell
-npm.cmd run dev:ai
-npm.cmd run dev:api
-npm.cmd run dev:web
+npm --prefix api run build
+npm --prefix api run start:worker
 ```
 
-각 명령은 별도 터미널에서 실행한다.
+## 확인 순서
 
-## 확인 주소
-
-```txt
-React:   http://localhost:5173
-NestJS:  http://localhost:3000/health
-AI:      http://localhost:8000/health
-DB API:  http://localhost:3000/health/db
-AI Proxy:http://localhost:3000/health/ai
-AI DB:   http://localhost:8000/health/db
-```
-
-## 지금 구현된 범위
-
-지금은 서비스 기능을 만들지 않았다.
-
-- React 앱 실행 가능
-- NestJS `/health`, `/health/ai`, `/health/db`
-- FastAPI `/health`, `/health/db`
-- PostgreSQL + pgvector Docker 환경
-- Prisma 학습용 기본 스키마
-
-게시판, 로그인, 댓글, 검색, RAG, MCP, Agent는 아직 구현하지 않는다. 서비스 주제가 정해진 뒤 필요한 만큼 붙인다.
+1. API와 AI health endpoint를 확인한다.
+2. migration status를 확인한다.
+3. Web에서 login 또는 signup page가 render되는지 확인한다.
+4. test account와 격리 database가 있을 때만 authenticated learning flow를 실행한다.
 
 ## 자주 막히는 부분
 
-PowerShell에서 `npm`이 막히면 `npm.cmd`를 쓴다.
+PowerShell execution policy가 `npm.ps1`을 막으면 `npm.cmd`를 직접 실행한다. 가상환경 activation이 막히면 `ai/.venv/Scripts/python.exe`를 직접 사용한다.
 
-```powershell
-npm.cmd run dev:web
-```
+PostgreSQL port를 바꿨다면 `.env`의 `DATABASE_URL`도 같은 host port로 바꾼다. 원격 Docker context와 production database를 local drill 대상으로 사용하지 않는다.
 
-Python 가상환경 활성화가 막히면 활성화하지 말고 Python 실행 파일을 직접 쓴다.
-
-```powershell
-ai\.venv\Scripts\python.exe -m uvicorn main:app --reload --app-dir ai --port 8000
-```
-
-PostgreSQL 포트가 이미 사용 중이면 `docker-compose.yml`의 왼쪽 포트를 바꾼다.
-
-```yaml
-ports:
-  - "5433:5432"
-```
-
-이 경우 `.env`의 `DATABASE_URL`도 `localhost:5433`으로 바꿔야 한다.
+`OPENAI_API_KEY`가 없으면 외부 model이 필요한 기능은 실행되지 않는다. STT production path는 key만으로 활성화되지 않으며 별도 비용 승인과 deployment gate가 필요하다.

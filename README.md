@@ -6,6 +6,12 @@ StudyTube는 외국어 YouTube 영상을 자막, 메모, 퀴즈, 다음 학습 �
 - 저장소: [github.com/NearthYou/studytube](https://github.com/NearthYou/studytube)
 - API 계약: [api/openapi/current.json](api/openapi/current.json)
 
+| 현재 main의 로그인 화면 | 현재 main의 가입 시작 화면 |
+| --- | --- |
+| ![StudyTube 로그인 화면](docs/demo/current-login.jpg) | ![StudyTube 회원가입 화면](docs/demo/current-signup.jpg) |
+
+[자막 처리 E2E 영상](docs/demo/studytube-caption-e2e-2026-06-13T05-53-17-277Z.webm)은 실제 이전 interface를 기록한 자료다. 현재 main의 공개 인증 화면은 위와 같고, 새 학습 workspace는 API와 PostgreSQL이 필요한 인증 경로라 이번 문서 작업에서 새 end-to-end 영상을 만들지 않았다.
+
 ## 풀고 싶었던 문제
 
 YouTube에서 외국어 영상을 공부하면 재생 화면, 번역, 메모, 복습 자료가 서로 떨어진다. 무엇을 어디까지 봤는지 기억하기 어렵고, 다음 영상은 검색부터 다시 해야 한다. StudyTube는 이 흐름을 한 화면과 하나의 학습 기록으로 묶기 위해 시작했다.
@@ -77,9 +83,44 @@ flowchart LR
 | `operations` | 복원, 장애, 부하, Prometheus 규칙 검증 |
 | `infra`, `scripts` | Caddy, production runtime, immutable EC2 배포 |
 
+상세 class와 service 관계, durable work 흐름은 [아키텍처 문서](docs/architecture.md)에 있다.
+
+## 구현 관계
+
+```mermaid
+flowchart LR
+  LearningPage --> LearningWorkspace
+  LearningWorkspace --> Session[useLearningSession]
+  LearningWorkspace --> Quiz[useAdaptiveQuiz]
+  LearningWorkspace --> Proposal[useNextLearningProposal]
+  LearningWorkspace --> ApiClient[web api client]
+  ApiClient --> ItemController[LearningItemController]
+  ApiClient --> LearningController
+  ItemController --> ItemService[LearningItemService]
+  LearningController --> LearningService
+  ItemService --> PostgreSQL
+  LearningService --> PostgreSQL
+  LearningService --> Retrieval[RetrievalRepository]
+  PostgreSQL --> Outbox[OutboxRelayService]
+  Outbox --> Valkey
+  Valkey --> Worker[durable workers]
+  Worker --> MCP[MCP learning boundary]
+  MCP --> AI[FastAPI AI service]
+```
+
+Web hook은 화면 상태와 polling을 맡고 mutation 규칙은 API service에 남긴다. PostgreSQL transaction에서 학습 변경과 outbox event를 함께 기록하고, worker는 Valkey queue의 중복 delivery를 `DurableJobExecutor` 경계에서 수렴시킨다.
+
+## 팀 결과와 개인 기여
+
+StudyTube의 초기 게시판, 영상과 자막 흐름은 여러 contributor가 함께 만든 팀 프로젝트다. 현재 저장소의 guided learning, backend hardening과 배포 정리는 이시원이 후속 PR로 확장했지만 원래 제품 전체를 개인 단독 결과로 표시하지 않는다.
+
+PR과 source 기준의 구분은 [기여 문서](docs/contributions.md)에 있다.
+
 ## 현재 검증 범위
 
-이 redesign은 로컬 focused test와 production build를 먼저 통과시킨 뒤 전체 CI와 실제 배포를 확인한다. 다음 항목은 main 배포 후 별도로 기록하며 여기서는 완료로 간주하지 않는다.
+`c065bda`의 GitHub Actions에서 Security, Web, API, Backend Integration과 AI job은 통과했다. deployment는 AWS 임시 자격 증명 구성 단계에서 실패해 release upload와 SSM 배포가 실행되지 않았다. 따라서 이 commit이 현재 live service에 반영됐다고 쓰지 않는다.
+
+2026년 8월 23일 문서 branch에서 Web 216개, API 720개와 AI 126개 test가 통과했다. API 1개와 AI 6개는 environment 조건으로 skip됐다. Operations contract는 57개 assertion을 통과했고 Web과 API production dependency audit은 취약점 0건이었다.
 
 - 실제 도메인의 HTTPS와 TLS
 - 실제 가입부터 Course 승인까지의 브라우저 흐름
@@ -130,3 +171,5 @@ pwsh ./operations/tests/Invoke-OperationsContractTests.ps1
 ```
 
 PostgreSQL E2E는 migration과 fixture를 바꾸므로 공유 database가 아닌 격리된 test database에서 실행해야 한다. 실행 방법은 [api/README.md](api/README.md), 운영 드릴은 [operations/README.md](operations/README.md)에 정리했다.
+
+전체 문서 안내와 최신 재검증 결과는 [docs/README.md](docs/README.md)에서 확인할 수 있다.

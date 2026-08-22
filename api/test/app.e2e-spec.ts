@@ -12,6 +12,7 @@ const DATABASE_URL =
 const WEB_ORIGIN =
   process.env.WEB_ORIGIN ?? 'https://app.studytube.example.test';
 const RUN_ID = randomUUID();
+const ORIGINAL_COURSE_CUTOVER_MODE = process.env.COURSE_CUTOVER_MODE;
 
 describe('application smoke with PostgreSQL (e2e)', () => {
   jest.setTimeout(30_000);
@@ -20,6 +21,7 @@ describe('application smoke with PostgreSQL (e2e)', () => {
   let pool: Pool;
 
   beforeAll(async () => {
+    process.env.COURSE_CUTOVER_MODE = 'course';
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
@@ -51,83 +53,82 @@ describe('application smoke with PostgreSQL (e2e)', () => {
       .expect(({ body }) => expect(body).toMatchObject(expected));
   });
 
-  it('persists representative board CRUD through a cookie principal', async () => {
+  it('persists representative Course CRUD and keeps retired board writes closed', async () => {
     const identity = await seedAuthenticatedUser(pool);
-    const initialVideoUrl = `https://example.com/e2e/${RUN_ID}/v1`;
-    const updatedVideoUrl = `https://example.com/e2e/${RUN_ID}/v2`;
+    const idempotencyKey = `smoke-${RUN_ID}`;
 
-    const created = await request(app.getHttpServer())
+    await request(app.getHttpServer())
       .post('/posts')
       .set('Origin', WEB_ORIGIN)
       .set('Cookie', identity.cookie)
+      .send({})
+      .expect(404);
+
+    const created = await request(app.getHttpServer())
+      .post('/courses')
+      .set('Origin', WEB_ORIGIN)
+      .set('Cookie', identity.cookie)
+      .set('Idempotency-Key', idempotencyKey)
       .send({
-        title: 'PostgreSQL CRUD proof',
-        videoUrl: initialVideoUrl,
-        thumbnailUrl: 'https://example.com/e2e/thumbnail-v1.png',
-        channelName: 'E2E channel',
-        summary: 'Initial PostgreSQL E2E summary',
-        translatedNotes: 'Initial PostgreSQL E2E notes',
-        tags: ['postgres-e2e', 'cookie-principal'],
+        title: 'PostgreSQL Course proof',
+        description: 'Cookie-authenticated Course smoke test',
+        steps: [
+          {
+            snapshot: {
+              title: 'Learning flow',
+              videoUrl: 'https://www.youtube.com/watch?v=smoke000001',
+              thumbnailUrl: '',
+              channelName: 'StudyTube',
+            },
+          },
+        ],
       })
       .expect(201);
-    const postId = Number((created.body as { id: unknown }).id);
+    const courseId = Number((created.body as { id: unknown }).id);
 
-    expect(postId).toBeGreaterThan(0);
+    expect(courseId).toBeGreaterThan(0);
     expect(created.body).toMatchObject({
-      authorId: identity.userId,
-      title: 'PostgreSQL CRUD proof',
-      videoUrl: initialVideoUrl,
+      ownerId: identity.userId,
+      title: 'PostgreSQL Course proof',
+      status: 'draft',
+      version: 1,
     });
 
     await request(app.getHttpServer())
-      .get(`/posts/${postId}`)
+      .get(`/courses/${courseId}`)
       .set('Cookie', identity.cookie)
       .expect(200)
-      .expect((response) => {
-        const body = response.body as {
-          id: unknown;
-          authorId: unknown;
-          tags: unknown;
-        };
-        expect(body).toMatchObject({ id: postId, authorId: identity.userId });
-        expect(body.tags).toEqual(
-          expect.arrayContaining(['postgres-e2e', 'cookie-principal']),
-        );
-      });
+      .expect(({ body }) =>
+        expect(body).toMatchObject({ id: courseId, version: 1 }),
+      );
 
-    await request(app.getHttpServer())
-      .put(`/posts/${postId}`)
+    const updated = await request(app.getHttpServer())
+      .patch(`/courses/${courseId}`)
       .set('Origin', WEB_ORIGIN)
       .set('Cookie', identity.cookie)
       .send({
-        title: 'Updated PostgreSQL CRUD proof',
-        videoUrl: updatedVideoUrl,
-        thumbnailUrl: 'https://example.com/e2e/thumbnail-v2.png',
-        channelName: 'Updated E2E channel',
-        summary: 'Updated PostgreSQL E2E summary',
-        translatedNotes: 'Updated PostgreSQL E2E notes',
-        tags: ['crud-updated'],
+        title: 'Updated PostgreSQL Course proof',
+        expectedVersion: 1,
       })
-      .expect(200)
+      .expect(200);
+    expect(updated.body).toMatchObject({
+      id: courseId,
+      title: 'Updated PostgreSQL Course proof',
+      version: 2,
+    });
+
+    await request(app.getHttpServer())
+      .post(`/courses/${courseId}/archive`)
+      .set('Origin', WEB_ORIGIN)
+      .set('Cookie', identity.cookie)
+      .send({ expectedVersion: 2 })
+      .expect(201)
       .expect(({ body }) =>
-        expect(body).toMatchObject({
-          id: postId,
-          authorId: identity.userId,
-          videoUrl: updatedVideoUrl,
-        }),
+        expect(body).toMatchObject({ id: courseId, status: 'archived' }),
       );
 
     await request(app.getHttpServer())
-      .delete(`/posts/${postId}`)
-      .set('Origin', WEB_ORIGIN)
-      .set('Content-Type', 'application/json')
-      .set('Cookie', identity.cookie)
-      .expect(200)
-      .expect({ deleted: true });
-
-    await request(app.getHttpServer())
-      .get(`/posts/${postId}`)
-      .set('Cookie', identity.cookie)
+      .get(`/explore/courses/${courseId}`)
       .expect(404);
   });
 
@@ -142,6 +143,11 @@ describe('application smoke with PostgreSQL (e2e)', () => {
     } finally {
       if (app) {
         await app.close();
+      }
+      if (ORIGINAL_COURSE_CUTOVER_MODE === undefined) {
+        delete process.env.COURSE_CUTOVER_MODE;
+      } else {
+        process.env.COURSE_CUTOVER_MODE = ORIGINAL_COURSE_CUTOVER_MODE;
       }
     }
   });

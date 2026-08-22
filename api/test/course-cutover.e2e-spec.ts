@@ -79,29 +79,16 @@ describe('Course authority cutover (e2e)', () => {
     const identity = await createIdentity(pool);
     userId = identity.userId;
 
-    activeApp = await createApplication('legacy');
-    const post = (
-      await request(activeApp.getHttpServer())
-        .post('/posts')
-        .set('Origin', WEB_ORIGIN)
-        .set('Cookie', identity.cookie)
-        .send(postInput('cutover-source'))
-        .expect(201)
-    ).body as { id: number; title: string };
-    const playlist = (
-      await request(activeApp.getHttpServer())
-        .post('/playlists')
-        .set('Origin', WEB_ORIGIN)
-        .set('Cookie', identity.cookie)
-        .send({
-          title: 'Legacy authority',
-          description: 'Audited before activation',
-          postIds: [post.id],
-        })
-        .expect(201)
-    ).body as { id: number };
+    const { post, playlist } = await insertLegacySource(pool, userId);
     playlistId = playlist.id;
 
+    activeApp = await createApplication('legacy');
+    await request(activeApp.getHttpServer())
+      .post('/posts')
+      .set('Origin', WEB_ORIGIN)
+      .set('Cookie', identity.cookie)
+      .send({})
+      .expect(404);
     const beforeLegacyCourseAttempt = await countOwnerCourses(pool, userId);
     await request(activeApp.getHttpServer())
       .post('/courses')
@@ -130,7 +117,7 @@ describe('Course authority cutover (e2e)', () => {
       .set('Origin', WEB_ORIGIN)
       .set('Cookie', identity.cookie)
       .send({})
-      .expect(409);
+      .expect(404);
     expect(await countPost(pool, post.id)).toBe(1);
     await closeActiveApp();
 
@@ -139,14 +126,14 @@ describe('Course authority cutover (e2e)', () => {
       .post('/posts')
       .set('Origin', WEB_ORIGIN)
       .set('Cookie', identity.cookie)
-      .send(postInput('freeze-rejected'))
-      .expect(503);
+      .send({})
+      .expect(404);
     await request(activeApp.getHttpServer())
       .post('/playlists')
       .set('Origin', WEB_ORIGIN)
       .set('Cookie', identity.cookie)
       .send({ title: 'Frozen', description: '', postIds: [] })
-      .expect(503);
+      .expect(404);
     await request(activeApp.getHttpServer())
       .post('/courses')
       .set('Origin', WEB_ORIGIN)
@@ -187,8 +174,11 @@ describe('Course authority cutover (e2e)', () => {
       .set('Origin', WEB_ORIGIN)
       .set('Cookie', identity.cookie)
       .send({})
-      .expect(200)
-      .expect({ deleted: true });
+      .expect(404);
+    const deletedPost = await pool.query('DELETE FROM posts WHERE id = $1', [
+      post.id,
+    ]);
+    expect(deletedPost.rowCount).toBe(1);
 
     const preserved = await pool.query<{
       sourcePostId: number | null;
@@ -282,23 +272,37 @@ async function createIdentity(pool: Pool) {
   return { userId: user.rows[0].id, cookie: `studytube_session=${token}` };
 }
 
-function postInput(label: string) {
-  return {
-    title: label,
-    videoUrl: `https://www.youtube.com/watch?v=${label}`,
-    channelName: 'Cutover Lab',
-    summary: 'Cutover source',
-    translatedNotes: 'Cutover notes',
-    tags: ['cutover'],
-  };
-}
-
 function courseInput(sourcePostId: number) {
   return {
     title: 'Native Course authority',
     description: 'Created only after activation',
     steps: [{ sourcePostId }],
   };
+}
+
+async function insertLegacySource(pool: Pool, ownerId: number) {
+  const post = await pool.query<{ id: number; title: string }>(
+    `INSERT INTO posts (
+       author_id, title, video_url, thumbnail_url, channel_name,
+       summary, translated_notes
+     ) VALUES ($1, 'cutover-source',
+       'https://www.youtube.com/watch?v=cutover0001', '', 'Cutover Lab',
+       'Cutover source', 'Cutover notes')
+     RETURNING id, title`,
+    [ownerId],
+  );
+  const playlist = await pool.query<{ id: number }>(
+    `INSERT INTO playlists (owner_id, title, description)
+     VALUES ($1, 'Legacy authority', 'Audited before activation')
+     RETURNING id`,
+    [ownerId],
+  );
+  await pool.query(
+    `INSERT INTO playlist_items (playlist_id, post_id, position)
+     VALUES ($1, $2, 0)`,
+    [playlist.rows[0].id, post.rows[0].id],
+  );
+  return { post: post.rows[0], playlist: playlist.rows[0] };
 }
 
 async function countOwnerCourses(pool: Pool, ownerId: number): Promise<number> {

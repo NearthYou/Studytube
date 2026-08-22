@@ -31,7 +31,7 @@ describe('Course HTTP and PostgreSQL boundary (e2e)', () => {
     pool = new Pool({ connectionString: DATABASE_URL });
   });
 
-  it('proves idempotent creation, one-winner edits, public redaction, and feedback bounds', async () => {
+  it('proves idempotent creation, one-winner edits, public redaction, and retired feedback writes', async () => {
     const owner = await createIdentity(pool, 'Course Owner');
     const outsider = await createIdentity(pool, 'Other Learner');
     userIds.push(owner.userId, outsider.userId);
@@ -184,44 +184,28 @@ describe('Course HTTP and PostgreSQL boundary (e2e)', () => {
       /ownerId|ownerLearningState|sourcePostId|authorId|email/iu,
     );
 
-    for (let attempt = 1; attempt <= 5; attempt += 1) {
-      await request(app.getHttpServer())
-        .post(`/courses/${created.id}/feedback`)
-        .set('Origin', WEB_ORIGIN)
-        .set('Cookie', outsider.cookie)
-        .send({ rating: 5, body: `Feedback ${attempt}` })
-        .expect(201);
-    }
-    const limited = await request(app.getHttpServer())
+    await request(app.getHttpServer())
       .post(`/courses/${created.id}/feedback`)
       .set('Origin', WEB_ORIGIN)
       .set('Cookie', outsider.cookie)
-      .send({ rating: 5, body: 'Feedback 6' })
-      .expect(429);
-    expect(Number(limited.headers['retry-after'])).toBeGreaterThan(0);
+      .send({ rating: 5, body: 'Retired feedback route' })
+      .expect(404);
 
-    const afterFeedback = (
+    const afterRetiredFeedback = (
       await request(app.getHttpServer())
         .get(`/courses/${created.id}`)
         .set('Cookie', owner.cookie)
         .expect(200)
     ).body as CourseResponse;
-    expect(afterFeedback.version).toBe(published.version);
-    expect(afterFeedback.feedback).toHaveLength(5);
+    expect(afterRetiredFeedback.version).toBe(published.version);
+    expect(afterRetiredFeedback.feedback).toHaveLength(0);
 
-    const publicAfterFeedback = (
+    const publicAfterRetiredFeedback = (
       await request(app.getHttpServer())
         .get(`/explore/courses/${created.id}`)
         .expect(200)
     ).body as { feedback: Array<Record<string, unknown>> };
-    expect(publicAfterFeedback.feedback).toHaveLength(5);
-    expect(Object.keys(publicAfterFeedback.feedback[0]).sort()).toEqual([
-      'authorName',
-      'body',
-      'createdAt',
-      'id',
-      'rating',
-    ]);
+    expect(publicAfterRetiredFeedback.feedback).toHaveLength(0);
 
     const archived = (
       await request(app.getHttpServer())

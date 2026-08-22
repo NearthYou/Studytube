@@ -665,6 +665,9 @@ describe('database migration files', () => {
     expect(verifier).toContain('synchronizeSequences: false');
     expect(verifier).toContain('disabledUserIds');
     expect(verifier).toContain('assertSequenceStateUnchanged');
+    expect(verifier).toContain(
+      "sequence_class.relname <> 'learning_cutover_source_changes_id_seq'",
+    );
     expect(verifier).toContain('ROLLBACK');
   });
 

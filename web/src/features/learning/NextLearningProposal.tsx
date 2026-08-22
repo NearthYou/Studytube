@@ -1,5 +1,10 @@
 import { useState } from "react";
-import { apiBaseUrl } from "../../api.ts";
+import {
+  ApiRequestError,
+  approveLearningProposal,
+  dismissLearningProposal,
+  type LearningProposal,
+} from "../../api.ts";
 import {
   canApproveNextProposal,
   initialNextProposalSelection,
@@ -9,22 +14,13 @@ import {
 } from "./nextLearningProposalState.ts";
 
 export type CourseChoice = { id: number; title: string; version: number };
-export type NextProposal = {
-  id: string;
-  candidate: {
-    title: string;
-    thumbnailUrl: string;
-    channelName: string;
-    reason: string;
-  };
-};
 
 export function NextLearningProposal({
   proposal,
   courses,
   onRequestAnother,
 }: {
-  proposal: NextProposal;
+  proposal: LearningProposal;
   courses: CourseChoice[];
   onRequestAnother: () => void;
 }) {
@@ -51,30 +47,12 @@ export function NextLearningProposal({
             title: selection.title.trim(),
           };
     try {
-      const response = await fetch(
-        `${apiBaseUrl()}/learning/proposals/approve`,
-        {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        },
-      );
-      const result = (await response.json()) as {
-        approvedCourseId?: number;
-        error?: { code?: string };
-        code?: string;
-      };
-      if (!response.ok || !result.approvedCourseId) {
-        setPhase(
-          proposalFailurePhase(result.error?.code ?? result.code ?? "CONFLICT"),
-        );
-        return;
-      }
+      const result = await approveLearningProposal(body);
+      if (!result.approvedCourseId) throw new Error("CONFLICT");
       setApprovedCourseId(result.approvedCourseId);
       setPhase("success");
-    } catch {
-      setPhase("version_conflict");
+    } catch (error) {
+      setPhase(proposalFailurePhase(proposalErrorCode(error)));
     }
   }
 
@@ -82,18 +60,10 @@ export function NextLearningProposal({
     if (phase !== "pending") return;
     setPhase("processing");
     try {
-      const response = await fetch(
-        `${apiBaseUrl()}/learning/proposals/${proposal.id}/dismiss`,
-        {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: "{}",
-        },
-      );
-      setPhase(response.ok ? "rejected" : "version_conflict");
-    } catch {
-      setPhase("version_conflict");
+      await dismissLearningProposal(proposal.id);
+      setPhase("rejected");
+    } catch (error) {
+      setPhase(proposalFailurePhase(proposalErrorCode(error)));
     }
   }
 
@@ -205,4 +175,10 @@ export function NextLearningProposal({
       </div>
     </section>
   );
+}
+
+function proposalErrorCode(error: unknown) {
+  return error instanceof ApiRequestError
+    ? (error.code ?? "CONFLICT")
+    : "CONFLICT";
 }

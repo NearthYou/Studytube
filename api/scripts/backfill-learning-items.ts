@@ -26,6 +26,12 @@ interface MappingSourceRow {
   sourcePostId: number | null;
 }
 
+interface DeltaSourceChange {
+  id: string;
+  entityKind: string;
+  legacyEntityId: string;
+}
+
 interface BackfillOptions {
   batchSize: number;
   writerRelease: string;
@@ -91,6 +97,57 @@ const SOURCE_QUERIES = [
    ORDER BY attempt.id LIMIT $1 OFFSET $2`,
 ] as const;
 
+const DELTA_BATCH_SIZE = 100;
+
+const DELTA_SOURCE_QUERIES: Readonly<
+  Record<string, { mappingKind: MappingKind; query: string }>
+> = {
+  posts: {
+    mappingKind: 'post',
+    query: `SELECT 'post'::text AS "entityKind", post.id::text AS "legacyEntityId",
+                   post.author_id AS "userId", post.video_url AS "videoUrl",
+                   NULL::text AS "courseStepId", post.id AS "sourcePostId"
+            FROM posts AS post WHERE post.id = $1`,
+  },
+  course_steps: {
+    mappingKind: 'course_step',
+    query: `SELECT 'course_step'::text AS "entityKind", step.id::text AS "legacyEntityId",
+                   course.owner_id AS "userId", step.video_url_snapshot AS "videoUrl",
+                   step.id::text AS "courseStepId", step.source_post_id AS "sourcePostId"
+            FROM course_steps AS step
+            JOIN courses AS course ON course.id = step.course_id
+            WHERE step.id = $1`,
+  },
+  learning_progress: {
+    mappingKind: 'learning_progress',
+    query: `SELECT 'learning_progress'::text AS "entityKind", progress.id::text AS "legacyEntityId",
+                   progress.user_id AS "userId", step.video_url_snapshot AS "videoUrl",
+                   step.id::text AS "courseStepId", NULL::integer AS "sourcePostId"
+            FROM learning_progress AS progress
+            JOIN course_steps AS step ON step.id = progress.course_step_id
+            WHERE progress.id = $1`,
+  },
+  learning_progress_events: {
+    mappingKind: 'learning_progress_event',
+    query: `SELECT 'learning_progress_event'::text AS "entityKind", event.id::text AS "legacyEntityId",
+                   event.user_id AS "userId", step.video_url_snapshot AS "videoUrl",
+                   step.id::text AS "courseStepId", NULL::integer AS "sourcePostId"
+            FROM learning_progress_events AS event
+            JOIN course_steps AS step ON step.id = event.course_step_id
+            WHERE event.id = $1`,
+  },
+  quiz_attempts: {
+    mappingKind: 'quiz_attempt',
+    query: `SELECT 'quiz_attempt'::text AS "entityKind", attempt.id::text AS "legacyEntityId",
+                   attempt.user_id AS "userId", step.video_url_snapshot AS "videoUrl",
+                   step.id::text AS "courseStepId", NULL::integer AS "sourcePostId"
+            FROM quiz_attempts AS attempt
+            JOIN quizzes AS quiz ON quiz.id = attempt.quiz_id
+            JOIN course_steps AS step ON step.id = quiz.course_step_id
+            WHERE attempt.id = $1`,
+  },
+};
+
 export async function backfillLearningItems(
   pool: Pick<Pool, 'connect'>,
   options: BackfillOptions,
@@ -100,7 +157,7 @@ export async function backfillLearningItems(
   try {
     const run = await startOrResumeRun(client, options);
     const mappedRows = await applyAllMappings(client, options.batchSize);
-    const processedWatermark = await currentWatermark(client);
+    const processedWatermark = run.processedWatermark;
     await client.query(
       `UPDATE learning_cutover_runs
        SET state = 'ready', processed_watermark = $2,
@@ -149,10 +206,26 @@ export async function activateLearningCutover(
       [options.runId],
     );
 
-    if (!options.skipDeltaCatchUpForTest) {
-      await applyAllMappings(client, 500);
-    }
     const freezeWatermark = await currentWatermark(client);
+    const freezeDeadline = freezeStartedAt + options.maxFreezeMs;
+    if (!options.skipDeltaCatchUpForTest) {
+      const catchUp = await applyDeltaMappings(
+        client,
+        options.runId,
+        run.processedWatermark,
+        freezeWatermark,
+        DELTA_BATCH_SIZE,
+        freezeDeadline,
+      );
+      if (catchUp.timedOut) {
+        await markRunAborted(client, options.runId, 'FREEZE_TIMEOUT');
+        return { activated: false, reason: 'FREEZE_TIMEOUT' };
+      }
+    }
+    if (Date.now() >= freezeDeadline) {
+      await markRunAborted(client, options.runId, 'FREEZE_TIMEOUT');
+      return { activated: false, reason: 'FREEZE_TIMEOUT' };
+    }
     await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
     let verification: LearningItemBackfillVerification;
     try {
@@ -270,6 +343,123 @@ async function applyAllMappings(
     }
   }
   return mappedRows;
+}
+
+async function applyDeltaMappings(
+  client: PoolClient,
+  runId: string,
+  processedWatermark: number,
+  freezeWatermark: number,
+  batchSize: number,
+  freezeDeadline: number,
+): Promise<{ processedWatermark: number; timedOut: boolean }> {
+  let cursor = processedWatermark;
+  while (cursor < freezeWatermark) {
+    if (Date.now() >= freezeDeadline) {
+      return { processedWatermark: cursor, timedOut: true };
+    }
+    const changes = await client.query<DeltaSourceChange>(
+      `SELECT id::text AS id, entity_kind AS "entityKind",
+              legacy_entity_id AS "legacyEntityId"
+       FROM learning_cutover_source_changes
+       WHERE id > $1 AND id <= $2
+       ORDER BY id
+       LIMIT $3`,
+      [cursor, freezeWatermark, batchSize],
+    );
+    if (changes.rows.length === 0) {
+      await updateProcessedWatermark(client, runId, freezeWatermark);
+      cursor = freezeWatermark;
+      break;
+    }
+
+    const batchWatermark = Number(changes.rows[changes.rows.length - 1].id);
+    await client.query('BEGIN');
+    try {
+      for (const change of deduplicateSourceChanges(changes.rows)) {
+        await reapplySourceChange(client, change);
+      }
+      await updateProcessedWatermark(client, runId, batchWatermark);
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    }
+    cursor = batchWatermark;
+  }
+  return {
+    processedWatermark: cursor,
+    timedOut: Date.now() >= freezeDeadline,
+  };
+}
+
+function deduplicateSourceChanges(
+  changes: readonly DeltaSourceChange[],
+): DeltaSourceChange[] {
+  const latestBySource = new Map<string, DeltaSourceChange>();
+  for (const change of changes) {
+    latestBySource.set(
+      `${change.entityKind}\u0000${change.legacyEntityId}`,
+      change,
+    );
+  }
+  return [...latestBySource.values()];
+}
+
+async function reapplySourceChange(
+  client: PoolClient,
+  change: DeltaSourceChange,
+): Promise<void> {
+  const source = DELTA_SOURCE_QUERIES[change.entityKind];
+  if (!source) return;
+
+  const result = await client.query<MappingSourceRow>(source.query, [
+    change.legacyEntityId,
+  ]);
+  const row = result.rows[0];
+  if (!row) {
+    await deleteStaleMappings(
+      client,
+      source.mappingKind,
+      change.legacyEntityId,
+      null,
+    );
+    return;
+  }
+  await deleteStaleMappings(
+    client,
+    source.mappingKind,
+    change.legacyEntityId,
+    row.userId,
+  );
+  await ensureMapping(client, row);
+}
+
+async function deleteStaleMappings(
+  client: Pick<PoolClient, 'query'>,
+  entityKind: MappingKind,
+  legacyEntityId: string,
+  currentUserId: number | null,
+): Promise<void> {
+  await client.query(
+    `DELETE FROM legacy_learning_context_mappings
+     WHERE entity_kind = $1 AND legacy_entity_id = $2
+       AND ($3::integer IS NULL OR user_id <> $3)`,
+    [entityKind, legacyEntityId, currentUserId],
+  );
+}
+
+async function updateProcessedWatermark(
+  client: Pick<PoolClient, 'query'>,
+  runId: string,
+  processedWatermark: number,
+): Promise<void> {
+  await client.query(
+    `UPDATE learning_cutover_runs
+     SET processed_watermark = $2, updated_at = statement_timestamp()
+     WHERE id = $1 AND processed_watermark <= $2`,
+    [runId, processedWatermark],
+  );
 }
 
 async function ensureMapping(
@@ -416,7 +606,10 @@ async function startOrResumeRun(
   client: Pick<PoolClient, 'query'>,
   options: BackfillOptions,
 ): Promise<
-  Pick<BackfillResult, 'runId' | 'writerRelease' | 'sourceWatermark'>
+  Pick<
+    BackfillResult,
+    'runId' | 'writerRelease' | 'sourceWatermark' | 'processedWatermark'
+  >
 > {
   if (options.runId) {
     const existing = await requireRun(
@@ -447,20 +640,31 @@ async function startOrResumeRun(
       LEARNING_CUTOVER_MIGRATION_VERSION,
     ],
   );
-  return { runId, writerRelease: options.writerRelease, sourceWatermark };
+  return {
+    runId,
+    writerRelease: options.writerRelease,
+    sourceWatermark,
+    processedWatermark: sourceWatermark,
+  };
 }
 
 async function requireRun(
   client: Pick<PoolClient, 'query'>,
   runId: string,
   writerRelease: string,
-): Promise<{ runId: string; sourceWatermark: number }> {
+): Promise<{
+  runId: string;
+  sourceWatermark: number;
+  processedWatermark: number;
+}> {
   const result = await client.query<{
     sourceWatermark: string;
+    processedWatermark: string;
     writerRelease: string;
     state: string;
   }>(
     `SELECT source_watermark::text AS "sourceWatermark",
+            processed_watermark::text AS "processedWatermark",
             writer_release AS "writerRelease", state
      FROM learning_cutover_runs WHERE id = $1`,
     [runId],
@@ -473,7 +677,11 @@ async function requireRun(
   if (row.state === 'activated') {
     throw new Error('Activated learning cutover run cannot be resumed');
   }
-  return { runId, sourceWatermark: Number(row.sourceWatermark) };
+  return {
+    runId,
+    sourceWatermark: Number(row.sourceWatermark),
+    processedWatermark: Number(row.processedWatermark),
+  };
 }
 
 async function currentWatermark(

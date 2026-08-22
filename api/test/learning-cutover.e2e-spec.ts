@@ -12,7 +12,9 @@ const DATABASE_URL =
 describe('learning cutover', () => {
   let pool: Pool;
   const userIds: number[] = [];
-  let activationCandidate: { runId: string; writerRelease: string } | undefined;
+  let activationCandidate:
+    | { runId: string; writerRelease: string; ownerId: number }
+    | undefined;
 
   beforeAll(() => {
     pool = new Pool({ connectionString: DATABASE_URL });
@@ -54,6 +56,8 @@ describe('learning cutover', () => {
     const verification = await verifyLearningItemBackfill(pool);
 
     expect(second.sourceWatermark).toBe(first.sourceWatermark);
+    expect(first.processedWatermark).toBe(first.sourceWatermark);
+    expect(second.processedWatermark).toBe(first.processedWatermark);
     expect(verification).toMatchObject({
       ok: true,
       duplicateMappings: 0,
@@ -67,6 +71,7 @@ describe('learning cutover', () => {
     activationCandidate = {
       runId: first.runId,
       writerRelease: first.writerRelease,
+      ownerId: postAuthor,
     };
 
     const owners = await pool.query<{ ownerId: number }>(
@@ -151,15 +156,47 @@ describe('learning cutover', () => {
     );
   });
 
-  it('writes the permanent marker only after successful parity', async () => {
+  it('catches up insert and update deltas, then resumes the same run after timeout', async () => {
     if (!activationCandidate) throw new Error('activation candidate missing');
 
+    const deltaPostId = await insertPost(
+      activationCandidate.ownerId,
+      'deltaold001',
+    );
+    await pool.query('UPDATE posts SET video_url = $2 WHERE id = $1', [
+      deltaPostId,
+      'https://www.youtube.com/watch?v=deltanew001',
+    ]);
+
+    const timedOut = await activateLearningCutover(pool, {
+      runId: activationCandidate.runId,
+      writerRelease: activationCandidate.writerRelease,
+      maxFreezeMs: 0,
+    });
+    expect(timedOut).toMatchObject({
+      activated: false,
+      reason: 'FREEZE_TIMEOUT',
+    });
+    expect(await markerCount(activationCandidate.writerRelease)).toBe(0);
+
     const activated = await activateLearningCutover(pool, {
-      ...activationCandidate,
+      runId: activationCandidate.runId,
+      writerRelease: activationCandidate.writerRelease,
       maxFreezeMs: 10_000,
     });
     expect(activated.activated).toBe(true);
     expect(await markerCount(activationCandidate.writerRelease)).toBe(1);
+
+    const deltaMapping = await pool.query<{ canonicalVideoId: string }>(
+      `SELECT source.canonical_video_id AS "canonicalVideoId"
+       FROM legacy_learning_context_mappings AS mapping
+       JOIN video_sources AS source ON source.id = mapping.video_source_id
+       WHERE mapping.entity_kind = 'post'
+         AND mapping.legacy_entity_id = $1
+         AND mapping.user_id = $2`,
+      [String(deltaPostId), activationCandidate.ownerId],
+    );
+    expect(deltaMapping.rows).toEqual([{ canonicalVideoId: 'deltanew001' }]);
   });
 
   async function insertUser(label: string): Promise<number> {

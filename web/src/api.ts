@@ -65,11 +65,13 @@ function isLocalHostname(hostname: string) {
 
 export class ApiRequestError extends Error {
   status: number;
+  code?: string;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, code?: string) {
     super(message);
     this.name = "ApiRequestError";
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -124,6 +126,7 @@ export async function requestJson<T>(
     throw new ApiRequestError(
       response.status,
       localizedApiError(response.status, code, serverMessage),
+      code,
     );
   }
 
@@ -522,23 +525,36 @@ export type NextLearningRun = {
 
 export type LearningProposal = {
   id: string;
+  ownerId: number;
+  agentRunId: string;
+  videoSourceId: string;
+  proposalVersion: number;
+  state: "pending" | "approved" | "dismissed" | "expired";
   candidate: {
     title: string;
+    videoUrl: string;
     thumbnailUrl: string;
     channelName: string;
     reason: string;
   };
+  expiresAt: string;
+  approvedCourseId: number | null;
+  approvedCourseVersion: number | null;
 };
 
-export function createNextLearningRun(input: {
-  objective: string;
-  studyContextId: string;
-  watchedRanges: Array<{ start: number; end: number }>;
-  idempotencyKey: string;
-}): Promise<NextLearningRun> {
+export function createNextLearningRun(
+  input: {
+    objective: string;
+    studyContextId: string;
+    watchedRanges: Array<{ start: number; end: number }>;
+    idempotencyKey: string;
+  },
+  options: { signal?: AbortSignal } = {},
+): Promise<NextLearningRun> {
   return requestJson<NextLearningRun>("/learning/agent-runs", {
     method: "POST",
     headers: { "Idempotency-Key": input.idempotencyKey },
+    signal: options.signal,
     body: JSON.stringify({
       objective: input.objective,
       requestedStepCount: 3,
@@ -548,13 +564,46 @@ export function createNextLearningRun(input: {
   });
 }
 
-export function fetchNextLearningRun(runId: string) {
-  return requestJson<NextLearningRun>(`/learning/agent-runs/${runId}`);
+export function fetchNextLearningRun(
+  runId: string,
+  options: { signal?: AbortSignal } = {},
+) {
+  return requestJson<NextLearningRun>(`/learning/agent-runs/${runId}`, options);
 }
 
-export function createNextLearningProposal(runId: string) {
+export function createNextLearningProposal(
+  runId: string,
+  options: { signal?: AbortSignal } = {},
+) {
   return requestJson<LearningProposal>(
     `/learning/agent-runs/${runId}/next-learning-proposal`,
+    { method: "POST", body: "{}", signal: options.signal },
+  );
+}
+
+export type ApproveLearningProposalInput =
+  | {
+      proposalId: string;
+      targetKind: "existing_course";
+      courseId: number;
+      expectedCourseVersion: number;
+    }
+  | {
+      proposalId: string;
+      targetKind: "new_private_course";
+      title: string;
+    };
+
+export function approveLearningProposal(input: ApproveLearningProposalInput) {
+  return requestJson<LearningProposal>("/learning/proposals/approve", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function dismissLearningProposal(proposalId: string) {
+  return requestJson<LearningProposal>(
+    `/learning/proposals/${proposalId}/dismiss`,
     { method: "POST", body: "{}" },
   );
 }
@@ -578,8 +627,14 @@ export function requestAdaptiveQuiz(input: {
   );
 }
 
-export function fetchAdaptiveQuiz(loopId: string): Promise<AdaptiveQuizLoop> {
-  return requestJson<AdaptiveQuizLoop>(`/learning/quiz-loops/${loopId}`);
+export function fetchAdaptiveQuiz(
+  loopId: string,
+  options: { signal?: AbortSignal } = {},
+): Promise<AdaptiveQuizLoop> {
+  return requestJson<AdaptiveQuizLoop>(
+    `/learning/quiz-loops/${loopId}`,
+    options,
+  );
 }
 
 export function submitAdaptiveQuiz(input: {

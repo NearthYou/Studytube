@@ -70,6 +70,7 @@ const TABS: Array<{ id: LearningTab; label: string }> = [
   { id: "quiz", label: "퀴즈" },
 ];
 const MAX_CAPTION_POLLS = 8;
+const MAX_QUIZ_POLLS = 10;
 
 export function LearningWorkspace({ session }: { session: Session }) {
   const [searchParams] = useSearchParams();
@@ -130,6 +131,7 @@ function ActiveLearningWorkspace({
   );
   const [proposalCourses, setProposalCourses] = useState<CourseChoice[]>([]);
   const [proposalStatus, setProposalStatus] = useState("");
+  const [proposalInFlight, setProposalInFlight] = useState(false);
   const [quizUi, setQuizUi] = useState<QuizUiState>(() =>
     quizStateFromApi(null, false),
   );
@@ -139,47 +141,67 @@ function ActiveLearningWorkspace({
   const tablistRef = useRef<HTMLDivElement>(null);
   const errorRef = useRef<HTMLDivElement>(null);
   const quizStatusRef = useRef<HTMLDivElement>(null);
+  const quizReadyRef = useRef(false);
+  const proposalRequestRef = useRef<{
+    controller: AbortController;
+    idempotencyKey: string;
+  } | null>(null);
   const currentCaption = captionPairAt(state.captions, state.currentTime);
   const quizState = quizPreparation(state.captions);
   const contextId = state.contextId || video.learningContextId || "";
+  const quizLoopId = adaptiveQuiz?.id;
+  const quizLoopState = adaptiveQuiz?.state;
+
+  useEffect(() => {
+    quizReadyRef.current = quizState.ready;
+  }, [quizState.ready]);
 
   useEffect(() => {
     if (!adaptiveQuiz) setQuizUi(quizStateFromApi(null, quizState.ready));
   }, [adaptiveQuiz, quizState.ready]);
 
   useEffect(() => {
-    const loopId = adaptiveQuiz?.id;
-    if (!loopId || adaptiveQuiz.state !== "generating") return;
-    const activeLoopId = loopId;
-    let cancelled = false;
-    let attempts = 0;
-    let timeout = 0;
+    if (!quizLoopId || quizLoopState !== "generating") return;
+    const activeLoopId = quizLoopId;
+    const controller = new AbortController();
+    const { signal } = controller;
+
     async function pollQuiz() {
-      attempts += 1;
-      try {
-        const next = await fetchAdaptiveQuiz(activeLoopId);
-        if (cancelled) return;
-        setAdaptiveQuiz(next);
-        setQuizUi(quizStateFromApi(next, quizState.ready));
-        if (next.state === "generating" && attempts < 10) {
-          timeout = window.setTimeout(pollQuiz, 1500);
-        }
-      } catch {
-        if (!cancelled) {
-          setQuizUi((current) => ({
-            ...current,
-            phase: "failed",
-            message: "퀴즈 상태를 확인하지 못했습니다. 다시 시도해주세요.",
-          }));
+      if (!(await waitForPoll(500, signal))) return;
+      for (let attempts = 0; attempts < MAX_QUIZ_POLLS; attempts += 1) {
+        try {
+          const next = await fetchAdaptiveQuiz(activeLoopId, { signal });
+          if (signal.aborted) return;
+          setAdaptiveQuiz(next);
+          setQuizUi(quizStateFromApi(next, quizReadyRef.current));
+          if (next.state !== "generating") return;
+          if (attempts + 1 >= MAX_QUIZ_POLLS) return;
+          if (!(await waitForPoll(1_500, signal))) return;
+        } catch {
+          if (!signal.aborted) {
+            setQuizUi((current) => ({
+              ...current,
+              phase: "failed",
+              message: "퀴즈 상태를 확인하지 못했습니다. 다시 시도해주세요.",
+            }));
+          }
+          return;
         }
       }
     }
-    timeout = window.setTimeout(pollQuiz, 500);
+    void pollQuiz();
     return () => {
-      cancelled = true;
-      window.clearTimeout(timeout);
+      controller.abort();
     };
-  }, [adaptiveQuiz, quizState.ready]);
+  }, [quizLoopId, quizLoopState]);
+
+  useEffect(
+    () => () => {
+      proposalRequestRef.current?.controller.abort();
+      proposalRequestRef.current = null;
+    },
+    [],
+  );
 
   useEffect(() => {
     if (["failed", "stale", "evaluated"].includes(quizUi.phase)) {
@@ -475,38 +497,65 @@ function ActiveLearningWorkspace({
   }
 
   async function requestNextProposal() {
-    if (!contextId || quizUi.phase !== "evaluated") return;
+    if (
+      !contextId ||
+      quizUi.phase !== "evaluated" ||
+      proposalRequestRef.current
+    )
+      return;
+    const request = {
+      controller: new AbortController(),
+      idempotencyKey: crypto.randomUUID(),
+    };
+    proposalRequestRef.current = request;
+    const { signal } = request.controller;
+    setProposalInFlight(true);
     setProposalStatus("다음 학습을 찾고 있습니다.");
     setNextProposal(null);
     try {
       const [run, courses] = await Promise.all([
-        createNextLearningRun({
-          objective: `${video.title} 다음에 학습할 내용`,
-          studyContextId: contextId,
-          watchedRanges: [
-            { start: 0, end: Math.max(1, Math.floor(state.currentTime)) },
-          ],
-          idempotencyKey: crypto.randomUUID(),
-        }),
+        createNextLearningRun(
+          {
+            objective: `${video.title} 다음에 학습할 내용`,
+            studyContextId: contextId,
+            watchedRanges: [
+              { start: 0, end: Math.max(1, Math.floor(state.currentTime)) },
+            ],
+            idempotencyKey: request.idempotencyKey,
+          },
+          { signal },
+        ),
         fetchOwnerCourses(),
       ]);
+      if (signal.aborted) return;
       setProposalCourses(
         courses
           .filter((course) => course.status !== "archived")
           .map(({ id, title, version }) => ({ id, title, version })),
       );
-      const readyRun = await waitForProposalRun(run);
+      const readyRun = await waitForProposalRun(run, signal);
+      if (signal.aborted) return;
       if (readyRun.state !== "awaiting_approval") {
         throw new Error("다음 학습을 찾지 못했습니다. 다시 시도해주세요.");
       }
-      setNextProposal(await createNextLearningProposal(readyRun.id));
+      const proposal = await createNextLearningProposal(readyRun.id, {
+        signal,
+      });
+      if (signal.aborted) return;
+      setNextProposal(proposal);
       setProposalStatus("");
     } catch (error) {
+      if (signal.aborted) return;
       setProposalStatus(
         error instanceof Error
           ? error.message
           : "다음 학습을 찾지 못했습니다. 다시 시도해주세요.",
       );
+    } finally {
+      if (proposalRequestRef.current === request) {
+        proposalRequestRef.current = null;
+        if (!signal.aborted) setProposalInFlight(false);
+      }
     }
   }
 
@@ -656,8 +705,13 @@ function ActiveLearningWorkspace({
           <p>
             퀴즈 결과와 지금까지 본 구간을 바탕으로 이어서 볼 영상을 찾습니다.
           </p>
-          <button type="button" onClick={() => void requestNextProposal()}>
-            다음 학습 제안 받기
+          <button
+            aria-busy={proposalInFlight}
+            disabled={proposalInFlight}
+            type="button"
+            onClick={() => void requestNextProposal()}
+          >
+            {proposalInFlight ? "다음 학습 찾는 중" : "다음 학습 제안 받기"}
           </button>
           <p>{proposalStatus}</p>
         </section>
@@ -673,11 +727,14 @@ function ActiveLearningWorkspace({
   );
 }
 
-async function waitForProposalRun(initial: {
-  id: string;
-  state: string;
-  failureCode: string | null;
-}) {
+async function waitForProposalRun(
+  initial: {
+    id: string;
+    state: string;
+    failureCode: string | null;
+  },
+  signal: AbortSignal,
+) {
   let current = initial;
   for (let attempt = 0; attempt < 30; attempt += 1) {
     if (
@@ -686,10 +743,28 @@ async function waitForProposalRun(initial: {
     ) {
       return current;
     }
-    await new Promise((resolve) => window.setTimeout(resolve, 1_000));
-    current = await fetchNextLearningRun(current.id);
+    if (!(await waitForPoll(1_000, signal))) return current;
+    current = await fetchNextLearningRun(current.id, { signal });
   }
   return current;
+}
+
+function waitForPoll(delayMs: number, signal: AbortSignal) {
+  return new Promise<boolean>((resolve) => {
+    if (signal.aborted) {
+      resolve(false);
+      return;
+    }
+    const timeout = window.setTimeout(() => {
+      signal.removeEventListener("abort", stop);
+      resolve(true);
+    }, delayMs);
+    function stop() {
+      window.clearTimeout(timeout);
+      resolve(false);
+    }
+    signal.addEventListener("abort", stop, { once: true });
+  });
 }
 
 function AdaptiveQuizPanel({

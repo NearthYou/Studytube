@@ -51,6 +51,32 @@ test("unfinished learning tools are presented as preparation states", () => {
   assert.doesNotMatch(source, /Agent|MCP|RAG|AI/);
 });
 
+test("quiz polling keeps one bounded abortable loop for each quiz identity", () => {
+  const source = readFileSync(
+    resolve(featureDirectory, "LearningWorkspace.tsx"),
+    "utf8",
+  );
+
+  assert.match(source, /const MAX_QUIZ_POLLS = 10/);
+  assert.match(source, /new AbortController\(\)/);
+  assert.match(source, /fetchAdaptiveQuiz\(activeLoopId, \{ signal \}\)/);
+  assert.match(source, /\[quizLoopId, quizLoopState\]/);
+});
+
+test("next proposal requests are single-flight and cancel polling on unmount", () => {
+  const source = readFileSync(
+    resolve(featureDirectory, "LearningWorkspace.tsx"),
+    "utf8",
+  );
+
+  assert.match(source, /proposalInFlight/);
+  assert.match(source, /proposalRequestRef/);
+  assert.match(source, /waitForProposalRun\(run, signal\)/);
+  assert.match(source, /idempotencyKey/);
+  assert.match(source, /disabled=\{proposalInFlight\}/);
+  assert.match(source, /proposalRequestRef\.current\?\.controller\.abort\(\)/);
+});
+
 test("learning workspace collapses safely at phone width", () => {
   const css = readFileSync(resolve(testDirectory, "../src/App.css"), "utf8");
 

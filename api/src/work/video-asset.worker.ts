@@ -1,5 +1,11 @@
 import type { BoardRepository, StudyPost } from '../study-board.types';
 import type { VideoAsset } from '../video-asset.types';
+import type {
+  CaptionPipelineRequest,
+  CaptionSafeErrorCode,
+  LearningCaptionResult,
+} from '../video-asset.types';
+import { CaptionTranslationPendingError } from '../video-asset.service';
 import type { WorkRepository } from './work.repository';
 import type { WorkAttemptContext, WorkQueueJob } from './work.queue';
 import { deterministicWorkUuid } from './deterministic-work-id';
@@ -12,8 +18,19 @@ type VideoAssetPreparer = {
     post: StudyPost,
     signal?: AbortSignal,
   ): Promise<VideoAsset | null>;
+  prepareLearningCaptions?(
+    request: CaptionPipelineRequest,
+    signal?: AbortSignal,
+  ): Promise<LearningCaptionResult>;
+  failLearningCaptions?(
+    request: CaptionPipelineRequest,
+    errorCode: CaptionSafeErrorCode,
+  ): Promise<LearningCaptionResult>;
 };
-type FollowUpEventStore = Pick<WorkRepository, 'appendOutboxEvent'>;
+type FollowUpEventStore = Pick<
+  WorkRepository,
+  'appendOutboxEvent' | 'listLearningRetrievalContexts'
+>;
 
 export class VideoAssetJobHandler {
   constructor(
@@ -32,7 +49,13 @@ export class VideoAssetJobHandler {
         eventId: job.eventId,
         handlerVersion: job.handlerVersion,
       },
-      (signal) => this.process(job, signal),
+      (signal, lease) =>
+        this.process(
+          job,
+          signal,
+          lease.leaseToken,
+          attempt?.isFinalAttempt === true,
+        ),
       attempt?.isFinalAttempt
         ? {
             code: 'JOB_ATTEMPTS_EXHAUSTED',
@@ -45,8 +68,18 @@ export class VideoAssetJobHandler {
   private async process(
     job: WorkQueueJob,
     signal: AbortSignal,
+    leaseToken: string,
+    isFinalAttempt: boolean,
   ): Promise<Record<string, unknown>> {
     signal.throwIfAborted();
+    if (job.eventType === 'learning_intake.requested') {
+      return this.processLearningIntake(
+        job,
+        signal,
+        leaseToken,
+        isFinalAttempt,
+      );
+    }
     if (job.eventType !== 'video_asset.requested') {
       return this.terminal(job, 'UNSUPPORTED_EVENT_TYPE');
     }
@@ -109,6 +142,90 @@ export class VideoAssetJobHandler {
     return result;
   }
 
+  private async processLearningIntake(
+    job: WorkQueueJob,
+    signal: AbortSignal,
+    leaseToken: string,
+    isFinalAttempt: boolean,
+  ): Promise<Record<string, unknown>> {
+    if (job.payloadSchemaVersion !== 1) {
+      return this.terminal(job, 'UNSUPPORTED_PAYLOAD_SCHEMA');
+    }
+    const canonicalVideoId = this.canonicalVideoId(
+      job.payload.canonicalVideoId,
+    );
+    const durationSeconds = this.processingDuration(
+      job.payload.processingRangeKey,
+    );
+    const reservationId = this.positiveIntegerString(job.payload.reservationId);
+    if (
+      !canonicalVideoId ||
+      !durationSeconds ||
+      !reservationId ||
+      !this.videoAssets.prepareLearningCaptions
+    ) {
+      return this.terminal(job, 'INVALID_LEARNING_INTAKE_PAYLOAD');
+    }
+    signal.throwIfAborted();
+    const request: CaptionPipelineRequest = {
+      eventId: job.eventId,
+      handlerVersion: job.handlerVersion,
+      leaseToken,
+      canonicalVideoId,
+      targetLanguage: 'ko',
+      durationSeconds,
+    };
+    let result: LearningCaptionResult;
+    try {
+      result = await this.videoAssets.prepareLearningCaptions(request, signal);
+    } catch (error) {
+      if (!(error instanceof CaptionTranslationPendingError)) throw error;
+      if (!isFinalAttempt) throw error;
+      if (!this.videoAssets.failLearningCaptions) throw error;
+      result = await this.videoAssets.failLearningCaptions(
+        request,
+        'TRANSLATION_PROVIDER_UNAVAILABLE',
+      );
+    }
+    signal.throwIfAborted();
+    const captionArtifactId =
+      result.translationArtifactId ?? result.sourceArtifactId;
+    if (
+      result.status === 'ready' &&
+      captionArtifactId &&
+      this.events.listLearningRetrievalContexts
+    ) {
+      const contexts = await this.events.listLearningRetrievalContexts({
+        causeEventId: job.eventId,
+        reservationId,
+        captionArtifactId,
+      });
+      signal.throwIfAborted();
+      for (const context of contexts) {
+        await this.events.appendOutboxEvent({
+          id: deterministicWorkUuid(
+            job.eventId,
+            `retrieval_embedding.learning_context.${context.studyContextId}.${context.sourceVersion}`,
+          ),
+          eventType: 'retrieval_embedding.requested',
+          aggregateType: 'study_context',
+          aggregateId: context.studyContextId,
+          aggregateVersion: Number(context.sourceVersion),
+          payloadSchemaVersion: 1,
+          payload: {
+            sourceKind: 'learning_context',
+            sourceId: context.studyContextId,
+            sourceVersion: context.sourceVersion,
+            causeEventId: job.eventId,
+            captionArtifactId,
+          },
+        });
+        signal.throwIfAborted();
+      }
+    }
+    return { ...result };
+  }
+
   private terminal(job: WorkQueueJob, code: string): never {
     throw new WorkJobTerminalError(code, {
       details: {
@@ -130,6 +247,23 @@ export class VideoAssetJobHandler {
     }
     return typeof value === 'string' && /^[1-9][0-9]*$/u.test(value)
       ? value
+      : null;
+  }
+
+  private canonicalVideoId(value: unknown): string | null {
+    return typeof value === 'string' && /^[A-Za-z0-9_-]{11}$/u.test(value)
+      ? value
+      : null;
+  }
+
+  private processingDuration(value: unknown): number | null {
+    if (typeof value !== 'string') return null;
+    const match = /^(\d+)-(\d+)$/u.exec(value);
+    if (!match) return null;
+    const start = Number(match[1]);
+    const end = Number(match[2]);
+    return start === 0 && Number.isSafeInteger(end) && end > 0 && end <= 14_400
+      ? end
       : null;
   }
 }

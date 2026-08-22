@@ -18,6 +18,11 @@ export interface WorkRepository {
     event: AppendOutboxEvent,
     client?: WorkSqlClient,
   ): Promise<void>;
+  listLearningRetrievalContexts?(input: {
+    causeEventId: string;
+    reservationId: string;
+    captionArtifactId: string;
+  }): Promise<Array<{ studyContextId: string; sourceVersion: string }>>;
   claimOutboxBatch(
     limit: number,
     leaseOwner: string,

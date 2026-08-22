@@ -59,6 +59,9 @@ async function readSequenceState(
       ON sequence_namespace.oid = sequence_class.relnamespace
     WHERE sequence_namespace.nspname = 'public'
       AND sequence_class.relkind = 'S'
+      -- Collision probes intentionally fire the cutover audit trigger inside
+      -- rolled-back transactions. PostgreSQL rolls back the rows, not nextval.
+      AND sequence_class.relname <> 'learning_cutover_source_changes_id_seq'
     ORDER BY sequence_class.relname
   `);
   const state: SequenceStateRow[] = [];

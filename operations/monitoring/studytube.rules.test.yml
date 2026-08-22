@@ -127,3 +127,78 @@ tests:
       - eval_time: 3m
         alertname: StudyTubeDatabasePoolSaturation
         exp_alerts: []
+
+  - name: bounded learning failures fire without private labels
+    interval: 1m
+    input_series:
+      - series: 'studytube_learning_events_total{area="caption_stage",code="failed"}'
+        values: '0 1 1'
+      - series: 'studytube_learning_events_total{area="reservation",code="denied"}'
+        values: '0 1 1'
+      - series: 'studytube_learning_events_total{area="retrieval_mcp",code="failed"}'
+        values: '0 1 1'
+      - series: 'studytube_learning_events_total{area="stale_quiz",code="stale"}'
+        values: '0 1 1'
+      - series: 'studytube_learning_events_total{area="approval_conflict",code="version_conflict"}'
+        values: '0 1 1'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: StudyTubeCaptionPipelineFailed
+        exp_alerts:
+          - exp_labels:
+              alertname: StudyTubeCaptionPipelineFailed
+              area: caption_stage
+              code: failed
+              service: studytube
+              severity: warning
+            exp_annotations:
+              summary: StudyTube caption preparation failed
+              action: Inspect the bounded caption stage code and sanitized worker logs.
+      - eval_time: 2m
+        alertname: StudyTubeReservationDenied
+        exp_alerts:
+          - exp_labels:
+              alertname: StudyTubeReservationDenied
+              area: reservation
+              code: denied
+              service: studytube
+              severity: warning
+            exp_annotations:
+              summary: StudyTube learning cost reservation was denied
+              action: Check configured count limits before changing any provider budget.
+      - eval_time: 2m
+        alertname: StudyTubeRetrievalMcpFailed
+        exp_alerts:
+          - exp_labels:
+              alertname: StudyTubeRetrievalMcpFailed
+              area: retrieval_mcp
+              code: failed
+              service: studytube
+              severity: warning
+            exp_annotations:
+              summary: StudyTube grounded retrieval failed
+              action: Inspect bounded MCP outcome codes without recording queries or source text.
+      - eval_time: 2m
+        alertname: StudyTubeQuizBecameStale
+        exp_alerts:
+          - exp_labels:
+              alertname: StudyTubeQuizBecameStale
+              area: stale_quiz
+              code: stale
+              service: studytube
+              severity: info
+            exp_annotations:
+              summary: StudyTube quiz context became stale
+              action: Confirm a fresh quiz can be generated from the current caption generation.
+      - eval_time: 2m
+        alertname: StudyTubeProposalApprovalConflict
+        exp_alerts:
+          - exp_labels:
+              alertname: StudyTubeProposalApprovalConflict
+              area: approval_conflict
+              code: version_conflict
+              service: studytube
+              severity: info
+            exp_annotations:
+              summary: StudyTube Course approval conflicted
+              action: Confirm the learner can refresh the Course choice or request a new proposal.

@@ -113,6 +113,29 @@ describe('OriginGuard', () => {
     ).toThrow(UnsupportedMediaTypeException);
   });
 
+  it('keeps Origin and JSON enforcement on learning intake mutations', () => {
+    expect(() =>
+      guard.canActivate(
+        contextFor({
+          method: 'POST',
+          path: '/learning/items/intake',
+          origin: 'https://attacker.example',
+          contentType: 'application/json',
+        }),
+      ),
+    ).toThrow(ForbiddenException);
+    expect(() =>
+      guard.canActivate(
+        contextFor({
+          method: 'POST',
+          path: '/learning/items/intake',
+          origin: 'https://app.studytube.example',
+          contentType: 'text/plain',
+        }),
+      ),
+    ).toThrow(UnsupportedMediaTypeException);
+  });
+
   it.each(['/internal/mcp/search', '/internal/mcp/tool-calls'])(
     'allows a JSON service assertion request without a browser Origin on %s',
     (path) => {

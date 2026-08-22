@@ -12,13 +12,19 @@ import {
 import { ApiHeader } from '@nestjs/swagger';
 import type { AuthenticatedRequest } from '../auth/session.guard';
 import {
+  AdaptiveQuizLoopParamDto,
+  ApproveLearningProposalDto,
   AgentRunParamDto,
   CourseStepParamDto,
   CreateAgentRunDto,
   ExpectedVersionDto,
+  LearningContextParamDto,
+  LearningProposalParamDto,
   QuizParamDto,
+  RequestAdaptiveQuizDto,
   RecordProgressDto,
   SubmitQuizDto,
+  SubmitAdaptiveQuizDto,
 } from './learning.dto';
 import { throwLearningHttpError } from './learning-error.mapper';
 import { LearningNotFoundError } from './learning.errors';
@@ -181,6 +187,121 @@ export class LearningController {
   ) {
     return boundary(() =>
       this.service.listQuizAttempts(request.principal.userId, params.quizId),
+    );
+  }
+
+  @Post('contexts/:contextId/quiz-loops')
+  @HttpCode(HttpStatus.ACCEPTED)
+  @ApiHeader({
+    name: 'Idempotency-Key',
+    required: true,
+    schema: { type: 'string', maxLength: 200 },
+  })
+  requestAdaptiveQuiz(
+    @Req() request: AuthenticatedRequest,
+    @Param() params: LearningContextParamDto,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
+    @Body() body: RequestAdaptiveQuizDto,
+  ) {
+    return boundary(() =>
+      this.service.requestAdaptiveQuiz(
+        request.principal.userId,
+        params.contextId,
+        idempotencyKey,
+        body,
+      ),
+    );
+  }
+
+  @Get('quiz-loops/:quizLoopId')
+  getAdaptiveQuiz(
+    @Req() request: AuthenticatedRequest,
+    @Param() params: AdaptiveQuizLoopParamDto,
+  ) {
+    return boundary(async () =>
+      required(
+        await this.service.getAdaptiveQuiz(
+          request.principal.userId,
+          params.quizLoopId,
+        ),
+      ),
+    );
+  }
+
+  @Post('quiz-loops/:quizLoopId/submit')
+  @HttpCode(HttpStatus.OK)
+  @ApiHeader({
+    name: 'Idempotency-Key',
+    required: true,
+    schema: { type: 'string', maxLength: 200 },
+  })
+  submitAdaptiveQuiz(
+    @Req() request: AuthenticatedRequest,
+    @Param() params: AdaptiveQuizLoopParamDto,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
+    @Body() body: SubmitAdaptiveQuizDto,
+  ) {
+    return boundary(() =>
+      this.service.submitAdaptiveQuiz(
+        request.principal.userId,
+        params.quizLoopId,
+        idempotencyKey,
+        body,
+      ),
+    );
+  }
+
+  @Post('agent-runs/:runId/next-learning-proposal')
+  @HttpCode(HttpStatus.CREATED)
+  createNextLearningProposal(
+    @Req() request: AuthenticatedRequest,
+    @Param() params: AgentRunParamDto,
+  ) {
+    return boundary(() =>
+      this.service.createNextLearningProposal(
+        request.principal.userId,
+        params.runId,
+      ),
+    );
+  }
+
+  @Get('proposals/:proposalId')
+  getLearningProposal(
+    @Req() request: AuthenticatedRequest,
+    @Param() params: LearningProposalParamDto,
+  ) {
+    return boundary(async () =>
+      required(
+        await this.service.getLearningProposal(
+          request.principal.userId,
+          params.proposalId,
+        ),
+      ),
+    );
+  }
+
+  @Post('proposals/:proposalId/dismiss')
+  @HttpCode(HttpStatus.OK)
+  dismissLearningProposal(
+    @Req() request: AuthenticatedRequest,
+    @Param() params: LearningProposalParamDto,
+  ) {
+    return boundary(() =>
+      this.service.dismissLearningProposal(
+        request.principal.userId,
+        params.proposalId,
+      ),
+    );
+  }
+
+  @Post('proposals/approve')
+  @HttpCode(HttpStatus.OK)
+  approveLearningProposal(
+    @Req() request: AuthenticatedRequest,
+    @Body() body: ApproveLearningProposalDto,
+  ) {
+    return boundary(() =>
+      this.service.approveLearningProposal(request.principal.userId, body),
     );
   }
 }

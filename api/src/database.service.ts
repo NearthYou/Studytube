@@ -66,15 +66,21 @@ import type {
 import { COURSE_CUTOVER_ADVISORY_LOCK_KEY } from './course/course-cutover.policy';
 import type { CourseRepository } from './course/course.repository';
 import { PostgresCourseRepository } from './course/postgres-course.repository';
+import type { LearningItemRepository } from './learning/learning-item.repository';
+import { PostgresLearningItemRepository } from './learning/postgres-learning-item.repository';
+import type { CaptionArtifactRepository } from './video-asset.types';
+import { PostgresCaptionArtifactRepository } from './postgres-caption-artifact.repository';
 import { PostgresWorkRepository } from './work/postgres-work.repository';
 import type { WorkRepository } from './work/work.repository';
 import { PostgresRetrievalRepository } from './retrieval/postgres-retrieval.repository';
 import type { RetrievalRepository } from './retrieval/retrieval.repository';
 import {
+  assertLearningCutoverAuthority,
   assertRequiredMigrationsApplied,
   requiredMigrationNames,
   resolveDatabaseUrl,
 } from './database-migration-readiness';
+import { resolveCourseCutoverMode } from './course/course-cutover.policy';
 import {
   observabilityRuntime,
   type ObservabilityRuntime,
@@ -93,6 +99,8 @@ export class DatabaseService
   private readonly verificationEmailMaxAttempts: number;
   private readonly stopPoolObservation: () => void;
   private courseRepository?: CourseRepository;
+  private learningItemRepository?: LearningItemRepository;
+  private captionArtifactRepository?: CaptionArtifactRepository;
   private workRepository?: WorkRepository;
   private retrievalRepository?: RetrievalRepository;
   private verificationEmailOutboxRepository?: VerificationEmailOutboxRepository;
@@ -150,6 +158,13 @@ export class DatabaseService
             this.pool,
             requiredMigrationNames(process.env),
           );
+          await assertLearningCutoverAuthority(this.pool, {
+            mode: resolveCourseCutoverMode(
+              process.env.COURSE_CUTOVER_MODE,
+              process.env.NODE_ENV,
+            ),
+            writerRelease: process.env.DEPLOY_SHA?.trim() ?? '',
+          });
         }
         return;
       } catch (error) {
@@ -191,6 +206,20 @@ export class DatabaseService
   getCourseRepository(): CourseRepository {
     this.courseRepository ??= new PostgresCourseRepository(this.pool);
     return this.courseRepository;
+  }
+
+  getLearningItemRepository(): LearningItemRepository {
+    this.learningItemRepository ??= new PostgresLearningItemRepository(
+      this.pool,
+    );
+    return this.learningItemRepository;
+  }
+
+  getCaptionArtifactRepository(): CaptionArtifactRepository {
+    this.captionArtifactRepository ??= new PostgresCaptionArtifactRepository(
+      this.pool,
+    );
+    return this.captionArtifactRepository;
   }
 
   getWorkRepository(): WorkRepository {

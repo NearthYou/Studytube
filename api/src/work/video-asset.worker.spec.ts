@@ -1,11 +1,16 @@
 import type { StudyPost } from '../study-board.types';
-import type { VideoAsset } from '../video-asset.types';
+import type {
+  CaptionPipelineRequest,
+  LearningCaptionResult,
+  VideoAsset,
+} from '../video-asset.types';
 import { DurableJobExecutor } from './durable-job.executor';
 import { MemoryJobExecutionStore } from './memory-job-execution.store';
 import type { AppendOutboxEvent, JobResult } from './work.types';
 import type { WorkQueueJob } from './work.queue';
 import { WorkJobBusyError } from './work.errors';
 import { VideoAssetJobHandler } from './video-asset.worker';
+import { CaptionTranslationPendingError } from '../video-asset.service';
 
 const POST: StudyPost = {
   id: 42,
@@ -55,12 +60,22 @@ class MemoryResults {
   result: JobResult | null = null;
   deadLetter: Record<string, unknown> | null = null;
   appendedEvents: AppendOutboxEvent[] = [];
+  learningContexts: Array<{
+    studyContextId: string;
+    sourceVersion: string;
+  }> = [];
 
   appendOutboxEvent(event: AppendOutboxEvent): Promise<void> {
     if (!this.appendedEvents.some((existing) => existing.id === event.id)) {
       this.appendedEvents.push(event);
     }
     return Promise.resolve();
+  }
+
+  listLearningRetrievalContexts(): Promise<
+    Array<{ studyContextId: string; sourceVersion: string }>
+  > {
+    return Promise.resolve(this.learningContexts);
   }
 
   findJobResult(): Promise<JobResult | null> {
@@ -85,6 +100,77 @@ class MemoryResults {
 }
 
 describe('VideoAssetJobHandler', () => {
+  it('handles canonical learning intake without changing the legacy post path', async () => {
+    const results = new MemoryResults();
+    results.learningContexts = [{ studyContextId: '81', sourceVersion: '5' }];
+    const execution = jobExecution();
+    const prepareLearningCaptions = jest
+      .fn<
+        Promise<LearningCaptionResult>,
+        [CaptionPipelineRequest, AbortSignal?]
+      >()
+      .mockResolvedValue({
+        sourceArtifactId: '17',
+        translationArtifactId: '18',
+        source: 'youtube_caption',
+        status: 'ready',
+      });
+    const handler = new VideoAssetJobHandler(
+      { findPost: () => Promise.resolve(POST) },
+      {
+        preparePostAsset: () => Promise.resolve(ASSET),
+        prepareLearningCaptions,
+      },
+      results,
+      execution.executor,
+    );
+    const job: WorkQueueJob = {
+      eventId: '33333333-3333-4333-8333-333333333333',
+      eventType: 'learning_intake.requested',
+      handlerVersion: 'learning-caption-v1',
+      payloadSchemaVersion: 1,
+      payload: {
+        canonicalVideoId: 'caption0001',
+        processingRangeKey: '0-120',
+        reservationId: '31',
+      },
+    };
+
+    await expect(handler.handle(job)).resolves.toMatchObject({
+      sourceArtifactId: '17',
+      translationArtifactId: '18',
+      status: 'ready',
+    });
+    expect(prepareLearningCaptions).toHaveBeenCalledTimes(1);
+    const requestArg: unknown = prepareLearningCaptions.mock.calls[0]?.[0];
+    const signalArg: unknown = prepareLearningCaptions.mock.calls[0]?.[1];
+    expect(requestArg).toMatchObject({
+      eventId: job.eventId,
+      handlerVersion: 'learning-caption-v1',
+      canonicalVideoId: 'caption0001',
+      targetLanguage: 'ko',
+      durationSeconds: 120,
+    });
+    expect((requestArg as { leaseToken?: unknown }).leaseToken).toEqual(
+      expect.stringMatching(/^[0-9a-f-]{36}$/u),
+    );
+    expect(signalArg).toBeInstanceOf(AbortSignal);
+    expect(results.appendedEvents).toEqual([
+      expect.objectContaining({
+        eventType: 'retrieval_embedding.requested',
+        aggregateType: 'study_context',
+        aggregateId: '81',
+        payload: {
+          sourceKind: 'learning_context',
+          sourceId: '81',
+          sourceVersion: '5',
+          causeEventId: job.eventId,
+          captionArtifactId: '18',
+        },
+      }),
+    ]);
+  });
+
   it('runs one provider call for concurrent delivery and replays the completed result', async () => {
     const results = new MemoryResults();
     const store = new MemoryJobExecutionStore();
@@ -121,6 +207,67 @@ describe('VideoAssetJobHandler', () => {
     });
 
     expect(preparePostAsset).toHaveBeenCalledTimes(1);
+  });
+
+  it('releases a pending translation for a later BullMQ attempt', async () => {
+    const results = new MemoryResults();
+    const execution = jobExecution();
+    const prepareLearningCaptions = jest
+      .fn()
+      .mockRejectedValue(new CaptionTranslationPendingError());
+    const handler = new VideoAssetJobHandler(
+      { findPost: () => Promise.resolve(POST) },
+      {
+        preparePostAsset: () => Promise.resolve(ASSET),
+        prepareLearningCaptions,
+      },
+      results,
+      execution.executor,
+    );
+
+    await expect(handler.handle(learningJob())).rejects.toBeInstanceOf(
+      CaptionTranslationPendingError,
+    );
+    expect(execution.store.findResult(learningJob())).toBeNull();
+  });
+
+  it('records a safe caption failure after the final translation attempt', async () => {
+    const results = new MemoryResults();
+    const execution = jobExecution();
+    const failLearningCaptions = jest.fn().mockResolvedValue({
+      sourceArtifactId: null,
+      translationArtifactId: null,
+      source: 'none',
+      status: 'failed',
+      errorCode: 'TRANSLATION_PROVIDER_UNAVAILABLE',
+    });
+    const handler = new VideoAssetJobHandler(
+      { findPost: () => Promise.resolve(POST) },
+      {
+        preparePostAsset: () => Promise.resolve(ASSET),
+        prepareLearningCaptions: () =>
+          Promise.reject(new CaptionTranslationPendingError()),
+        failLearningCaptions,
+      },
+      results,
+      execution.executor,
+    );
+
+    await expect(
+      handler.handle(learningJob(), {
+        attemptNumber: 8,
+        maxAttempts: 8,
+        isFinalAttempt: true,
+      }),
+    ).resolves.toMatchObject({
+      status: 'failed',
+      errorCode: 'TRANSLATION_PROVIDER_UNAVAILABLE',
+    });
+    expect(failLearningCaptions).toHaveBeenCalledWith(
+      expect.objectContaining({ canonicalVideoId: 'caption0001' }),
+      'TRANSLATION_PROVIDER_UNAVAILABLE',
+    );
+    expect(execution.store.findDeadLetter(learningJob())).toBeNull();
   });
 
   it('persists one result and skips the side effect on duplicate delivery', async () => {
@@ -283,5 +430,19 @@ function jobExecution(): {
       leaseOwner: 'video-worker',
       leaseMs: 30_000,
     }),
+  };
+}
+
+function learningJob(): WorkQueueJob {
+  return {
+    eventId: '33333333-3333-4333-8333-333333333333',
+    eventType: 'learning_intake.requested',
+    handlerVersion: 'learning-caption-v1',
+    payloadSchemaVersion: 1,
+    payload: {
+      canonicalVideoId: 'caption0001',
+      processingRangeKey: '0-120',
+      reservationId: '31',
+    },
   };
 }

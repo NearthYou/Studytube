@@ -1,6 +1,87 @@
 {
   "components": {
     "schemas": {
+      "AdaptiveQuizLoop": {
+        "properties": {
+          "captionArtifactId": {
+            "pattern": "^[1-9]\\d*$",
+            "type": "string"
+          },
+          "captionGeneration": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "failureCode": {
+            "nullable": true,
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "questions": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "state": {
+            "enum": [
+              "generating",
+              "ready",
+              "evaluated",
+              "failed",
+              "stale"
+            ],
+            "type": "string"
+          },
+          "studyContextId": {
+            "pattern": "^[1-9]\\d*$",
+            "type": "string"
+          },
+          "watchedRange": {
+            "additionalProperties": true,
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "studyContextId",
+          "state",
+          "watchedRange",
+          "captionArtifactId",
+          "captionGeneration",
+          "questions",
+          "failureCode"
+        ],
+        "type": "object"
+      },
+      "AdaptiveQuizSubmission": {
+        "properties": {
+          "attempt": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "reviewProposal": {
+            "additionalProperties": true,
+            "nullable": true,
+            "type": "object"
+          },
+          "state": {
+            "enum": [
+              "evaluated"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "attempt",
+          "reviewProposal"
+        ],
+        "type": "object"
+      },
       "AgentBudgetsResponse": {
         "properties": {
           "estimatedCostBudgetUsd": {
@@ -250,6 +331,23 @@
         ],
         "type": "object"
       },
+      "AgentRunWatchedRangeDto": {
+        "properties": {
+          "end": {
+            "minimum": 0,
+            "type": "number"
+          },
+          "start": {
+            "minimum": 0,
+            "type": "number"
+          }
+        },
+        "required": [
+          "start",
+          "end"
+        ],
+        "type": "object"
+      },
       "AgentUsageResponse": {
         "properties": {
           "estimatedCostUsd": {
@@ -381,6 +479,39 @@
           "answer",
           "relatedPosts",
           "sources"
+        ],
+        "type": "object"
+      },
+      "ApproveLearningProposalDto": {
+        "properties": {
+          "courseId": {
+            "minimum": 1,
+            "type": "number"
+          },
+          "expectedCourseVersion": {
+            "minimum": 1,
+            "type": "number"
+          },
+          "proposalId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "targetKind": {
+            "enum": [
+              "existing_course",
+              "new_private_course"
+            ],
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "proposalId",
+          "targetKind"
         ],
         "type": "object"
       },
@@ -665,6 +796,18 @@
             "maximum": 6,
             "minimum": 3,
             "type": "number"
+          },
+          "studyContextId": {
+            "pattern": "^[1-9]\\d*$",
+            "type": "string"
+          },
+          "watchedRanges": {
+            "items": {
+              "$ref": "#/components/schemas/AgentRunWatchedRangeDto"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "type": "array"
           }
         },
         "required": [
@@ -698,24 +841,6 @@
         ],
         "type": "object"
       },
-      "CreateCourseFeedbackDto": {
-        "properties": {
-          "body": {
-            "maxLength": 2000,
-            "type": "string"
-          },
-          "rating": {
-            "maximum": 5,
-            "minimum": 1,
-            "type": "number"
-          }
-        },
-        "required": [
-          "rating",
-          "body"
-        ],
-        "type": "object"
-      },
       "CreateCourseStepDto": {
         "properties": {
           "ownerLearningState": {
@@ -729,6 +854,25 @@
             "type": "number"
           }
         },
+        "type": "object"
+      },
+      "CreateLearningNoteDto": {
+        "properties": {
+          "body": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "positionSeconds": {
+            "maximum": 86400,
+            "minimum": 0,
+            "type": "number"
+          }
+        },
+        "required": [
+          "positionSeconds",
+          "body"
+        ],
         "type": "object"
       },
       "DatabaseHealth": {
@@ -782,6 +926,85 @@
         },
         "required": [
           "expectedVersion"
+        ],
+        "type": "object"
+      },
+      "LearningIntakeResponse": {
+        "properties": {
+          "admission": {
+            "enum": [
+              "created",
+              "joined"
+            ],
+            "type": "string"
+          },
+          "context": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "reservationId": {
+            "pattern": "^[1-9]\\d*$",
+            "type": "string"
+          },
+          "reservedAudioSeconds": {
+            "maximum": 14400,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "workId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reservationId",
+          "workId",
+          "admission",
+          "reservedAudioSeconds",
+          "context"
+        ],
+        "type": "object"
+      },
+      "LearningNote": {
+        "properties": {
+          "body": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "pattern": "^[1-9]\\d*$",
+            "type": "string"
+          },
+          "positionSeconds": {
+            "minimum": 0,
+            "type": "number"
+          },
+          "studyContextId": {
+            "pattern": "^[1-9]\\d*$",
+            "type": "string"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "userId": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "userId",
+          "studyContextId",
+          "positionSeconds",
+          "body",
+          "createdAt",
+          "updatedAt"
         ],
         "type": "object"
       },
@@ -879,6 +1102,94 @@
         ],
         "type": "object"
       },
+      "LearningProposal": {
+        "properties": {
+          "agentRunId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "approvedCourseId": {
+            "minimum": 1,
+            "nullable": true,
+            "type": "integer"
+          },
+          "approvedCourseVersion": {
+            "minimum": 1,
+            "nullable": true,
+            "type": "integer"
+          },
+          "candidate": {
+            "properties": {
+              "channelName": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              },
+              "thumbnailUrl": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "videoUrl": {
+                "format": "uri",
+                "type": "string"
+              }
+            },
+            "required": [
+              "title",
+              "videoUrl",
+              "thumbnailUrl",
+              "channelName",
+              "reason"
+            ],
+            "type": "object"
+          },
+          "expiresAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "ownerId": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "proposalVersion": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "state": {
+            "enum": [
+              "pending",
+              "approved",
+              "dismissed",
+              "expired"
+            ],
+            "type": "string"
+          },
+          "videoSourceId": {
+            "pattern": "^[1-9]\\d*$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "ownerId",
+          "agentRunId",
+          "videoSourceId",
+          "proposalVersion",
+          "state",
+          "candidate",
+          "expiresAt",
+          "approvedCourseId",
+          "approvedCourseVersion"
+        ],
+        "type": "object"
+      },
       "Liveness": {
         "properties": {
           "live": {
@@ -925,6 +1236,43 @@
         "required": [
           "email",
           "password"
+        ],
+        "type": "object"
+      },
+      "McpLearningPlan": {
+        "properties": {
+          "evidenceCount": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "proposalVersion": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "proposedSteps": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "schemaVersion": {
+            "enum": [
+              1
+            ],
+            "type": "integer"
+          },
+          "usage": {
+            "additionalProperties": true,
+            "type": "object"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "proposedSteps",
+          "usage",
+          "evidenceCount",
+          "proposalVersion"
         ],
         "type": "object"
       },
@@ -1645,6 +1993,23 @@
         ],
         "type": "object"
       },
+      "RequestAdaptiveQuizDto": {
+        "properties": {
+          "endSeconds": {
+            "minimum": 0,
+            "type": "number"
+          },
+          "startSeconds": {
+            "minimum": 0,
+            "type": "number"
+          }
+        },
+        "required": [
+          "startSeconds",
+          "endSeconds"
+        ],
+        "type": "object"
+      },
       "ResendVerificationDto": {
         "properties": {
           "email": {
@@ -1726,6 +2091,25 @@
         },
         "required": [
           "email"
+        ],
+        "type": "object"
+      },
+      "StartLearningItemDto": {
+        "properties": {
+          "requestedAudioSeconds": {
+            "maximum": 14400,
+            "minimum": 1,
+            "type": "number"
+          },
+          "videoUrl": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "videoUrl",
+          "requestedAudioSeconds"
         ],
         "type": "object"
       },
@@ -1833,6 +2217,22 @@
         ],
         "type": "object"
       },
+      "SubmitAdaptiveQuizDto": {
+        "properties": {
+          "answers": {
+            "items": {
+              "$ref": "#/components/schemas/QuizAnswerDto"
+            },
+            "maxItems": 5,
+            "minItems": 5,
+            "type": "array"
+          }
+        },
+        "required": [
+          "answers"
+        ],
+        "type": "object"
+      },
       "SubmitQuizDto": {
         "properties": {
           "answers": {
@@ -1866,6 +2266,19 @@
         },
         "required": [
           "expectedVersion"
+        ],
+        "type": "object"
+      },
+      "UpdateLearningNoteDto": {
+        "properties": {
+          "body": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "body"
         ],
         "type": "object"
       },
@@ -2818,47 +3231,6 @@
         ]
       }
     },
-    "/courses/{id}/feedback": {
-      "post": {
-        "operationId": "CourseController_feedback",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "minimum": 1,
-              "type": "number"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateCourseFeedbackDto"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PublicCourseFeedbackResponse"
-                }
-              }
-            },
-            "description": ""
-          }
-        },
-        "tags": [
-          "Course"
-        ]
-      }
-    },
     "/courses/{id}/publish": {
       "post": {
         "operationId": "CourseController_publish",
@@ -3017,53 +3389,6 @@
         ]
       }
     },
-    "/explore/posts": {
-      "get": {
-        "operationId": "StudyBoardController_listPublicPosts",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "search",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "page",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "pageSize",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PaginatedPostsResponse"
-                }
-              }
-            },
-            "description": ""
-          }
-        },
-        "security": [],
-        "tags": [
-          "StudyBoard"
-        ]
-      }
-    },
     "/health": {
       "get": {
         "operationId": "AppController_getHealth",
@@ -3192,6 +3517,32 @@
         "security": [],
         "tags": [
           "App"
+        ]
+      }
+    },
+    "/internal/mcp/learning/plan": {
+      "post": {
+        "operationId": "McpController_createLearningPlan",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/McpLearningPlan"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "mcpService": []
+          }
+        ],
+        "tags": [
+          "Mcp"
         ]
       }
     },
@@ -3438,6 +3789,37 @@
         ]
       }
     },
+    "/learning/agent-runs/{runId}/next-learning-proposal": {
+      "post": {
+        "operationId": "LearningController_createNextLearningProposal",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "runId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LearningProposal"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "Learning"
+        ]
+      }
+    },
     "/learning/agent-runs/{runId}/retry": {
       "post": {
         "operationId": "LearningController_retryRun",
@@ -3468,6 +3850,314 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AgentRunResponse"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "Learning"
+        ]
+      }
+    },
+    "/learning/contexts/{contextId}/captions": {
+      "get": {
+        "operationId": "LearningItemController_getCaptions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "contextId",
+            "required": true,
+            "schema": {
+              "pattern": "^[1-9]\\d*$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "contextId": {
+                      "type": "string"
+                    },
+                    "errorCode": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "generation": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "koreanSegments": {
+                      "items": {
+                        "properties": {
+                          "end": {
+                            "type": "number"
+                          },
+                          "start": {
+                            "type": "number"
+                          },
+                          "text": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "start",
+                          "end",
+                          "text"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "phase": {
+                      "enum": [
+                        "source_pending",
+                        "transcription_pending",
+                        "translation_pending",
+                        "index_pending",
+                        "partial",
+                        "failed",
+                        "complete"
+                      ],
+                      "type": "string"
+                    },
+                    "sourceLanguage": {
+                      "type": "string"
+                    },
+                    "sourceSegments": {
+                      "items": {
+                        "properties": {
+                          "end": {
+                            "type": "number"
+                          },
+                          "start": {
+                            "type": "number"
+                          },
+                          "text": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "start",
+                          "end",
+                          "text"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "stale": {
+                      "enum": [
+                        false
+                      ],
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "contextId",
+                    "generation",
+                    "phase",
+                    "sourceLanguage",
+                    "sourceSegments",
+                    "koreanSegments",
+                    "stale"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "학습 자료를 찾을 수 없습니다."
+          }
+        },
+        "tags": [
+          "LearningItem"
+        ]
+      }
+    },
+    "/learning/contexts/{contextId}/notes": {
+      "post": {
+        "operationId": "LearningItemController_createNote",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "contextId",
+            "required": true,
+            "schema": {
+              "pattern": "^[1-9]\\d*$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateLearningNoteDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LearningNote"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "LearningItem"
+        ]
+      }
+    },
+    "/learning/contexts/{contextId}/notes/{noteId}": {
+      "delete": {
+        "operationId": "LearningItemController_deleteNote",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "contextId",
+            "required": true,
+            "schema": {
+              "pattern": "^[1-9]\\d*$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "noteId",
+            "required": true,
+            "schema": {
+              "pattern": "^[1-9]\\d*$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "deleted": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "deleted"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "LearningItem"
+        ]
+      },
+      "patch": {
+        "operationId": "LearningItemController_updateNote",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "contextId",
+            "required": true,
+            "schema": {
+              "pattern": "^[1-9]\\d*$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "noteId",
+            "required": true,
+            "schema": {
+              "pattern": "^[1-9]\\d*$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateLearningNoteDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LearningNote"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "LearningItem"
+        ]
+      }
+    },
+    "/learning/contexts/{contextId}/quiz-loops": {
+      "post": {
+        "operationId": "LearningController_requestAdaptiveQuiz",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "contextId",
+            "required": true,
+            "schema": {
+              "pattern": "^[1-9]\\d*$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RequestAdaptiveQuizDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdaptiveQuizLoop"
                 }
               }
             },
@@ -3578,6 +4268,211 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/QuizResponse"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "Learning"
+        ]
+      }
+    },
+    "/learning/items/intake": {
+      "post": {
+        "operationId": "LearningItemController_start",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartLearningItemDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LearningIntakeResponse"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "LearningItem"
+        ]
+      }
+    },
+    "/learning/proposals/{proposalId}": {
+      "get": {
+        "operationId": "LearningController_getLearningProposal",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "proposalId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LearningProposal"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "Learning"
+        ]
+      }
+    },
+    "/learning/proposals/{proposalId}/dismiss": {
+      "post": {
+        "operationId": "LearningController_dismissLearningProposal",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "proposalId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LearningProposal"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "Learning"
+        ]
+      }
+    },
+    "/learning/proposals/approve": {
+      "post": {
+        "operationId": "LearningController_approveLearningProposal",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveLearningProposalDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LearningProposal"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "Learning"
+        ]
+      }
+    },
+    "/learning/quiz-loops/{quizLoopId}": {
+      "get": {
+        "operationId": "LearningController_getAdaptiveQuiz",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "quizLoopId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdaptiveQuizLoop"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "Learning"
+        ]
+      }
+    },
+    "/learning/quiz-loops/{quizLoopId}/submit": {
+      "post": {
+        "operationId": "LearningController_submitAdaptiveQuiz",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "quizLoopId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitAdaptiveQuizDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdaptiveQuizSubmission"
                 }
               }
             },
@@ -3749,410 +4644,6 @@
         },
         "tags": [
           "Auth"
-        ]
-      }
-    },
-    "/playlists": {
-      "get": {
-        "operationId": "StudyBoardController_listPlaylists",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/PlaylistResponse"
-                  },
-                  "type": "array"
-                }
-              }
-            },
-            "description": ""
-          }
-        },
-        "tags": [
-          "StudyBoard"
-        ]
-      },
-      "post": {
-        "operationId": "StudyBoardController_createPlaylist",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PlaylistResponse"
-                }
-              }
-            },
-            "description": ""
-          }
-        },
-        "tags": [
-          "StudyBoard"
-        ]
-      }
-    },
-    "/playlists/{id}": {
-      "delete": {
-        "operationId": "StudyBoardController_deletePlaylist",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "properties": {
-                    "deleted": {
-                      "type": "boolean"
-                    }
-                  },
-                  "required": [
-                    "deleted"
-                  ],
-                  "type": "object"
-                }
-              }
-            },
-            "description": ""
-          }
-        },
-        "tags": [
-          "StudyBoard"
-        ]
-      },
-      "put": {
-        "operationId": "StudyBoardController_updatePlaylist",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PlaylistResponse"
-                }
-              }
-            },
-            "description": ""
-          }
-        },
-        "tags": [
-          "StudyBoard"
-        ]
-      }
-    },
-    "/playlists/{id}/feedback": {
-      "post": {
-        "operationId": "StudyBoardController_addPlaylistFeedback",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PlaylistFeedbackResponse"
-                }
-              }
-            },
-            "description": ""
-          }
-        },
-        "tags": [
-          "StudyBoard"
-        ]
-      }
-    },
-    "/playlists/{id}/items": {
-      "post": {
-        "operationId": "StudyBoardController_addPlaylistItem",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PlaylistResponse"
-                }
-              }
-            },
-            "description": ""
-          }
-        },
-        "tags": [
-          "StudyBoard"
-        ]
-      }
-    },
-    "/posts": {
-      "get": {
-        "operationId": "StudyBoardController_listPosts",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "search",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "page",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "pageSize",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PaginatedPostsResponse"
-                }
-              }
-            },
-            "description": ""
-          }
-        },
-        "tags": [
-          "StudyBoard"
-        ]
-      },
-      "post": {
-        "operationId": "StudyBoardController_createPost",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/StudyPostResponse"
-                }
-              }
-            },
-            "description": ""
-          }
-        },
-        "tags": [
-          "StudyBoard"
-        ]
-      }
-    },
-    "/posts/{id}": {
-      "delete": {
-        "operationId": "StudyBoardController_deletePost",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "properties": {
-                    "deleted": {
-                      "type": "boolean"
-                    }
-                  },
-                  "required": [
-                    "deleted"
-                  ],
-                  "type": "object"
-                }
-              }
-            },
-            "description": ""
-          }
-        },
-        "tags": [
-          "StudyBoard"
-        ]
-      },
-      "get": {
-        "operationId": "StudyBoardController_getPost",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/StudyPostResponse"
-                }
-              }
-            },
-            "description": ""
-          }
-        },
-        "tags": [
-          "StudyBoard"
-        ]
-      },
-      "put": {
-        "operationId": "StudyBoardController_updatePost",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/StudyPostResponse"
-                }
-              }
-            },
-            "description": ""
-          }
-        },
-        "tags": [
-          "StudyBoard"
-        ]
-      }
-    },
-    "/posts/{id}/comments": {
-      "post": {
-        "operationId": "StudyBoardController_addComment",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CommentResponse"
-                }
-              }
-            },
-            "description": ""
-          }
-        },
-        "tags": [
-          "StudyBoard"
-        ]
-      }
-    },
-    "/posts/{postId}/comments/{commentId}": {
-      "delete": {
-        "operationId": "StudyBoardController_deleteComment",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "postId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "commentId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "properties": {
-                    "deleted": {
-                      "type": "boolean"
-                    }
-                  },
-                  "required": [
-                    "deleted"
-                  ],
-                  "type": "object"
-                }
-              }
-            },
-            "description": ""
-          }
-        },
-        "tags": [
-          "StudyBoard"
         ]
       }
     },

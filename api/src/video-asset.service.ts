@@ -2,6 +2,11 @@ import { Injectable } from '@nestjs/common';
 import { AiProxyService } from './ai-proxy.service';
 import type { BoardRepository, StudyPost } from './study-board.types';
 import type {
+  CaptionArtifactKind,
+  CaptionArtifactRepository,
+  CaptionPipelineRequest,
+  CaptionSafeErrorCode,
+  LearningCaptionResult,
   VideoAsset,
   VideoAssetSegment,
   VideoAssetStatus,
@@ -24,12 +29,158 @@ type SummaryResponse = {
   failed: boolean;
 };
 
+export class CaptionTranslationPendingError extends Error {
+  readonly code = 'CAPTION_TRANSLATION_PENDING';
+
+  constructor() {
+    super('CAPTION_TRANSLATION_PENDING');
+  }
+}
+
 @Injectable()
 export class VideoAssetService {
   constructor(
     private readonly repository: BoardRepository,
     private readonly aiProxyService: AiProxyService,
+    private readonly captionArtifacts?: CaptionArtifactRepository,
   ) {}
+
+  async prepareLearningCaptions(
+    request: CaptionPipelineRequest,
+    signal: AbortSignal = new AbortController().signal,
+  ): Promise<LearningCaptionResult> {
+    const artifacts = this.captionArtifacts;
+    if (!artifacts) {
+      throw new Error('Caption artifact repository is unavailable');
+    }
+    signal.throwIfAborted();
+    const captions = this.normalizeCaptionResponse(
+      await this.aiProxyService.captions(
+        {
+          videoId: request.canonicalVideoId,
+          targetLanguage: request.targetLanguage,
+          allowFallback: false,
+          translateFallback: false,
+          durationSeconds: request.durationSeconds,
+        },
+        signal,
+      ),
+    );
+    signal.throwIfAborted();
+
+    let source = captions.sourceSegments.length
+      ? captions.sourceSegments
+      : captions.translated
+        ? []
+        : captions.segments;
+    let translated = captions.translatedSegments.length
+      ? captions.translatedSegments
+      : captions.translated
+        ? captions.segments
+        : [];
+    let sourceKind: Extract<
+      CaptionArtifactKind,
+      'youtube_caption' | 'transcription'
+    > = 'youtube_caption';
+    let sourceLanguage = captions.sourceLanguage || 'und';
+
+    if (source.length === 0) {
+      const model = 'gpt-4o-mini-transcribe-2025-12-15';
+      if (!(await artifacts.hasActiveSttApproval(model))) {
+        return this.failLearningCaption(artifacts, request, 'STT_NOT_APPROVED');
+      }
+      signal.throwIfAborted();
+      const transcription = this.normalizeTranscriptionResponse(
+        await this.aiProxyService.transcribe(
+          {
+            videoId: request.canonicalVideoId,
+            durationSeconds: request.durationSeconds,
+            model,
+          },
+          signal,
+        ),
+      );
+      signal.throwIfAborted();
+      if (transcription.errorCode) {
+        return this.failLearningCaption(
+          artifacts,
+          request,
+          transcription.errorCode,
+        );
+      }
+      if (transcription.segments.length === 0) {
+        return this.failLearningCaption(
+          artifacts,
+          request,
+          'TRANSCRIPTION_PROVIDER_UNAVAILABLE',
+        );
+      }
+      source = transcription.segments;
+      translated = transcription.translatedSegments;
+      sourceLanguage = transcription.sourceLanguage || 'und';
+      sourceKind = 'transcription';
+    }
+
+    const sourceGeneration = await artifacts.createGeneration({
+      kind: sourceKind,
+      sourceLanguage,
+      request,
+    });
+    await this.appendCaptionSegments(
+      artifacts,
+      sourceGeneration.id,
+      source,
+      request,
+      signal,
+    );
+    await this.publishCaptionGeneration(
+      artifacts,
+      sourceGeneration.id,
+      request,
+      signal,
+    );
+
+    if (translated.length === 0 && sourceLanguage === request.targetLanguage) {
+      await artifacts.commitWork({ request, actualCostMicrounits: 0 });
+      return {
+        sourceArtifactId: sourceGeneration.id,
+        translationArtifactId: null,
+        source: sourceKind,
+        status: 'ready',
+      };
+    }
+    if (translated.length === 0) {
+      throw new CaptionTranslationPendingError();
+    }
+
+    const translationGeneration = await artifacts.createGeneration({
+      kind: 'translation',
+      parentArtifactId: sourceGeneration.id,
+      sourceLanguage,
+      targetLanguage: request.targetLanguage,
+      request,
+    });
+    await this.appendCaptionSegments(
+      artifacts,
+      translationGeneration.id,
+      translated,
+      request,
+      signal,
+    );
+    await this.publishCaptionGeneration(
+      artifacts,
+      translationGeneration.id,
+      request,
+      signal,
+    );
+    await artifacts.commitWork({ request, actualCostMicrounits: 0 });
+    return {
+      sourceArtifactId: sourceGeneration.id,
+      translationArtifactId: translationGeneration.id,
+      source: sourceKind,
+      status: 'ready',
+    };
+  }
 
   async preparePostAssetRequest(post: StudyPost): Promise<VideoAsset | null> {
     const videoId = this.extractYoutubeVideoId(post.videoUrl);
@@ -74,6 +225,17 @@ export class VideoAssetService {
     });
 
     return processing ?? asset;
+  }
+
+  async failLearningCaptions(
+    request: CaptionPipelineRequest,
+    errorCode: CaptionSafeErrorCode,
+  ): Promise<LearningCaptionResult> {
+    const artifacts = this.captionArtifacts;
+    if (!artifacts) {
+      throw new Error('Caption artifact repository is unavailable');
+    }
+    return this.failLearningCaption(artifacts, request, errorCode);
   }
 
   async preparePostAsset(
@@ -310,6 +472,86 @@ export class VideoAssetService {
     };
   }
 
+  private normalizeTranscriptionResponse(response: unknown): {
+    sourceLanguage: string;
+    segments: VideoAssetSegment[];
+    translatedSegments: VideoAssetSegment[];
+    errorCode: CaptionSafeErrorCode | null;
+  } {
+    const value = this.objectValue(response);
+    return {
+      sourceLanguage: this.stringValue(value.sourceLanguage),
+      segments: this.normalizeSegments(value.segments),
+      translatedSegments: this.normalizeSegments(value.translatedSegments),
+      errorCode: this.captionSafeErrorCode(value.errorCode),
+    };
+  }
+
+  private async appendCaptionSegments(
+    artifacts: CaptionArtifactRepository,
+    artifactId: string,
+    segments: VideoAssetSegment[],
+    request: CaptionPipelineRequest,
+    signal: AbortSignal,
+  ): Promise<void> {
+    for (let offset = 0; offset < segments.length; offset += 50) {
+      signal.throwIfAborted();
+      const accepted = await artifacts.appendSegments({
+        artifactId,
+        request,
+        segments: segments.slice(offset, offset + 50).map((segment, index) => ({
+          ordinal: offset + index,
+          ...segment,
+        })),
+      });
+      if (!accepted) throw new CaptionLeaseLostError();
+    }
+  }
+
+  private async publishCaptionGeneration(
+    artifacts: CaptionArtifactRepository,
+    artifactId: string,
+    request: CaptionPipelineRequest,
+    signal: AbortSignal,
+  ): Promise<void> {
+    signal.throwIfAborted();
+    if (!(await artifacts.publishGeneration({ artifactId, request }))) {
+      throw new CaptionLeaseLostError();
+    }
+  }
+
+  private async failLearningCaption(
+    artifacts: CaptionArtifactRepository,
+    request: CaptionPipelineRequest,
+    errorCode: CaptionSafeErrorCode,
+  ): Promise<LearningCaptionResult> {
+    await artifacts.failGeneration({ request, errorCode });
+    return {
+      sourceArtifactId: null,
+      translationArtifactId: null,
+      source: 'none',
+      status: 'failed',
+      errorCode,
+    };
+  }
+
+  private captionSafeErrorCode(value: unknown): CaptionSafeErrorCode | null {
+    const code = this.stringValue(value);
+    return [
+      'STT_NOT_APPROVED',
+      'STT_DISABLED',
+      'VIDEO_LIVE_UNSUPPORTED',
+      'VIDEO_RESTRICTED',
+      'VIDEO_AUTH_REQUIRED',
+      'VIDEO_TOO_LONG',
+      'CAPTION_PROVIDER_UNAVAILABLE',
+      'TRANSCRIPTION_PROVIDER_UNAVAILABLE',
+      'TRANSLATION_PROVIDER_UNAVAILABLE',
+    ].includes(code)
+      ? (code as CaptionSafeErrorCode)
+      : null;
+  }
+
   private shouldUseNativeCaptionFallback(captions: CaptionResponse): boolean {
     return [
       'youtube-native-captions',
@@ -455,5 +697,13 @@ export class VideoAssetPreparationRetryableError extends Error {
   constructor(step: 'captions' | 'summary') {
     super(`Video asset ${step} provider is unavailable`);
     this.safeMessage = `Video asset ${step} provider is temporarily unavailable.`;
+  }
+}
+
+export class CaptionLeaseLostError extends Error {
+  readonly code = 'CAPTION_LEASE_LOST';
+
+  constructor() {
+    super('CAPTION_LEASE_LOST');
   }
 }

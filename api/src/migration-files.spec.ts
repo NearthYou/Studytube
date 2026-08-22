@@ -439,6 +439,142 @@ describe('database migration files', () => {
     expect(migration).not.toMatch(/DELETE FROM|DROP TABLE/i);
   });
 
+  it('adds learning contexts without backfilling or deleting legacy learning rows', async () => {
+    const migrationPath = join(
+      process.cwd(),
+      'migrations',
+      '1753660813000_video-sources-and-learning-items.cjs',
+    );
+    expect(existsSync(migrationPath)).toBe(true);
+    if (!existsSync(migrationPath)) return;
+
+    const migration = await readFile(migrationPath, 'utf8');
+    expect(migration).toContain("SET LOCAL lock_timeout = '5s'");
+    expect(migration).toContain("SET LOCAL statement_timeout = '45s'");
+    for (const table of [
+      'video_sources',
+      'learning_items',
+      'study_contexts',
+      'learning_notes',
+      'legacy_learning_context_mappings',
+    ]) {
+      expect(migration).toContain(`CREATE TABLE ${table}`);
+    }
+    expect(migration).toContain('NOT VALID');
+    expect(migration).toContain('learning_progress_study_context_owner_fk');
+    expect(migration).toContain('quiz_attempts_study_context_owner_fk');
+    expect(migration).not.toMatch(
+      /(?:DELETE|TRUNCATE)\s+(?:FROM\s+)?(?:posts|course_steps|learning_progress|quiz_attempts)/i,
+    );
+    expect(migration).not.toMatch(
+      /UPDATE\s+(?:posts|course_steps|learning_progress|quiz_attempts)/i,
+    );
+  });
+
+  it('adds separate global work and user subscription cost ledgers', async () => {
+    const migrationPath = join(
+      process.cwd(),
+      'migrations',
+      '1753660814000_ai-cost-reservations.cjs',
+    );
+    expect(existsSync(migrationPath)).toBe(true);
+    if (!existsSync(migrationPath)) return;
+
+    const migration = await readFile(migrationPath, 'utf8');
+    expect(migration).toContain('CREATE TABLE provider_work_reservations');
+    expect(migration).toContain(
+      'CREATE TABLE provider_subscription_reservations',
+    );
+    expect(migration).toContain(
+      'provider_subscription_reservations_work_user_key',
+    );
+    expect(migration).toContain(
+      'CREATE UNIQUE INDEX provider_work_reservations_active_work_key',
+    );
+    expect(migration).toContain("WHERE state IN ('reserved', 'committed')");
+    expect(migration).toContain(
+      "state IN ('reserved', 'committed', 'released')",
+    );
+    expect(migration).not.toMatch(/(?:DELETE\s+FROM|TRUNCATE\s+TABLE)/i);
+  });
+
+  it('adds immutable caption generations with lease-fenced current pointers', async () => {
+    const migrationPath = join(
+      process.cwd(),
+      'migrations',
+      '1753660815000_learning-caption-artifacts.cjs',
+    );
+    expect(existsSync(migrationPath)).toBe(true);
+    if (!existsSync(migrationPath)) return;
+
+    const migration = await readFile(migrationPath, 'utf8');
+    for (const table of [
+      'caption_artifacts',
+      'caption_artifact_segments',
+      'caption_generation_states',
+      'caption_work_failures',
+      'stt_provider_approvals',
+    ]) {
+      expect(migration).toContain(`CREATE TABLE ${table}`);
+    }
+    expect(migration).toContain('parent_artifact_video_source_fk');
+    expect(migration).toContain('current_source_caption_artifact_id');
+    expect(migration).toContain('current_translation_caption_artifact_id');
+    expect(migration).toContain('caption_artifact_segments_no_overlap');
+    expect(migration).toContain(
+      'CREATE UNIQUE INDEX provider_subscription_context_active_key',
+    );
+    expect(migration).toContain("AND state = 'reserved'");
+    expect(migration).not.toContain(
+      "provider_subscription_context_active_key\n      ON provider_subscription_reservations (study_context_id)\n      WHERE study_context_id IS NOT NULL\n        AND state IN ('reserved', 'committed')",
+    );
+    expect(migration).toContain('STT_NOT_APPROVED');
+    expect(migration).toContain('TRANSLATION_PROVIDER_UNAVAILABLE');
+    expect(migration).toContain('learning caption artifacts rollback refused');
+    expect(migration).not.toMatch(/(?:DELETE\s+FROM|TRUNCATE\s+TABLE)/i);
+  });
+
+  it('adds durable adaptive quiz checkpoints without a user-wait lease', async () => {
+    const migration = await readFile(
+      join(
+        process.cwd(),
+        'migrations',
+        '1753660817000_adaptive-learning-loop.cjs',
+      ),
+      'utf8',
+    );
+    for (const table of [
+      'adaptive_quiz_loops',
+      'adaptive_quiz_evidence',
+      'adaptive_quiz_questions',
+      'adaptive_quiz_attempts',
+      'adaptive_quiz_review_proposals',
+    ]) {
+      expect(migration).toContain(`CREATE TABLE ${table}`);
+    }
+    expect(migration).toContain(
+      "'generating', 'ready', 'evaluated', 'failed', 'stale'",
+    );
+    expect(migration).toContain('generation_event_id');
+    expect(migration).not.toContain('lease_expires_at');
+    expect(migration).not.toMatch(/DROP TABLE|TRUNCATE|DELETE FROM/iu);
+  });
+
+  it('adds immutable next-learning proposals with atomic approval fields', async () => {
+    const migration = await readFile(
+      join(process.cwd(), 'migrations', '1753660818000_learning-proposals.cjs'),
+      'utf8',
+    );
+    expect(migration).toContain('CREATE TABLE learning_proposals');
+    expect(migration).toContain('payload_digest BYTEA NOT NULL');
+    expect(migration).toContain('approval_target_digest BYTEA');
+    expect(migration).toContain(
+      "'pending', 'approved', 'dismissed', 'expired'",
+    );
+    expect(migration).toContain('learning proposals rollback refused');
+    expect(migration).not.toMatch(/DROP TABLE|TRUNCATE|DELETE FROM/iu);
+  });
+
   it('checks in a complete legacy runtime fixture with data and sequence state', async () => {
     const fixturePath = join(
       process.cwd(),
@@ -529,6 +665,9 @@ describe('database migration files', () => {
     expect(verifier).toContain('synchronizeSequences: false');
     expect(verifier).toContain('disabledUserIds');
     expect(verifier).toContain('assertSequenceStateUnchanged');
+    expect(verifier).toContain(
+      "sequence_class.relname <> 'learning_cutover_source_changes_id_seq'",
+    );
     expect(verifier).toContain('ROLLBACK');
   });
 

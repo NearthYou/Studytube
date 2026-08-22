@@ -199,6 +199,38 @@ case "$course_cutover_mode" in
   *) fail "COURSE_CUTOVER_MODE must be legacy, freeze, or course" ;;
 esac
 
+validate_stt_cost_approval() {
+  [[ "${STT_PROVIDER_ENABLED:-false}" == 'true' ]] || return 0
+  local key value
+  local required=(
+    STT_COST_APPROVAL_RECORD
+    STT_COST_APPROVAL_MODEL
+    STT_COST_APPROVAL_ENVIRONMENT
+    STT_COST_APPROVAL_MAX_USD
+    STT_COST_APPROVAL_EXPIRES_AT
+    STT_COST_APPROVAL_ID
+  )
+  for key in "${required[@]}"; do
+    value="${!key:-}"
+    [[ -n "$value" && "$value" != *$'\n'* && "$value" != *$'\r'* ]] ||
+      fail "STT-enabled deployment requires a complete cost approval record"
+  done
+  [[ "$STT_COST_APPROVAL_MODEL" == 'gpt-4o-mini-transcribe-2025-12-15' ]] ||
+    fail "STT cost approval model is not the pinned snapshot"
+  [[ "$STT_COST_APPROVAL_ENVIRONMENT" == 'production' ]] ||
+    fail "STT cost approval is not for production"
+  [[ "$STT_COST_APPROVAL_MAX_USD" =~ ^[0-9]+([.][0-9]{1,2})?$ ]] ||
+    fail "STT cost approval maximum is invalid"
+  awk -v amount="$STT_COST_APPROVAL_MAX_USD" 'BEGIN { exit !(amount > 0) }' ||
+    fail "STT cost approval maximum must be greater than zero"
+  local expiry_epoch
+  expiry_epoch="$(date -u -d "$STT_COST_APPROVAL_EXPIRES_AT" +%s 2>/dev/null || true)"
+  [[ "$expiry_epoch" =~ ^[0-9]+$ && "$expiry_epoch" -gt "$(date -u +%s)" ]] ||
+    fail "STT cost approval is invalid or expired"
+}
+
+validate_stt_cost_approval
+
 ensure_build_principal() {
   if ! getent group "$build_group" >/dev/null 2>&1; then
     sudo groupadd --system "$build_group"
@@ -576,6 +608,20 @@ case "$installer_command" in
       false "$(command -v node)" api/dist/scripts/verify-course-backfill.js
     exit 0
     ;;
+  run-learning-cutover)
+    [[ "$course_cutover_mode" == 'course' ]] ||
+      fail "learning cutover requires COURSE_CUTOVER_MODE=course"
+    [[ "${DEPLOY_SHA:-}" =~ ^[0-9a-f]{40}$ ]] ||
+      fail "DEPLOY_SHA must be a full release SHA for learning cutover"
+    run_isolated_migration_command studytube-release-learning-cutover.service \
+      true "$(command -v env)" \
+      "NODE_ENV=production" \
+      "LEARNING_CUTOVER_WRITER_RELEASE=$DEPLOY_SHA" \
+      "LEARNING_CUTOVER_ACTIVATE=true" \
+      "LEARNING_CUTOVER_MAX_FREEZE_MS=${LEARNING_CUTOVER_MAX_FREEZE_MS:-30000}" \
+      "$(command -v node)" api/dist/scripts/backfill-learning-items.js
+    exit 0
+    ;;
   install-runtime) ;;
   *) fail "unknown installer command: $installer_command" ;;
 esac
@@ -633,6 +679,7 @@ sudo install -d -o root -g root -m 0755 \
   "$web_release_root/releases"
 
 api_environment_keys=(
+  DEPLOY_SHA
   DATABASE_URL
   VALKEY_URL
   OUTBOX_POLL_INTERVAL_MS
@@ -644,6 +691,7 @@ api_environment_keys=(
   AI_SERVICE_URL
   AI_EMBEDDING_TIMEOUT_MS
   AI_CAPTION_TIMEOUT_MS
+  AI_TRANSCRIPTION_TIMEOUT_MS
   AI_SUMMARY_TIMEOUT_MS
   AI_AGENT_TIMEOUT_MS
   AI_QUIZ_TIMEOUT_MS
@@ -692,6 +740,13 @@ ai_environment_keys=(
   INTERNAL_AI_API_KEY
   MCP_SERVICE_ASSERTION_SECRET
   OPENAI_API_KEY
+  STT_PROVIDER_ENABLED
+  STT_COST_APPROVAL_RECORD
+  STT_COST_APPROVAL_MODEL
+  STT_COST_APPROVAL_ENVIRONMENT
+  STT_COST_APPROVAL_MAX_USD
+  STT_COST_APPROVAL_EXPIRES_AT
+  STT_COST_APPROVAL_ID
   LLM_MODEL
   EMBEDDING_MODEL
   YOUTUBE_API_KEY
@@ -734,6 +789,7 @@ ai_environment_keys=(
   OTEL_EXPORTER_OTLP_TRACES_CLIENT_CERTIFICATE
 )
 worker_environment_keys=(
+  DEPLOY_SHA
   DATABASE_URL
   VALKEY_URL
   OUTBOX_POLL_INTERVAL_MS
@@ -745,10 +801,12 @@ worker_environment_keys=(
   AI_SERVICE_URL
   AI_EMBEDDING_TIMEOUT_MS
   AI_CAPTION_TIMEOUT_MS
+  AI_TRANSCRIPTION_TIMEOUT_MS
   AI_SUMMARY_TIMEOUT_MS
   AI_AGENT_TIMEOUT_MS
   AI_QUIZ_TIMEOUT_MS
   INTERNAL_AI_API_KEY
+  MCP_SERVICE_ASSERTION_SECRET
   AUTH_VERIFICATION_PEPPER
   AUTH_RATE_LIMIT_PEPPER
   AUTH_MINIMUM_RESPONSE_MS

@@ -14,6 +14,54 @@ import {
 const VECTOR = Array(1536).fill(0.01) as number[];
 
 describe('PostgresRetrievalRepository', () => {
+  it('captures the profile goal, owner context, watched range, and caption generation once per Agent run', async () => {
+    const query = jest.fn().mockResolvedValue({
+      rows: [
+        {
+          agentRunId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          ownerId: 7,
+          studyContextId: '81',
+          learningItemId: '71',
+          videoSourceId: '61',
+          courseId: 4,
+          profileGoal: '데이터베이스 강의를 이해한다',
+          watchedRanges: [{ start: 20, end: 80 }],
+          captionArtifactId: '51',
+          captionGeneration: 3,
+          contextRetrievalVersion: '5',
+        },
+      ],
+    });
+    const repository = new PostgresRetrievalRepository({
+      query,
+    } as unknown as Pool);
+
+    await expect(
+      repository.captureLearningContext({
+        agentRunId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        ownerId: 7,
+        studyContextId: '81',
+        watchedRanges: [{ start: 20, end: 80 }],
+      }),
+    ).resolves.toMatchObject({
+      profileGoal: '데이터베이스 강의를 이해한다',
+      captionGeneration: 3,
+      contextRetrievalVersion: '5',
+    });
+
+    const [sql, values] = query.mock.calls[0] as [string, unknown[]];
+    expect(sql).toContain('FROM agent_runs AS run');
+    expect(sql).toContain("state.status = 'ready'");
+    expect(sql).toContain('ON CONFLICT (agent_run_id) DO NOTHING');
+    expect(sql).toContain('snapshot.watched_ranges = $4::jsonb');
+    expect(values).toEqual([
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      7,
+      '81',
+      JSON.stringify([{ start: 20, end: 80 }]),
+    ]);
+  });
+
   it('reads post, tags, source version, and latest asset in one SQL snapshot', async () => {
     const query = jest.fn().mockResolvedValue({
       rows: [
@@ -410,6 +458,66 @@ describe('PostgresRetrievalRepository', () => {
       3,
       RETRIEVAL_CANDIDATE_LIMIT,
       RETRIEVAL_VECTOR_MAX_DISTANCE,
+    ]);
+  });
+
+  it('limits learning evidence to the frozen owner context, item, watched range, and caption generation', async () => {
+    const query = jest.fn().mockResolvedValue({
+      rows: [
+        {
+          sourceKind: 'learning_context',
+          sourceId: '81',
+          visibility: 'private',
+          title: '현재 학습 영상',
+          sourceUrl: 'https://youtu.be/caption0001?t=30s',
+          timestampSeconds: 30,
+          endSeconds: 42,
+          content: '현재 문맥의 근거',
+          rankingScore: 0.91,
+          resourceId: 'caption-segment:701',
+          readiness: 'ready',
+          artifactGeneration: 4,
+        },
+      ],
+    });
+    const repository = new PostgresRetrievalRepository({
+      query,
+    } as unknown as Pool);
+
+    const result = await repository.search(
+      {
+        ...searchInput(),
+        contextSnapshotId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      },
+      'lexical',
+    );
+
+    const [sql, values] = query.mock.calls[0] as [string, unknown[]];
+    expect(sql).toContain('learning_retrieval_context_snapshots');
+    expect(sql).toContain('snapshot.owner_id = $1');
+    expect(sql).toContain('snapshot.study_context_id = retrieval.source_id');
+    expect(sql).toContain(
+      'snapshot.learning_item_id = context.learning_item_id',
+    );
+    expect(sql).toContain(
+      'snapshot.caption_artifact_id = retrieval.evidence_artifact_id',
+    );
+    expect(sql).toContain(
+      'snapshot.caption_generation = retrieval.artifact_generation',
+    );
+    expect(sql).toContain('jsonb_array_elements(snapshot.watched_ranges)');
+    expect(values).toContain('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
+    expect(result).toEqual([
+      expect.objectContaining({
+        resourceId: 'caption-segment:701',
+        readiness: 'ready',
+        artifactGeneration: 4,
+        citation: {
+          sourceUrl: 'https://youtu.be/caption0001?t=30s',
+          timestampSeconds: 30,
+          endSeconds: 42,
+        },
+      }),
     ]);
   });
 

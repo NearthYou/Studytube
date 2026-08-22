@@ -4,6 +4,35 @@ import {
 } from './openapi-compatibility';
 
 describe('OpenAPI compatibility', () => {
+  it('allows only the intentional social surface retirement', () => {
+    const baseline = {
+      paths: {
+        '/posts': { get: { responses: { '200': {} } } },
+        '/posts/{id}/comments': { post: { responses: { '201': {} } } },
+        '/courses/{id}/feedback': { post: { responses: { '201': {} } } },
+        '/explore/courses': { get: { responses: { '200': {} } } },
+      },
+    };
+    const current = {
+      paths: {
+        '/explore/courses': { get: { responses: { '200': {} } } },
+      },
+    };
+
+    expect(
+      findBreakingChanges(
+        {
+          ...baseline,
+          components: { schemas: { CreateCourseFeedbackDto: {} } },
+        },
+        current,
+      ),
+    ).toEqual([]);
+    expect(findBreakingChanges(baseline, { paths: {} })).toContain(
+      'removed path /explore/courses',
+    );
+  });
+
   it('detects removed operations and newly required parameters', () => {
     const baseline = {
       'x-studytube-contract-version': 1,

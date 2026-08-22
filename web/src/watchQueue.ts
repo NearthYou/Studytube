@@ -21,7 +21,30 @@ export type QueueVideo = {
   courseStepId?: string;
   sourcePostId?: number | null;
   learning?: VideoLearningState;
+  learningContextId?: string;
+  learningWorkId?: string;
 };
+
+export function queueVideoFromLearningIntake(input: {
+  videoId: string;
+  videoUrl: string;
+  contextId: string;
+  workId: string;
+}): QueueVideo {
+  return normalizeQueueVideo({
+    id: `learning-${input.videoId}`,
+    title: "새 학습 영상",
+    videoId: input.videoId,
+    videoUrl: input.videoUrl,
+    thumbnailUrl: `https://i.ytimg.com/vi/${input.videoId}/hqdefault.jpg`,
+    channelName: "YouTube",
+    summary: "",
+    translatedNotes: "",
+    source: "직접 등록",
+    learningContextId: input.contextId,
+    learningWorkId: input.workId,
+  });
+}
 
 export type CaptionLanguage = 'ko' | 'en';
 

@@ -1,4 +1,4 @@
-import { HttpModule } from '@nestjs/axios';
+import { HttpModule, HttpService } from '@nestjs/axios';
 import { Logger, Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { randomUUID } from 'node:crypto';
@@ -19,8 +19,12 @@ import { UnsupportedWorkJobHandler } from './unsupported-work.worker';
 import { resolveValkeyUrl } from './work.module';
 import { LearningModule } from '../learning/learning.module';
 import { LearningService } from '../learning/learning.service';
-import { QuizGenerationJobHandler } from '../learning/quiz-generation.worker';
+import {
+  DeterministicGroundedQuizGenerator,
+  QuizGenerationJobHandler,
+} from '../learning/quiz-generation.worker';
 import { AgentRunProcessor } from '../learning/agent-run.processor';
+import { LoopbackMcpLearningClient } from '../mcp/mcp-learning.client';
 import { SESv2Client } from '@aws-sdk/client-sesv2';
 import { fromInstanceMetadata } from '@smithy/credential-provider-imds';
 import {
@@ -49,9 +53,19 @@ import type { JobExecutionStore } from './job-execution.store';
   providers: [
     AiProxyService,
     {
+      provide: LoopbackMcpLearningClient,
+      useFactory: (http: HttpService, config: ConfigService) =>
+        new LoopbackMcpLearningClient(http, config),
+      inject: [HttpService, ConfigService],
+    },
+    {
       provide: VideoAssetService,
       useFactory: (database: DatabaseService, aiProxy: AiProxyService) =>
-        new VideoAssetService(database, aiProxy),
+        new VideoAssetService(
+          database,
+          aiProxy,
+          database.getCaptionArtifactRepository(),
+        ),
       inject: [DatabaseService, AiProxyService],
     },
     {
@@ -125,12 +139,13 @@ import type { JobExecutionStore } from './job-execution.store';
     },
     {
       provide: QuizGenerationJobHandler,
-      useFactory: (
-        learning: LearningService,
-        aiProxy: AiProxyService,
-        executor: DurableJobExecutor,
-      ) => new QuizGenerationJobHandler(learning, aiProxy, executor),
-      inject: [LearningService, AiProxyService, DurableJobExecutor],
+      useFactory: (learning: LearningService, executor: DurableJobExecutor) =>
+        new QuizGenerationJobHandler(
+          learning,
+          new DeterministicGroundedQuizGenerator(),
+          executor,
+        ),
+      inject: [LearningService, DurableJobExecutor],
     },
     {
       provide: UnsupportedWorkJobHandler,
@@ -172,8 +187,7 @@ import type { JobExecutionStore } from './job-execution.store';
       provide: AgentRunProcessor,
       useFactory: (
         learning: LearningService,
-        aiProxy: AiProxyService,
-        database: DatabaseService,
+        mcp: LoopbackMcpLearningClient,
         config: ConfigService,
       ) => {
         const logger = new Logger(AgentRunProcessor.name);
@@ -181,7 +195,7 @@ import type { JobExecutionStore } from './job-execution.store';
           config.get<string>('AGENT_RUN_LEASE_MS'),
           300_000,
         );
-        return new AgentRunProcessor(learning, aiProxy, database, {
+        return new AgentRunProcessor(learning, mcp, {
           workerId:
             config.get<string>('AGENT_RUN_WORKER_ID')?.trim() ||
             `agent-run-${process.pid}`,
@@ -205,7 +219,7 @@ import type { JobExecutionStore } from './job-execution.store';
             ),
         });
       },
-      inject: [LearningService, AiProxyService, DatabaseService, ConfigService],
+      inject: [LearningService, LoopbackMcpLearningClient, ConfigService],
     },
     {
       provide: VERIFICATION_EMAIL_SENDER,

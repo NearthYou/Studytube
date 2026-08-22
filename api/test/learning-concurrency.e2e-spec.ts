@@ -183,27 +183,20 @@ describe('learning PostgreSQL concurrency contracts (e2e)', () => {
       finishRecommendation = resolve;
     });
     const recommendations = {
-      recommend: jest.fn(() => recommendationPending),
-    };
-    const posts = {
-      findPost: () => Promise.resolve(null),
-      findVideoAsset: () => Promise.resolve(null),
+      buildGroundedPlan: jest.fn(() => recommendationPending),
     };
     const processorOptions = {
       leaseMs: 30_000,
       processTimeoutMs: 25_000,
       pollIntervalMs: 1_000,
     };
-    const first = new AgentRunProcessor(
-      duplicateClaimClient,
-      recommendations,
-      posts,
-      { ...processorOptions, workerId: 'duplicate-processor-a' },
-    );
+    const first = new AgentRunProcessor(duplicateClaimClient, recommendations, {
+      ...processorOptions,
+      workerId: 'duplicate-processor-a',
+    });
     const second = new AgentRunProcessor(
       duplicateClaimClient,
       recommendations,
-      posts,
       { ...processorOptions, workerId: 'duplicate-processor-b' },
     );
 
@@ -219,7 +212,7 @@ describe('learning PostgreSQL concurrency contracts (e2e)', () => {
     ]);
 
     expect(duplicateFinished).toBe(true);
-    expect(recommendations.recommend).toHaveBeenCalledTimes(1);
+    expect(recommendations.buildGroundedPlan).toHaveBeenCalledTimes(1);
     await expect(
       repository.findOwnerRun(ownerId, created.id),
     ).resolves.toMatchObject({

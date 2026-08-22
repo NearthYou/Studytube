@@ -392,6 +392,21 @@ export function mergeTranslatedCaptionResponse(
   };
 }
 
+export function mergeCaptionSegments(
+  current: CaptionSegment[],
+  next: CaptionSegment[],
+) {
+  const segmentsByTime = new Map<string, CaptionSegment>();
+
+  for (const segment of [...current, ...next]) {
+    segmentsByTime.set(`${segment.start}:${segment.end}`, segment);
+  }
+
+  return Array.from(segmentsByTime.values()).sort(
+    (left, right) => left.start - right.start || left.end - right.end,
+  );
+}
+
 export function selectActiveCaption({
   captionsEnabled,
   currentTime,

@@ -7,6 +7,8 @@ import type {
   RagResponse,
   Session,
   StudyPost,
+  LearningNote,
+  LearningCaptionSnapshotResponse,
   User,
   VideoSummaryResponse,
 } from "./types";
@@ -63,11 +65,13 @@ function isLocalHostname(hostname: string) {
 
 export class ApiRequestError extends Error {
   status: number;
+  code?: string;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, code?: string) {
     super(message);
     this.name = "ApiRequestError";
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -122,6 +126,7 @@ export async function requestJson<T>(
     throw new ApiRequestError(
       response.status,
       localizedApiError(response.status, code, serverMessage),
+      code,
     );
   }
 
@@ -153,6 +158,7 @@ function localizedApiError(
       "가입 세션이 없거나 만료되었습니다. 이메일 인증부터 다시 시작해주세요.",
     INVALID_PROFILE_UPDATE: "수정할 계정 정보를 확인해주세요.",
     INVALID_REQUEST: "입력값을 확인해주세요.",
+    INVALID_YOUTUBE_URL: "지원되는 YouTube 주소를 입력해주세요.",
     INVALID_VERIFICATION: "인증 링크가 유효하지 않거나 만료되었습니다.",
     PROFILE_NOT_FOUND: "계정 정보를 찾을 수 없습니다.",
     RATE_LIMITED: "요청이 너무 많습니다. 잠시 후 다시 시도해주세요.",
@@ -160,6 +166,8 @@ function localizedApiError(
       "이미 처리된 가입 요청입니다. 이메일 인증부터 다시 시작해주세요.",
     SERVICE_UNAVAILABLE:
       "서비스가 일시적으로 불안정합니다. 잠시 후 다시 시도해주세요.",
+    PROVIDER_BUDGET_UNAVAILABLE:
+      "현재 영상 처리를 시작할 수 없습니다. 잠시 후 다시 시도해주세요.",
     UNAUTHORIZED: "로그인이 필요합니다.",
   };
   if (code && codeMessages[code]) {
@@ -404,6 +412,244 @@ export function fetchTranslatedCaptions(input: {
       targetLanguage: input.targetLanguage ?? "ko",
     }),
   });
+}
+
+export function createLearningNote(input: {
+  contextId: string;
+  positionSeconds: number;
+  body: string;
+}): Promise<LearningNote> {
+  return requestJson<LearningNote>(
+    `/learning/contexts/${input.contextId}/notes`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        positionSeconds: input.positionSeconds,
+        body: input.body,
+      }),
+    },
+  );
+}
+
+export function fetchLearningCaptions(
+  contextId: string,
+): Promise<LearningCaptionSnapshotResponse> {
+  return requestJson<LearningCaptionSnapshotResponse>(
+    `/learning/contexts/${contextId}/captions`,
+  );
+}
+
+export function updateLearningNote(input: {
+  contextId: string;
+  noteId: string;
+  body: string;
+}): Promise<LearningNote> {
+  return requestJson<LearningNote>(
+    `/learning/contexts/${input.contextId}/notes/${input.noteId}`,
+    { method: "PATCH", body: JSON.stringify({ body: input.body }) },
+  );
+}
+
+export function deleteLearningNote(input: {
+  contextId: string;
+  noteId: string;
+}): Promise<{ deleted: true }> {
+  return requestJson<{ deleted: true }>(
+    `/learning/contexts/${input.contextId}/notes/${input.noteId}`,
+    { method: "DELETE" },
+  );
+}
+
+export type AdaptiveQuizLoop = {
+  id: string;
+  studyContextId: string;
+  state: "generating" | "ready" | "evaluated" | "failed" | "stale";
+  watchedRange: { start: number; end: number };
+  captionArtifactId: string;
+  captionGeneration: number;
+  questions: Array<{
+    id: string;
+    position: number;
+    prompt: string;
+    choices: string[];
+    citation: {
+      resourceId: string;
+      sourceUrl: string;
+      startSeconds: number;
+      endSeconds: number;
+      artifactId: string;
+      artifactGeneration: number;
+    };
+  }>;
+  failureCode: string | null;
+};
+
+export type AdaptiveQuizSubmission = {
+  state: "evaluated";
+  attempt: {
+    id: string;
+    score: number;
+    submittedAt: string;
+    answers: Array<{
+      questionId: string;
+      selectedChoiceIndex: number;
+      correct: boolean;
+      correctChoiceIndex: number;
+      explanation: string;
+      citation: AdaptiveQuizLoop["questions"][number]["citation"];
+    }>;
+  };
+  reviewProposal: null | {
+    kind: "review_range";
+    reasonCode: "INCORRECT_ANSWER";
+    citation: {
+      sourceUrl: string;
+      startSeconds: number;
+      endSeconds: number;
+    };
+  };
+};
+
+export type NextLearningRun = {
+  id: string;
+  state:
+    | "queued"
+    | "running"
+    | "awaiting_approval"
+    | "approved"
+    | "completed"
+    | "failed"
+    | "cancelled";
+  failureCode: string | null;
+};
+
+export type LearningProposal = {
+  id: string;
+  ownerId: number;
+  agentRunId: string;
+  videoSourceId: string;
+  proposalVersion: number;
+  state: "pending" | "approved" | "dismissed" | "expired";
+  candidate: {
+    title: string;
+    videoUrl: string;
+    thumbnailUrl: string;
+    channelName: string;
+    reason: string;
+  };
+  expiresAt: string;
+  approvedCourseId: number | null;
+  approvedCourseVersion: number | null;
+};
+
+export function createNextLearningRun(
+  input: {
+    objective: string;
+    studyContextId: string;
+    watchedRanges: Array<{ start: number; end: number }>;
+    idempotencyKey: string;
+  },
+  options: { signal?: AbortSignal } = {},
+): Promise<NextLearningRun> {
+  return requestJson<NextLearningRun>("/learning/agent-runs", {
+    method: "POST",
+    headers: { "Idempotency-Key": input.idempotencyKey },
+    signal: options.signal,
+    body: JSON.stringify({
+      objective: input.objective,
+      requestedStepCount: 3,
+      studyContextId: input.studyContextId,
+      watchedRanges: input.watchedRanges,
+    }),
+  });
+}
+
+export function fetchNextLearningRun(
+  runId: string,
+  options: { signal?: AbortSignal } = {},
+) {
+  return requestJson<NextLearningRun>(`/learning/agent-runs/${runId}`, options);
+}
+
+export function createNextLearningProposal(
+  runId: string,
+  options: { signal?: AbortSignal } = {},
+) {
+  return requestJson<LearningProposal>(
+    `/learning/agent-runs/${runId}/next-learning-proposal`,
+    { method: "POST", body: "{}", signal: options.signal },
+  );
+}
+
+export type ApproveLearningProposalInput =
+  | {
+      proposalId: string;
+      targetKind: "existing_course";
+      courseId: number;
+      expectedCourseVersion: number;
+    }
+  | {
+      proposalId: string;
+      targetKind: "new_private_course";
+      title: string;
+    };
+
+export function approveLearningProposal(input: ApproveLearningProposalInput) {
+  return requestJson<LearningProposal>("/learning/proposals/approve", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function dismissLearningProposal(proposalId: string) {
+  return requestJson<LearningProposal>(
+    `/learning/proposals/${proposalId}/dismiss`,
+    { method: "POST", body: "{}" },
+  );
+}
+
+export function requestAdaptiveQuiz(input: {
+  contextId: string;
+  startSeconds: number;
+  endSeconds: number;
+  idempotencyKey: string;
+}): Promise<AdaptiveQuizLoop> {
+  return requestJson<AdaptiveQuizLoop>(
+    `/learning/contexts/${input.contextId}/quiz-loops`,
+    {
+      method: "POST",
+      headers: { "Idempotency-Key": input.idempotencyKey },
+      body: JSON.stringify({
+        startSeconds: input.startSeconds,
+        endSeconds: input.endSeconds,
+      }),
+    },
+  );
+}
+
+export function fetchAdaptiveQuiz(
+  loopId: string,
+  options: { signal?: AbortSignal } = {},
+): Promise<AdaptiveQuizLoop> {
+  return requestJson<AdaptiveQuizLoop>(
+    `/learning/quiz-loops/${loopId}`,
+    options,
+  );
+}
+
+export function submitAdaptiveQuiz(input: {
+  loopId: string;
+  idempotencyKey: string;
+  answers: Array<{ questionId: string; selectedChoiceIndex: number }>;
+}): Promise<AdaptiveQuizSubmission> {
+  return requestJson<AdaptiveQuizSubmission>(
+    `/learning/quiz-loops/${input.loopId}/submit`,
+    {
+      method: "POST",
+      headers: { "Idempotency-Key": input.idempotencyKey },
+      body: JSON.stringify({ answers: input.answers }),
+    },
+  );
 }
 
 export function fetchVideoSummary(input: {

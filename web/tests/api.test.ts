@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  approveLearningProposal,
   completeRegistration,
   consumeEmailVerification,
+  dismissLearningProposal,
   fetchRegistrationReadiness,
   logout,
   requestJson,
@@ -257,6 +259,62 @@ test("verifies and updates the current profile through cookie endpoints", async 
       goal: "마스터하기",
     },
   });
+});
+
+test("approves and dismisses learning proposals through requestJson", async () => {
+  const approval = await captureRequest(
+    () =>
+      approveLearningProposal({
+        proposalId: "proposal-7",
+        targetKind: "existing_course",
+        courseId: 11,
+        expectedCourseVersion: 3,
+      }),
+    { id: "proposal-7", approvedCourseId: 11 },
+  );
+
+  assert.match(approval.input, /\/learning\/proposals\/approve$/);
+  assert.equal(approval.init?.method, "POST");
+  assert.deepEqual(JSON.parse(String(approval.init?.body)), {
+    proposalId: "proposal-7",
+    targetKind: "existing_course",
+    courseId: 11,
+    expectedCourseVersion: 3,
+  });
+
+  const dismissal = await captureRequest(
+    () => dismissLearningProposal("proposal-7"),
+    { id: "proposal-7", state: "dismissed" },
+  );
+  assert.match(dismissal.input, /\/learning\/proposals\/proposal-7\/dismiss$/);
+  assert.equal(dismissal.init?.method, "POST");
+});
+
+test("learning proposal actions retain localized unauthorized handling", async () => {
+  const originalFetch = globalThis.fetch;
+  let unauthorized = 0;
+  setUnauthorizedHandler(() => {
+    unauthorized += 1;
+  });
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        code: "UNAUTHORIZED",
+        message: "Authentication required",
+      }),
+      { status: 401, headers: { "Content-Type": "application/json" } },
+    );
+
+  try {
+    await assert.rejects(
+      dismissLearningProposal("proposal-7"),
+      /로그인이 필요합니다/,
+    );
+    assert.equal(unauthorized, 1);
+  } finally {
+    setUnauthorizedHandler(null);
+    globalThis.fetch = originalFetch;
+  }
 });
 
 async function captureRequest(

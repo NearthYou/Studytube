@@ -918,6 +918,7 @@ OTEL_EXPORTER_OTLP_TRACES_CLIENT_CERTIFICATE=/etc/studytube/otel/traces-client.p
 OTEL_RESOURCE_ATTRIBUTES='password=forbidden-resource-canary' \
 OTEL_INSTRUMENTATION_HTTP_CAPTURE_HEADERS_SERVER_REQUEST='.*' \
 OTEL_INSTRUMENTATION_HTTP_CAPTURE_HEADERS_SERVER_RESPONSE='.*' \
+DEPLOY_SHA="$controlled_installer_sha" \
 OPENAI_API_KEY='openai-secret-canary' \
 LLM_MODEL=gpt-4o-mini \
 EMBEDDING_MODEL=text-embedding-3-small \
@@ -962,6 +963,7 @@ AUTH_EMAIL_PROVIDER
 AUTH_EMAIL_SENDER
 AUTH_RATE_LIMIT_PEPPER
 AUTH_VERIFICATION_PEPPER
+DEPLOY_SHA
 DATABASE_URL
 DB_QUERY_TIMEOUT_MS
 INTERNAL_AI_API_KEY
@@ -1018,9 +1020,11 @@ AUTH_EMAIL_PROVIDER
 AUTH_EMAIL_SENDER
 AUTH_RATE_LIMIT_PEPPER
 AUTH_VERIFICATION_PEPPER
+DEPLOY_SHA
 DATABASE_URL
 DB_QUERY_TIMEOUT_MS
 INTERNAL_AI_API_KEY
+MCP_SERVICE_ASSERTION_SECRET
 OTEL_EXPORTER_OTLP_CERTIFICATE
 OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE
 OTEL_EXPORTER_OTLP_CLIENT_KEY
@@ -1046,9 +1050,9 @@ for environment_file in "$runtime_config_dir"/*.env; do
     fail "container or host credential leaked into $(basename -- "$environment_file")"
   fi
 done
-if grep -Eq '^(OPENAI_API_KEY|YOUTUBE_API_KEY|MCP_SERVICE_ASSERTION_SECRET)=' \
+if grep -Eq '^(OPENAI_API_KEY|YOUTUBE_API_KEY)=' \
   "$runtime_config_dir/worker.env"; then
-  fail 'worker inherited an AI-only or MCP assertion secret'
+  fail 'worker inherited an AI-provider secret'
 fi
 if grep -Eq '^(AUTH_EMAIL_AWS_(ACCESS_KEY_ID|SECRET_ACCESS_KEY|SESSION_TOKEN)|AWS_(ACCESS_KEY_ID|SECRET_ACCESS_KEY|SESSION_TOKEN))=' \
   "$runtime_config_dir"/*.env; then

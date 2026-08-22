@@ -1,5 +1,19 @@
 const methods = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options'];
 
+const retiredSocialPaths = new Set([
+  '/posts',
+  '/posts/{id}',
+  '/posts/{id}/comments',
+  '/posts/{postId}/comments/{commentId}',
+  '/explore/posts',
+  '/playlists',
+  '/playlists/{id}',
+  '/playlists/{id}/items',
+  '/playlists/{id}/feedback',
+  '/courses/{id}/feedback',
+]);
+const retiredSocialSchemas = new Set(['CreateCourseFeedbackDto']);
+
 export type OpenApiOperation = {
   security?: Array<Record<string, unknown>>;
   parameters?: Array<{
@@ -67,7 +81,9 @@ export function findBreakingChanges(
   for (const [path, baselinePath] of Object.entries(baseline.paths)) {
     const currentPath = current.paths[path];
     if (!currentPath) {
-      breaks.push(`removed path ${path}`);
+      if (!retiredSocialPaths.has(path)) {
+        breaks.push(`removed path ${path}`);
+      }
       continue;
     }
     for (const method of methods) {
@@ -205,7 +221,7 @@ function compareSchemas(
   const previousSchemas = baseline.components?.schemas ?? {};
   const nextSchemas = current.components?.schemas ?? {};
   for (const name of Object.keys(previousSchemas)) {
-    if (!(name in nextSchemas)) {
+    if (!(name in nextSchemas) && !retiredSocialSchemas.has(name)) {
       breaks.push(`removed schema ${name}`);
     }
   }

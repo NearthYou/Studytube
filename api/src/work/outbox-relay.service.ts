@@ -1,5 +1,6 @@
 import type { WorkRepository } from './work.repository';
 import {
+  LEARNING_CAPTION_HANDLER_VERSION,
   RETRIEVAL_EMBEDDING_HANDLER_VERSION,
   QUIZ_GENERATION_HANDLER_VERSION,
   VIDEO_ASSET_HANDLER_VERSION,
@@ -136,6 +137,9 @@ export class OutboxRelayService {
   }
 
   private handlerVersion(eventType: string): string {
+    if (eventType === 'learning_intake.requested') {
+      return LEARNING_CAPTION_HANDLER_VERSION;
+    }
     if (eventType === 'video_asset.requested') {
       return VIDEO_ASSET_HANDLER_VERSION;
     }

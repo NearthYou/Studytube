@@ -17,6 +17,8 @@ import {
   useSearchParams,
 } from "react-router";
 import "./App.css";
+import { LearningPage } from "./features/learning/LearningPage";
+import { LearningWorkspace } from "./features/learning/LearningWorkspace";
 import { normalizeSession, readSession, saveSession } from "./authSession";
 import {
   addCourseFeedback,
@@ -358,7 +360,7 @@ function App() {
           path="/"
           element={
             <ProtectedRoute session={session}>
-              <HomePage session={session!} />
+              <LearningPage session={session!} />
             </ProtectedRoute>
           }
         />
@@ -374,23 +376,7 @@ function App() {
           }
         />
         <Route
-          path="/board"
-          element={
-            <ProtectedRoute session={session}>
-              <BoardPage session={session!} />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/explore"
-          element={
-            <ProtectedRoute session={session}>
-              <ExplorePage session={session!} />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/search"
+          path="/courses"
           element={
             <ProtectedRoute session={session}>
               <CoursePage session={session!} />
@@ -401,15 +387,7 @@ function App() {
           path="/watch"
           element={
             <ProtectedRoute session={session}>
-              <WatchPage session={session!} />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/playlists"
-          element={
-            <ProtectedRoute session={session}>
-              <CoursePage session={session!} />
+              <LearningWorkspace session={session!} />
             </ProtectedRoute>
           }
         />
@@ -432,14 +410,7 @@ function App() {
             </ProtectedRoute>
           }
         />
-        <Route
-          path="/me/posts"
-          element={
-            <ProtectedRoute session={session}>
-              <MyPostsPage session={session!} />
-            </ProtectedRoute>
-          }
-        />
+        <Route path="*" element={<Navigate replace to="/" />} />
       </Routes>
     </>
   );
@@ -455,7 +426,13 @@ function ProtectedRoute({
   const location = useLocation();
 
   if (!session) {
-    return <Navigate replace state={{ from: location.pathname }} to="/login" />;
+    return (
+      <Navigate
+        replace
+        state={{ from: location.pathname + location.search + location.hash }}
+        to="/login"
+      />
+    );
   }
 
   return children;
@@ -477,9 +454,7 @@ function SiteNav({
         <>
           <nav>
             <GuardedNavLink to="/watch">학습</GuardedNavLink>
-            <GuardedNavLink to="/explore">보드</GuardedNavLink>
-            <GuardedNavLink to="/board">등록</GuardedNavLink>
-            <GuardedNavLink to="/search">AI 추천</GuardedNavLink>
+            <GuardedNavLink to="/courses">내 Course</GuardedNavLink>
             <GuardedNavLink to="/me">내 정보</GuardedNavLink>
           </nav>
           <div className="nav-account">
@@ -502,6 +477,12 @@ function SiteNav({
     </header>
   );
 }
+
+// Kept temporarily for reading legacy local data during the cutover, but no
+// longer mounted or linked from the product surface.
+void BoardPage;
+void ExplorePage;
+void MyPostsPage;
 
 function GuardedLink({
   children,
@@ -6450,5 +6431,9 @@ function loadYouTubeApi(): Promise<YouTubeApi> {
     document.body.appendChild(script);
   });
 }
+
+// U10 removes these legacy implementations after the data and route cutover.
+void HomePage;
+void WatchPage;
 
 export default App;

@@ -45,6 +45,12 @@ export class AiProxyService {
         ? Math.trunc(Number(input.limit))
         : 3;
     const limit = Math.max(1, Math.min(requestedLimit, 10));
+    const contextSnapshotId =
+      'contextSnapshotId' in input &&
+      typeof input.contextSnapshotId === 'string' &&
+      /^[0-9a-f-]{36}$/iu.test(input.contextSnapshotId)
+        ? input.contextSnapshotId
+        : undefined;
     if (!query || !ownerId || !this.databaseService) {
       return {
         mode: 'hybrid-unavailable',
@@ -82,6 +88,7 @@ export class AiProxyService {
         model: embedded.model,
         embedding: embedded.embedding,
         limit,
+        ...(contextSnapshotId ? { contextSnapshotId } : {}),
       });
     const relatedPosts = sources
       .filter((source) => source.sourceKind === 'post')
@@ -201,6 +208,24 @@ export class AiProxyService {
       body,
       this.captionFallback(body),
       Number(this.configService.get<string>('AI_CAPTION_TIMEOUT_MS')) || 300000,
+      signal,
+    );
+  }
+
+  transcribe(body: unknown, signal?: AbortSignal): Promise<unknown> {
+    return this.post(
+      '/youtube/transcribe',
+      body,
+      {
+        provider: 'stt-disabled',
+        status: 'disabled',
+        sourceLanguage: '',
+        segments: [],
+        translatedSegments: [],
+        errorCode: 'STT_DISABLED',
+      },
+      Number(this.configService.get<string>('AI_TRANSCRIPTION_TIMEOUT_MS')) ||
+        300_000,
       signal,
     );
   }

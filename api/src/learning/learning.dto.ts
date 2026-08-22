@@ -5,6 +5,7 @@ import {
   IsArray,
   IsDateString,
   IsInt,
+  IsIn,
   IsNumber,
   IsOptional,
   IsString,
@@ -56,6 +57,28 @@ export class CreateAgentRunDto {
   @ValidateNested()
   @Type(() => AgentRunBudgetsDto)
   budgets?: AgentRunBudgetsDto;
+
+  @IsOptional()
+  @Matches(/^[1-9]\d*$/u)
+  studyContextId?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(20)
+  @ValidateNested({ each: true })
+  @Type(() => AgentRunWatchedRangeDto)
+  watchedRanges?: AgentRunWatchedRangeDto[];
+}
+
+export class AgentRunWatchedRangeDto {
+  @IsNumber({ maxDecimalPlaces: 3 })
+  @Min(0)
+  start!: number;
+
+  @IsNumber({ maxDecimalPlaces: 3 })
+  @Min(0)
+  end!: number;
 }
 
 export class AgentRunParamDto {
@@ -71,6 +94,54 @@ export class CourseStepParamDto {
 export class QuizParamDto {
   @IsUUID('4')
   quizId!: string;
+}
+
+export class LearningContextParamDto {
+  @Matches(/^[1-9]\d*$/u)
+  contextId!: string;
+}
+
+export class AdaptiveQuizLoopParamDto {
+  @IsUUID('4')
+  quizLoopId!: string;
+}
+
+export class LearningProposalParamDto {
+  @IsUUID('4')
+  proposalId!: string;
+}
+
+export class ApproveLearningProposalDto {
+  @IsUUID('4')
+  proposalId!: string;
+
+  @IsIn(['existing_course', 'new_private_course'])
+  targetKind!: 'existing_course' | 'new_private_course';
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  courseId?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  expectedCourseVersion?: number;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 200)
+  title?: string;
+}
+
+export class RequestAdaptiveQuizDto {
+  @IsNumber({ maxDecimalPlaces: 3 })
+  @Min(0)
+  startSeconds!: number;
+
+  @IsNumber({ maxDecimalPlaces: 3 })
+  @Min(0)
+  endSeconds!: number;
 }
 
 export class ExpectedVersionDto {
@@ -113,3 +184,5 @@ export class SubmitQuizDto {
   @Type(() => QuizAnswerDto)
   answers!: QuizAnswerDto[];
 }
+
+export class SubmitAdaptiveQuizDto extends SubmitQuizDto {}

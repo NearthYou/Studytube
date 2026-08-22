@@ -177,6 +177,9 @@ export class RetrievalEmbeddingJobHandler {
 export function buildRetrievalChunks(
   snapshot: RetrievalSourceSnapshot,
 ): PreparedChunk[] {
+  if (snapshot.sourceKind === 'learning_context') {
+    return chunksFromLearningEvidence(snapshot);
+  }
   const header = [
     snapshot.title,
     snapshot.summary,
@@ -199,6 +202,43 @@ export function buildRetrievalChunks(
     segments.length > 0
       ? chunksFromSegments(snapshot, header, bodyLimit, segments)
       : chunksFromText(snapshot, header, bodyLimit);
+  if (chunks.length > RETRIEVAL_CHUNK_MAX_COUNT) {
+    throw new RetrievalChunkingError('Retrieval source exceeds chunk limit');
+  }
+  return chunks;
+}
+
+function chunksFromLearningEvidence(
+  snapshot: RetrievalSourceSnapshot,
+): PreparedChunk[] {
+  const evidence = snapshot.evidenceItems ?? [];
+  const chunks = evidence
+    .flatMap((item) =>
+      splitBoundedText(item.content.trim(), RETRIEVAL_CHUNK_MAX_CHARACTERS).map(
+        (content) => ({
+          chunkIndex: 0,
+          content,
+          startSeconds: Math.max(0, Math.floor(item.startSeconds)),
+          endSeconds: Math.max(
+            Math.floor(item.startSeconds) + 1,
+            Math.ceil(item.endSeconds),
+          ),
+          sourceUrl: item.sourceUrl,
+          resourceId: item.resourceId,
+          readiness: item.readiness,
+          evidenceKind: item.kind,
+          evidenceArtifactId: item.artifactId,
+          evidenceSegmentId: item.segmentId,
+          evidenceNoteId: item.noteId,
+          evidenceQuizAttemptId: item.quizAttemptId,
+          artifactGeneration: item.artifactGeneration,
+        }),
+      ),
+    )
+    .map((chunk, chunkIndex) => ({ ...chunk, chunkIndex }));
+  if (chunks.length === 0) {
+    throw new RetrievalChunkingError('Learning retrieval evidence is empty');
+  }
   if (chunks.length > RETRIEVAL_CHUNK_MAX_COUNT) {
     throw new RetrievalChunkingError('Retrieval source exceeds chunk limit');
   }
@@ -327,7 +367,9 @@ function parseSourcePayload(payload: Record<string, unknown>): {
 } | null {
   const legacyPostId = canonicalPositiveInteger(payload.postId);
   const sourceKind =
-    payload.sourceKind === 'post' || payload.sourceKind === 'course_step'
+    payload.sourceKind === 'post' ||
+    payload.sourceKind === 'course_step' ||
+    payload.sourceKind === 'learning_context'
       ? payload.sourceKind
       : legacyPostId
         ? 'post'

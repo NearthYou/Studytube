@@ -1167,6 +1167,7 @@ run_controlled_deployment_mutation \
     docker compose -f infra/production.compose.yml up -d --wait postgres valkey
 
 APP_DIR="$app_dir" COURSE_CUTOVER_MODE="$course_cutover_mode" \
+  DEPLOY_SHA="$deploy_sha" \
   timeout --signal=TERM --kill-after=30s 5m \
     bash scripts/install-production-runtime.sh
 
@@ -1219,6 +1220,13 @@ if [ "$prepared_reactivation" = 'false' ]; then
   APP_DIR="$app_dir" COURSE_CUTOVER_MODE="$course_cutover_mode" \
     timeout --signal=TERM --kill-after=30s 15m \
       bash scripts/install-production-runtime.sh run-migration
+
+  if [ "$course_cutover_mode" = 'course' ]; then
+    APP_DIR="$app_dir" COURSE_CUTOVER_MODE="$course_cutover_mode" \
+      DEPLOY_SHA="$deploy_sha" \
+      timeout --signal=TERM --kill-after=30s 15m \
+        bash scripts/install-production-runtime.sh run-learning-cutover
+  fi
 
   if [ "$retrieval_dedup_pending" = "true" ]; then
     retrieval_duplicate_rows_after="$(retrieval_duplicate_excess_count)"

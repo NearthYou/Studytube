@@ -6,7 +6,6 @@ import { AiProxyService } from './ai-proxy.service';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { DatabaseService } from './database.service';
-import { StudyBoardController } from './study-board.controller';
 import { StudyBoardService } from './study-board.service';
 import { VideoAssetController } from './video-asset.controller';
 import { VideoAssetService } from './video-asset.service';
@@ -30,12 +29,7 @@ import { runtimeConfigOptions } from './runtime-environment-files';
     WorkModule,
     HttpModule,
   ],
-  controllers: [
-    AppController,
-    StudyBoardController,
-    AiController,
-    VideoAssetController,
-  ],
+  controllers: [AppController, AiController, VideoAssetController],
   providers: [
     AppService,
     AiProxyService,

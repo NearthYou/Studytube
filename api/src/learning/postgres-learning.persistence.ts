@@ -39,7 +39,11 @@ export async function mutate<T>(
 
 export async function assertOrAdoptLegacyHash(
   client: SqlClient,
-  table: 'learning_progress_events' | 'quiz_attempts',
+  table:
+    | 'learning_progress_events'
+    | 'quiz_attempts'
+    | 'adaptive_quiz_loops'
+    | 'adaptive_quiz_attempts',
   id: string,
   existing: Buffer,
   incoming: Buffer,

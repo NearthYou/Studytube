@@ -166,4 +166,52 @@ describe('PostgresAgentRunAttemptRepository', () => {
     expect(lookupSql).toContain('run.owner_id = $3');
     expect(lookupValues).toEqual(['run-1', 'request-1', 42]);
   });
+
+  it('revalidates the active lease and context snapshot in one transaction', async () => {
+    const query = jest
+      .fn()
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ authorized: true }] })
+      .mockResolvedValueOnce({ rows: [] });
+    const release = jest.fn();
+    const repository = new PostgresAgentRunAttemptRepository(
+      {
+        connect: jest.fn().mockResolvedValue({ query, release }),
+      } as unknown as Pool,
+      {
+        requireOwnerRun: jest.fn(),
+        recordTransition: jest.fn(),
+      },
+    );
+
+    await expect(
+      repository.authorizeAgentMcpCall({
+        ownerId: 42,
+        runId: '11111111-1111-4111-8111-111111111111',
+        attemptId: '22222222-2222-4222-8222-222222222222',
+        leaseToken: '33333333-3333-4333-8333-333333333333',
+        contextSnapshotId: '11111111-1111-4111-8111-111111111111',
+        capability: 'learning:evidence:search',
+      }),
+    ).resolves.toBe(true);
+
+    const [sql, values] = query.mock.calls[1] as [string, unknown[]];
+    expect(sql).toContain('run.owner_id = $1');
+    expect(sql).toContain("run.state = 'running'");
+    expect(sql).toContain("attempt.state = 'running'");
+    expect(sql).toContain('attempt.lease_token = $4::uuid');
+    expect(sql).toContain('attempt.lease_expires_at > statement_timestamp()');
+    expect(sql).toContain('learning_retrieval_context_snapshots');
+    expect(sql).toContain('snapshot.agent_run_id = $5::uuid');
+    expect(values).toEqual([
+      42,
+      '11111111-1111-4111-8111-111111111111',
+      '22222222-2222-4222-8222-222222222222',
+      '33333333-3333-4333-8333-333333333333',
+      '11111111-1111-4111-8111-111111111111',
+    ]);
+    expect(query.mock.calls[0]).toEqual(['BEGIN']);
+    expect(query.mock.calls[2]).toEqual(['COMMIT']);
+    expect(release).toHaveBeenCalledTimes(1);
+  });
 });

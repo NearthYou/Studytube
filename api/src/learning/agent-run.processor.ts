@@ -1,12 +1,8 @@
 import type { OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import type { AiProxyService } from '../ai-proxy.service';
-import type { BoardRepository } from '../study-board.types';
-import type { VideoAsset, VideoAssetSegment } from '../video-asset.types';
+import type { McpLearningClient } from '../mcp/mcp-learning.client';
 import type { ClaimAgentRun } from './learning.repository';
 import type { LearningService } from './learning.service';
 import type { AgentUsage, ProposedCourseStep } from './learning.types';
-
-const DEFAULT_STEP_DURATION_SECONDS = 300;
 
 type LearningClient = Pick<
   LearningService,
@@ -16,9 +12,6 @@ type LearningClient = Pick<
   | 'failRunAttempt'
   | 'recordAgentToolCall'
 >;
-
-type RecommendationClient = Pick<AiProxyService, 'recommend'>;
-type PostReader = Pick<BoardRepository, 'findPost' | 'findVideoAsset'>;
 
 export type AgentRunProcessorOptions = {
   workerId: string;
@@ -61,8 +54,7 @@ export class AgentRunProcessor implements OnModuleInit, OnModuleDestroy {
 
   constructor(
     private readonly learning: LearningClient,
-    private readonly recommendations: RecommendationClient,
-    private readonly posts: PostReader,
+    private readonly mcp: McpLearningClient,
     private readonly options: AgentRunProcessorOptions,
   ) {
     if (
@@ -171,12 +163,6 @@ export class AgentRunProcessor implements OnModuleInit, OnModuleDestroy {
           1,
         );
       }
-      await this.recordAudit(claimed, requestId, startedAt, {
-        outcome: 'succeeded',
-        outputSchemaVersion: 1,
-        sourceCount: plan.sourceCount,
-        groundedStepCount: plan.proposedSteps.length,
-      });
       try {
         await this.learning.completeRunAttempt({
           runId: claimed.run.id,
@@ -227,13 +213,10 @@ export class AgentRunProcessor implements OnModuleInit, OnModuleDestroy {
     const { objective, requestedStepCount } = input;
     let response: unknown;
     try {
-      response = await this.recommendations.recommend(
-        {
-          query: objective.trim(),
-          limit: Math.min(10, Number(requestedStepCount) * 2),
-        },
-        claimed.run.ownerId,
-      );
+      response = await this.mcp.buildGroundedPlan(claimed, {
+        objective: objective.trim(),
+        requestedStepCount,
+      });
     } catch {
       throw new AgentRunProcessingFailure(
         'AGENT_RETRIEVAL_FAILED',
@@ -243,7 +226,7 @@ export class AgentRunProcessor implements OnModuleInit, OnModuleDestroy {
       );
     }
 
-    const parsed = parseRecommendation(response);
+    const parsed = parseMcpPlan(response, requestedStepCount);
     if (!parsed) {
       throw new AgentRunProcessingFailure(
         'INVALID_RETRIEVAL_RESPONSE',
@@ -253,80 +236,10 @@ export class AgentRunProcessor implements OnModuleInit, OnModuleDestroy {
       );
     }
     const usage = responseUsage(response, 1);
-    const proposedSteps: ProposedCourseStep[] = [];
-    const seenPostIds = new Set<number>();
-    try {
-      for (const source of parsed.sources) {
-        if (proposedSteps.length >= Number(requestedStepCount)) break;
-        const citation = parsePostCitation(source);
-        if (!citation || seenPostIds.has(citation.postId)) continue;
-        seenPostIds.add(citation.postId);
-        const step = await this.verifiedStep(
-          citation.postId,
-          citation.sourceUrl,
-          citation.timestampSeconds,
-          citation.score,
-          proposedSteps.length + 1,
-        );
-        if (step) proposedSteps.push(step);
-      }
-    } catch {
-      throw new AgentRunProcessingFailure(
-        'SOURCE_VERIFICATION_FAILED',
-        'The retrieved post sources could not be verified.',
-        'failed',
-        usage,
-        parsed.sources.length,
-        proposedSteps.length,
-        1,
-      );
-    }
-    if (proposedSteps.length < Number(requestedStepCount)) {
-      throw new AgentRunProcessingFailure(
-        'INSUFFICIENT_GROUNDED_SOURCES',
-        'The retrieval result did not contain enough verified post citations.',
-        'invalid_schema',
-        usage,
-        parsed.sources.length,
-        proposedSteps.length,
-        1,
-      );
-    }
     return {
-      proposedSteps,
+      proposedSteps: parsed.proposedSteps,
       usage,
-      sourceCount: parsed.sources.length,
-    };
-  }
-
-  private async verifiedStep(
-    postId: number,
-    evidenceSourceUrl: string,
-    evidenceTimestampSeconds: number,
-    score: number,
-    position: number,
-  ): Promise<ProposedCourseStep | null> {
-    const post = await this.posts.findPost(postId);
-    if (
-      !post ||
-      !isAllowedYoutubeUrl(post.videoUrl) ||
-      !sameYoutubeVideo(post.videoUrl, evidenceSourceUrl)
-    ) {
-      return null;
-    }
-    const asset = await this.posts.findVideoAsset(postId);
-    return {
-      position,
-      title: post.title,
-      videoUrl: post.videoUrl,
-      thumbnailUrl: post.thumbnailUrl,
-      channelName: post.channelName,
-      sourcePostId: post.id,
-      evidenceSourceUrl,
-      evidenceTimestampSeconds,
-      evidenceConfidence: Math.max(0, Math.min(1, score)),
-      status: 'ready',
-      durationSeconds: citedSegmentDuration(asset, evidenceTimestampSeconds),
+      sourceCount: parsed.evidenceCount,
     };
   }
 
@@ -345,7 +258,6 @@ export class AgentRunProcessor implements OnModuleInit, OnModuleDestroy {
     const requestedStepCount = finiteInteger(
       claimed.run.input.requestedStepCount,
     );
-    const objective = claimed.run.input.objective;
     const accepted = await this.learning.recordAgentToolCall({
       ownerId: claimed.run.ownerId,
       runId: claimed.run.id,
@@ -358,13 +270,12 @@ export class AgentRunProcessor implements OnModuleInit, OnModuleDestroy {
       outcome: result.outcome,
       source: 'worker:agent-run-processor',
       input: {
-        queryLength: typeof objective === 'string' ? objective.length : 0,
         requestedStepCount,
       },
       output: {
         sourceCount: result.sourceCount,
         groundedStepCount: result.groundedStepCount,
-        ...(result.failureCode ? { failureCode: result.failureCode } : {}),
+        outcome: result.outcome,
       },
     });
     if (!accepted) throw new Error('AgentRun tool-call audit was not accepted');
@@ -390,50 +301,29 @@ export class AgentRunProcessor implements OnModuleInit, OnModuleDestroy {
   }
 }
 
-function parseRecommendation(
+function parseMcpPlan(
   value: unknown,
-): { sources: Array<Record<string, unknown>> } | null {
-  if (!value || typeof value !== 'object') return null;
-  const sources = (value as Record<string, unknown>).sources;
-  if (!Array.isArray(sources)) return null;
-  return {
-    sources: sources.filter(
-      (source): source is Record<string, unknown> =>
-        source !== null && typeof source === 'object',
-    ),
-  };
-}
-
-function parsePostCitation(source: Record<string, unknown>): {
-  postId: number;
-  sourceUrl: string;
-  timestampSeconds: number;
-  score: number;
+  requestedStepCount: number,
+): {
+  proposedSteps: ProposedCourseStep[];
+  evidenceCount: number;
 } | null {
-  if (source.sourceKind !== 'post') return null;
-  const postId = positiveInteger(source.sourceId);
-  const citation = source.citation;
-  const score = Number(source.score);
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
   if (
-    !postId ||
-    !citation ||
-    typeof citation !== 'object' ||
-    !Number.isFinite(score)
+    row.schemaVersion !== 1 ||
+    row.proposalVersion !== 1 ||
+    !Array.isArray(row.proposedSteps) ||
+    row.proposedSteps.length !== requestedStepCount ||
+    !Number.isSafeInteger(row.evidenceCount) ||
+    Number(row.evidenceCount) < requestedStepCount
   ) {
     return null;
   }
-  const row = citation as Record<string, unknown>;
-  const sourceUrl = row.sourceUrl;
-  const timestampSeconds = Number(row.timestampSeconds);
-  if (
-    typeof sourceUrl !== 'string' ||
-    !isAllowedYoutubeUrl(sourceUrl) ||
-    !Number.isInteger(timestampSeconds) ||
-    timestampSeconds < 0
-  ) {
-    return null;
-  }
-  return { postId, sourceUrl, timestampSeconds, score };
+  return {
+    proposedSteps: row.proposedSteps as ProposedCourseStep[],
+    evidenceCount: Number(row.evidenceCount),
+  };
 }
 
 function responseUsage(value: unknown, fallbackToolCalls: number): AgentUsage {
@@ -457,70 +347,6 @@ function responseUsage(value: unknown, fallbackToolCalls: number): AgentUsage {
       usage.estimatedCostUsd ?? usage.costUsd,
     ),
   };
-}
-
-function citedSegmentDuration(
-  asset: VideoAsset | null,
-  timestampSeconds: number,
-): number {
-  if (!asset) return DEFAULT_STEP_DURATION_SECONDS;
-  const segment = [...asset.translatedSegments, ...asset.sourceSegments].find(
-    (candidate) =>
-      validSegment(candidate) &&
-      timestampSeconds >= candidate.start &&
-      timestampSeconds < candidate.end,
-  );
-  return segment
-    ? Math.max(1, Math.ceil(segment.end - segment.start))
-    : DEFAULT_STEP_DURATION_SECONDS;
-}
-
-function validSegment(segment: VideoAssetSegment): boolean {
-  return (
-    Number.isFinite(segment.start) &&
-    Number.isFinite(segment.end) &&
-    segment.start >= 0 &&
-    segment.end > segment.start
-  );
-}
-
-function sameYoutubeVideo(left: string, right: string): boolean {
-  const leftId = youtubeVideoId(left);
-  return leftId !== null && leftId === youtubeVideoId(right);
-}
-
-function isAllowedYoutubeUrl(value: string): boolean {
-  return youtubeVideoId(value) !== null;
-}
-
-function youtubeVideoId(value: string): string | null {
-  try {
-    const url = new URL(value);
-    if (url.protocol !== 'https:') return null;
-    const hostname = url.hostname.toLowerCase();
-    if (hostname === 'youtu.be') {
-      return url.pathname.split('/').filter(Boolean)[0] ?? null;
-    }
-    if (
-      !['youtube.com', 'www.youtube.com', 'm.youtube.com'].includes(hostname)
-    ) {
-      return null;
-    }
-    if (url.pathname === '/watch') return url.searchParams.get('v');
-    const [kind, id] = url.pathname.split('/').filter(Boolean);
-    return ['embed', 'shorts', 'live'].includes(kind ?? '') && id ? id : null;
-  } catch {
-    return null;
-  }
-}
-
-function positiveInteger(value: unknown): number | null {
-  const normalized = typeof value === 'number' ? String(value) : value;
-  if (typeof normalized !== 'string' || !/^[1-9][0-9]*$/u.test(normalized)) {
-    return null;
-  }
-  const parsed = Number(normalized);
-  return Number.isSafeInteger(parsed) ? parsed : null;
 }
 
 function finiteInteger(value: unknown): number | null {

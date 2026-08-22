@@ -32,12 +32,14 @@ class MemoryWorkRepository implements WorkRepository {
   retryResult: RetryResult | null = null;
   failNextAck = false;
 
+  constructor(private readonly event: ClaimedOutboxEvent = EVENT) {}
+
   appendOutboxEvent(): Promise<void> {
     return Promise.resolve();
   }
 
   claimOutboxBatch(): Promise<ClaimedOutboxEvent[]> {
-    return Promise.resolve(this.acked || this.retryResult ? [] : [EVENT]);
+    return Promise.resolve(this.acked || this.retryResult ? [] : [this.event]);
   }
 
   ackOutboxEvent(): Promise<void> {
@@ -110,6 +112,37 @@ type RelayLifecycle = {
 };
 
 describe('OutboxRelayService', () => {
+  it('publishes learning intake with the caption handler while preserving event payload', async () => {
+    const event: ClaimedOutboxEvent = {
+      ...EVENT,
+      eventType: 'learning_intake.requested',
+      aggregateType: 'provider_work',
+      payload: {
+        canonicalVideoId: 'caption0001',
+        processingRangeKey: '0-120',
+        reservationId: '31',
+      },
+    };
+    const repository = new MemoryWorkRepository(event);
+    const queue = new MemoryQueue();
+    const relay = new OutboxRelayService(repository, queue);
+
+    await expect(
+      (relay as unknown as RelayContract).publishOnce(),
+    ).resolves.toBe(1);
+    expect([...queue.jobs.values()][0]).toMatchObject({
+      name: 'learning_intake.requested',
+      data: {
+        eventType: 'learning_intake.requested',
+        handlerVersion: 'learning-caption-v1',
+        payload: event.payload,
+      },
+      options: {
+        jobId: `${event.id}-learning-caption-v1`,
+      },
+    });
+  });
+
   it('publishes one deterministic retained job and acknowledges its event', async () => {
     const repository = new MemoryWorkRepository();
     const queue = new MemoryQueue();

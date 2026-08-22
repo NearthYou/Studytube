@@ -1,4 +1,5 @@
 import {
+  assertLearningCutoverAuthority,
   assertRequiredMigrationsApplied,
   resolveDatabaseUrl,
 } from './database-migration-readiness';
@@ -41,5 +42,70 @@ describe('database migration readiness', () => {
     expect(resolveDatabaseUrl({ NODE_ENV: 'test' }, undefined)).toBe(
       'postgresql://app:app@localhost:5432/app_dev',
     );
+  });
+
+  it('refuses legacy startup after permanent learning activation', async () => {
+    const query = jest.fn().mockResolvedValue({
+      rows: [
+        {
+          writerRelease: 'release-a',
+          migrationVersion: '1753660819000_learning-cutover-authority',
+        },
+      ],
+    });
+
+    await expect(
+      assertLearningCutoverAuthority(
+        { query },
+        { mode: 'legacy', writerRelease: 'release-a' },
+      ),
+    ).rejects.toThrow('legacy rollback is disabled');
+  });
+
+  it('requires a pinned compatible writer for course startup', async () => {
+    const query = jest.fn().mockResolvedValue({
+      rows: [
+        {
+          writerRelease: 'release-a',
+          migrationVersion: '1753660819000_learning-cutover-authority',
+        },
+      ],
+    });
+
+    await expect(
+      assertLearningCutoverAuthority(
+        { query },
+        { mode: 'course', writerRelease: 'release-b' },
+      ),
+    ).rejects.toThrow('DEPLOY_SHA');
+    await expect(
+      assertLearningCutoverAuthority(
+        { query },
+        { mode: 'course', writerRelease: 'a'.repeat(40) },
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it('allows later release SHAs but rejects an incompatible marker version', async () => {
+    const query = jest.fn().mockResolvedValue({
+      rows: [{ writerRelease: 'a'.repeat(40), migrationVersion: 'older' }],
+    });
+    await expect(
+      assertLearningCutoverAuthority(
+        { query },
+        { mode: 'course', writerRelease: 'b'.repeat(40) },
+      ),
+    ).rejects.toThrow('1753660819000_learning-cutover-authority');
+  });
+
+  it('keeps legacy startup available before activation', async () => {
+    const query = jest.fn().mockResolvedValue({ rows: [] });
+
+    await expect(
+      assertLearningCutoverAuthority(
+        { query },
+        { mode: 'legacy', writerRelease: 'release-a' },
+      ),
+    ).resolves.toBeUndefined();
   });
 });

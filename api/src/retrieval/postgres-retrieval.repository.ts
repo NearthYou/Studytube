@@ -14,6 +14,8 @@ import type {
   RetrievalSearchMode,
   RetrievalSourceReference,
   RetrievalSourceSnapshot,
+  CaptureLearningRetrievalContext,
+  LearningRetrievalContextSnapshot,
 } from './retrieval.types';
 import { PostgresRetrievalEmbeddingCache } from './postgres-retrieval-embedding-cache';
 import { PostgresRetrievalSearch } from './postgres-retrieval-search';
@@ -30,6 +32,12 @@ export class PostgresRetrievalRepository implements RetrievalRepository {
     this.sources = new PostgresRetrievalSourcePersistence(pool);
     this.embeddingCache = new PostgresRetrievalEmbeddingCache(pool);
     this.retrievalSearch = new PostgresRetrievalSearch(pool);
+  }
+
+  captureLearningContext(
+    input: CaptureLearningRetrievalContext,
+  ): Promise<LearningRetrievalContextSnapshot> {
+    return this.sources.captureLearningContext(input);
   }
 
   readSourceSnapshot(

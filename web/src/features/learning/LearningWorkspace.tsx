@@ -372,7 +372,9 @@ function ActiveLearningWorkspace({
         {contextId &&
         state.captions.phase === "failed" &&
         !canRetryCaptions(state.captions.errorCode) ? (
-          <Link to="/">자막이 있는 다른 영상 선택</Link>
+          <p className="caption-fallback-note">
+            자막 없이도 영상 설명과 공개 정보로 학습을 계속할 수 있습니다.
+          </p>
         ) : contextId && state.captions.phase === "failed" ? (
           <button
             disabled={captionRetrying}

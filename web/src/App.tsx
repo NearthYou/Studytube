@@ -19,6 +19,9 @@ import {
 import "./App.css";
 import { LearningPage } from "./features/learning/LearningPage";
 import { LearningWorkspace } from "./features/learning/LearningWorkspace";
+import { AuthPage } from "./features/auth/AuthPage";
+import { VerificationPage } from "./features/auth/VerificationPage";
+import { RegistrationCompletionPage } from "./features/auth/RegistrationCompletionPage";
 import { normalizeSession, readSession, saveSession } from "./authSession";
 import {
   addCourseFeedback,
@@ -119,12 +122,7 @@ import {
   isProfileEditVerificationFresh,
   profileEditDraftFromUser,
 } from "./profileEdit";
-import {
-  authCompletionDestination,
-  signupTutorialNextDestination,
-  tutorialNextDestination,
-  type AuthMode,
-} from "./onboarding";
+import { tutorialNextDestination } from "./onboarding";
 import {
   DEFAULT_LEARNING_STATE,
   PLAYBACK_RATES,
@@ -174,32 +172,20 @@ import {
   askAgent,
   askMcp,
   askRag,
-  completeRegistration,
-  consumeEmailVerification,
   createPost,
   deletePost,
   fetchPosts,
   fetchPublicPosts,
-  fetchRegistrationReadiness,
   fetchTranslatedCaptions,
   fetchVideoSummary,
   fetchMe,
   isUnauthorizedRequest,
-  login,
   logout,
-  resendEmailVerification,
   setUnauthorizedHandler,
-  signUp,
   updateMe,
   updatePost,
   verifyMe,
 } from "./api";
-import {
-  acceptedRegistrationEmail,
-  registrationEmailRequest,
-  type RegistrationEmailStage,
-} from "./registrationEmailFlow";
-import { consumeVerificationFragment } from "./verificationFlow";
 import type {
   AgentResponse,
   CaptionResponse,
@@ -528,318 +514,6 @@ function GuardedNavLink({ children, to }: { children: ReactNode; to: string }) {
     <NavLink to={to} onClick={ignoreSamePageClick}>
       {children}
     </NavLink>
-  );
-}
-
-function AuthPage({
-  mode,
-  onComplete,
-}: {
-  mode: AuthMode;
-  onComplete: (session: Session) => void;
-}) {
-  const navigate = useNavigate();
-  const location = useLocation();
-  const [form, setForm] = useState({
-    email: "",
-    password: "",
-  });
-  const [status, setStatus] = useState(
-    mode === "login"
-      ? "계정으로 로그인하면 모든 학습 서비스가 열립니다."
-      : "이메일을 입력하면 가입을 계속할 인증 링크를 보내드립니다.",
-  );
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const submissionInFlight = useRef(false);
-  const [registrationEmailStage, setRegistrationEmailStage] =
-    useState<RegistrationEmailStage>({ kind: "initial" });
-  const resendRequested =
-    mode === "signup" &&
-    typeof location.state === "object" &&
-    location.state !== null &&
-    "resend" in location.state &&
-    location.state.resend === true;
-  const isRegistrationResend =
-    mode === "signup" &&
-    (resendRequested || registrationEmailStage.kind === "sent");
-  const from =
-    typeof location.state === "object" &&
-    location.state &&
-    "from" in location.state &&
-    typeof location.state.from === "string"
-      ? location.state.from
-      : "/";
-
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-
-    if (submissionInFlight.current) {
-      return;
-    }
-
-    submissionInFlight.current = true;
-    setIsSubmitting(true);
-
-    try {
-      if (mode === "signup") {
-        const delivery = registrationEmailRequest(
-          registrationEmailStage,
-          form.email,
-          resendRequested,
-        );
-        if (delivery.action === "resend") {
-          await resendEmailVerification({ email: delivery.email });
-        } else {
-          await signUp({ email: delivery.email });
-        }
-        setRegistrationEmailStage(acceptedRegistrationEmail(delivery.email));
-        setForm((current) => ({ ...current, email: delivery.email }));
-        setStatus(
-          "인증 메일을 보냈습니다. 메일의 링크를 열어 가입을 계속해주세요.",
-        );
-        return;
-      }
-
-      const nextSession = await login({
-        email: form.email,
-        password: form.password,
-      });
-      completeAuth(nextSession);
-    } catch (error) {
-      setStatus(
-        error instanceof Error
-          ? error.message
-          : "인증에 실패했어요. 이메일과 비밀번호를 확인하세요.",
-      );
-    } finally {
-      submissionInFlight.current = false;
-      setIsSubmitting(false);
-    }
-  }
-
-  function completeAuth(nextSession: Session) {
-    const destination = authCompletionDestination({ mode, from });
-    const nextAfterTutorial =
-      typeof location.state === "object" &&
-      location.state &&
-      "next" in location.state &&
-      typeof location.state.next === "string"
-        ? tutorialNextDestination(location.state.next)
-        : undefined;
-
-    onComplete(nextSession);
-    navigate(destination, {
-      replace: true,
-      state:
-        mode === "signup"
-          ? { next: signupTutorialNextDestination(from) }
-          : destination === "/tutorial" && nextAfterTutorial
-            ? { next: nextAfterTutorial }
-            : undefined,
-    });
-  }
-
-  return (
-    <main className="auth-page">
-      <section className="auth-card">
-        <p className="eyebrow">StudyTube Account</p>
-        <h1>{mode === "login" ? "로그인" : "회원가입"}</h1>
-        <p>{status}</p>
-        <form className="stack-form" onSubmit={submit}>
-          <input
-            value={form.email}
-            onChange={(event) =>
-              setForm({ ...form, email: event.target.value })
-            }
-            placeholder="이메일"
-            type="email"
-            disabled={
-              isSubmitting ||
-              (mode === "signup" && registrationEmailStage.kind === "sent")
-            }
-            required
-          />
-          {mode === "login" && (
-            <input
-              value={form.password}
-              onChange={(event) =>
-                setForm({ ...form, password: event.target.value })
-              }
-              placeholder="비밀번호"
-              type="password"
-              disabled={isSubmitting}
-              required
-            />
-          )}
-          <button type="submit" disabled={isSubmitting}>
-            {isSubmitting
-              ? "처리 중"
-              : mode === "signup"
-                ? isRegistrationResend
-                  ? "인증 메일 다시 받기"
-                  : "인증 메일 받기"
-                : "로그인"}
-          </button>
-        </form>
-        <div className="auth-switch">
-          {mode === "login" ? (
-            <Link to="/signup">계정 만들기</Link>
-          ) : (
-            <Link to="/login">로그인으로 돌아가기</Link>
-          )}
-        </div>
-      </section>
-    </main>
-  );
-}
-
-function VerificationPage() {
-  const navigate = useNavigate();
-  const started = useRef(false);
-  const [status, setStatus] = useState("인증 링크를 확인하고 있습니다.");
-
-  useEffect(() => {
-    if (started.current) {
-      return;
-    }
-    started.current = true;
-
-    void consumeVerificationFragment(
-      window.location,
-      window.history,
-      consumeEmailVerification,
-    )
-      .then(() => navigate("/signup/complete", { replace: true }))
-      .catch(() => {
-        setStatus(
-          "인증 링크가 올바르지 않거나 만료되었습니다. 새 인증 메일을 요청해주세요.",
-        );
-      });
-  }, [navigate]);
-
-  return (
-    <main className="auth-page">
-      <section className="auth-card">
-        <p className="eyebrow">StudyTube Account</p>
-        <h1>이메일 인증</h1>
-        <p>{status}</p>
-        <div className="auth-switch">
-          <Link to="/signup" state={{ resend: true }}>
-            인증 메일 다시 받기
-          </Link>
-        </div>
-      </section>
-    </main>
-  );
-}
-
-function RegistrationCompletionPage({
-  onComplete,
-}: {
-  onComplete: (session: Session) => void;
-}) {
-  const navigate = useNavigate();
-  const [readiness, setReadiness] = useState<"checking" | "ready" | "invalid">(
-    "checking",
-  );
-  const [form, setForm] = useState({ name: "", password: "" });
-  const [status, setStatus] = useState("안전한 가입 세션을 확인하고 있습니다.");
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  useEffect(() => {
-    let active = true;
-    void fetchRegistrationReadiness()
-      .then(() => {
-        if (active) {
-          setReadiness("ready");
-          setStatus("이름과 비밀번호를 정하면 가입이 완료됩니다.");
-        }
-      })
-      .catch(() => {
-        if (active) {
-          setReadiness("invalid");
-          setStatus(
-            "가입 세션이 없거나 만료되었습니다. 이메일 인증부터 다시 시작해주세요.",
-          );
-        }
-      });
-
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    if (readiness !== "ready" || isSubmitting) {
-      return;
-    }
-
-    setIsSubmitting(true);
-    try {
-      const session = await completeRegistration(form);
-      onComplete(session);
-      navigate("/tutorial", {
-        replace: true,
-        state: { next: signupTutorialNextDestination("/") },
-      });
-    } catch (error) {
-      setStatus(
-        error instanceof Error
-          ? error.message
-          : "가입을 완료하지 못했습니다. 다시 시도해주세요.",
-      );
-    } finally {
-      setIsSubmitting(false);
-    }
-  }
-
-  return (
-    <main className="auth-page">
-      <section className="auth-card">
-        <p className="eyebrow">StudyTube Account</p>
-        <h1>가입 완료</h1>
-        <p>{status}</p>
-        {readiness === "ready" && (
-          <form className="stack-form" onSubmit={submit}>
-            <input
-              value={form.name}
-              onChange={(event) =>
-                setForm({ ...form, name: event.target.value })
-              }
-              placeholder="이름"
-              autoComplete="name"
-              disabled={isSubmitting}
-              required
-            />
-            <input
-              value={form.password}
-              onChange={(event) =>
-                setForm({ ...form, password: event.target.value })
-              }
-              placeholder="비밀번호"
-              type="password"
-              autoComplete="new-password"
-              aria-describedby="registration-password-hint"
-              disabled={isSubmitting}
-              required
-            />
-            <small id="registration-password-hint">
-              비밀번호는 8~128바이트로 입력해주세요. 영문과 숫자는 8자
-              이상입니다.
-            </small>
-            <button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? "처리 중" : "가입 완료"}
-            </button>
-          </form>
-        )}
-        {readiness === "invalid" && (
-          <div className="auth-switch">
-            <Link to="/signup">이메일 인증 다시 시작하기</Link>
-          </div>
-        )}
-      </section>
-    </main>
   );
 }
 

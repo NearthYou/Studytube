@@ -16,3 +16,11 @@ test("the active Course screen owns its feature module", () => {
   assert.match(courseSource, /generatedCourseIdempotencyKey/);
   assert.doesNotMatch(appSource, /function CoursePage/);
 });
+
+test("course creation has one clear primary action and visible progress", () => {
+  const source = readFileSync(coursePath, "utf8");
+  assert.match(source, /코스 만들기/);
+  assert.match(source, /aria-busy=\{isGenerating\}/);
+  assert.match(source, /내 코스/);
+  assert.doesNotMatch(source, /기존 코스 먼저 찾기|새로 만들어줘/);
+});

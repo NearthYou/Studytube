@@ -16,18 +16,18 @@ test("learning workspace is split into a focused feature boundary", () => {
   assert.equal(existsSync(resolve(featureDirectory, "captionState.ts")), true);
 });
 
-test("learning workspace keeps the player, bilingual current caption and tabs in order", () => {
+test("learning workspace keeps the player and study tools in one desktop desk", () => {
   const source = readFileSync(
     resolve(featureDirectory, "LearningWorkspace.tsx"),
     "utf8",
   );
   const player = source.indexOf("<LearningVideoPlayer");
-  const caption = source.indexOf('className="current-caption"');
-  const tabs = source.indexOf('role="tablist"');
+  const desk = source.indexOf('className="learning-desk"');
+  const tools = source.indexOf('className="learning-tools"');
 
   assert.ok(player >= 0);
-  assert.ok(caption > player);
-  assert.ok(tabs > caption);
+  assert.ok(desk >= 0);
+  assert.ok(tools > player);
   assert.match(source, /원문/);
   assert.match(source, /한국어/);
   assert.match(source, /label: "전체 자막"/);
@@ -129,14 +129,18 @@ test("next proposal requests are single-flight and cancel polling on unmount", (
   assert.match(source, /activeRequestRef\.current\?\.controller\.abort\(\)/);
 });
 
-test("note drafting pins one playback position until the learner changes it", () => {
+test("starting a note pins the current playback position automatically", () => {
   const source = readFileSync(
     resolve(featureDirectory, "LearningWorkspace.tsx"),
     "utf8",
   );
 
-  assert.match(source, /notePositionSeconds/);
-  assert.match(source, /현재 위치로 바꾸기/);
+  assert.match(source, /function startNoteDraft/);
+  assert.match(source, /notePositionSeconds: state\.currentTime/);
+  assert.match(source, /selectedTab: "notes"/);
+  assert.match(source, /noteInputRef\.current\?\.focus\(\)/);
+  assert.match(source, />\s*메모하기\s*</);
+  assert.doesNotMatch(source, /현재 위치로 바꾸기/);
   assert.doesNotMatch(source, /positionSeconds: state\.currentTime/);
 });
 
@@ -144,6 +148,8 @@ test("learning workspace collapses safely at phone width", () => {
   const css = readFileSync(resolve(testDirectory, "../src/App.css"), "utf8");
 
   assert.match(css, /@media \(max-width: 520px\)/);
+  assert.match(css, /\.learning-desk\s*\{[\s\S]*grid-template-columns:/);
+  assert.match(css, /\.learning-tools\s*\{[\s\S]*overflow:/);
   assert.match(
     css,
     /\.learning-intake-form > div[\s\S]*grid-template-columns: 1fr/,

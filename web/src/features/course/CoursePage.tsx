@@ -29,10 +29,10 @@ export function CoursePage({ session }: { session: Session }) {
   const [posts, setPosts] = useState<StudyPost[]>([]);
   const [status, setStatus] = useState(
     hasProfile
-      ? `${profile.interests[0]} 취향을 반영해 먼저 기존 보드에서 찾아볼게요.`
-      : "원하는 코스를 입력하면 먼저 기존 플레이리스트 보드에서 찾고, 없으면 새로 만들어드립니다.",
+      ? `${profile.interests[0]} 관심사와 학습 목표를 새 코스에 반영합니다.`
+      : "배우고 싶은 주제와 목표를 입력해주세요.",
   );
-  const [isSearching, setIsSearching] = useState(false);
+  const isSearching = false;
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSavingPlaylist, setIsSavingPlaylist] = useState(false);
 
@@ -41,51 +41,26 @@ export function CoursePage({ session }: { session: Session }) {
   }, [session.user.id]);
 
   async function refreshCourseData() {
-    try {
-      const [nextCourses, ownedPosts] = await Promise.all([
-        fetchOwnerCourses(),
-        fetchOwnedPostsForLibrary(),
-      ]);
+    const [courseResult, postResult] = await Promise.allSettled([
+      fetchOwnerCourses(),
+      fetchOwnedPostsForLibrary(),
+    ]);
+    const nextCourses = courseResult.status === "fulfilled" ? courseResult.value : [];
+    const ownedPosts = postResult.status === "fulfilled" ? postResult.value : [];
+    if (courseResult.status === "fulfilled" || postResult.status === "fulfilled") {
       setCourses(nextCourses);
       setPosts([
         ...nextCourses.flatMap((course) => postsFromCourse(course, ownedPosts)),
         ...ownedPosts,
       ]);
-    } catch {
-      setStatus("학습 코스 데이터를 불러오지 못했어요. 서버를 확인하세요.");
+      return;
     }
+    setStatus("내 코스를 불러오지 못했어요. 잠시 후 다시 시도해주세요.");
   }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    const trimmed = query.trim();
-
-    if (!trimmed || isSearching) {
-      return;
-    }
-
-    setIsSearching(true);
-    setAgentResult(null);
-    setMcpResult(null);
-    setStatus(
-      "먼저 기존 플레이리스트 보드와 저장된 학습 코스에서 찾는 중입니다.",
-    );
-
-    try {
-      const result = await askRag(trimmed);
-      const matches = findMatchingCourses(playlists, posts, trimmed);
-      setRagResult(result);
-      setCourseMatches(matches);
-      setStatus(
-        result.relatedPosts.length > 0 || matches.length > 0
-          ? "이미 올라온 코스나 영상 분석 요약을 찾았어요. 먼저 이것부터 확인해보세요."
-          : "기존 보드에는 딱 맞는 코스가 없어요. 새 YouTube 코스를 만들어볼 수 있습니다.",
-      );
-    } catch {
-      setStatus("기존 코스 검색에 실패했어요. 서버를 확인하세요.");
-    } finally {
-      setIsSearching(false);
-    }
+    await generateNewCourse();
   }
 
   async function generateNewCourse() {
@@ -99,14 +74,22 @@ export function CoursePage({ session }: { session: Session }) {
     }
 
     setIsGenerating(true);
+    setAgentResult(null);
+    setMcpResult(null);
     setStatus(
-      "새 코스를 만들기 위해 AI가 YouTube 후보와 기존 영상 분석 요약을 함께 살피는 중입니다.",
+      "저장한 학습 자료와 YouTube 영상을 살펴 코스를 만들고 있어요.",
     );
 
-    const [agentResponse, mcpResponse] = await Promise.allSettled([
+    const [ragResponse, agentResponse, mcpResponse] = await Promise.allSettled([
+      askRag(goal),
       askAgent(goal),
       askMcp(goal),
     ]);
+
+    if (ragResponse.status === "fulfilled") {
+      setRagResult(ragResponse.value);
+      setCourseMatches(findMatchingCourses(playlists, posts, goal));
+    }
 
     if (agentResponse.status === "fulfilled") {
       setAgentResult(agentResponse.value);
@@ -123,7 +106,7 @@ export function CoursePage({ session }: { session: Session }) {
     setStatus(
       agentResponse.status === "fulfilled" || mcpResponse.status === "fulfilled"
         ? "새 학습 코스를 만들었어요. 저장하거나 바로 시청할 수 있습니다."
-        : "새 코스 생성에 실패했어요. AI 서버가 실행 중인지 확인하세요.",
+        : "새 코스를 만들지 못했어요. 잠시 후 다시 시도해주세요.",
     );
     setIsGenerating(false);
   }
@@ -140,7 +123,7 @@ export function CoursePage({ session }: { session: Session }) {
 
     if (courseVideos.length === 0) {
       setStatus(
-        "이 코스의 영상을 불러오지 못했어요. 플레이리스트 보드를 확인하세요.",
+        "이 코스의 영상을 불러오지 못했어요. 코스를 다시 확인해주세요.",
       );
       return;
     }
@@ -156,14 +139,14 @@ export function CoursePage({ session }: { session: Session }) {
     }
 
     setIsSavingPlaylist(true);
-    setStatus("코스를 저장하는 중입니다. 새 영상은 내 보드에 함께 저장합니다.");
+    setStatus("코스를 저장하고 있습니다.");
 
     try {
       const postIds = await ensurePostIdsForGeneratedVideos(generatedVideos);
 
       const title =
         agentResult?.playlistTitle ??
-        `${query.trim() || initialQuery || "AI 추천"} 학습 코스`;
+        `${query.trim() || initialQuery || "맞춤"} 학습 코스`;
       const description =
         agentResult?.rationale ??
         "내 취향과 검색 결과를 바탕으로 만든 학습 코스입니다.";
@@ -244,16 +227,9 @@ export function CoursePage({ session }: { session: Session }) {
   return (
     <main className="page-shell course-page">
       <section className="page-heading">
-        <p className="eyebrow">Personal course finder</p>
-        <h1>
-          내 취향에 맞는
-          <br />
-          학습 코스 찾기
-        </h1>
+        <h1>내 코스</h1>
         <p>
-          먼저 이미 올라온 학습 플레이리스트와 AI 영상 분석 요약을 확인합니다.
-          <br />
-          없으면 AI가 YouTube까지 탐색해서 새 학습 코스를 만듭니다.
+          배우고 싶은 주제와 목표를 적으면 학습 순서까지 정리해드립니다.
         </p>
         {hasProfile && (
           <div className="preference-summary">
@@ -277,25 +253,36 @@ export function CoursePage({ session }: { session: Session }) {
             placeholder="예: 퇴근 후 20분씩 영어 회화를 배우고 싶어"
             disabled={isSearching || isGenerating}
           />
-          <button type="submit" disabled={isSearching || isGenerating}>
-            {isSearching ? "찾는 중" : "기존 코스 먼저 찾기"}
-          </button>
           <button
-            className="secondary-action"
-            type="button"
+            aria-busy={isGenerating}
+            type="submit"
             disabled={isSearching || isGenerating}
-            onClick={() => void generateNewCourse()}
           >
-            {isGenerating ? "만드는 중" : "새로 만들어줘"}
+            {isGenerating ? "코스 만드는 중" : "코스 만들기"}
           </button>
         </form>
-        <p className="system-note">{status}</p>
+        <p className="system-note" aria-live="polite">{status}</p>
       </section>
+
+      {playlists.length > 0 && (
+        <section className="course-library" aria-labelledby="my-course-title">
+          <div className="section-title">
+            <h2 id="my-course-title">이어갈 코스</h2>
+            <span>{playlists.length}개</span>
+          </div>
+          {playlists.map((playlist) => (
+            <button key={playlist.id} type="button" onClick={() => playSavedPlaylist(playlist)}>
+              <span><strong>{playlist.title}</strong><small>{playlist.postIds.length}개 영상</small></span>
+              이어서 학습
+            </button>
+          ))}
+        </section>
+      )}
 
       {(courseMatches.length > 0 || existingVideos.length > 0 || ragResult) && (
         <section className="course-results">
           <div className="section-title">
-            <h2>기존 보드에서 먼저 찾은 결과</h2>
+            <h2>함께 참고한 학습 자료</h2>
             <span>{courseMatches.length + existingVideos.length}개</span>
           </div>
           {courseMatches.map((playlist) => (
@@ -327,7 +314,7 @@ export function CoursePage({ session }: { session: Session }) {
                 {video.evidenceSnippet && (
                   <p className="analysis-copy">{video.evidenceSnippet}</p>
                 )}
-                <em>AI 분석 기반 영상 보기</em>
+                <em>이 영상 학습하기</em>
               </span>
             </button>
           ))}
@@ -337,8 +324,7 @@ export function CoursePage({ session }: { session: Session }) {
               <div className="empty-product">
                 <strong>아직 딱 맞는 코스가 없어요</strong>
                 <p>
-                  새로 만들어달라고 하면 AI가 YouTube까지 탐색해서 학습 코스를
-                  만듭니다.
+                  코스 만들기를 누르면 관련 영상을 찾아 학습 순서로 정리합니다.
                 </p>
                 <button type="button" onClick={() => void generateNewCourse()}>
                   새 코스 만들기
@@ -353,9 +339,9 @@ export function CoursePage({ session }: { session: Session }) {
           <div className="playlist-toolbar">
             <div>
               <strong>
-                AI가 만든 학습 코스 {generatedVideos.length}개 영상
+                새 학습 코스 {generatedVideos.length}개 영상
               </strong>
-              <small>저장하면 새 영상도 내 보드에 함께 보관됩니다.</small>
+              <small>확인한 뒤 저장하거나 바로 학습할 수 있습니다.</small>
             </div>
             <button
               type="button"
@@ -375,7 +361,7 @@ export function CoursePage({ session }: { session: Session }) {
               <img src={video.thumbnailUrl} alt="" />
               <span>
                 <strong>{video.title}</strong>
-                <small>{video.source}</small>
+                <small>{video.channelName || "YouTube"}</small>
                 <em>이 영상부터 코스로 보기</em>
               </span>
             </button>
@@ -383,23 +369,6 @@ export function CoursePage({ session }: { session: Session }) {
         </section>
       )}
 
-      {agentResult && (
-        <section className="agent-trace">
-          <div className="section-title">
-            <h2>AI가 코스를 만든 과정</h2>
-            <span>{agentResult.trace.length}단계</span>
-          </div>
-          {agentResult.trace.map((step) => (
-            <article key={`${step.iteration}-${step.tool}`}>
-              <b>{step.iteration}</b>
-              <div>
-                <strong>{step.tool}</strong>
-                <p>{step.reason}</p>
-              </div>
-            </article>
-          ))}
-        </section>
-      )}
     </main>
   );
 }

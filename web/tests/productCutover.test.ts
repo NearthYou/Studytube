@@ -17,7 +17,7 @@ const workspace = readFileSync(
 
 test("product navigation exposes learning, Course and account only", () => {
   assert.match(nav, /to="\/watch">학습/);
-  assert.match(nav, /to="\/courses">내 Course/);
+  assert.match(nav, /to="\/courses">내 코스/);
   assert.match(nav, /to="\/me">내 정보/);
   assert.doesNotMatch(nav, /보드|등록|게시물|좋아요|댓글/);
 });

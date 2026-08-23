@@ -531,5 +531,47 @@ class AiServiceTest(unittest.TestCase):
         self.assertEqual(result["videos"][0]["videoId"], "abc123")
         self.assertEqual(result["videos"][0]["title"], "Real React Hooks Lesson")
 
+    def test_youtube_url_lookup_uses_public_description_when_captions_are_missing(self):
+        class FakeResponse:
+            def __init__(self, *, data=None, text=""):
+                self._data = data
+                self.text = text
+
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return self._data
+
+        class FakeHttpx:
+            @staticmethod
+            def get(url, **_kwargs):
+                if "oembed" in url:
+                    return FakeResponse(
+                        data={
+                            "title": "중국어 인사 표현",
+                            "author_name": "언어 교실",
+                            "thumbnail_url": "https://img.example/lesson.jpg",
+                        }
+                    )
+                return FakeResponse(
+                    text='var ytInitialPlayerResponse = {"videoDetails":{"shortDescription":"아침과 저녁 인사 표현을 예문으로 배웁니다.","lengthSeconds":"125"}};'
+                )
+
+        original_httpx = youtube_search_module.httpx
+        youtube_search_module.httpx = FakeHttpx
+        try:
+            result = youtube_search_module.lookup_youtube(
+                {"url": "https://www.youtube.com/watch?v=abc123def45"}
+            )
+        finally:
+            youtube_search_module.httpx = original_httpx
+
+        self.assertEqual(
+            result["videos"][0]["summary"],
+            "아침과 저녁 인사 표현을 예문으로 배웁니다.",
+        )
+        self.assertEqual(result["videos"][0]["durationLabel"], "2:05")
+
 if __name__ == "__main__":
     unittest.main()

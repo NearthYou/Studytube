@@ -17,7 +17,7 @@ export function SiteNav({
         <>
           <nav>
             <GuardedNavLink to="/watch">학습</GuardedNavLink>
-            <GuardedNavLink to="/courses">내 Course</GuardedNavLink>
+            <GuardedNavLink to="/courses">내 코스</GuardedNavLink>
             <GuardedNavLink to="/me">내 정보</GuardedNavLink>
           </nav>
           <div className="nav-account">

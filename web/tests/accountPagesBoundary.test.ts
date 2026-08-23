@@ -31,3 +31,14 @@ test("active account and onboarding actions avoid retired routes", () => {
     .join("\n");
   assert.doesNotMatch(source, /["']\/(?:board|search|me\/posts)["']/);
 });
+
+test("account screen makes learning preferences and progress its primary job", () => {
+  const source = readFileSync(
+    resolve(root, "features/account/MyPage.tsx"),
+    "utf8",
+  );
+  assert.match(source, /학습 설정/);
+  assert.match(source, /진행 중인 코스/);
+  assert.match(source, /학습할 영상/);
+  assert.doesNotMatch(source, /보드 플레이리스트|등록 영상/);
+});

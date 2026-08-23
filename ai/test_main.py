@@ -15,6 +15,7 @@ import embeddings as embeddings_module
 import caption_translation as caption_translation_module
 import main
 import youtube_search as youtube_search_module
+import ytdlp_captions as ytdlp_captions_module
 from main import (
     build_quiz_response,
     build_study_plan,
@@ -2571,11 +2572,11 @@ class AiServiceTest(unittest.TestCase):
     def test_caption_url_with_recovery_params_generates_video_bound_po_token(self):
         original_token = os.environ.get("YOUTUBE_PO_TOKEN")
         original_auto = os.environ.get("YOUTUBE_AUTO_SUBTITLE_PO_TOKEN")
-        original_generate = main.generate_bgutil_subtitle_po_token
+        original_generate = ytdlp_captions_module.generate_bgutil_subtitle_po_token
         os.environ.pop("YOUTUBE_PO_TOKEN", None)
         os.environ["YOUTUBE_AUTO_SUBTITLE_PO_TOKEN"] = "true"
         main.YOUTUBE_SUBTITLE_PO_TOKEN_CACHE.clear()
-        main.generate_bgutil_subtitle_po_token = lambda video_id: (
+        ytdlp_captions_module.generate_bgutil_subtitle_po_token = lambda video_id: (
             "GENERATED_TOKEN" if video_id == "abc123" else ""
         )
 
@@ -2585,7 +2586,7 @@ class AiServiceTest(unittest.TestCase):
                 "abc123",
             )
         finally:
-            main.generate_bgutil_subtitle_po_token = original_generate
+            ytdlp_captions_module.generate_bgutil_subtitle_po_token = original_generate
             main.YOUTUBE_SUBTITLE_PO_TOKEN_CACHE.clear()
             if original_token is None:
                 os.environ.pop("YOUTUBE_PO_TOKEN", None)
@@ -2683,12 +2684,12 @@ class AiServiceTest(unittest.TestCase):
                 clear=False,
             ):
                 with mock.patch.object(
-                    main,
+                    ytdlp_captions_module,
                     "youtube_bgutil_server_home",
                     return_value=server_home,
                 ):
                     with mock.patch.object(
-                        main,
+                        ytdlp_captions_module,
                         "youtube_node_runtime_path",
                         return_value="node",
                     ):

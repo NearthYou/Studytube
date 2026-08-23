@@ -34,7 +34,7 @@ test("learning home starts with URL registration and has an honest empty state",
   const source = readFileSync(learningPagePath, "utf8");
 
   assert.match(source, /YouTube 영상 주소/);
-  assert.match(source, /학습 시작/);
+  assert.match(source, /시작하기/);
   assert.match(source, /아직 학습한 영상이 없습니다/);
   assert.match(source, /새 영상 등록/);
   assert.doesNotMatch(source, />[^\n<]*(?:Agent|MCP|RAG|AI)[^\n<]*</);

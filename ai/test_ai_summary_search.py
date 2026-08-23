@@ -498,6 +498,7 @@ class AiServiceTest(unittest.TestCase):
               "videoId":"abc123",
               "title":{"runs":[{"text":"Real React Hooks Lesson"}]},
               "ownerText":{"runs":[{"text":"Real Channel"}]},
+              "badges":[{"metadataBadgeRenderer":{"label":"CC"}}],
               "thumbnail":{"thumbnails":[{"url":"https://img.example/a.jpg"}]}
             }}};
             </script>
@@ -530,6 +531,36 @@ class AiServiceTest(unittest.TestCase):
         self.assertEqual(result["provider"], "youtube-search-page")
         self.assertEqual(result["videos"][0]["videoId"], "abc123")
         self.assertEqual(result["videos"][0]["title"], "Real React Hooks Lesson")
+
+    def test_youtube_page_search_excludes_videos_without_caption_badges(self):
+        class FakeResponse:
+            text = """
+            <script>
+            var ytInitialData = {"contents":{"videoRenderer":{
+              "videoId":"noCaption1",
+              "title":{"runs":[{"text":"No caption lesson"}]},
+              "ownerText":{"runs":[{"text":"Channel"}]},
+              "thumbnail":{"thumbnails":[]}
+            }}};
+            </script>
+            """
+
+            def raise_for_status(self):
+                return None
+
+        class FakeHttpx:
+            @staticmethod
+            def get(*_args, **_kwargs):
+                return FakeResponse()
+
+        original_httpx = youtube_search_module.httpx
+        youtube_search_module.httpx = FakeHttpx
+        try:
+            videos = youtube_search_module.search_youtube_page("lesson", 5)
+        finally:
+            youtube_search_module.httpx = original_httpx
+
+        self.assertEqual(videos, [])
 
     def test_youtube_url_lookup_uses_public_description_when_captions_are_missing(self):
         class FakeResponse:

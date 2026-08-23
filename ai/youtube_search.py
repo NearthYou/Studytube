@@ -141,6 +141,7 @@ def search_youtube_data_api(query: str, limit: int) -> list[dict[str, Any]]:
                 "part": "snippet",
                 "q": query,
                 "type": "video",
+                "videoCaption": "closedCaption",
                 "maxResults": limit,
                 "safeSearch": "moderate",
             },
@@ -205,7 +206,11 @@ def search_youtube_page(query: str, limit: int) -> list[dict[str, Any]]:
     for renderer in iter_video_renderers(initial_data):
         video_id = str(renderer.get("videoId") or "").strip()
 
-        if not video_id or video_id in seen:
+        if (
+            not video_id
+            or video_id in seen
+            or not video_renderer_has_captions(renderer)
+        ):
             continue
 
         seen.add(video_id)
@@ -234,6 +239,23 @@ def search_youtube_page(query: str, limit: int) -> list[dict[str, Any]]:
             break
 
     return videos
+
+
+def video_renderer_has_captions(renderer: dict[str, Any]) -> bool:
+    for badge in renderer.get("badges") or []:
+        metadata = badge.get("metadataBadgeRenderer") if isinstance(badge, dict) else None
+        if not isinstance(metadata, dict):
+            continue
+        label = clean_text(str(metadata.get("label") or "")).casefold()
+        icon = metadata.get("icon") if isinstance(metadata.get("icon"), dict) else {}
+        icon_type = str(icon.get("iconType") or "").casefold()
+        if (
+            label in {"cc", "자막", "subtitles", "closed captions"}
+            or "caption" in label
+            or "caption" in icon_type
+        ):
+            return True
+    return False
 
 
 def parse_yt_initial_data(html: str) -> dict[str, Any] | None:

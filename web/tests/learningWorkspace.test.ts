@@ -31,8 +31,8 @@ test("learning workspace keeps the player and study tools in one desktop desk", 
   assert.match(source, /원문/);
   assert.match(source, /한국어/);
   assert.match(source, /label: "전체 자막"/);
-  assert.match(source, /label: "핵심 내용"/);
-  assert.match(source, /label: "메모"/);
+  assert.match(source, /label: "문장 해설"/);
+  assert.match(source, /label: "저장 문장"/);
   assert.match(source, /label: "퀴즈"/);
 });
 

@@ -35,9 +35,9 @@ import { useAdaptiveQuiz } from "./useAdaptiveQuiz.ts";
 import { useNextLearningProposal } from "./useNextLearningProposal.ts";
 
 const TABS: Array<{ id: LearningTab; label: string }> = [
-  { id: "summary", label: "핵심 내용" },
+  { id: "summary", label: "문장 해설" },
   { id: "transcript", label: "전체 자막" },
-  { id: "notes", label: "메모" },
+  { id: "notes", label: "저장 문장" },
   { id: "quiz", label: "퀴즈" },
 ];
 const MAX_CAPTION_POLLS = 170;

@@ -22,6 +22,7 @@ import {
 } from './learning-note.repository';
 import { PostgresLearningNoteRepository } from './postgres-learning-note.repository';
 import {
+  DEFAULT_ESTIMATED_MICROUNITS_PER_AUDIO_SECOND,
   PROVIDER_BUDGET_REPOSITORY,
   type ProviderBudgetRepository,
 } from './provider-budget.repository';
@@ -74,7 +75,7 @@ import { PostgresRetrievalRepository } from '../retrieval/postgres-retrieval.rep
           ),
           microsPerAudioSecond: environmentInteger(
             'AI_ESTIMATED_MICROUNITS_PER_AUDIO_SECOND',
-            50,
+            DEFAULT_ESTIMATED_MICROUNITS_PER_AUDIO_SECOND,
             true,
           ),
           maxGlobalDailyCostMicrounits: environmentInteger(

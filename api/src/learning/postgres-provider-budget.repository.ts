@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 import {
+  MAX_LEARNING_AUDIO_SECONDS,
   ProviderBudgetUnavailableError,
   type ProviderBudgetRepository,
   type ProviderBudgetReservation,
@@ -466,7 +467,7 @@ function validate(
     command.requestedAudioSeconds,
     'requestedAudioSeconds',
   );
-  if (command.requestedAudioSeconds > 14_400)
+  if (command.requestedAudioSeconds > MAX_LEARNING_AUDIO_SECONDS)
     throw new RangeError('requestedAudioSeconds is too large');
   for (const value of [
     policy.maxGlobalDailyAudioSeconds,

@@ -7,6 +7,7 @@ import {
   Max,
   Min,
 } from 'class-validator';
+import { MAX_LEARNING_AUDIO_SECONDS } from './provider-budget.repository';
 
 export class StartLearningItemDto {
   @IsString()
@@ -15,7 +16,7 @@ export class StartLearningItemDto {
 
   @IsInt()
   @Min(1)
-  @Max(14_400)
+  @Max(MAX_LEARNING_AUDIO_SECONDS)
   requestedAudioSeconds!: number;
 }
 

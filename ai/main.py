@@ -168,6 +168,7 @@ configure_transcription_runtime(
         secret_config_args=lambda: yt_dlp_secret_config_args(),
         yt_dlp_commands=lambda: yt_dlp_commands(),
         yt_dlp_recovery_args=lambda: yt_dlp_recovery_args(),
+        ffmpeg_location_args=lambda: ffmpeg_location_args(),
         subprocess_environment=lambda: youtube_subprocess_environment(),
         translate_segments=lambda segments, language: translate_caption_segments(
             segments,

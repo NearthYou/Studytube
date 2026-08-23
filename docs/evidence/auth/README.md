@@ -19,7 +19,9 @@ flowchart LR
   AC --> C
 ```
 
-컨트롤러만 Express request와 response, 쿠키를 다룬다. Session guard는 exact session cookie를 다이제스트 조회한 뒤 public user와 principal을 동결한다. 보호된 board와 video 서비스에는 session ID, 쿠키, Authorization 헤더가 아니라 `{ userId }` actor만 전달된다. 공개 메타데이터가 붙은 explore와 기본 health 경로 외에는 Session guard가 기본으로 적용된다.
+컨트롤러만 Express request와 response, 쿠키를 다룬다. Session guard는 exact session cookie를 다이제스트 조회한 뒤 public user와 principal을 동결한다. 보호된 board와 video 서비스에는 session ID, 쿠키, Authorization 헤더가 아니라 `{ userId }` actor만 전달된다.
+
+공개 메타데이터가 붙은 explore와 기본 health 경로 외에는 Session guard가 기본으로 적용된다.
 
 가입, 검증, 등록 완료, 로그인, `/me`, logout, enrollment readiness까지 HttpOnly 쿠키 흐름이 연결됐다. 정적 경계 검사는 production TypeScript 36개에서 Authorization 또는 Bearer 소비자와 `sessions.token` SQL이 없음을 확인한다.
 

@@ -1,73 +1,46 @@
-# React + TypeScript + Vite
+# StudyTube Web
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React와 Vite로 만든 StudyTube browser client다. 로그인한 사용자가 영상과 progressive caption을 보고, 시점 메모, adaptive quiz와 다음 학습 proposal을 한 workspace에서 다룬다.
 
-Currently, two official plugins are available:
+## 화면 책임
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+| 영역 | source |
+| --- | --- |
+| route와 session gate | `src/App.tsx`, `src/authSession.ts` |
+| 학습 화면 조합 | `src/features/learning/LearningWorkspace.tsx` |
+| YouTube player와 seek | `src/features/learning/LearningVideoPlayer.tsx` |
+| 자막 상태 | `src/features/learning/captionState.ts` |
+| quiz lifecycle | `src/features/learning/useAdaptiveQuiz.ts` |
+| 다음 학습 proposal | `src/features/learning/useNextLearningProposal.ts` |
+| API contract | `src/api.ts`, `src/courseApi.ts` |
 
-## React Compiler
+## 상태 경계
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+UI는 현재 tab, 선택한 panel과 polling state를 관리한다. note, progress, quiz attempt, proposal과 Course mutation은 API 응답을 authoritative state로 사용한다.
 
-## Expanding the ESLint configuration
+Browser는 bearer token을 저장하지 않는다. `fetch`는 HttpOnly session cookie를 사용하며 session 또는 Origin 검증에 실패하면 인증 화면으로 돌아간다.
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## 실행
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```powershell
+npm ci
+npm run dev -- --host 127.0.0.1
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+기본 주소는 `http://127.0.0.1:5173`이다. API URL과 allowed origin은 root `.env.example`과 API 환경 설정을 따른다.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## 검증
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```powershell
+npm run lint
+node --test tests/*.test.ts
+npm run build
 ```
+
+Node test는 browser 없이 state transition과 API request shape를 확인한다. 인증 이후 실제 학습 화면은 API, PostgreSQL, Valkey와 test account를 포함한 별도 browser E2E가 필요하다.
+
+## 현재 한계
+
+- progressive caption과 quiz는 backend work 상태에 의존한다.
+- sessionStorage는 authoritative 학습 기록이 아니다.
+- current main의 full authenticated E2E 화면은 repository에 새로 캡처하지 않았다.

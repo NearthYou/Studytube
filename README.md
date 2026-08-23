@@ -1,59 +1,75 @@
 # StudyTube
 
-StudyTube는 외국어 YouTube 영상을 자막, 메모, 퀴즈, 다음 학습 순서까지 이어서 공부하는 웹 서비스다.
+StudyTube는 외국어 YouTube 영상을 자막, 메모, 퀴즈, 다음 학습 순서까지 이어서 공부하는 웹 서비스입니다.
 
 - 서비스: [studytube.page](https://studytube.page)
 - 저장소: [github.com/NearthYou/studytube](https://github.com/NearthYou/studytube)
 - API 계약: [api/openapi/current.json](api/openapi/current.json)
 
+## 핵심 기능 화면
+
+![영상과 학습 도구를 함께 사용하는 StudyTube](docs/demo/studytube-learning-workspace.jpg)
+
+영상을 보면서 같은 화면에서 문장 해설, 전체 자막, 저장 문장과 퀴즈를 오갈 수 있습니다. 재생 시점이 붙은 메모도 여기에서 바로 남깁니다.
+
+| YouTube 링크로 학습 시작 | 최근 학습 이어 보기 |
+| --- | --- |
+| ![YouTube 링크를 입력해 학습을 시작하는 화면](docs/demo/studytube-start-learning.jpg) | ![최근에 학습한 영상을 이어서 보는 화면](docs/demo/studytube-continue-learning.jpg) |
+
+영상 등록부터 학습 재개, 영상별 학습 도구까지 이어지는 실제 서비스 화면입니다.
+
 ## 풀고 싶었던 문제
 
-YouTube에서 외국어 영상을 공부하면 재생 화면, 번역, 메모, 복습 자료가 서로 떨어진다. 무엇을 어디까지 봤는지 기억하기 어렵고, 다음 영상은 검색부터 다시 해야 한다. StudyTube는 이 흐름을 한 화면과 하나의 학습 기록으로 묶기 위해 시작했다.
+YouTube에서 외국어 영상을 공부하면 재생 화면, 번역, 메모, 복습 자료가 서로 떨어집니다. 무엇을 어디까지 봤는지 기억하기 어렵고, 다음 영상은 검색부터 다시 해야 합니다. StudyTube는 이 흐름을 한 화면과 하나의 학습 기록으로 묶기 위해 시작했습니다.
 
-로그인한 사용자가 영상 주소를 넣으면 원문과 한국어 자막을 준비한다. 현재 자막을 보며 시점이 붙은 메모를 남기고, 실제로 본 구간에서 퀴즈를 푼다. 답을 확인한 뒤에는 근거 구간으로 돌아가 복습하거나 다음 영상을 제안받는다. 제안은 사용자가 기존 Course 또는 새 비공개 Course를 선택해 승인해야 반영된다.
+로그인한 사용자가 영상 주소를 넣으면 원문과 한국어 자막을 준비합니다. 현재 자막을 보며 시점이 붙은 메모를 남기고, 실제로 본 구간에서 퀴즈를 풉니다. 답을 확인한 뒤에는 근거 구간으로 돌아가 복습하거나 다음 영상을 제안받습니다. 제안은 사용자가 기존 Course 또는 새 비공개 Course를 선택해 승인해야 반영됩니다.
 
 ## 학습 흐름
 
-1. 로그인 후 YouTube 영상 주소를 등록한다.
-2. YouTube 자막을 먼저 사용하고, 자막이 없을 때만 승인된 STT 경로를 검토한다.
-3. 원문과 한국어 자막을 보며 시점이 붙은 메모를 남긴다.
-4. 시청한 구간과 현재 자막 버전을 고정해 퀴즈를 만든다.
-5. 오답은 출처 시점으로 돌아가 확인한다.
-6. 학습 기록에 근거한 다음 영상을 확인하고 Course 반영 여부를 직접 결정한다.
-
-공개 게시판, 댓글, 좋아요 기능은 최종 학습 흐름에서 제거했다. 기존 데이터는 삭제하지 않았고 공개된 Course의 읽기 계약은 유지한다.
+1. 로그인 후 YouTube 영상 주소를 등록합니다.
+2. YouTube 자막을 먼저 사용하고, 자막이 없을 때만 승인된 STT 경로를 검토합니다.
+3. 원문과 한국어 자막을 보며 시점이 붙은 메모를 남깁니다.
+4. 시청한 구간과 현재 자막 버전을 고정해 퀴즈를 만듭니다.
+5. 오답은 출처 시점으로 돌아가 확인합니다.
+6. 학습 기록에 근거한 다음 영상을 확인하고 Course 반영 여부를 직접 결정합니다.
 
 ## Agent, MCP, RAG를 사용한 이유
 
-세 기술을 화면 장식이 아니라 학습 흐름의 책임 경계로 사용했다.
+세 기술을 화면 장식이 아니라 학습 흐름의 책임 경계로 사용했습니다.
 
-- RAG는 현재 사용자의 자막, 메모, 퀴즈 근거 중 시청 범위와 자료 버전이 맞는 항목만 찾고 시점을 함께 반환한다.
-- MCP는 검색, 학습 상태 읽기, 퀴즈 요청, 다음 학습 제안을 허용된 도구로 제한한다. 감사 기록에는 원문 대신 허용된 필드 이름과 개수만 남긴다.
-- Agent는 정해진 실행 시간, 도구 호출 수, token, 예상 비용 안에서 제안을 만든다. Course 변경과 영상 재생은 직접 수행하지 않는다.
+- RAG는 현재 사용자의 자막, 메모, 퀴즈 근거 중 시청 범위와 자료 버전이 맞는 항목만 찾고 시점을 함께 반환합니다.
+- MCP는 검색, 학습 상태 읽기, 퀴즈 요청, 다음 학습 제안을 허용된 도구로 제한합니다. 실행 기록에는 원문 대신 허용된 필드 이름과 개수만 남깁니다.
+- Agent는 정해진 실행 시간, 도구 호출 수, token, 예상 비용 안에서 제안을 만듭니다. Course 변경과 영상 재생은 직접 수행하지 않습니다.
 
-추천 결과가 틀렸을 때 근거를 확인할 수 있고, 자동 제안이 사용자 데이터를 바로 변경하는 상황을 막는 것이 핵심이다.
+추천 결과가 틀렸을 때 근거를 확인할 수 있고, 자동 제안이 사용자 데이터를 바로 변경하는 상황을 막는 것이 핵심입니다.
 
-## 주요 선택과 트레이드오프
+## 문제 해결 과정
 
-### 학습 자료와 학습 맥락을 분리했다
+### 학습 자료와 학습 맥락 분리
 
-같은 영상도 혼자 볼 때와 Course 안에서 볼 때 메모, 진도, 퀴즈 근거가 다르다. 공유 가능한 영상 원본, 사용자 소유 학습 자료, Course 위치별 학습 맥락을 나눴다. 테이블과 전환 과정은 늘었지만 소유권과 근거 버전을 명확하게 확인할 수 있다.
+같은 영상도 혼자 볼 때와 Course 안에서 볼 때 메모, 진도, 퀴즈 근거가 다릅니다. 공유 가능한 영상 원본, 사용자 소유 학습 자료, Course 위치별 학습 맥락을 나눴습니다.
 
-### 자막은 단계적으로 보여준다
+### 단계적 자막 공개
 
-모든 번역이 끝날 때까지 빈 화면을 보여주지 않는다. 원문 자막, 한국어 번역, 검색 준비 상태를 단계별로 저장하고 준비된 구간부터 보여준다. 중간 상태 처리가 복잡해지는 대신 긴 영상을 기다리는 동안 먼저 학습을 시작할 수 있다.
+처음에는 원문 자막을 받은 뒤 번역과 검색 준비가 모두 끝날 때까지 학습 화면이 비어 있었습니다. 긴 영상일수록 번역 종료가 학습 시작을 막는 증상이 생겼습니다.
 
-### 비용이 생기는 작업은 먼저 예약한다
+원문, 번역, index artifact는 pending, partial, ready, failed 상태로 저장합니다. API는 이 상태와 retrieval-ready boolean으로 caption phase를 만들어 화면에 보내고 준비된 segment부터 보여줍니다.
 
-같은 영상 요청은 기존 작업에 합류하고, 사용자별 및 전체 한도를 통과한 요청만 외부 처리를 시작한다. STT는 provider flag 하나만으로 켤 수 없다. 승인 기록, 고정 model, production 환경, 최대 금액, 만료 시각, 승인 ID가 모두 유효해야 배포가 진행된다.
+### 비용 작업의 사전 예약
 
-### 작업 전달은 at-least-once로 다룬다
+같은 영상 요청은 기존 작업에 합류하고, 사용자별 및 전체 한도를 통과한 요청만 외부 처리를 시작합니다. STT는 provider flag 하나만으로 켤 수 없습니다. 승인 기록, 고정 model, production 환경, 최대 금액, 만료 시각, 승인 ID가 모두 유효해야 배포가 진행됩니다.
 
-데이터 변경과 후속 작업을 같은 PostgreSQL transaction에 기록한 뒤 worker가 처리한다. 재시도 결과는 내부에서 하나로 수렴하지만 외부 API 응답 직후 프로세스가 중단되는 구간까지 exactly-once라고 주장하지 않는다.
+### at-least-once 작업 전달
 
-### 배포 비용과 가용성을 맞바꿨다
+API가 학습 데이터를 commit한 뒤 외부 작업을 바로 호출하면, 그 사이 프로세스가 중단돼 작업이 사라질 수 있습니다. 반대로 queue가 다시 전달하면 같은 작업이 두 번 실행될 수 있었습니다.
 
-개인 프로젝트 비용을 낮추기 위해 EC2 한 대에서 API, AI service, worker, PostgreSQL, Valkey를 운영한다. 구성은 단순하고 저렴하지만 인스턴스 장애 동안 서비스가 중단될 수 있으며 고가용성 구조는 아니다.
+학습 변경과 outbox event를 PostgreSQL transaction에 함께 기록하고, OutboxRelayService가 Valkey queue로 전달합니다. DurableJobExecutor는 lease와 결과를 기록해 재전달을 수렴시킵니다.
+
+terminal failure와 dead letter를 함께 완료하며 작업 전달 계약은 at-least-once로 유지합니다.
+
+### 배포 비용과 가용성 절충
+
+개인 프로젝트 비용을 낮추기 위해 EC2 한 대에서 API, AI service, worker, PostgreSQL, Valkey를 함께 운영합니다.
 
 ## 구조
 
@@ -77,18 +93,46 @@ flowchart LR
 | `operations` | 복원, 장애, 부하, Prometheus 규칙 검증 |
 | `infra`, `scripts` | Caddy, production runtime, immutable EC2 배포 |
 
-## 현재 검증 범위
+상세 class와 service 관계, durable work 흐름은 [아키텍처 문서](docs/architecture.md)에 있습니다.
 
-이 redesign은 로컬 focused test와 production build를 먼저 통과시킨 뒤 전체 CI와 실제 배포를 확인한다. 다음 항목은 main 배포 후 별도로 기록하며 여기서는 완료로 간주하지 않는다.
+## 구현 관계
 
-- 실제 도메인의 HTTPS와 TLS
-- 실제 가입부터 Course 승인까지의 브라우저 흐름
-- production 비용과 남은 credit
-- 부하 수치, 장애 복구 시간, 백업 복원 시간
+```mermaid
+flowchart LR
+  LearningPage --> LearningWorkspace
+  LearningWorkspace --> Session[useLearningSession]
+  LearningWorkspace --> Quiz[useAdaptiveQuiz]
+  LearningWorkspace --> Proposal[useNextLearningProposal]
+  LearningWorkspace --> ApiClient[web api client]
+  ApiClient --> ItemController[LearningItemController]
+  ApiClient --> LearningController
+  ItemController --> ItemService[LearningItemService]
+  LearningController --> LearningService
+  ItemService --> PostgreSQL
+  LearningService --> PostgreSQL
+  LearningService --> Retrieval[RetrievalRepository]
+  PostgreSQL --> Outbox[OutboxRelayService]
+  Outbox --> Valkey
+  Valkey --> Worker[durable workers]
+  Worker --> MCP[MCP learning boundary]
+  MCP --> AI[FastAPI AI service]
+```
+
+Web hook은 화면 상태와 polling을 맡고 mutation 규칙은 API service에 남깁니다. PostgreSQL transaction에서 학습 변경과 outbox event를 함께 기록하고, worker는 Valkey queue의 중복 delivery를 `DurableJobExecutor` 경계에서 수렴시킵니다.
+
+## 팀 결과와 개인 기여
+
+StudyTube의 초기 게시판, 영상과 자막 흐름은 여러 contributor가 함께 만들었습니다. 이시원은 guided learning, backend hardening과 배포 구조를 확장했습니다.
+
+세부 구현 역할은 [기여 문서](docs/contributions.md)에 정리했습니다.
+
+## 검증 결과
+
+Web 216개, API 720개, AI 126개 test가 통과했습니다. Operations contract는 57개 assertion을 통과했고 Web과 API production dependency audit은 취약점 0건이었습니다.
 
 ## 로컬 실행
 
-Node.js 24.8 이상, Python 3.12, Docker Compose v2가 필요하다.
+Node.js 24.8 이상, Python 3.12, Docker Compose v2가 필요합니다.
 
 ```powershell
 Copy-Item .env.example .env
@@ -129,4 +173,6 @@ Pop-Location
 pwsh ./operations/tests/Invoke-OperationsContractTests.ps1
 ```
 
-PostgreSQL E2E는 migration과 fixture를 바꾸므로 공유 database가 아닌 격리된 test database에서 실행해야 한다. 실행 방법은 [api/README.md](api/README.md), 운영 드릴은 [operations/README.md](operations/README.md)에 정리했다.
+PostgreSQL E2E는 migration과 fixture를 바꾸므로 공유 database가 아닌 격리된 test database에서 실행해야 합니다. 실행 방법은 [api/README.md](api/README.md), 운영 드릴은 [operations/README.md](operations/README.md)에 정리했습니다.
+
+전체 문서 안내와 최신 재검증 결과는 [docs/README.md](docs/README.md)에서 확인할 수 있습니다.

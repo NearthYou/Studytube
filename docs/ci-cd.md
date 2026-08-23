@@ -47,7 +47,11 @@ Branch protection에는 다음 다섯 check를 required로 설정한다.
 
 `Deploy immutable release with SSM` job은 Security, Web, API, Backend Integration, AI의 다섯 검증 job이 모두 성공한 `main` push와 `main`의 수동 실행에서만 동작한다. pull request에서는 deploy job을 required check로 사용하지 않는다.
 
-Backend Integration은 auth lookup, Course detail, outbox claim, hybrid retrieval의 index 사용 contract를 검사한다. 실패 시 server와 migration 상태, table 및 index 통계, activity, schema-only dump, PostgreSQL 및 Valkey log를 `backend-integration-evidence-<run-id>-<attempt>` artifact로 보존한다. 행 dump와 runtime secret은 포함하지 않는다. API가 생성한 OpenAPI 문서와 deploy job의 허용 목록 기반 공개 요약도 14일 보존한다. 원본 SSM 응답과 출력은 공개 GitHub artifact나 workflow log에 복사하지 않는다. CI job 결과 자체가 실패한 경우에는 별도 failure summary artifact를 남긴다.
+Backend Integration은 auth lookup, Course detail, outbox claim, hybrid retrieval의 index 사용 contract를 검사한다.
+
+실패 시 server와 migration 상태, table 및 index 통계, activity, schema-only dump, PostgreSQL 및 Valkey log를 `backend-integration-evidence-<run-id>-<attempt>` artifact로 보존한다. 행 dump와 runtime secret은 포함하지 않는다.
+
+API가 생성한 OpenAPI 문서와 deploy job의 허용 목록 기반 공개 요약도 14일 보존한다. 원본 SSM 응답과 출력은 공개 GitHub artifact나 workflow log에 복사하지 않는다. CI job 결과 자체가 실패한 경우에는 별도 failure summary artifact를 남긴다.
 
 ## AWS 구성
 
@@ -190,9 +194,15 @@ MCP_ALLOWED_HOSTS=127.0.0.1:*,localhost:*,[::1]:*
 
 `POSTGRES_PASSWORD`의 URL 예약 문자는 `DATABASE_URL`에서 percent encoding해야 한다. `INTERNAL_AI_API_KEY`는 NestJS와 FastAPI가 같은 config snapshot을 읽으므로 한 값으로 일치한다. 인증 pepper와 MCP secret은 서로 다른 난수 값을 사용한다.
 
-MCP는 현재 서버 내부 agent integration 경계다. Caddy는 `/mcp`와 protected-resource discovery 경로를 404로 닫고, FastAPI listener의 loopback 경로에서만 짧은 수명의 service assertion을 검증한다. 기본 설정은 OAuth protected-resource metadata route를 등록하지 않는다. 사용자 bound OAuth issuer와 token lifecycle이 구현된 뒤에만 `MCP_RESOURCE_SERVER_URL`을 설정하며, 그전에는 public MCP endpoint나 signing secret을 client에 제공하지 않는다.
+MCP는 현재 서버 내부 agent integration 경계다. Caddy는 `/mcp`와 protected-resource discovery 경로를 404로 닫고, FastAPI listener의 loopback 경로에서만 짧은 수명의 service assertion을 검증한다. 기본 설정은 OAuth protected-resource metadata route를 등록하지 않는다.
 
-`1753660802000_auth-hardening` 또는 중복 검색 임베딩을 삭제하는 `1753660805000_retrieval-source-model-key`가 아직 적용되지 않은 첫 배포는 backup과 restore rehearsal을 먼저 완료해야 한다. `IRREVERSIBLE_MIGRATIONS_VERIFIED_BACKUP_MARKER`가 가리키는 regular non-symlink 파일에는 `backup_verified=true`, `deploy_sha=<exact-deploy-sha>`, 그리고 적용 예정인 각 irreversible migration의 `migration=<migration-name>`이 각각 한 줄로 있어야 한다. migration 적용 이후에는 배포 스크립트가 migration history를 확인한다. 기존 `AUTH_CUTOVER_VERIFIED_BACKUP_MARKER`는 전환 호환성만 위해 fallback으로 인식한다.
+사용자 bound OAuth issuer와 token lifecycle이 구현된 뒤에만 `MCP_RESOURCE_SERVER_URL`을 설정하며, 그전에는 public MCP endpoint나 signing secret을 client에 제공하지 않는다.
+
+`1753660802000_auth-hardening` 또는 중복 검색 임베딩을 삭제하는 `1753660805000_retrieval-source-model-key`가 아직 적용되지 않은 첫 배포는 backup과 restore rehearsal을 먼저 완료해야 한다.
+
+`IRREVERSIBLE_MIGRATIONS_VERIFIED_BACKUP_MARKER`가 가리키는 regular non-symlink 파일에는 `backup_verified=true`, `deploy_sha=<exact-deploy-sha>`, 그리고 적용 예정인 각 irreversible migration의 `migration=<migration-name>`이 각각 한 줄로 있어야 한다.
+
+migration 적용 이후에는 배포 스크립트가 migration history를 확인한다. 기존 `AUTH_CUTOVER_VERIFIED_BACKUP_MARKER`는 전환 호환성만 위해 fallback으로 인식한다.
 
 `OPENAI_API_KEY`, `YOUTUBE_API_KEY`, YouTube PO token 계열 값은 해당 외부 기능을 사용할 때만 추가한다. 값을 workflow log, SSM command 본문, GitHub variable에 넣지 않는다.
 
@@ -202,9 +212,13 @@ OTLP trace collector를 운영할 때는 표준 OpenTelemetry 환경 변수를 �
 OTEL_EXPORTER_OTLP_ENDPOINT=https://<approved-collector-endpoint>
 ```
 
-`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`를 개별 설정하거나 `OTEL_TRACES_EXPORTER` 목록에 `otlp`를 넣어도 export가 활성화된다. `OTEL_SDK_DISABLED=true` 또는 `OTEL_TRACES_EXPORTER=none`이면 SDK export를 비활성화한다. `OTEL_SERVICE_NAME`을 생략하면 API는 `studytube-api`, worker는 `studytube-worker`를 사용한다. exporter 인증 header 등은 표준 `OTEL_EXPORTER_OTLP_*` 환경 변수를 사용하고 저장소나 workflow log에 넣지 않는다.
+`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`를 개별 설정하거나 `OTEL_TRACES_EXPORTER` 목록에 `otlp`를 넣어도 export가 활성화된다. `OTEL_SDK_DISABLED=true` 또는 `OTEL_TRACES_EXPORTER=none`이면 SDK export를 비활성화한다.
 
-Prometheus 형식 지표는 EC2 내부의 API Unix socket에서 `GET /internal/metrics`로 조회한다. 요청의 `X-Internal-Api-Key`는 `INTERNAL_AI_API_KEY`와 일치해야 한다. DB pool은 `studytube_db_pool_connections{state=total|idle|busy}`, `studytube_db_pool_waiting`, `studytube_db_pool_wait_ms`를 노출하며 외부 Caddy 경로에서는 접근할 수 없다.
+`OTEL_SERVICE_NAME`을 생략하면 API는 `studytube-api`, worker는 `studytube-worker`를 사용한다. exporter 인증 header 등은 표준 `OTEL_EXPORTER_OTLP_*` 환경 변수를 사용하고 저장소나 workflow log에 넣지 않는다.
+
+Prometheus 형식 지표는 EC2 내부의 API Unix socket에서 `GET /internal/metrics`로 조회한다. 요청의 `X-Internal-Api-Key`는 `INTERNAL_AI_API_KEY`와 일치해야 한다.
+
+DB pool은 `studytube_db_pool_connections{state=total|idle|busy}`, `studytube_db_pool_waiting`, `studytube_db_pool_wait_ms`를 노출하며 외부 Caddy 경로에서는 접근할 수 없다.
 
 초기 legacy 전환이 필요한 database는 [database migration runbook](database-migrations.md)에 따라 `legacy`, `freeze`, `course` 순서를 지킨다. 이미 Course writer가 활성화된 database를 `legacy`로 되돌리지 않는다.
 
@@ -225,9 +239,13 @@ Release는 `/opt/studytube/releases/<sha>`에 보존한다. 기본적으로 최�
 
 ## 실패, resume, rollback
 
-SSM runner는 deployment phase, cutover 시작 여부, Course 활성화 기준값, 이전 성공 release를 `/opt/studytube/deployment-state`에 기록한다. cutover 전에 준비가 실패하면 현재 release와 public edge를 계속 유지한다. 재부팅으로 준비 단계가 끊기면 `studytube-deploy-resume.service`가 같은 release를 이어서 처리한다.
+SSM runner는 deployment phase, cutover 시작 여부, Course 활성화 기준값, 이전 성공 release를 `/opt/studytube/deployment-state`에 기록한다. cutover 전에 준비가 실패하면 현재 release와 public edge를 계속 유지한다.
 
-cutover 이후 health gate가 실패했고 schema barrier와 Course 활성화 경계를 넘지 않았다면, runner는 이미 빌드와 검증을 마친 이전 release를 재활성화한다. 이 경로는 dependency install, build, migration, Course backfill을 다시 실행하지 않는다. 이전 release가 이 bounded reactivation 계약을 지원하지 않으면 서비스를 sealed 상태로 두고 같은 release를 roll forward한다. 최초 immutable 전환은 자동 legacy downgrade를 하지 않으며, 보존한 legacy snapshot은 진단과 수동 복구 판단을 위한 증거로만 사용한다.
+재부팅으로 준비 단계가 끊기면 `studytube-deploy-resume.service`가 같은 release를 이어서 처리한다.
+
+cutover 이후 health gate가 실패했고 schema barrier와 Course 활성화 경계를 넘지 않았다면, runner는 이미 빌드와 검증을 마친 이전 release를 재활성화한다. 이 경로는 dependency install, build, migration, Course backfill을 다시 실행하지 않는다.
+
+이전 release가 이 bounded reactivation 계약을 지원하지 않으면 서비스를 sealed 상태로 두고 같은 release를 roll forward한다. 최초 immutable 전환은 자동 legacy downgrade를 하지 않으며, 보존한 legacy snapshot은 진단과 수동 복구 판단을 위한 증거로만 사용한다.
 
 시간 상한은 신규 activation 110분, prepared reactivation 25분, 마무리 5분, watchdog lease 145분, SSM 160분, CI deploy job 175분 순서로 잡는다. 시간 초과 시 watchdog가 application과 public edge를 sealed 상태로 전환한다.
 
@@ -241,7 +259,9 @@ cutover 이후 health gate가 실패했고 schema barrier와 Course 활성화 �
 - EC2의 `/opt/studytube/deployment-diagnostics/<deploy-sha>/`
 - systemd journal의 `studytube-api`, `studytube-ai`, `studytube-worker`
 
-원격 실행의 원본 표준 출력과 표준 오류는 접근이 제한된 S3와 CloudWatch에서만 확인한다. runner에 임시 저장한 SSM API 응답과 AWS CLI 오류는 GitHub에 업로드하지 않는다. GitHub artifact 생성기는 저장소 밖의 runner 임시 경로에 허용 목록 기반 `summary.json`을 새로 만들고 그 파일 하나만 업로드하므로 account, bucket, instance, command ID, 출력 본문을 전달하지 않는다. 생성 단계가 실패하면 artifact 업로드도 실행하지 않는다.
+원격 실행의 원본 표준 출력과 표준 오류는 접근이 제한된 S3와 CloudWatch에서만 확인한다. runner에 임시 저장한 SSM API 응답과 AWS CLI 오류는 GitHub에 업로드하지 않는다.
+
+GitHub artifact 생성기는 저장소 밖의 runner 임시 경로에 허용 목록 기반 `summary.json`을 새로 만들고 그 파일 하나만 업로드하므로 account, bucket, instance, command ID, 출력 본문을 전달하지 않는다. 생성 단계가 실패하면 artifact 업로드도 실행하지 않는다.
 
 ## 수동 배포와 확인
 

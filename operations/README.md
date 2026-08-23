@@ -1,6 +1,8 @@
 # StudyTube 운영 검증
 
-이 디렉터리는 운영 환경의 데이터를 노출하지 않고 복구 가능성과 핵심 API 성능을 재현하는 도구를 제공합니다. 모든 PowerShell 드릴은 먼저 계획 모드로 대상과 복구 순서를 확인할 수 있습니다. 학습 metric은 caption stage, 비용 reservation, retrieval/MCP 결과, stale quiz, Course approval conflict의 허용된 code와 count만 사용하며 자막 원문, 검색 query, 메모, URL, provider error를 기록하지 않습니다.
+이 디렉터리는 운영 환경의 데이터를 노출하지 않고 복구 가능성과 핵심 API 성능을 재현하는 도구를 제공합니다. 모든 PowerShell 드릴은 먼저 계획 모드로 대상과 복구 순서를 확인할 수 있습니다.
+
+학습 metric은 caption stage, 비용 reservation, retrieval/MCP 결과, stale quiz, Course approval conflict의 허용된 code와 count만 사용하며 자막 원문, 검색 query, 메모, URL, provider error를 기록하지 않습니다.
 
 STT를 켠 production 배포는 `STT_COST_APPROVAL_RECORD`, 고정 model, production 환경, 최대 금액, 만료 시각과 승인 ID가 모두 있어야 합니다. 하나라도 없거나 만료되면 runtime 설치가 중단되며 기존 YouTube 자막 경로는 유지합니다.
 
@@ -49,7 +51,9 @@ pwsh ./operations/backup/Invoke-PostgresRestoreDrill.ps1 `
 7. 성공 여부와 관계없이 임시 데이터베이스와 덤프를 제거합니다.
 8. 행 데이터와 자격 증명이 없는 JSON 증거를 기록합니다.
 
-원본 데이터에 쓰기가 계속되는 동안에는 덤프 스냅샷과 사전 행 수 사이에 차이가 날 수 있습니다. 정확한 행 수 비교가 필요한 실행은 쓰기가 없는 검증 창에서 수행합니다. 이 드릴은 시점 복구를 제공하지 않으며 `observedRpoUpperBoundSeconds`는 덤프가 완료될 때 스냅샷이 가질 수 있는 보수적인 최대 연령으로 기록합니다. `observedRtoSeconds`는 임시 복원 시작부터 무결성 검증 완료까지입니다.
+원본 데이터에 쓰기가 계속되는 동안에는 덤프 스냅샷과 사전 행 수 사이에 차이가 날 수 있습니다. 정확한 행 수 비교가 필요한 실행은 쓰기가 없는 검증 창에서 수행합니다. 이 드릴은 시점 복구를 제공하지 않으며 `observedRpoUpperBoundSeconds`는 덤프가 완료될 때 스냅샷이 가질 수 있는 보수적인 최대 연령으로 기록합니다.
+
+`observedRtoSeconds`는 임시 복원 시작부터 무결성 검증 완료까지입니다.
 
 덤프 파일은 호스트로 복사하지 않고 컨테이너의 임시 경로에서 제거합니다. JSON만 `docs/evidence/operations/results`에 남습니다.
 
@@ -79,7 +83,9 @@ pwsh ./operations/resilience/Invoke-ServiceFailureDrill.ps1 `
 
 개별 `-Scenario` 값은 `Valkey`, `Worker`, `AI`, `Database`입니다.
 
-운영 API readiness는 임시 TCP proxy를 만들지 않고 `-ApiSocketPath`로 지정한 Unix socket에 `curl --unix-socket`으로 직접 연결합니다. 허용되는 경로는 `/run/studytube/[A-Za-z0-9._-]+.sock`이며 기본 production systemd 경계는 `/run/studytube/api.sock`입니다. 로컬 개발처럼 API가 실제 loopback TCP listener를 사용하는 환경에서만 `-ApiSocketPath`를 생략하고 `-ApiBaseUrl`을 사용합니다.
+운영 API readiness는 임시 TCP proxy를 만들지 않고 `-ApiSocketPath`로 지정한 Unix socket에 `curl --unix-socket`으로 직접 연결합니다. 허용되는 경로는 `/run/studytube/[A-Za-z0-9._-]+.sock`이며 기본 production systemd 경계는 `/run/studytube/api.sock`입니다.
+
+로컬 개발처럼 API가 실제 loopback TCP listener를 사용하는 환경에서만 `-ApiSocketPath`를 생략하고 `-ApiBaseUrl`을 사용합니다.
 
 | 시나리오 | 실패 관찰 | 자동 복구와 검증 |
 | --- | --- | --- |
@@ -92,7 +98,11 @@ pwsh ./operations/resilience/Invoke-ServiceFailureDrill.ps1 `
 
 ## k6 핵심 흐름
 
-이 시나리오는 setup에서 안전한 live endpoint의 readiness만 확인합니다. 운영자는 secure store에서 미리 발급받은 읽기 전용 테스트 세션 하나를 `K6_SESSION_COOKIE`로 전달하거나, 서로 다른 테스트 계정의 세션을 JSON 배열인 `K6_SESSION_COOKIE_POOL`로 전달합니다. 각 VU는 번호를 기준으로 풀의 세션 하나를 선택해 모든 iteration에서 같은 명시적 Cookie header를 재사용합니다. 스크립트 자체는 로그인이나 로그아웃을 호출하지 않으므로 email/IP 로그인 rate limit을 소진하지 않으며 k6 cookie jar reset에도 의존하지 않습니다. 응답 본문, Cookie와 자격 증명은 setup return이나 증거에 저장하지 않습니다. 테스트 창이 끝나면 운영자가 사용한 모든 세션을 별도로 폐기합니다.
+이 시나리오는 setup에서 안전한 live endpoint의 readiness만 확인합니다. 운영자는 secure store에서 미리 발급받은 읽기 전용 테스트 세션 하나를 `K6_SESSION_COOKIE`로 전달하거나, 서로 다른 테스트 계정의 세션을 JSON 배열인 `K6_SESSION_COOKIE_POOL`로 전달합니다.
+
+각 VU는 번호를 기준으로 풀의 세션 하나를 선택해 모든 iteration에서 같은 명시적 Cookie header를 재사용합니다. 스크립트 자체는 로그인이나 로그아웃을 호출하지 않으므로 email/IP 로그인 rate limit을 소진하지 않으며 k6 cookie jar reset에도 의존하지 않습니다. 응답 본문, Cookie와 자격 증명은 setup return이나 증거에 저장하지 않습니다.
+
+테스트 창이 끝나면 운영자가 사용한 모든 세션을 별도로 폐기합니다.
 
 로컬 실행 예시는 다음과 같습니다.
 
@@ -141,7 +151,9 @@ VU 번호가 풀 크기보다 크면 세션을 순환 배정합니다. 계정별
 
 ## k6 진도 쓰기 계약
 
-`studytube-progress-write.js`는 운영 데이터를 탐색하는 부하가 아니라, 격리된 계정과 Course step에서 진도 저장의 동시성과 idempotency를 확인하는 짧은 시나리오입니다. 각 VU는 한 구간을 기록한 뒤 같은 payload와 `Idempotency-Key`를 한 번 더 보내고, 마지막 조회에서 자신이 기록한 구간이 남았는지 확인합니다. setup 전 version과 teardown 후 version의 차이는 고유 요청 수와 정확히 같아야 하므로 중복 요청이 두 번째 mutation으로 반영되면 실행이 실패합니다. 기본값은 4 VU, VU당 1회이며 코드는 4 VU와 VU당 3회를 넘는 설정을 거부합니다.
+`studytube-progress-write.js`는 운영 데이터를 탐색하는 부하가 아니라, 격리된 계정과 Course step에서 진도 저장의 동시성과 idempotency를 확인하는 짧은 시나리오입니다. 각 VU는 한 구간을 기록한 뒤 같은 payload와 `Idempotency-Key`를 한 번 더 보내고, 마지막 조회에서 자신이 기록한 구간이 남았는지 확인합니다.
+
+setup 전 version과 teardown 후 version의 차이는 고유 요청 수와 정확히 같아야 하므로 중복 요청이 두 번째 mutation으로 반영되면 실행이 실패합니다. 기본값은 4 VU, VU당 1회이며 코드는 4 VU와 VU당 3회를 넘는 설정을 거부합니다.
 
 비루프백 대상에서 실행하려면 다음 확인값이 모두 필요합니다.
 
@@ -158,7 +170,11 @@ $env:K6_ACKNOWLEDGE_COURSE_STEP_ID = $env:K6_COURSE_STEP_ID
 k6 run ./operations/load/studytube-progress-write.js
 ```
 
-실행 전에 해당 계정과 Course step이 다른 사용자 흐름과 분리되어 있는지 확인하고 매번 새 `STUDYTUBE_K6_RUN_ID`를 지정해야 합니다. 다른 쓰기가 같은 step의 version을 바꾸면 idempotency 검증이 의도적으로 실패합니다. 비루프백 대상은 HTTPS만 허용하고 인증 요청은 redirect를 따르지 않습니다. `--vus`, `--duration`, `--iterations`, `--no-setup`, `--no-teardown`, 분산 segment, HTTP debug와 TLS 검증 해제 같은 실행 override도 첫 요청 전에 거부합니다. 결과 JSON에는 대상 URL, VU 수, latency와 임계값만 남고 Cookie, Course step 원문, 응답 본문은 남지 않습니다. 필수 threshold, 흐름별 표본 수, 전체 요청 수가 모두 있어야 결과가 passed가 됩니다. 테스트가 끝나면 세션을 폐기합니다.
+실행 전에 해당 계정과 Course step이 다른 사용자 흐름과 분리되어 있는지 확인하고 매번 새 `STUDYTUBE_K6_RUN_ID`를 지정해야 합니다. 다른 쓰기가 같은 step의 version을 바꾸면 idempotency 검증이 의도적으로 실패합니다. 비루프백 대상은 HTTPS만 허용하고 인증 요청은 redirect를 따르지 않습니다.
+
+`--vus`, `--duration`, `--iterations`, `--no-setup`, `--no-teardown`, 분산 segment, HTTP debug와 TLS 검증 해제 같은 실행 override도 첫 요청 전에 거부합니다. 결과 JSON에는 대상 URL, VU 수, latency와 임계값만 남고 Cookie, Course step 원문, 응답 본문은 남지 않습니다.
+
+필수 threshold, 흐름별 표본 수, 전체 요청 수가 모두 있어야 결과가 passed가 됩니다. 테스트가 끝나면 세션을 폐기합니다.
 
 원본 스크립트가 Node 기반 모의 실행뿐 아니라 실제 k6 런타임에서도 동작하는지는 다음 일회성 스모크로 확인합니다.
 
@@ -167,7 +183,9 @@ pwsh ./operations/tests/Invoke-K6ProgressWriteSmoke.ps1 -PlanOnly
 pwsh ./operations/tests/Invoke-K6ProgressWriteSmoke.ps1 -Execute
 ```
 
-스모크는 버전과 SHA-256을 고정한 k6 공식 릴리스만 내려받습니다. 임시 서버는 `127.0.0.1`의 임의 포트에만 바인딩하고 1 VU, 1 iteration으로 readiness, baseline, write, exact duplicate, readback, teardown과 summary를 확인합니다. 전용 Cookie, Course step과 응답 canary가 stdout, stderr, 결과 JSON에 남으면 실패하며, fixture 프로세스와 다운로드 파일은 종료 경로에서도 정리합니다.
+스모크는 버전과 SHA-256을 고정한 k6 공식 릴리스만 내려받습니다. 임시 서버는 `127.0.0.1`의 임의 포트에만 바인딩하고 1 VU, 1 iteration으로 readiness, baseline, write, exact duplicate, readback, teardown과 summary를 확인합니다.
+
+전용 Cookie, Course step과 응답 canary가 stdout, stderr, 결과 JSON에 남으면 실패하며, fixture 프로세스와 다운로드 파일은 종료 경로에서도 정리합니다.
 
 ## Prometheus 알람 규칙 검증
 
@@ -185,7 +203,9 @@ pwsh ./operations/monitoring/Invoke-PrometheusRuleDrill.ps1 -PlanOnly
 pwsh ./operations/monitoring/Invoke-PrometheusRuleDrill.ps1 -Execute
 ```
 
-드릴은 digest로 고정한 Prometheus 이미지와 로컬 Docker context만 허용합니다. 컨테이너 네트워크와 Linux capability를 제거하고, root filesystem과 규칙 mount를 읽기 전용으로 사용합니다. `promtool` 임시 데이터만 크기가 제한된 tmpfs에 기록합니다. 이 결과는 알람 논리 검증이며 실제 scrape, Alertmanager 전달, 운영 paging이 활성화됐다는 의미는 아닙니다.
+드릴은 digest로 고정한 Prometheus 이미지와 로컬 Docker context만 허용합니다. 컨테이너 네트워크와 Linux capability를 제거하고, root filesystem과 규칙 mount를 읽기 전용으로 사용합니다. `promtool` 임시 데이터만 크기가 제한된 tmpfs에 기록합니다.
+
+이 결과는 알람 논리 검증이며 실제 scrape, Alertmanager 전달, 운영 paging이 활성화됐다는 의미는 아닙니다.
 
 ## 정적 계약 검증
 

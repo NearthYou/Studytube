@@ -1,6 +1,21 @@
 # StudyTube API
 
-StudyTube의 핵심 NestJS 백엔드다. PostgreSQL을 authoritative store로 사용하고, Course aggregate의 순서, 생명주기, 동시성, migration cutover를 애플리케이션과 데이터베이스 경계에서 함께 보장한다.
+StudyTube의 NestJS 백엔드다. PostgreSQL을 authoritative store로 사용하고 학습 자료, 자막과 메모, quiz, proposal, Course와 durable work의 생명주기를 application과 database 경계에서 함께 보장한다.
+
+[전체 아키텍처](../docs/architecture.md) | [검증 범위](../docs/verification.md) | [migration 운영](../docs/database-migrations.md)
+
+## guided learning surface
+
+| 범위 | 대표 endpoint |
+| --- | --- |
+| YouTube 학습 자료와 비용 예약 | `POST /learning/items/intake` |
+| 자막과 시점 메모 | `GET /learning/contexts/:id/captions`, note create, update, delete |
+| bounded Agent run | `POST /learning/agent-runs`, status, cancel, retry, approve |
+| 학습 진도 | course step progress read와 write |
+| adaptive quiz | quiz loop create, read와 submit |
+| 다음 학습 제안 | proposal create, read, dismiss와 approve |
+
+`LearningItemService`가 URL, ownership과 provider budget을 확인한다. `LearningService`는 Agent, quiz와 proposal lifecycle을 맡고 repository interface 뒤의 PostgreSQL 구현과 retrieval snapshot을 사용한다.
 
 ## 핵심 설계
 

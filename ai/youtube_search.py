@@ -69,6 +69,7 @@ def fetch_youtube_oembed(url: str) -> dict[str, Any] | None:
         response.raise_for_status()
         data = response.json()
         video_id = extract_video_hint(url)
+        page_details = fetch_youtube_page_details(url)
 
         return {
             "provider": "youtube-oembed",
@@ -77,11 +78,44 @@ def fetch_youtube_oembed(url: str) -> dict[str, Any] | None:
             "channel": data.get("author_name", "YouTube"),
             "thumbnailUrl": data.get("thumbnail_url") or thumbnail_for_video(video_id),
             "sourceUrl": url,
-            "durationLabel": "external metadata",
-            "summary": "YouTube oEmbed metadata fetched through the MCP server.",
+            "durationLabel": page_details.get("durationLabel", "영상 정보"),
+            "summary": page_details.get("summary")
+            or "영상 제목과 채널 정보를 확인했습니다.",
         }
     except Exception:
         return None
+
+
+def fetch_youtube_page_details(url: str) -> dict[str, str]:
+    if httpx is None:
+        return {}
+    try:
+        response = httpx.get(
+            url,
+            headers={"User-Agent": "Mozilla/5.0 StudyTube/1.0"},
+            timeout=8.0,
+        )
+        response.raise_for_status()
+        marker = re.search(r"ytInitialPlayerResponse\s*=\s*", response.text)
+        if not marker:
+            return {}
+        data, _end = json.JSONDecoder().raw_decode(response.text[marker.end() :])
+        details = data.get("videoDetails") if isinstance(data, dict) else None
+        if not isinstance(details, dict):
+            return {}
+        summary = clean_text(str(details.get("shortDescription") or ""))[:4000]
+        try:
+            total_seconds = max(0, int(details.get("lengthSeconds") or 0))
+        except (TypeError, ValueError):
+            total_seconds = 0
+        duration_label = (
+            f"{total_seconds // 60}:{total_seconds % 60:02d}"
+            if total_seconds
+            else "영상 정보"
+        )
+        return {"summary": summary, "durationLabel": duration_label}
+    except Exception:
+        return {}
 
 
 def search_youtube(query: str, limit: int) -> list[dict[str, Any]]:

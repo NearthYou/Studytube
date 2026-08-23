@@ -51,7 +51,9 @@ YouTube에서 외국어 영상을 공부하면 재생 화면, 번역, 메모, �
 
 ### 자막은 단계적으로 보여준다
 
-모든 번역이 끝날 때까지 빈 화면을 보여주지 않는다. 원문 자막, 한국어 번역, 검색 준비 상태를 단계별로 저장하고 준비된 구간부터 보여준다. 중간 상태 처리가 복잡해지는 대신 긴 영상을 기다리는 동안 먼저 학습을 시작할 수 있다.
+처음에는 원문 자막을 받은 뒤 번역과 검색 준비가 모두 끝날 때까지 학습 화면이 비어 있었다. 긴 영상일수록 번역 종료가 학습 시작을 막는 증상이 생겼다.
+
+원문 자막, 한국어 번역, retrieval 준비 상태를 각각 저장하고, 준비된 segment부터 먼저 보여주도록 바꿨다. source, translation, index의 pending과 partial, complete, failed 상태를 화면에 전달해야 해 중간 상태는 복잡해졌지만, 전체 번역을 기다리지 않고 학습을 시작할 수 있다.
 
 ### 비용이 생기는 작업은 먼저 예약한다
 
@@ -59,7 +61,9 @@ YouTube에서 외국어 영상을 공부하면 재생 화면, 번역, 메모, �
 
 ### 작업 전달은 at-least-once로 다룬다
 
-데이터 변경과 후속 작업을 같은 PostgreSQL transaction에 기록한 뒤 worker가 처리한다. 재시도 결과는 내부에서 하나로 수렴하지만 외부 API 응답 직후 프로세스가 중단되는 구간까지 exactly-once라고 주장하지 않는다.
+API가 학습 데이터를 commit한 뒤 외부 작업을 바로 호출하면, 그 사이 프로세스가 중단돼 작업이 사라질 수 있다. 반대로 queue가 다시 전달하면 같은 작업이 두 번 실행될 수 있었다.
+
+학습 변경과 outbox event를 PostgreSQL transaction에 함께 기록하고, OutboxRelayService가 Valkey queue로 전달한다. DurableJobExecutor는 lease와 결과를 기록해 재전달을 수렴시키고, terminal failure와 dead letter를 함께 완료한다. API 응답 뒤 중단 구간은 남아 at-least-once이며 exactly-once를 주장하지 않는다.
 
 ### 배포 비용과 가용성을 맞바꿨다
 

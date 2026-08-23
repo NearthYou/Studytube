@@ -2,11 +2,9 @@ from __future__ import annotations
 
 import copy
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import asynccontextmanager, contextmanager
-from datetime import datetime, timezone
+from contextlib import contextmanager
 import html as html_lib
 import hashlib
-import hmac
 import importlib.util
 import json
 import math
@@ -69,48 +67,21 @@ from youtube_search import (
     youtube_lookup_response,
     youtube_search_url,
 )
-from runtime_environment import load_runtime_environment
-from telemetry import configure_fastapi_telemetry
-from mcp_server import (
-    GatewaySettings,
-    create_mcp_server,
-    create_streamable_http_app,
+from app_factory import (
+    FeatureHandlers,
+    JSONResponse,
+    Request,
+    create_application,
+    is_mcp_protocol_path,
+    require_production_internal_key,
 )
+from runtime_environment import load_runtime_environment
 
 try:
     from dotenv import load_dotenv
 except ModuleNotFoundError:  # pragma: no cover - local test fallback
     def load_dotenv(*_args: Any, **_kwargs: Any) -> None:
         return None
-
-try:
-    from fastapi import FastAPI, Request
-    from fastapi.responses import JSONResponse
-except ModuleNotFoundError:  # pragma: no cover - local test fallback
-    class FastAPI:  # type: ignore[override]
-        def __init__(self, *_args: Any, **_kwargs: Any) -> None:
-            pass
-
-        def get(self, *_args: Any, **_kwargs: Any):
-            def decorator(func):
-                return func
-
-            return decorator
-
-        def post(self, *_args: Any, **_kwargs: Any):
-            def decorator(func):
-                return func
-
-            return decorator
-
-        def middleware(self, *_args: Any, **_kwargs: Any):
-            def decorator(func):
-                return func
-
-            return decorator
-
-    Request = Any  # type: ignore[misc,assignment]
-    JSONResponse = None
 
 try:
     import httpx
@@ -121,11 +92,6 @@ try:
     import imageio_ffmpeg
 except ModuleNotFoundError:  # pragma: no cover - optional ffmpeg fallback
     imageio_ffmpeg = None
-
-try:
-    import psycopg
-except ModuleNotFoundError:  # pragma: no cover - local test fallback
-    psycopg = None
 
 try:
     from openai import OpenAI
@@ -167,78 +133,6 @@ YOUTUBE_SUBTITLE_PO_TOKEN_CACHE: dict[str, tuple[float, tuple[str, str]]] = {}
 CAPTION_TRANSLATION_JOBS: set[str] = set()
 CAPTION_TRANSLATION_JOB_LOCK = Lock()
 
-mcp_settings = GatewaySettings.from_environment()
-mcp_server = create_mcp_server(settings=mcp_settings)
-mcp_application = create_streamable_http_app(
-    mcp_server,
-    path="/mcp",
-    host=os.getenv("MCP_BIND_HOST", "127.0.0.1").strip() or "127.0.0.1",
-    allowed_hosts=mcp_settings.allowed_hosts,
-)
-
-
-@asynccontextmanager
-async def application_lifespan(_app: FastAPI):
-    try:
-        require_production_internal_key()
-        async with mcp_server.session_manager.run():
-            yield
-    finally:
-        telemetry_runtime.shutdown()
-
-
-app = FastAPI(title="StudyTube AI Service", lifespan=application_lifespan)
-telemetry_runtime = configure_fastapi_telemetry(app)
-
-
-def require_production_internal_key() -> None:
-    if os.getenv("NODE_ENV", "").strip().lower() != "production":
-        return
-
-    key = os.getenv("INTERNAL_AI_API_KEY", "").strip()
-    normalized = key.casefold()
-    if len(key) < 32 or any(
-        marker in normalized
-        for marker in ("change-me", "replace-with", "example", "placeholder")
-    ):
-        raise RuntimeError(
-            "INTERNAL_AI_API_KEY must be a non-placeholder secret of at least "
-            "32 characters in production"
-        )
-
-
-@app.middleware("http")
-async def require_internal_service_key(request: Request, call_next):
-    expected = os.getenv("INTERNAL_AI_API_KEY", "").strip()
-    if expected and request.method != "GET" and not is_mcp_protocol_path(
-        request.url.path
-    ):
-        provided = request.headers.get("x-internal-api-key", "")
-        if not hmac.compare_digest(provided, expected):
-            return JSONResponse(
-                status_code=401,
-                content={"detail": "Internal service authentication required"},
-            )
-    return await call_next(request)
-
-
-def is_mcp_protocol_path(path: str) -> bool:
-    return path == "/mcp" or path.startswith("/mcp/")
-
-
-@app.get("/health")
-def health():
-    return {
-        "service": "ai",
-        "status": "ok",
-        "llmModel": os.getenv("LLM_MODEL", "gpt-4o-mini"),
-        "embeddingModel": os.getenv("EMBEDDING_MODEL", "text-embedding-3-small"),
-        "openaiConfigured": OpenAI is not None and bool(os.getenv("OPENAI_API_KEY")),
-        "youtubeCaptions": youtube_caption_runtime_health(),
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    }
-
-
 def youtube_caption_runtime_health() -> dict[str, bool]:
     return {
         "ytDlpAvailable": bool(yt_dlp_commands()),
@@ -251,74 +145,6 @@ def youtube_caption_runtime_health() -> dict[str, bool]:
             or os.getenv("YOUTUBE_COOKIES_FROM_BROWSER", "").strip()
         ),
     }
-
-
-@app.get("/health/db")
-def database_health():
-    if psycopg is None:
-        return {
-            "service": "ai",
-            "status": "degraded",
-            "database": "unavailable",
-            "message": "psycopg is not installed in this Python environment.",
-        }
-
-    database_url = os.getenv("DATABASE_URL", DEFAULT_DATABASE_URL)
-
-    try:
-        with psycopg.connect(database_url, connect_timeout=3) as conn:
-            with conn.cursor() as cursor:
-                cursor.execute("SELECT 1 AS ok")
-                row = cursor.fetchone()
-
-        return {
-            "service": "ai",
-            "status": "ok" if row and row[0] == 1 else "unknown",
-            "database": "postgresql + pgvector",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
-    except Exception as exc:
-        return {
-            "service": "ai",
-            "status": "degraded",
-            "database": "postgresql",
-            "message": str(exc),
-        }
-
-
-@app.post("/embeddings")
-def embeddings_endpoint(payload: dict[str, Any]):
-    return create_embedding_response(payload)
-
-
-@app.post("/youtube/lookup")
-def youtube_lookup_endpoint(payload: dict[str, Any]):
-    return handle_mcp_request(payload)
-
-
-@app.post("/youtube/captions")
-def youtube_captions_endpoint(payload: dict[str, Any]):
-    return load_translated_captions(payload)
-
-
-@app.post("/youtube/transcribe")
-def youtube_transcribe_endpoint(payload: dict[str, Any]):
-    return transcribe_youtube_audio(payload)
-
-
-@app.post("/youtube/summary")
-def youtube_summary_endpoint(payload: dict[str, Any]):
-    return build_youtube_summary(payload)
-
-
-@app.post("/agent/study-plan")
-def study_plan_endpoint(payload: dict[str, Any]):
-    return build_study_plan(payload)
-
-
-@app.post("/quiz/generate")
-def quiz_generation_endpoint(payload: dict[str, Any]):
-    return build_quiz_response(payload)
 
 
 def handle_mcp_request(payload: dict[str, Any]) -> dict[str, Any]:
@@ -3945,4 +3771,32 @@ def json_rpc_error(request_id: Any, code: int, message: str) -> dict[str, Any]:
     }
 
 
-app.mount("/", mcp_application)
+application_runtime = create_application(
+    FeatureHandlers(
+        embedding=lambda payload: create_embedding_response(payload),
+        youtube_lookup=lambda payload: handle_mcp_request(payload),
+        youtube_captions=lambda payload: load_translated_captions(payload),
+        youtube_transcribe=lambda payload: transcribe_youtube_audio(payload),
+        youtube_summary=lambda payload: build_youtube_summary(payload),
+        study_plan=lambda payload: build_study_plan(payload),
+        quiz_generation=lambda payload: build_quiz_response(payload),
+        caption_health=lambda: youtube_caption_runtime_health(),
+        openai_configured=lambda: OpenAI is not None
+        and bool(os.getenv("OPENAI_API_KEY")),
+    )
+)
+app = application_runtime.app
+mcp_server = application_runtime.mcp_server
+mcp_application = application_runtime.mcp_application
+telemetry_runtime = application_runtime.telemetry_runtime
+application_lifespan = application_runtime.application_lifespan
+require_internal_service_key = application_runtime.require_internal_service_key
+health = application_runtime.health
+database_health = application_runtime.database_health
+embeddings_endpoint = application_runtime.embeddings_endpoint
+youtube_lookup_endpoint = application_runtime.youtube_lookup_endpoint
+youtube_captions_endpoint = application_runtime.youtube_captions_endpoint
+youtube_transcribe_endpoint = application_runtime.youtube_transcribe_endpoint
+youtube_summary_endpoint = application_runtime.youtube_summary_endpoint
+study_plan_endpoint = application_runtime.study_plan_endpoint
+quiz_generation_endpoint = application_runtime.quiz_generation_endpoint

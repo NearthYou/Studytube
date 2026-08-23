@@ -78,18 +78,16 @@ export class VideoAssetService {
       : captions.translated
         ? captions.segments
         : [];
-    const sourceKind: Extract<
-      CaptionArtifactKind,
-      'youtube_caption' | 'transcription'
-    > = 'youtube_caption';
+    const sourceKind: Extract<CaptionArtifactKind, 'youtube_caption'> =
+      'youtube_caption';
     const sourceLanguage = captions.sourceLanguage || 'und';
 
     if (source.length === 0) {
-      const model = 'gpt-4o-mini-transcribe-2025-12-15';
-      if (!(await artifacts.hasActiveSttApproval(model))) {
-        return this.failLearningCaption(artifacts, request, 'STT_NOT_APPROVED');
-      }
-      return this.prepareTranscribedCaptions(artifacts, request, model, signal);
+      return this.failLearningCaption(
+        artifacts,
+        request,
+        'CAPTION_PROVIDER_UNAVAILABLE',
+      );
     }
 
     const sourceGeneration = await artifacts.createGeneration({
@@ -443,116 +441,6 @@ export class VideoAssetService {
     };
   }
 
-  private normalizeTranscriptionResponse(response: unknown): {
-    sourceLanguage: string;
-    segments: VideoAssetSegment[];
-    translatedSegments: VideoAssetSegment[];
-    errorCode: CaptionSafeErrorCode | null;
-    mediaDurationSeconds: number | null;
-  } {
-    const value = this.objectValue(response);
-    return {
-      sourceLanguage: this.stringValue(value.sourceLanguage),
-      segments: this.normalizeSegments(value.segments),
-      translatedSegments: this.normalizeSegments(value.translatedSegments),
-      errorCode: this.captionSafeErrorCode(value.errorCode),
-      mediaDurationSeconds: this.positiveDuration(value.mediaDurationSeconds),
-    };
-  }
-
-  private async prepareTranscribedCaptions(
-    artifacts: CaptionArtifactRepository,
-    request: CaptionPipelineRequest,
-    model: string,
-    signal: AbortSignal,
-  ): Promise<LearningCaptionResult> {
-    signal.throwIfAborted();
-    const transcription = this.normalizeTranscriptionResponse(
-      await this.aiProxyService.transcribe(
-        {
-          videoId: request.canonicalVideoId,
-          startSeconds: 0,
-          durationSeconds: request.durationSeconds,
-          targetLanguage: request.targetLanguage,
-          model,
-        },
-        signal,
-      ),
-    );
-    signal.throwIfAborted();
-    if (transcription.errorCode || transcription.segments.length === 0) {
-      return this.failLearningCaption(
-        artifacts,
-        request,
-        transcription.errorCode ?? 'TRANSCRIPTION_PROVIDER_UNAVAILABLE',
-      );
-    }
-
-    const sourceLanguage = transcription.sourceLanguage || 'und';
-    const sourceGeneration = await artifacts.createGeneration({
-      kind: 'transcription',
-      sourceLanguage,
-      request,
-    });
-    await this.appendCaptionSegments(
-      artifacts,
-      sourceGeneration.id,
-      transcription.segments,
-      request,
-      signal,
-    );
-    await this.publishCaptionGeneration(
-      artifacts,
-      sourceGeneration.id,
-      request,
-      signal,
-    );
-
-    let translationArtifactId: string | null = null;
-    const needsTranslation = sourceLanguage !== request.targetLanguage;
-    if (needsTranslation && transcription.translatedSegments.length === 0) {
-      throw new CaptionTranslationPendingError();
-    }
-    if (transcription.translatedSegments.length > 0) {
-      const translationGeneration = await artifacts.createGeneration({
-        kind: 'translation',
-        parentArtifactId: sourceGeneration.id,
-        sourceLanguage,
-        targetLanguage: request.targetLanguage,
-        request,
-      });
-      translationArtifactId = translationGeneration.id;
-      await this.appendCaptionSegments(
-        artifacts,
-        translationArtifactId,
-        transcription.translatedSegments,
-        request,
-        signal,
-      );
-      await this.publishCaptionGeneration(
-        artifacts,
-        translationArtifactId,
-        request,
-        signal,
-      );
-    }
-
-    const effectiveDuration = Math.min(
-      request.durationSeconds,
-      transcription.mediaDurationSeconds ?? request.durationSeconds,
-    );
-    await artifacts.commitWork({
-      request,
-      actualCostMicrounits: Math.round(effectiveDuration * 50),
-    });
-    return {
-      sourceArtifactId: sourceGeneration.id,
-      translationArtifactId,
-      source: 'transcription',
-      status: 'ready',
-    };
-  }
-
   private async appendCaptionSegments(
     artifacts: CaptionArtifactRepository,
     artifactId: string,
@@ -754,13 +642,6 @@ export class VideoAssetService {
 
   private stringValue(value: unknown): string {
     return typeof value === 'string' ? value : '';
-  }
-
-  private positiveDuration(value: unknown): number | null {
-    const duration = Number(value);
-    return Number.isFinite(duration) && duration > 0 && duration <= 14_400
-      ? duration
-      : null;
   }
 }
 

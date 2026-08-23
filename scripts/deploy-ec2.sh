@@ -1138,7 +1138,7 @@ if [ "$prepared_reactivation" = 'false' ]; then
   run_controlled_deployment_mutation \
     timeout --signal=TERM --kill-after=10s 5m \
       docker compose -f infra/production.compose.yml up -d --wait \
-        --no-recreate postgres valkey youtube-pot
+        --remove-orphans --no-recreate postgres valkey
 
   require_irreversible_migration_backup
   configure_course_cutover_state_paths
@@ -1165,7 +1165,7 @@ fi
 run_controlled_deployment_mutation \
   timeout --signal=TERM --kill-after=10s 5m \
     docker compose -f infra/production.compose.yml up -d --wait \
-      postgres valkey youtube-pot
+      --remove-orphans postgres valkey
 
 APP_DIR="$app_dir" COURSE_CUTOVER_MODE="$course_cutover_mode" \
   DEPLOY_SHA="$deploy_sha" \

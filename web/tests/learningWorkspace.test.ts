@@ -75,6 +75,8 @@ test("unfinished learning tools are presented as preparation states", () => {
   assert.match(source, /const MAX_CAPTION_POLLS = 170/);
   assert.match(source, /startLearningIntake/);
   assert.match(source, /자막 다시 만들기/);
+  assert.match(source, /자막이 있는 다른 영상 선택/);
+  assert.match(source, /canRetryCaptions/);
   assert.doesNotMatch(source, /Agent|MCP|RAG|AI/);
   assert.doesNotMatch(
     `${source}\n${stateSource}`,

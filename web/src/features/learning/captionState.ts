@@ -93,15 +93,30 @@ export function quizPreparation(state: ProgressiveCaptionState) {
     : { ready: false, message: "퀴즈를 준비하고 있어요." };
 }
 
+export function canRetryCaptions(errorCode?: string) {
+  return ![
+    "CAPTION_PROVIDER_UNAVAILABLE",
+    "STT_DISABLED",
+    "STT_NOT_APPROVED",
+    "VIDEO_LIVE_UNSUPPORTED",
+    "VIDEO_RESTRICTED",
+    "VIDEO_AUTH_REQUIRED",
+    "VIDEO_TOO_LONG",
+  ].includes(errorCode ?? "");
+}
+
 function captionFailureMessage(errorCode?: string) {
   const messages: Record<string, string> = {
-    STT_NOT_APPROVED: "자막을 만들지 못했어요. 다시 시도해 주세요.",
-    STT_DISABLED: "자막을 만들지 못했어요. 다시 시도해 주세요.",
+    STT_NOT_APPROVED:
+      "이 영상은 제공되는 자막이 없어요. 자막이 있는 영상을 선택해주세요.",
+    STT_DISABLED:
+      "이 영상은 제공되는 자막이 없어요. 자막이 있는 영상을 선택해주세요.",
     VIDEO_LIVE_UNSUPPORTED: "실시간 영상은 아직 자막을 만들 수 없어요.",
     VIDEO_RESTRICTED: "이 영상에서는 자막을 만들 수 없어요.",
     VIDEO_AUTH_REQUIRED: "로그인이 필요한 영상이라 자막을 만들 수 없어요.",
     VIDEO_TOO_LONG: "처리할 수 있는 길이를 넘은 영상입니다.",
-    CAPTION_PROVIDER_UNAVAILABLE: "자막을 불러오지 못했어요.",
+    CAPTION_PROVIDER_UNAVAILABLE:
+      "이 영상은 제공되는 자막이 없어요. 자막이 있는 영상을 선택해주세요.",
     TRANSCRIPTION_PROVIDER_UNAVAILABLE: "자막을 만들지 못했어요.",
     TRANSLATION_PROVIDER_UNAVAILABLE: "한국어로 옮기지 못했어요.",
   };

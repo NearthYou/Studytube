@@ -151,6 +151,8 @@ test("note save reconnects a stale learning context once before failing", () => 
     "utf8",
   );
   assert.match(source, /async function createNoteWithContextRecovery/);
+  assert.match(source, /Math\.round\(notePositionSeconds \* 1000\) \/ 1000/);
+  assert.match(source, /error\.status !== 404/);
   assert.match(source, /const recovered = await startLearningIntake/);
   assert.match(source, /createLearningNote\(\{[\s\S]*contextId: recoveredContextId/);
 });

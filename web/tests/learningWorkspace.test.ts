@@ -145,6 +145,17 @@ test("starting a note pins the current playback position automatically", () => {
   assert.doesNotMatch(source, /positionSeconds: state\.currentTime/);
 });
 
+test("direct watch URLs select their video and start learning automatically", () => {
+  const source = readFileSync(
+    resolve(featureDirectory, "LearningWorkspace.tsx"),
+    "utf8",
+  );
+
+  assert.match(source, /queueVideoFromDirectVideoId\(requestedVideoId\)/);
+  assert.match(source, /if \(contextId \|\| intakeStartedRef\.current\) return/);
+  assert.match(source, /void startLearningIntake\(\{/);
+});
+
 test("note save reconnects a stale learning context once before failing", () => {
   const source = readFileSync(
     resolve(featureDirectory, "LearningWorkspace.tsx"),

@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest import mock
 from urllib.parse import parse_qsl, urlparse
 
+import embeddings as embeddings_module
 import main
 from main import (
     build_quiz_response,
@@ -3455,7 +3456,7 @@ Second subtitle line
         self.assertIn("리액트", response["segments"][0]["text"])
 
     def test_embedding_response_uses_text_embedding_3_small_without_hash_fallback(self):
-        original_openai = main.OpenAI
+        original_openai = embeddings_module.OpenAI
         original_key = os.environ.get("OPENAI_API_KEY")
         captured = {}
 
@@ -3469,13 +3470,13 @@ Second subtitle line
             embeddings = FakeEmbeddings()
 
         os.environ["OPENAI_API_KEY"] = "sk-test"
-        main.OpenAI = lambda **_kwargs: FakeClient()
+        embeddings_module.OpenAI = lambda **_kwargs: FakeClient()
         try:
             response = main.create_embedding_response(
                 {"input": "PostgreSQL isolation"}
             )
         finally:
-            main.OpenAI = original_openai
+            embeddings_module.OpenAI = original_openai
             if original_key is None:
                 os.environ.pop("OPENAI_API_KEY", None)
             else:
@@ -3488,9 +3489,9 @@ Second subtitle line
         self.assertNotIn("hash", json.dumps(response).lower())
 
     def test_embedding_response_reuses_cached_vector_and_reports_cost(self):
-        original_openai = main.OpenAI
+        original_openai = embeddings_module.OpenAI
         original_key = os.environ.get("OPENAI_API_KEY")
-        main.EMBEDDING_RESPONSE_CACHE.clear()
+        embeddings_module.EMBEDDING_RESPONSE_CACHE.clear()
 
         class FakeEmbeddings:
             calls = 0
@@ -3509,13 +3510,13 @@ Second subtitle line
             embeddings = FakeEmbeddings()
 
         os.environ["OPENAI_API_KEY"] = "sk-test"
-        main.OpenAI = lambda **_kwargs: FakeClient()
+        embeddings_module.OpenAI = lambda **_kwargs: FakeClient()
         try:
             cold = main.create_embedding_response({"input": "격리 수준"})
             warm = main.create_embedding_response({"input": "격리 수준"})
         finally:
-            main.OpenAI = original_openai
-            main.EMBEDDING_RESPONSE_CACHE.clear()
+            embeddings_module.OpenAI = original_openai
+            embeddings_module.EMBEDDING_RESPONSE_CACHE.clear()
             if original_key is None:
                 os.environ.pop("OPENAI_API_KEY", None)
             else:
@@ -3532,7 +3533,7 @@ Second subtitle line
         original_key = os.environ.pop("OPENAI_API_KEY", None)
         try:
             with self.assertRaisesRegex(
-                main.EmbeddingProviderUnavailable,
+                embeddings_module.EmbeddingProviderUnavailable,
                 "Embedding provider is unavailable",
             ):
                 main.create_embedding_response({"input": "no fallback"})

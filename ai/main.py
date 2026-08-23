@@ -24,6 +24,18 @@ from typing import Any
 from urllib.parse import parse_qsl, quote_plus, urlencode, urlparse, urlunparse
 from xml.etree import ElementTree
 
+from embeddings import (
+    EMBEDDING_DIMENSIONS,
+    EMBEDDING_INPUT_USD_PER_MILLION_TOKENS,
+    EMBEDDING_RESPONSE_CACHE,
+    EMBEDDING_RESPONSE_CACHE_MAX_SIZE,
+    EMBEDDING_RESPONSE_CACHE_TTL_SECONDS,
+    RETRIEVAL_EMBEDDING_MODEL,
+    EmbeddingProviderUnavailable,
+    create_embedding_response,
+    read_embedding_response_cache,
+    write_embedding_response_cache,
+)
 from runtime_environment import load_runtime_environment
 from telemetry import configure_fastapi_telemetry
 from mcp_server import (
@@ -99,8 +111,6 @@ ROOT_DIR = AI_DIR.parent
 load_runtime_environment(load_dotenv, ai_dir=AI_DIR, root_dir=ROOT_DIR)
 
 DEFAULT_DATABASE_URL = "postgresql://app:app@localhost:5432/app_dev"
-EMBEDDING_DIMENSIONS = 1536
-RETRIEVAL_EMBEDDING_MODEL = "text-embedding-3-small"
 DEFAULT_FALLBACK_CAPTION_DURATION_SECONDS = 600
 CAPTION_TRANSLATION_BATCH_SIZE = 32
 CAPTION_TRANSLATION_MAX_WORKERS = 8
@@ -119,10 +129,6 @@ SUMMARY_CACHE_POLICY_VERSION = "transcript-summary-v1"
 SUMMARY_RESPONSE_CACHE_TTL_SECONDS = 30 * 60
 SUMMARY_RESPONSE_CACHE_MAX_SIZE = 64
 SUMMARY_RESPONSE_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
-EMBEDDING_RESPONSE_CACHE_TTL_SECONDS = 60 * 60
-EMBEDDING_RESPONSE_CACHE_MAX_SIZE = 256
-EMBEDDING_RESPONSE_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
-EMBEDDING_INPUT_USD_PER_MILLION_TOKENS = 0.02
 YOUTUBE_SUBTITLE_PO_TOKEN_CACHE_TTL_SECONDS = 5 * 60 * 60
 YOUTUBE_SUBTITLE_PO_TOKEN_CACHE: dict[str, tuple[float, tuple[str, str]]] = {}
 CAPTION_TRANSLATION_JOBS: set[str] = set()
@@ -166,10 +172,6 @@ def require_production_internal_key() -> None:
             "INTERNAL_AI_API_KEY must be a non-placeholder secret of at least "
             "32 characters in production"
         )
-
-
-class EmbeddingProviderUnavailable(RuntimeError):
-    pass
 
 
 @app.middleware("http")
@@ -312,84 +314,6 @@ def study_plan_endpoint(payload: dict[str, Any]):
 @app.post("/quiz/generate")
 def quiz_generation_endpoint(payload: dict[str, Any]):
     return build_quiz_response(payload)
-
-
-def create_embedding_response(payload: dict[str, Any]) -> dict[str, Any]:
-    text = str(payload.get("input") or "").strip()
-    if not text or len(text) > 12000:
-        raise ValueError("Embedding input must contain between 1 and 12000 characters")
-    if not os.getenv("OPENAI_API_KEY") or OpenAI is None:
-        raise EmbeddingProviderUnavailable("Embedding provider is unavailable")
-    model = os.getenv("EMBEDDING_MODEL", RETRIEVAL_EMBEDDING_MODEL)
-    if model != RETRIEVAL_EMBEDDING_MODEL:
-        raise EmbeddingProviderUnavailable(
-            "Embedding provider must use text-embedding-3-small"
-        )
-    cache_key = hashlib.sha256(f"{model}\0{text}".encode("utf-8")).hexdigest()
-    cached = read_embedding_response_cache(cache_key)
-    if cached is not None:
-        return cached
-
-    try:
-        client = OpenAI(timeout=15.0, max_retries=2)
-        response = client.embeddings.create(
-            model=model,
-            input=text,
-            dimensions=EMBEDDING_DIMENSIONS,
-            encoding_format="float",
-        )
-        embedding = [float(value) for value in response.data[0].embedding]
-        usage = getattr(response, "usage", None)
-        input_tokens = max(0, int(getattr(usage, "prompt_tokens", 0) or 0))
-    except Exception as exc:
-        raise EmbeddingProviderUnavailable(
-            "Embedding provider is unavailable"
-        ) from exc
-
-    if len(embedding) != EMBEDDING_DIMENSIONS or any(
-        not math.isfinite(value) for value in embedding
-    ):
-        raise EmbeddingProviderUnavailable("Embedding response is invalid")
-    result = {
-        "model": model,
-        "dimensions": EMBEDDING_DIMENSIONS,
-        "embedding": embedding,
-        "cacheHit": False,
-        "inputTokens": input_tokens,
-        "estimatedCostUsd": round(
-            input_tokens * EMBEDDING_INPUT_USD_PER_MILLION_TOKENS / 1_000_000,
-            12,
-        ),
-    }
-    write_embedding_response_cache(cache_key, result)
-    return result
-
-
-def read_embedding_response_cache(cache_key: str) -> dict[str, Any] | None:
-    cached = EMBEDDING_RESPONSE_CACHE.get(cache_key)
-    if cached is None:
-        return None
-    created_at, response = cached
-    if time.time() - created_at > EMBEDDING_RESPONSE_CACHE_TTL_SECONDS:
-        EMBEDDING_RESPONSE_CACHE.pop(cache_key, None)
-        return None
-    result = copy.deepcopy(response)
-    result["cacheHit"] = True
-    result["estimatedCostUsd"] = 0
-    return result
-
-
-def write_embedding_response_cache(
-    cache_key: str,
-    response: dict[str, Any],
-) -> None:
-    while len(EMBEDDING_RESPONSE_CACHE) >= EMBEDDING_RESPONSE_CACHE_MAX_SIZE:
-        oldest_key = min(
-            EMBEDDING_RESPONSE_CACHE,
-            key=lambda key: EMBEDDING_RESPONSE_CACHE[key][0],
-        )
-        EMBEDDING_RESPONSE_CACHE.pop(oldest_key, None)
-    EMBEDDING_RESPONSE_CACHE[cache_key] = (time.time(), copy.deepcopy(response))
 
 
 def handle_mcp_request(payload: dict[str, Any]) -> dict[str, Any]:

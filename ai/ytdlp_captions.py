@@ -841,6 +841,3 @@ def append_query_params(url: str, params: dict[str, str]) -> str:
     query.update(params)
 
     return urlunparse(parsed._replace(query=urlencode(query)))
-
-
-

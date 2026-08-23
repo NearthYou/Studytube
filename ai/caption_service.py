@@ -648,8 +648,3 @@ def run_caption_translation_job(
     finally:
         with CAPTION_TRANSLATION_JOB_LOCK:
             CAPTION_TRANSLATION_JOBS.discard(cache_key)
-
-
-
-
-

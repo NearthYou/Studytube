@@ -294,6 +294,3 @@ def read_transcript_field(row: Any, field: str) -> Any:
         return row.get(field)
 
     return getattr(row, field, None)
-
-
-

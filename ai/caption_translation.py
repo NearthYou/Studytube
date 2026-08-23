@@ -385,6 +385,3 @@ def parse_caption_translations(content: str) -> list[str]:
         return []
 
     return [str(item) for item in translations]
-
-
-

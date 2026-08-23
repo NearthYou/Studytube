@@ -135,6 +135,3 @@ def build_quiz_response(payload: dict[str, Any]) -> dict[str, Any]:
             "estimatedCostUsd": 0,
         },
     }
-
-
-

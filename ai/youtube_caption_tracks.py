@@ -229,6 +229,3 @@ def simple_timedtext_url(
         params["tlang"] = target_language
 
     return f"https://www.youtube.com/api/timedtext?{urlencode(params)}"
-
-
-

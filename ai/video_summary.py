@@ -724,5 +724,3 @@ def format_caption_time(total_seconds: float) -> str:
     seconds = int(max(0, total_seconds) % 60)
 
     return f"{minutes:02d}:{seconds:02d}"
-
-

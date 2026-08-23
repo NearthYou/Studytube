@@ -6,11 +6,15 @@ StudyTube는 외국어 YouTube 영상을 자막, 메모, 퀴즈, 다음 학습 �
 - 저장소: [github.com/NearthYou/studytube](https://github.com/NearthYou/studytube)
 - API 계약: [api/openapi/current.json](api/openapi/current.json)
 
-| 현재 main의 로그인 화면 | 현재 main의 가입 시작 화면 |
-| --- | --- |
-| ![StudyTube 로그인 화면](docs/demo/current-login.jpg) | ![StudyTube 회원가입 화면](docs/demo/current-signup.jpg) |
+## 핵심 기능 화면
 
-[자막 처리 E2E 영상](docs/demo/studytube-caption-e2e-2026-06-13T05-53-17-277Z.webm)은 실제 이전 interface를 기록한 자료다. 현재 main의 공개 인증 화면은 위와 같고, 새 학습 workspace는 API와 PostgreSQL이 필요한 인증 경로라 이번 문서 작업에서 새 end-to-end 영상을 만들지 않았다.
+| 영상 학습과 재생목록 | AI 추천 학습 리스트 |
+| --- | --- |
+| ![영상과 다음 학습 순서를 한 화면에서 보는 StudyTube](docs/demo/studytube-watch-queue.png) | ![학습 주제에 맞는 영상을 추천받는 StudyTube](docs/demo/studytube-recommendations.png) |
+
+![긴 자막 작업을 나누어 처리하고 학습 화면으로 돌아오는 흐름](docs/demo/studytube-caption-rate-limit-demo.gif)
+
+위 자료는 영상 재생, 다음 학습 순서, AI 추천과 자막 처리라는 서비스 핵심 동작을 기록한다. 과거 interface에서 찍은 자료는 현재 화면과 같다고 주장하지 않으며, 최신 인증 이후 전체 흐름은 API와 PostgreSQL을 포함한 별도 실행 환경에서 다시 검증해야 한다.
 
 ## 풀고 싶었던 문제
 

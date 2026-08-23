@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router";
-import { fetchMe, fetchPosts } from "../../api";
+import { fetchMe } from "../../api";
 import { fetchOwnerCourses } from "../../courseApi";
 import type { Session, User } from "../../types";
 import { ProfileVerificationForm } from "./ProfileVerificationForm";
@@ -14,8 +14,8 @@ export function MyPage({
 }) {
   const navigate = useNavigate();
   const [user, setUser] = useState(session.user);
-  const [postCount, setPostCount] = useState(0);
-  const [playlistCount, setPlaylistCount] = useState(0);
+  const [courseCount, setCourseCount] = useState(0);
+  const [videoCount, setVideoCount] = useState(0);
   const [status, setStatus] = useState("계정 정보를 불러오는 중입니다.");
   const [isVerifying, setIsVerifying] = useState(false);
 
@@ -24,24 +24,27 @@ export function MyPage({
 
     async function loadProfile() {
       try {
-        const [nextUser, postResult, nextPlaylists] = await Promise.all([
-          fetchMe(),
-          fetchPosts("", 1, 1),
-          fetchOwnerCourses(),
-        ]);
+        const nextUser = await fetchMe();
 
         if (!mounted) {
           return;
         }
 
         setUser(nextUser);
-        setPostCount(postResult.total);
-        setPlaylistCount(nextPlaylists.length);
         onSessionUpdate(nextUser);
-        setStatus("계정 정보가 최신 상태입니다.");
+        setStatus("학습 설정이 최신 상태입니다.");
+        const nextCourses = await fetchOwnerCourses().catch(() => []);
+        if (!mounted) return;
+        const activeCourses = nextCourses.filter(
+          (course) => course.status !== "archived",
+        );
+        setCourseCount(activeCourses.length);
+        setVideoCount(
+          activeCourses.reduce((total, course) => total + course.steps.length, 0),
+        );
       } catch {
         if (mounted) {
-          setStatus("계정 정보를 불러오지 못했습니다. 서버 상태를 확인하세요.");
+          setStatus("학습 설정을 불러오지 못했습니다. 다시 시도해주세요.");
         }
       }
     }
@@ -58,33 +61,31 @@ export function MyPage({
     <main className="page-shell profile-page">
       <section className="profile-hero">
         <div>
-          <p className="eyebrow">My page</p>
           <h1>내 정보</h1>
           <p>
-            계정 정보와 학습 취향을 확인합니다. 수정하려면 현재 비밀번호로 본인
-            확인을 먼저 진행합니다.
+            관심사와 목표를 관리하면 새 코스와 다음 학습 순서에 바로 반영됩니다.
           </p>
           <div className="profile-actions">
             <Link className="primary-link" to="/courses">
-              내 Course 보기
+              내 코스 보기
             </Link>
             <button
               className="secondary-action"
               type="button"
               onClick={() => setIsVerifying((current) => !current)}
             >
-              정보 수정
+              학습 설정 바꾸기
             </button>
           </div>
         </div>
         <div className="profile-stats" aria-label="내 학습 데이터">
           <span>
-            <strong>{playlistCount}</strong>
-            보드 플레이리스트
+            <strong>{courseCount}</strong>
+            진행 중인 코스
           </span>
           <span>
-            <strong>{postCount}</strong>
-            등록 영상
+            <strong>{videoCount}</strong>
+            학습할 영상
           </span>
         </div>
       </section>
@@ -92,33 +93,25 @@ export function MyPage({
       <section className="profile-layout">
         <section className="profile-read-panel">
           <div className="section-title">
-            <h2>계정 정보</h2>
+            <h2>학습 설정</h2>
             <span>{status}</span>
           </div>
           <dl className="profile-info-list">
             <div>
-              <dt>이름</dt>
-              <dd>{user.name}</dd>
-            </div>
-            <div>
-              <dt>이메일</dt>
-              <dd>{user.email}</dd>
-            </div>
-            <div>
               <dt>관심사</dt>
-              <dd>{user.preferences.interests.join(", ")}</dd>
+              <dd>{user.preferences.interests.join(", ") || "아직 정하지 않았어요"}</dd>
             </div>
             <div>
               <dt>학습 속도</dt>
-              <dd>{user.preferences.pace}</dd>
+              <dd>{user.preferences.pace || "아직 정하지 않았어요"}</dd>
             </div>
             <div>
               <dt>학습 목표</dt>
-              <dd>{user.preferences.goal}</dd>
+              <dd>{user.preferences.goal || "아직 정하지 않았어요"}</dd>
             </div>
             <div>
-              <dt>가입일</dt>
-              <dd>{formatDate(user.createdAt)}</dd>
+              <dt>코스 활용</dt>
+              <dd>새 코스를 만들 때 이 설정을 기본값으로 사용합니다.</dd>
             </div>
           </dl>
         </section>
@@ -126,14 +119,14 @@ export function MyPage({
         <aside className="profile-note">
           <strong>{user.name}</strong>
           <p>{user.email}</p>
-          <small>현재 학습 취향</small>
-          <p>{user.preferences.interests.join(", ")}</p>
+          <small>계정</small>
+          <p>{user.preferences.interests.join(", ") || "학습 설정을 추가해주세요"}</p>
           <span>
-            {user.preferences.pace} / {user.preferences.goal}
+            {[user.preferences.pace, user.preferences.goal].filter(Boolean).join(" / ")}
           </span>
           <span>가입일 {formatDate(user.createdAt)}</span>
           <Link className="profile-note-action" to="/courses">
-            내 Course 열기
+            내 코스 열기
           </Link>
         </aside>
       </section>

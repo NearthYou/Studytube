@@ -91,6 +91,7 @@ function ActiveLearningWorkspace({
   const [noteBusyId, setNoteBusyId] = useState("");
   const [noteStatus, setNoteStatus] = useState("");
   const playerRef = useRef<LearningVideoPlayerHandle | null>(null);
+  const noteInputRef = useRef<HTMLTextAreaElement | null>(null);
   const captionsRef = useRef(state.captions);
   const tablistRef = useRef<HTMLDivElement>(null);
   const notePositionSeconds =
@@ -219,6 +220,14 @@ function ActiveLearningWorkspace({
     update({ selectedTab: tab });
   }
 
+  function startNoteDraft() {
+    update({
+      selectedTab: "notes",
+      notePositionSeconds: state.currentTime,
+    });
+    queueMicrotask(() => noteInputRef.current?.focus());
+  }
+
   function handleTabKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
     const currentIndex = TABS.findIndex((tab) => tab.id === state.selectedTab);
     let nextIndex: number;
@@ -330,16 +339,18 @@ function ActiveLearningWorkspace({
         <Link to="/">다른 영상 학습</Link>
       </header>
 
-      <LearningVideoPlayer
-        caption={currentCaption}
-        initialTime={state.currentTime}
-        onTimeChange={(currentTime) => update({ currentTime })}
-        preferNativeCaptions={state.captions.sourceSegments.length === 0}
-        ref={playerRef}
-        videoId={video.videoId}
-      />
+      <div className="learning-desk">
+        <section className="learning-stage">
+          <LearningVideoPlayer
+            caption={currentCaption}
+            initialTime={state.currentTime}
+            onTimeChange={(currentTime) => update({ currentTime })}
+            preferNativeCaptions={state.captions.sourceSegments.length === 0}
+            ref={playerRef}
+            videoId={video.videoId}
+          />
 
-      <section className="current-caption" aria-label="현재 자막">
+          <section className="current-caption" aria-label="현재 자막">
         <div>
           <small>
             원문{" "}
@@ -378,9 +389,23 @@ function ActiveLearningWorkspace({
             상태 새로고침
           </button>
         ) : null}
-      </section>
+          </section>
+          <div className="learning-source-status">
+            {state.captions.sourceSegments.length === 0 &&
+            state.captions.phase === "failed"
+              ? "영상 설명과 공개 정보로 학습 내용을 정리했어요."
+              : "자막과 영상 정보를 함께 정리하고 있어요."}
+          </div>
+        </section>
 
-      <section className="learning-tabs">
+        <section className="learning-tools" aria-label="학습 도구">
+          <div className="learning-tools-heading">
+            <span>{formatTime(state.currentTime)}</span>
+            <button type="button" onClick={startNoteDraft}>
+              메모하기
+            </button>
+          </div>
+          <section className="learning-tabs">
         <div
           aria-label="학습 자료"
           className="learning-tablist"
@@ -428,6 +453,7 @@ function ActiveLearningWorkspace({
               </label>
               <textarea
                 id="learning-note"
+                ref={noteInputRef}
                 value={state.noteDraft}
                 onChange={(event) => updateNoteDraft(event.target.value)}
                 placeholder="지금 구간에서 기억할 내용을 적어보세요."
@@ -436,18 +462,9 @@ function ActiveLearningWorkspace({
                 <button
                   disabled={noteBusyId === "new" || !state.noteDraft.trim()}
                   type="button"
-                  onClick={() =>
-                    update({ notePositionSeconds: state.currentTime })
-                  }
-                >
-                  현재 위치로 바꾸기
-                </button>
-                <button
-                  disabled={noteBusyId === "new"}
-                  type="button"
                   onClick={saveNote}
                 >
-                  메모 저장
+                  저장
                 </button>
               </div>
               <p aria-live="polite">{noteStatus}</p>
@@ -482,7 +499,9 @@ function ActiveLearningWorkspace({
             />
           )}
         </div>
-      </section>
+          </section>
+        </section>
+      </div>
       {quiz.state.phase === "evaluated" && !nextLearning.proposal && (
         <section className="next-learning-entry" aria-live="polite">
           <h2>다음 학습</h2>

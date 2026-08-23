@@ -127,10 +127,9 @@ export function LearningPage({ session }: { session: Session }) {
     <main className="page-shell learning-home">
       <section className="learning-intake-card">
         <p className="eyebrow">{session.user.name}님의 학습</p>
-        <h1>배우고 싶은 영상을 등록하세요</h1>
+        <h1>좋아하는 YouTube로 외국어 공부</h1>
         <p>
-          영상의 언어는 자동으로 확인하고, 한국어 자막과 학습 자료를 차례로
-          준비합니다.
+          링크를 넣고, 영상을 보면서 표현을 익히세요.
         </p>
         <form className="learning-intake-form" onSubmit={handleSubmit}>
           <label htmlFor="learning-video-url">YouTube 영상 주소</label>
@@ -145,7 +144,7 @@ export function LearningPage({ session }: { session: Session }) {
               onChange={(event) => setVideoUrl(event.target.value)}
             />
             <button disabled={isSubmitting} type="submit">
-              {isSubmitting ? "준비 중" : "학습 시작"}
+              {isSubmitting ? "준비 중" : "시작하기"}
             </button>
           </div>
         </form>

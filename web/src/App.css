@@ -6033,3 +6033,44 @@ footer {
     max-width: none;
   }
 }
+
+/* Allang-inspired focused intake */
+.learning-home {
+  max-width: none;
+  padding: 0;
+}
+
+.learning-intake-card {
+  display: grid;
+  min-height: calc(100vh - 68px);
+  padding: 88px 24px;
+  place-content: center;
+  justify-items: center;
+  border: 0;
+  border-radius: 0;
+  background: #f3f6ff;
+  box-shadow: none;
+  text-align: center;
+}
+
+.learning-intake-card h1 {
+  max-width: 760px;
+  margin-bottom: 18px;
+  font-size: clamp(40px, 6vw, 68px);
+  line-height: 1.12;
+}
+
+.learning-intake-card > p {
+  max-width: 560px;
+}
+
+.learning-intake-form {
+  width: min(760px, 100%);
+  margin-top: 30px;
+  text-align: left;
+}
+
+.recent-learning {
+  width: min(1120px, calc(100% - 48px));
+  margin: 72px auto;
+}

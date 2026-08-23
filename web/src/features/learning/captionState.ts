@@ -108,15 +108,15 @@ export function canRetryCaptions(errorCode?: string) {
 function captionFailureMessage(errorCode?: string) {
   const messages: Record<string, string> = {
     STT_NOT_APPROVED:
-      "이 영상은 제공되는 자막이 없어요. 자막이 있는 영상을 선택해주세요.",
+      "YouTube 자막이 없어 영상 설명과 공개 정보로 학습 자료를 준비했어요.",
     STT_DISABLED:
-      "이 영상은 제공되는 자막이 없어요. 자막이 있는 영상을 선택해주세요.",
+      "YouTube 자막이 없어 영상 설명과 공개 정보로 학습 자료를 준비했어요.",
     VIDEO_LIVE_UNSUPPORTED: "실시간 영상은 아직 자막을 만들 수 없어요.",
     VIDEO_RESTRICTED: "이 영상에서는 자막을 만들 수 없어요.",
     VIDEO_AUTH_REQUIRED: "로그인이 필요한 영상이라 자막을 만들 수 없어요.",
     VIDEO_TOO_LONG: "처리할 수 있는 길이를 넘은 영상입니다.",
     CAPTION_PROVIDER_UNAVAILABLE:
-      "이 영상은 제공되는 자막이 없어요. 자막이 있는 영상을 선택해주세요.",
+      "YouTube 자막이 없어 영상 설명과 공개 정보로 학습 자료를 준비했어요.",
     TRANSCRIPTION_PROVIDER_UNAVAILABLE: "자막을 만들지 못했어요.",
     TRANSLATION_PROVIDER_UNAVAILABLE: "한국어로 옮기지 못했어요.",
   };

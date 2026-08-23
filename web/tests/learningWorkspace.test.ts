@@ -145,6 +145,16 @@ test("starting a note pins the current playback position automatically", () => {
   assert.doesNotMatch(source, /positionSeconds: state\.currentTime/);
 });
 
+test("note save reconnects a stale learning context once before failing", () => {
+  const source = readFileSync(
+    resolve(featureDirectory, "LearningWorkspace.tsx"),
+    "utf8",
+  );
+  assert.match(source, /async function createNoteWithContextRecovery/);
+  assert.match(source, /const recovered = await startLearningIntake/);
+  assert.match(source, /createLearningNote\(\{[\s\S]*contextId: recoveredContextId/);
+});
+
 test("learning workspace collapses safely at phone width", () => {
   const css = readFileSync(resolve(testDirectory, "../src/App.css"), "utf8");
 

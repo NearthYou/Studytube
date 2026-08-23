@@ -254,6 +254,31 @@ function ActiveLearningWorkspace({
     });
   }
 
+  async function createNoteWithContextRecovery(body: string) {
+    try {
+      return await createLearningNote({
+        contextId,
+        positionSeconds: notePositionSeconds,
+        body,
+      });
+    } catch {
+      const recovered = await startLearningIntake({
+        videoUrl: video.videoUrl,
+        requestedAudioSeconds: REQUESTED_AUDIO_SECONDS,
+      });
+      const recoveredContextId = recovered.context.studyContext.id;
+      update({
+        contextId: recoveredContextId,
+        workId: recovered.workId,
+      });
+      return createLearningNote({
+        contextId: recoveredContextId,
+        positionSeconds: notePositionSeconds,
+        body,
+      });
+    }
+  }
+
   async function saveNote() {
     const body = state.noteDraft.trim();
     if (!body) {
@@ -269,11 +294,7 @@ function ActiveLearningWorkspace({
     setNoteBusyId("new");
     setNoteStatus("메모를 저장하고 있습니다.");
     try {
-      const note = await createLearningNote({
-        contextId,
-        positionSeconds: notePositionSeconds,
-        body,
-      });
+      const note = await createNoteWithContextRecovery(body);
       update({
         notes: [note, ...state.notes],
         noteDraft: "",

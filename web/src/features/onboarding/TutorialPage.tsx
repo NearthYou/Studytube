@@ -22,8 +22,7 @@ export function TutorialPage({
       ? location.state.next
       : undefined,
   );
-  const nextLabel =
-    nextPath === "/board" ? "튜토리얼 마치기" : "가던 곳으로 계속";
+  const nextLabel = "가던 곳으로 계속";
   const [preferenceDraft, setPreferenceDraft] = useState(() => ({
     interests: session.user.preferences.interests.join(", "),
     pace: session.user.preferences.pace,
@@ -145,10 +144,10 @@ export function TutorialPage({
             학습까지 한 번에 이어가는 개인 학습 보드입니다.
           </p>
           <div className="tutorial-actions">
-            <button type="button" onClick={() => finishTutorial("/board")}>
+            <button type="button" onClick={() => finishTutorial("/")}>
               첫 영상 등록
             </button>
-            <button type="button" onClick={() => finishTutorial("/search")}>
+            <button type="button" onClick={() => finishTutorial("/courses")}>
               AI 추천 보기
             </button>
             <button

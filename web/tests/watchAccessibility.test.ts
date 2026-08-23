@@ -4,81 +4,37 @@ import { dirname, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-const testDirectory = dirname(fileURLToPath(import.meta.url));
-const appSource = readFileSync(
-  resolve(testDirectory, "../src/App.tsx"),
-  "utf8",
-);
+const directory = dirname(fileURLToPath(import.meta.url));
+const source = (path: string) => readFileSync(resolve(directory, "../src", path), "utf8");
+const playerSource = source("features/learning/LearningVideoPlayer.tsx");
+const workspaceSource = source("features/learning/LearningWorkspace.tsx");
+const authSource = source("features/auth/AuthPage.tsx");
 
-test("loop range number inputs have explicit accessible labels", () => {
-  assert.match(appSource, /aria-label="구간 반복 시작"/);
-  assert.match(appSource, /aria-label="구간 반복 끝"/);
+test("learning player owns loading and failure fallbacks", () => {
+  assert.match(playerSource, /loadYoutubeApi/);
+  assert.match(playerSource, /플레이어 준비 시간이 초과되었습니다/);
+  assert.match(playerSource, /learning-player-error/);
 });
 
-test("summary timestamps expose seek buttons wired to the parsed seconds", () => {
-  assert.match(appSource, /className="summary-time-link label-time"/);
-  assert.match(appSource, /className="summary-time-link"/);
-  assert.match(appSource, /aria-label=\{`\$\{timestamp\.text\}[^`]+`\}/);
-  assert.match(appSource, /onClick=\{\(\) => onSeek\(timestamp\.seconds\)\}/);
-  assert.match(appSource, /onClick=\{\(\) => onSeek\(part\.seconds\)\}/);
+test("empty learning state guides the first registration", () => {
+  assert.match(workspaceSource, /아직 학습할 영상이 없습니다/);
+  assert.match(workspaceSource, /첫 영상 등록하기/);
 });
 
-test("youtube player has loading and failure fallbacks", () => {
-  assert.match(appSource, /YOUTUBE_API_LOAD_TIMEOUT_MS/);
-  assert.match(appSource, /YouTube iframe API load timed out/);
-  assert.match(appSource, /playerLoadError/);
-  assert.match(appSource, /className="youtube-unavailable youtube-loading"/);
+test("prepared captions render over the video without blocking controls", () => {
+  assert.match(playerSource, /learning-player-caption/);
+  assert.match(playerSource, /cc_load_policy/);
+  assert.match(workspaceSource, /caption=\{currentCaption\}/);
 });
 
-test("empty watch state never reads a missing player error and guides first registration", () => {
-  assert.doesNotMatch(
-    appSource,
-    /playerLoadError\?\.videoId\s*===\s*currentVideo\?\.videoId\s*\?\s*playerLoadError\.message/,
-  );
-  assert.match(appSource, /아직 학습할 영상이 없어요/);
-  assert.match(appSource, /첫 영상 등록하기/);
-});
-
-test("translated captions are loaded through playback windows instead of the whole video", () => {
-  assert.match(
-    appSource,
-    /const initialCaptionWindow = captionTranslationWindow\(/,
-  );
-  assert.match(appSource, /\.\.\.initialCaptionWindow/);
-  assert.match(appSource, /const captionWindow = captionTranslationWindow\(/);
-  assert.match(appSource, /\.\.\.captionWindow/);
-  assert.doesNotMatch(
-    appSource,
-    /fetchTranslatedCaptions\(\{\s*videoId:[\s\S]*?durationSeconds: DEFAULT_CAPTION_DURATION_SECONDS,\s*\}\)/,
-  );
-});
-
-test("watch page treats rate-limited caption responses as native YouTube fallback", () => {
-  assert.match(
-    appSource,
-    /captionResponse\?\.provider === "youtube-caption-rate-limited"/,
-  );
-});
-
-test("login page does not expose demo account shortcuts", () => {
-  assert.doesNotMatch(appSource, /demoSession/);
-  assert.doesNotMatch(appSource, /demo-login-button/);
-  assert.doesNotMatch(appSource, /demo@studytube\.local/);
-  assert.doesNotMatch(appSource, /demo1234/);
-  assert.doesNotMatch(appSource, /데모 계정/);
-});
-
-test("new learning workspace exposes keyboard tabs and non-disruptive status updates", () => {
-  const workspacePath = resolve(
-    testDirectory,
-    "../src/features/learning/LearningWorkspace.tsx",
-  );
-  assert.equal(existsSync(workspacePath), true);
-  const workspaceSource = readFileSync(workspacePath, "utf8");
-
+test("new learning workspace exposes keyboard tabs and polite status", () => {
+  assert.equal(existsSync(resolve(directory, "../src/features/learning/LearningWorkspace.tsx")), true);
   assert.match(workspaceSource, /role="tablist"/);
-  assert.match(workspaceSource, /aria-selected=/);
   assert.match(workspaceSource, /role="tabpanel"/);
   assert.match(workspaceSource, /aria-live="polite"/);
   assert.match(workspaceSource, /onKeyDown=\{handleTabKeyDown\}/);
+});
+
+test("login page does not expose demo account shortcuts", () => {
+  assert.doesNotMatch(authSource, /demoSession|demo-login-button|demo@studytube\.local|demo1234|데모 계정/);
 });

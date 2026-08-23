@@ -6,7 +6,11 @@ import { fileURLToPath } from "node:url";
 
 const testDirectory = dirname(fileURLToPath(import.meta.url));
 const appSource = readFileSync(
-  resolve(testDirectory, "../src/App.tsx"),
+  resolve(testDirectory, "../src/app/AppRoutes.tsx"),
+  "utf8",
+);
+const protectedRouteSource = readFileSync(
+  resolve(testDirectory, "../src/app/ProtectedRoute.tsx"),
   "utf8",
 );
 const learningPagePath = resolve(
@@ -61,7 +65,7 @@ test("legacy recent videos pass cost admission before the new workspace opens", 
 
 test("login return state preserves the selected video query", () => {
   assert.match(
-    appSource,
+    protectedRouteSource,
     /from:\s*location\.pathname\s*\+\s*location\.search\s*\+\s*location\.hash/,
   );
 });

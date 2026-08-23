@@ -21,3 +21,13 @@ test("onboarding and account screens own their feature modules", () => {
     /function (TutorialPage|MyPage|MyEditPage|ProfileVerificationForm)/,
   );
 });
+
+test("active account and onboarding actions avoid retired routes", () => {
+  const source = [
+    "features/onboarding/TutorialPage.tsx",
+    "features/account/MyPage.tsx",
+  ]
+    .map((path) => readFileSync(resolve(root, path), "utf8"))
+    .join("\n");
+  assert.doesNotMatch(source, /["']\/(?:board|search|me\/posts)["']/);
+});

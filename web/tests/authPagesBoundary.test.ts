@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../src");
 const appSource = readFileSync(resolve(root, "App.tsx"), "utf8");
+const routesSource = readFileSync(resolve(root, "app/AppRoutes.tsx"), "utf8");
 
 test("authentication screens own their feature modules", () => {
   for (const file of [
@@ -15,11 +16,11 @@ test("authentication screens own their feature modules", () => {
   ]) {
     assert.equal(existsSync(resolve(root, "features/auth", file)), true);
   }
-  assert.match(appSource, /from "\.\/features\/auth\/AuthPage"/);
-  assert.match(appSource, /from "\.\/features\/auth\/VerificationPage"/);
+  assert.match(routesSource, /from "\.\.\/features\/auth\/AuthPage"/);
+  assert.match(routesSource, /from "\.\.\/features\/auth\/VerificationPage"/);
   assert.match(
-    appSource,
-    /from "\.\/features\/auth\/RegistrationCompletionPage"/,
+    routesSource,
+    /from "\.\.\/features\/auth\/RegistrationCompletionPage"/,
   );
   assert.doesNotMatch(
     appSource,

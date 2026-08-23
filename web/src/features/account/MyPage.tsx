@@ -65,8 +65,8 @@ export function MyPage({
             확인을 먼저 진행합니다.
           </p>
           <div className="profile-actions">
-            <Link className="primary-link" to="/me/posts">
-              내 플레이리스트 글 관리
+            <Link className="primary-link" to="/courses">
+              내 Course 보기
             </Link>
             <button
               className="secondary-action"
@@ -132,8 +132,8 @@ export function MyPage({
             {user.preferences.pace} / {user.preferences.goal}
           </span>
           <span>가입일 {formatDate(user.createdAt)}</span>
-          <Link className="profile-note-action" to="/me/posts">
-            플레이리스트 글 열기
+          <Link className="profile-note-action" to="/courses">
+            내 Course 열기
           </Link>
         </aside>
       </section>

@@ -8,13 +8,15 @@ StudyTube는 외국어 YouTube 영상을 자막, 메모, 퀴즈, 다음 학습 �
 
 ## 핵심 기능 화면
 
-| 영상 학습과 재생목록 | AI 추천 학습 리스트 |
+![영상과 학습 도구를 함께 사용하는 StudyTube](docs/demo/studytube-learning-workspace.jpg)
+
+영상을 보면서 같은 화면에서 문장 해설, 전체 자막, 저장 문장과 퀴즈를 오갈 수 있습니다. 재생 시점이 붙은 메모도 여기에서 바로 남깁니다.
+
+| YouTube 링크로 학습 시작 | 최근 학습 이어 보기 |
 | --- | --- |
-| ![영상과 다음 학습 순서를 한 화면에서 보는 StudyTube](docs/demo/studytube-watch-queue.png) | ![학습 주제에 맞는 영상을 추천받는 StudyTube](docs/demo/studytube-recommendations.png) |
+| ![YouTube 링크를 입력해 학습을 시작하는 화면](docs/demo/studytube-start-learning.jpg) | ![최근에 학습한 영상을 이어서 보는 화면](docs/demo/studytube-continue-learning.jpg) |
 
-![긴 자막 작업을 나누어 처리하고 학습 화면으로 돌아오는 흐름](docs/demo/studytube-caption-rate-limit-demo.gif)
-
-위 자료는 영상 재생, 다음 학습 순서, AI 추천과 자막 처리라는 서비스 핵심 동작을 보여줍니다.
+영상 등록부터 학습 재개, 영상별 학습 도구까지 이어지는 실제 서비스 화면입니다.
 
 ## 풀고 싶었던 문제
 

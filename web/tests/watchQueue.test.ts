@@ -9,6 +9,7 @@ import {
   mergeVideosIntoQueue,
   postPayloadFromQueueVideo,
   queueVideoFromCourseStep,
+  queueVideoFromDirectVideoId,
   queueVideoFromMcpVideo,
   queueVideoFromPost,
   queueVideoKey,
@@ -16,6 +17,18 @@ import {
   uniqueVideos,
   type QueueVideo,
 } from '../src/watchQueue.ts';
+
+test('builds a playable learning video from a direct watch URL', () => {
+  const direct = queueVideoFromDirectVideoId('sHS1z9Pr4v8');
+
+  assert.equal(direct?.videoId, 'sHS1z9Pr4v8');
+  assert.equal(
+    direct?.videoUrl,
+    'https://www.youtube.com/watch?v=sHS1z9Pr4v8',
+  );
+  assert.equal(direct?.source, '직접 링크');
+  assert.equal(queueVideoFromDirectVideoId('invalid'), null);
+});
 
 function post(id: number, videoId = `video-${id}`): StudyPost {
   return {

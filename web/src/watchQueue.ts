@@ -46,6 +46,21 @@ export function queueVideoFromLearningIntake(input: {
   });
 }
 
+export function queueVideoFromDirectVideoId(videoId: string): QueueVideo | null {
+  if (!/^[A-Za-z0-9_-]{11}$/.test(videoId)) return null;
+  return normalizeQueueVideo({
+    id: `direct-${videoId}`,
+    title: "YouTube 학습 영상",
+    videoId,
+    videoUrl: `https://www.youtube.com/watch?v=${videoId}`,
+    thumbnailUrl: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+    channelName: "YouTube",
+    summary: "",
+    translatedNotes: "",
+    source: "직접 링크",
+  });
+}
+
 export type CaptionLanguage = 'ko' | 'en';
 
 export type LoopRange = {

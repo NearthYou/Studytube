@@ -13,7 +13,10 @@ import {
 import type { LearningNote, Session } from "../../types.ts";
 import { startLearningIntake } from "../../learningIntake.ts";
 import { formatTime } from "../../videoSummaryDetails.ts";
-import type { QueueVideo } from "../../watchQueue.ts";
+import {
+  queueVideoFromDirectVideoId,
+  type QueueVideo,
+} from "../../watchQueue.ts";
 import { readWatchQueue } from "../../watchQueueStorage.ts";
 import {
   captionPairAt,
@@ -47,10 +50,11 @@ export function LearningWorkspace({ session }: { session: Session }) {
   const [searchParams] = useSearchParams();
   const [queue] = useState(() => readWatchQueue());
   const requestedVideoId = searchParams.get("videoId") ?? "";
-  const currentVideo =
-    queue.find((video) => video.videoId === requestedVideoId) ??
-    queue[0] ??
-    null;
+  const requestedVideo = requestedVideoId
+    ? (queue.find((video) => video.videoId === requestedVideoId) ??
+      queueVideoFromDirectVideoId(requestedVideoId))
+    : null;
+  const currentVideo = requestedVideo ?? queue[0] ?? null;
 
   if (!currentVideo) return <EmptyWorkspace />;
   return (
@@ -94,6 +98,7 @@ function ActiveLearningWorkspace({
   const playerRef = useRef<LearningVideoPlayerHandle | null>(null);
   const noteInputRef = useRef<HTMLTextAreaElement | null>(null);
   const captionsRef = useRef(state.captions);
+  const intakeStartedRef = useRef(false);
   const tablistRef = useRef<HTMLDivElement>(null);
   const notePositionSeconds =
     state.notePositionSeconds ?? state.currentTime;
@@ -124,6 +129,34 @@ function ActiveLearningWorkspace({
       });
     }
   }, [state.contextId, update, video.learningContextId, video.learningWorkId]);
+
+  useEffect(() => {
+    if (contextId || intakeStartedRef.current) return;
+    intakeStartedRef.current = true;
+    void startLearningIntake({
+      videoUrl: video.videoUrl,
+      requestedAudioSeconds: REQUESTED_AUDIO_SECONDS,
+    })
+      .then((result) => {
+        update({
+          contextId: result.context.studyContext.id,
+          workId: result.workId,
+          captions: EMPTY_CAPTION_STATE,
+        });
+      })
+      .catch((error: unknown) => {
+        update({
+          captions: {
+            ...EMPTY_CAPTION_STATE,
+            phase: "failed",
+            errorMessage:
+              error instanceof Error
+                ? error.message
+                : "학습을 준비하지 못했습니다. 다시 시도해주세요.",
+          },
+        });
+      });
+  }, [contextId, update, video.videoUrl]);
 
   useEffect(() => {
     if (!contextId) return;

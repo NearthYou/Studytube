@@ -10,7 +10,7 @@ class YoutubeSearchBoundaryTest(unittest.TestCase):
 
         self.assertIn("def lookup_youtube", module)
         self.assertIn("def search_youtube_page", module)
-        self.assertIn("from youtube_search import", main)
+        self.assertIn("import youtube_search as youtube_search_module", main)
         self.assertNotIn("def lookup_youtube", main)
 
 

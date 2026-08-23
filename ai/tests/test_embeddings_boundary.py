@@ -10,7 +10,7 @@ class EmbeddingsBoundaryTest(unittest.TestCase):
 
         self.assertIn("def create_embedding_response", module)
         self.assertIn("class EmbeddingProviderUnavailable", module)
-        self.assertIn("from embeddings import", main)
+        self.assertIn("import embeddings as embeddings_module", main)
         self.assertNotIn("def create_embedding_response", main)
 
 

@@ -10,7 +10,7 @@ class StudyGenerationBoundaryTest(unittest.TestCase):
 
         self.assertIn("def build_study_plan", module)
         self.assertIn("def choose_agent_tool", module)
-        self.assertIn("from study_generation import", main)
+        self.assertIn("import study_generation as study_generation_module", main)
         self.assertNotIn("def choose_agent_tool", main)
 
 

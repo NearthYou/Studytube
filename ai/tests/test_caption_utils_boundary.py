@@ -10,7 +10,7 @@ class CaptionUtilsBoundaryTest(unittest.TestCase):
 
         self.assertIn("def parse_timedtext_response", caption_utils)
         self.assertIn("def normalize_caption_segments", caption_utils)
-        self.assertIn("from caption_utils import", main)
+        self.assertIn("import caption_utils as caption_utils_module", main)
         self.assertNotIn("def parse_timedtext_response", main)
         self.assertNotIn("def normalize_caption_segments", main)
 

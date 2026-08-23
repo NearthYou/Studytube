@@ -1,268 +1,30 @@
 from __future__ import annotations
 
-import copy
-from concurrent.futures import ThreadPoolExecutor
-from contextlib import contextmanager
-import html as html_lib
-import hashlib
-import importlib.util
-import json
-import math
 import os
 from pathlib import Path
 import re
-import shlex
-import shutil
 import subprocess
 import sys
-import tempfile
-from threading import Lock, Thread
 import time
 from typing import Any
-from urllib.parse import parse_qsl, quote_plus, urlencode, urlparse, urlunparse
 
-from embeddings import (
-    EMBEDDING_DIMENSIONS,
-    EMBEDDING_INPUT_USD_PER_MILLION_TOKENS,
-    EMBEDDING_RESPONSE_CACHE,
-    EMBEDDING_RESPONSE_CACHE_MAX_SIZE,
-    EMBEDDING_RESPONSE_CACHE_TTL_SECONDS,
-    RETRIEVAL_EMBEDDING_MODEL,
-    EmbeddingProviderUnavailable,
-    create_embedding_response,
-    read_embedding_response_cache,
-    write_embedding_response_cache,
-)
-from study_generation import (
-    AGENT_TOOLS,
-    build_study_plan as build_study_plan_with_lookup,
-    choose_agent_tool,
-    choose_tool_with_llm,
-    create_agent_rationale,
-    create_playlist_recommendations,
-    create_playlist_title,
-    suggest_tags,
-    tokenize,
-    tool_reason,
-)
-from youtube_runtime import (
-    youtube_cookie_file_cookies,
-    youtube_httpx_request_kwargs,
-)
-import youtube_caption_tracks as caption_tracks_module
-from youtube_caption_tracks import (
-    CaptionTrackRuntime,
-    build_caption_url,
-    caption_candidate_urls,
-    caption_request_headers,
-    choose_caption_track,
-    configure_caption_track_runtime,
-    fetch_caption_segments_from_urls,
-    fetch_youtube_caption_tracks,
-    parse_json_assignment,
-    parse_yt_initial_player_response,
-    simple_timedtext_url,
-    source_caption_candidate_urls,
-)
-from youtube_search import (
-    best_thumbnail,
-    clean_text,
-    extract_text,
-    extract_video_hint,
-    fetch_youtube_oembed,
-    iter_video_renderers,
-    lookup_youtube,
-    parse_yt_initial_data,
-    search_youtube,
-    search_youtube_data_api,
-    search_youtube_page,
-    thumbnail_for_video,
-    video_metadata,
-    youtube_lookup_response,
-    youtube_search_url,
-)
-from app_factory import (
-    FeatureHandlers,
-    JSONResponse,
-    Request,
-    create_application,
-    is_mcp_protocol_path,
-    require_production_internal_key,
-)
-from caption_utils import (
-    DEFAULT_FALLBACK_CAPTION_DURATION_SECONDS,
-    align_caption_text_to_timing,
-    caption_segments_match_language,
-    chunk_text_for_captions,
-    clean_caption_text,
-    fallback_caption_response,
-    fallback_caption_segments,
-    normalize_caption_duration,
-    normalize_caption_segments,
-    normalize_language,
-    parse_json3_timedtext,
-    parse_timedtext_response,
-    parse_vtt_timestamp,
-    parse_webvtt_timedtext,
-    parse_xml_timedtext,
-    split_caption_sentences,
-)
-import caption_translation as caption_translation_module
-from caption_translation import (
-    CAPTION_TRANSLATION_BATCH_SIZE,
-    CAPTION_TRANSLATION_COMPACT_MAX_CHARS,
-    CAPTION_TRANSLATION_COMPACT_MAX_DURATION_SECONDS,
-    CAPTION_TRANSLATION_COMPACT_THRESHOLD,
-    CAPTION_TRANSLATION_INLINE_MAX_SEGMENTS,
-    CAPTION_TRANSLATION_MAX_WORKERS,
-    CAPTION_TRANSLATION_REQUEST_TIMEOUT_SECONDS,
-    CAPTION_TRANSLATION_TARGET_SEGMENTS,
-    CaptionTranslationRuntime,
-    caption_translation_language_name,
-    caption_translation_length_guidance,
-    caption_translation_unavailable_reason,
-    compact_caption_segments_for_translation,
-    compact_caption_segments_to_budget,
-    configure_caption_translation_runtime,
-    parse_caption_translations,
-    request_caption_translations,
-    translate_caption_batch,
-    translate_caption_segments,
-    translate_fallback_text,
-)
+import app_factory
 import caption_results as caption_results_module
-from caption_results import (
-    CaptionResultRuntime,
-    caption_rate_limited_response,
-    configure_caption_result_runtime,
-    fetch_transcript_api_segments,
-    list_youtube_transcripts,
-    native_caption_response,
-    parse_transcript_api_rows,
-    read_transcript_field,
-    source_caption_response,
-    transcript_api_caption_response,
-    yt_dlp_caption_response,
-)
 import caption_service as caption_service_module
-from caption_service import (
-    CAPTION_CACHE_POLICY_VERSION,
-    CAPTION_RESPONSE_CACHE,
-    CAPTION_RESPONSE_CACHE_MAX_SIZE,
-    CAPTION_RESPONSE_CACHE_TTL_SECONDS,
-    CAPTION_TRANSLATION_JOBS,
-    CAPTION_TRANSLATION_JOB_LOCK,
-    CAPTION_TRANSLATION_MAX_WINDOW_SECONDS,
-    CaptionServiceRuntime,
-    can_translate_captions_with_openai,
-    caption_response_cache_key,
-    caption_segments_in_window,
-    caption_target_language,
-    caption_window_bounds,
-    configure_caption_service_runtime,
-    is_cacheable_caption_response,
-    is_youtube_caption_rate_limited,
-    load_translated_captions,
-    load_translated_captions_uncached,
-    preferred_caption_error,
-    read_caption_response_cache,
-    run_caption_translation_job,
-    schedule_caption_translation,
-    should_translate_caption_segments_inline,
-    write_caption_response_cache,
-)
-import transcription as transcription_module
-from transcription import (
-    STT_MODEL_SNAPSHOT,
-    TranscriptionRuntime,
-    configure_transcription_runtime,
-    download_youtube_audio_window,
-    normalize_transcription_duration,
-    normalize_transcription_start,
-    production_transcription_adapter,
-    transcribe_youtube_audio,
-    transcription_capability_error,
-    transcription_failure,
-)
-import video_summary as video_summary_module
-from video_summary import (
-    SUMMARY_CACHE_POLICY_VERSION,
-    SUMMARY_RESPONSE_CACHE,
-    SUMMARY_RESPONSE_CACHE_MAX_SIZE,
-    SUMMARY_RESPONSE_CACHE_TTL_SECONDS,
-    VideoSummaryRuntime,
-    append_transcript_section,
-    best_key_transcript_candidate_per_bucket,
-    build_youtube_summary,
-    configure_video_summary_runtime,
-    fallback_video_summary_sections,
-    format_caption_time,
-    key_transcript_score,
-    key_transcript_segments,
-    key_transcript_target_count,
-    korean_fallback_video_summary_sections,
-    parse_summary_sections,
-    read_summary_response_cache,
-    sample_summary_segments,
-    spaced_key_transcript_candidates,
-    summarize_video_with_openai,
-    summary_caption_segments,
-    summary_response_cache_key,
-    summary_transcript_segments,
-    text_looks_korean,
-    timestamped_transcript_body,
-    transcript_review_candidates,
-    transcript_text_from_segments,
-    write_summary_response_cache,
-)
+import caption_translation as caption_translation_module
+import caption_utils as caption_utils_module
+import compatibility_exports
+import embeddings as embeddings_module
 import quiz_generation as quiz_generation_module
-from quiz_generation import (
-    QuizGenerationRuntime,
-    build_quiz_response,
-    configure_quiz_generation_runtime,
-)
+import runtime_environment
+import service_bridge as service_bridge_module
+import study_generation as study_generation_module
+import transcription as transcription_module
+import video_summary as video_summary_module
+import youtube_caption_tracks as caption_tracks_module
+import youtube_runtime as youtube_runtime_module
+import youtube_search as youtube_search_module
 import ytdlp_captions as ytdlp_captions_module
-from ytdlp_captions import (
-    YOUTUBE_SUBTITLE_PO_TOKEN_CACHE,
-    YOUTUBE_SUBTITLE_PO_TOKEN_CACHE_TTL_SECONDS,
-    YtDlpRuntime,
-    append_query_params,
-    caption_url_query_language,
-    caption_url_requests_translation,
-    caption_url_with_recovery_params,
-    choose_yt_dlp_caption_candidate,
-    choose_yt_dlp_caption_entry,
-    cleanup_temp_caption_files,
-    configure_ytdlp_runtime,
-    explicit_youtube_subtitle_po_token,
-    fetch_yt_dlp_caption_file_segments,
-    fetch_yt_dlp_caption_segments,
-    fetch_yt_dlp_metadata,
-    ffmpeg_location_args,
-    find_yt_dlp_caption_candidate,
-    generate_bgutil_subtitle_po_token,
-    generated_youtube_subtitle_po_token,
-    infer_yt_dlp_subtitle_language,
-    parse_best_yt_dlp_subtitle_file,
-    parse_yt_dlp_subtitle_file,
-    sanitized_caption_exception,
-    split_env_values,
-    truthy_env,
-    truthy_env_default,
-    youtube_bgutil_server_home,
-    youtube_node_runtime_path,
-    youtube_subprocess_environment,
-    youtube_subtitle_po_token,
-    yt_dlp_caption_source_language,
-    yt_dlp_commands,
-    yt_dlp_language_has_untranslated_entry,
-    yt_dlp_recovery_args,
-    yt_dlp_secret_config_args,
-    yt_dlp_sensitive_recovery_args,
-    yt_dlp_subtitle_language_attempts,
-)
-from runtime_environment import load_runtime_environment
-
 try:
     from dotenv import load_dotenv
 except ModuleNotFoundError:  # pragma: no cover - local test fallback
@@ -290,59 +52,41 @@ except ModuleNotFoundError:  # pragma: no cover - optional transcript fallback
     YouTubeTranscriptApi = None
 
 
+compatibility_exports.install_compatibility_exports(
+    globals(),
+    [
+        app_factory,
+        caption_results_module,
+        caption_service_module,
+        caption_translation_module,
+        caption_utils_module,
+        embeddings_module,
+        quiz_generation_module,
+        service_bridge_module,
+        study_generation_module,
+        transcription_module,
+        video_summary_module,
+        caption_tracks_module,
+        youtube_runtime_module,
+        youtube_search_module,
+        ytdlp_captions_module,
+    ],
+)
+Request = app_factory.Request
+JSONResponse = app_factory.JSONResponse
+
+
 AI_DIR = Path(__file__).resolve().parent
 ROOT_DIR = AI_DIR.parent
 
-load_runtime_environment(load_dotenv, ai_dir=AI_DIR, root_dir=ROOT_DIR)
+runtime_environment.load_runtime_environment(load_dotenv, ai_dir=AI_DIR, root_dir=ROOT_DIR)
 
 DEFAULT_DATABASE_URL = "postgresql://app:app@localhost:5432/app_dev"
 
-def youtube_caption_runtime_health() -> dict[str, bool]:
-    return {
-        "ytDlpAvailable": bool(yt_dlp_commands()),
-        "poTokenConfigured": explicit_youtube_subtitle_po_token() is not None,
-        "autoPoTokenEnabled": truthy_env_default("YOUTUBE_AUTO_SUBTITLE_PO_TOKEN", True),
-        "bgutilConfigured": bool(youtube_bgutil_server_home()),
-        "proxyConfigured": bool(os.getenv("YOUTUBE_PROXY_URL", "").strip()),
-        "cookiesConfigured": bool(
-            os.getenv("YOUTUBE_COOKIES_FILE", "").strip()
-            or os.getenv("YOUTUBE_COOKIES_FROM_BROWSER", "").strip()
-        ),
-    }
 
-
-def handle_mcp_request(payload: dict[str, Any]) -> dict[str, Any]:
-    request_id = payload.get("id")
-    method = payload.get("method")
-    params = payload.get("params") or {}
-
-    if payload.get("jsonrpc") != "2.0":
-        return json_rpc_error(request_id, -32600, "Invalid JSON-RPC version")
-
-    if method == "youtube.lookup":
-        return {
-            "jsonrpc": "2.0",
-            "id": request_id,
-            "result": lookup_youtube(params),
-        }
-
-    return json_rpc_error(request_id, -32601, f"Unknown MCP method: {method}")
-
-
-def build_study_plan(payload: dict[str, Any]) -> dict[str, Any]:
-    return build_study_plan_with_lookup(payload, lookup_youtube)
-
-
-
-def json_rpc_error(request_id: Any, code: int, message: str) -> dict[str, Any]:
-    return {
-        "jsonrpc": "2.0",
-        "id": request_id,
-        "error": {
-            "code": code,
-            "message": message,
-        },
-    }
+configure_service_bridge(
+    ServiceBridgeRuntime(namespace=sys.modules[__name__])
+)
 
 
 configure_caption_translation_runtime(

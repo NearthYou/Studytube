@@ -9,7 +9,7 @@ class AppBoundaryTest(unittest.TestCase):
         main = (ai_dir / "main.py").read_text(encoding="utf-8")
 
         self.assertIn("def create_application", app_factory)
-        self.assertIn("from app_factory import", main)
+        self.assertIn("import app_factory", main)
         self.assertIn("app = application_runtime.app", main)
         self.assertNotIn("@app.get", main)
         self.assertNotIn("@app.post", main)

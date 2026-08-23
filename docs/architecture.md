@@ -93,7 +93,7 @@ classDiagram
   DurableWorkRouter --> QuizGenerationWorker
 ```
 
-delivery는 at-least-once다. `DurableJobExecutor`는 같은 job claim 아래 result와 dead letter를 기록하고 heartbeat가 lease를 잃으면 외부 작업을 중단한다. 외부 API 응답 직후 crash window까지 exactly-once라고 주장하지 않는다.
+delivery는 at-least-once다. `DurableJobExecutor`는 같은 job claim 아래 result와 dead letter를 기록하고 heartbeat가 lease를 잃으면 외부 작업을 중단한다.
 
 ## 학습 자료와 Course 관계
 
@@ -121,5 +121,4 @@ Agent는 repository와 AI proxy를 임의로 호출하지 않는다. MCP control
 
 - production은 단일 EC2에 의존한다.
 - STT production 활성화는 model, 최대 금액과 만료가 포함된 별도 비용 승인이 필요하다.
-- `c065bda` deployment는 AWS 자격 증명 단계에서 실패해 live revision으로 확인되지 않았다.
 - current main의 인증 이후 전체 학습 흐름은 이번 문서 작업에서 새 browser E2E로 재현하지 않았다.

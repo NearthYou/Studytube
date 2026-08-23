@@ -26,5 +26,3 @@ API endpoint와 Course contract는 [API README](../api/README.md), 현재 Web �
 evidence는 특정 실행이나 contract를 보장하는 원자료다. 현재 제품 설명은 README와 architecture, 실행 명령과 결과는 verification이 소유한다.
 
 ## 문서 책임
-
-완료된 계획, 발표 원고와 학습용 연재는 현재 계약이 아니다. 필요한 사실은 위 canonical 문서에 통합하고 구현 과정은 Git history에서 확인한다.

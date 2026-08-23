@@ -228,7 +228,7 @@ service_restart_line="$(grep -n 'systemctl restart studytube-ai.service studytub
 preparation_line="$(grep -n 'bash scripts/install-production-runtime.sh prepare-release' "$repo_root/scripts/deploy-ec2.sh" | tail -1 | cut -d: -f1)"
 cutover_seal_line="$(grep -nE '^[[:space:]]*seal_deployment_guard_for_cutover$' \
   "$repo_root/scripts/deploy-ec2.sh" | tail -1 | cut -d: -f1)"
-data_reconcile_line="$(grep -n 'docker compose -f infra/production.compose.yml up -d --wait postgres valkey' "$repo_root/scripts/deploy-ec2.sh" | tail -1 | cut -d: -f1)"
+data_reconcile_line="$(grep -n -- '--remove-orphans postgres valkey' "$repo_root/scripts/deploy-ec2.sh" | tail -1 | cut -d: -f1)"
 runtime_install_line="$(grep -n 'bash scripts/install-production-runtime.sh$' "$repo_root/scripts/deploy-ec2.sh" | tail -1 | cut -d: -f1)"
 [[ "$preparation_line" =~ ^[0-9]+$ && "$cutover_seal_line" =~ ^[0-9]+$ &&
    "$data_reconcile_line" =~ ^[0-9]+$ && "$runtime_install_line" =~ ^[0-9]+$ ]] ||

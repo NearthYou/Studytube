@@ -71,39 +71,54 @@ export function captionPairAt(
 
 export function captionPhaseMessage(state: ProgressiveCaptionState) {
   const messages: Record<CaptionPhase, string> = {
-    source_pending: "원문 자막 확인 중",
-    transcription_pending: "원문 자막을 준비하고 있습니다.",
-    translation_pending: "한국어 자막을 준비하고 있습니다.",
-    index_pending: "자막은 준비됐고 문제 근거를 정리하고 있습니다.",
-    partial: "준비된 구간부터 보여드리고 있습니다.",
+    source_pending: "자막을 확인하고 있어요.",
+    transcription_pending: "자막을 만들고 있어요. 잠시만 기다려 주세요.",
+    translation_pending: "한국어로 옮기고 있어요.",
+    index_pending: "자막이 준비됐어요. 퀴즈를 만들고 있어요.",
+    partial: "준비된 자막부터 보여드리고 있어요.",
     failed:
       state.errorMessage ||
       captionFailureMessage(state.errorCode) ||
-      "자막을 준비하지 못했습니다. 잠시 후 다시 시도해주세요.",
-    complete: "원문과 한국어 자막이 준비되었습니다.",
+      "자막을 만들지 못했어요. 다시 시도해 주세요.",
+    complete: "자막이 모두 준비됐어요.",
   };
   return state.stale
-    ? `이전 자막 표시 중. ${messages[state.phase]}`
+    ? `이전 자막을 보여드리고 있어요. ${messages[state.phase]}`
     : messages[state.phase];
 }
 
 export function quizPreparation(state: ProgressiveCaptionState) {
   return state.phase === "complete"
     ? { ready: true, message: "퀴즈를 시작할 수 있습니다." }
-    : { ready: false, message: "문제 근거를 준비하고 있습니다." };
+    : { ready: false, message: "퀴즈를 준비하고 있어요." };
+}
+
+export function canRetryCaptions(errorCode?: string) {
+  return ![
+    "CAPTION_PROVIDER_UNAVAILABLE",
+    "STT_DISABLED",
+    "STT_NOT_APPROVED",
+    "VIDEO_LIVE_UNSUPPORTED",
+    "VIDEO_RESTRICTED",
+    "VIDEO_AUTH_REQUIRED",
+    "VIDEO_TOO_LONG",
+  ].includes(errorCode ?? "");
 }
 
 function captionFailureMessage(errorCode?: string) {
   const messages: Record<string, string> = {
-    STT_NOT_APPROVED: "음성 자막 기능을 아직 사용할 수 없습니다.",
-    STT_DISABLED: "음성 자막 기능이 잠시 중단되었습니다.",
-    VIDEO_LIVE_UNSUPPORTED: "실시간 영상은 아직 자막을 준비할 수 없습니다.",
-    VIDEO_RESTRICTED: "제한된 영상이라 자막을 준비할 수 없습니다.",
-    VIDEO_AUTH_REQUIRED: "로그인이 필요한 영상이라 자막을 준비할 수 없습니다.",
+    STT_NOT_APPROVED:
+      "이 영상은 제공되는 자막이 없어요. 자막이 있는 영상을 선택해주세요.",
+    STT_DISABLED:
+      "이 영상은 제공되는 자막이 없어요. 자막이 있는 영상을 선택해주세요.",
+    VIDEO_LIVE_UNSUPPORTED: "실시간 영상은 아직 자막을 만들 수 없어요.",
+    VIDEO_RESTRICTED: "이 영상에서는 자막을 만들 수 없어요.",
+    VIDEO_AUTH_REQUIRED: "로그인이 필요한 영상이라 자막을 만들 수 없어요.",
     VIDEO_TOO_LONG: "처리할 수 있는 길이를 넘은 영상입니다.",
-    CAPTION_PROVIDER_UNAVAILABLE: "원문 자막을 가져오지 못했습니다.",
-    TRANSCRIPTION_PROVIDER_UNAVAILABLE: "음성에서 자막을 만들지 못했습니다.",
-    TRANSLATION_PROVIDER_UNAVAILABLE: "한국어 자막을 만들지 못했습니다.",
+    CAPTION_PROVIDER_UNAVAILABLE:
+      "이 영상은 제공되는 자막이 없어요. 자막이 있는 영상을 선택해주세요.",
+    TRANSCRIPTION_PROVIDER_UNAVAILABLE: "자막을 만들지 못했어요.",
+    TRANSLATION_PROVIDER_UNAVAILABLE: "한국어로 옮기지 못했어요.",
   };
   return errorCode ? messages[errorCode] : undefined;
 }

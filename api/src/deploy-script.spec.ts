@@ -119,10 +119,13 @@ describe('EC2 deployment script', () => {
     );
     const postgresStart = script.indexOf('--no-recreate postgres valkey');
     const cutoverDataStart = script.lastIndexOf(
-      'docker compose -f infra/production.compose.yml up -d --wait postgres valkey',
+      'docker compose -f infra/production.compose.yml up -d --wait \\\n      --remove-orphans postgres valkey',
     );
     const migration = script.indexOf(
       'bash scripts/install-production-runtime.sh run-migration',
+    );
+    const sttApproval = script.indexOf(
+      'bash scripts/install-production-runtime.sh run-stt-approval',
     );
     const learningCutover = script.indexOf(
       'bash scripts/install-production-runtime.sh run-learning-cutover',
@@ -165,6 +168,15 @@ describe('EC2 deployment script', () => {
     expect(migration).toBeGreaterThan(isolatedPreparation);
     expect(migration).toBeGreaterThan(migrationGuards[1]?.index ?? -1);
     expect(processStart).toBeGreaterThan(migration);
+    expect(sttApproval).toBeGreaterThan(migration);
+    expect(sttApproval).toBeLessThan(processStart);
+    expect(runtimeInstaller).toContain(
+      'api/dist/scripts/apply-stt-cost-approval.js',
+    );
+    expect(runtimeInstaller).toContain('AI_GLOBAL_MONTHLY_COST_MICROUNITS');
+    expect(environmentExample).toContain(
+      'AI_GLOBAL_MONTHLY_COST_MICROUNITS=1000000',
+    );
   });
 
   it('fails closed when the checked-out release contains unverified files', () => {
@@ -506,6 +518,13 @@ describe('EC2 deployment script', () => {
       'docker compose -f infra/production.compose.yml create --force-recreate caddy',
     );
     expect(script).toContain('systemctl restart studytube-caddy.service');
+  });
+
+  it('removes the retired audio extraction sidecar during deployment', () => {
+    expect(productionCompose).not.toContain('youtube-pot:');
+    expect(productionCompose).not.toContain('bgutil-ytdlp-pot-provider');
+    expect(script).toContain('--remove-orphans --no-recreate postgres valkey');
+    expect(script).toContain('--remove-orphans postgres valkey');
   });
 
   it('retains request paths and response statuses without logging query values', () => {
@@ -1352,7 +1371,7 @@ source '${deployScript}'
     expect(productionCompose).toContain('valkey/valkey:9.1.1-alpine');
     expect(productionCompose).toContain('127.0.0.1:6379:6379');
     expect(productionCompose).toContain('--appendonly');
-    expect(script).toContain('up -d --wait postgres valkey');
+    expect(script).toContain('--remove-orphans postgres valkey');
     expect(script).toContain('studytube-worker.service');
     expect(autoDeployScript).toContain(
       'systemctl is-active --quiet studytube-worker.service',

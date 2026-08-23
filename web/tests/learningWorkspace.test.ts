@@ -31,8 +31,21 @@ test("learning workspace keeps the player, bilingual current caption and tabs in
   assert.match(source, /원문/);
   assert.match(source, /한국어/);
   assert.match(source, /label: "전체 자막"/);
+  assert.match(source, /label: "핵심 내용"/);
   assert.match(source, /label: "메모"/);
   assert.match(source, /label: "퀴즈"/);
+});
+
+test("learning workspace shows useful video context without technical labels", () => {
+  const source = readFileSync(
+    resolve(featureDirectory, "LearningWorkspace.tsx"),
+    "utf8",
+  );
+
+  assert.match(source, /function LearningSummaryPanel/);
+  assert.match(source, /핵심 내용/);
+  assert.match(source, /video\.summary/);
+  assert.doesNotMatch(source, /AI 요약|자막 근거|문제 근거/);
 });
 
 test("YouTube loading and playback lifecycle stay behind one player interface", () => {
@@ -58,10 +71,37 @@ test("unfinished learning tools are presented as preparation states", () => {
     resolve(featureDirectory, "captionState.ts"),
     "utf8",
   );
-  assert.match(stateSource, /문제 근거를 준비하고 있습니다/);
-  assert.match(source, /state\.captions\.phase !== "complete"/);
-  assert.match(source, /상태 새로고침/);
+  assert.match(stateSource, /퀴즈를 준비하고 있어요/);
+  assert.match(source, /const MAX_CAPTION_POLLS = 170/);
+  assert.match(source, /startLearningIntake/);
+  assert.match(source, /자막 다시 만들기/);
+  assert.match(source, /자막이 있는 다른 영상 선택/);
+  assert.match(source, /canRetryCaptions/);
   assert.doesNotMatch(source, /Agent|MCP|RAG|AI/);
+  assert.doesNotMatch(
+    `${source}\n${stateSource}`,
+    /자막 근거|문제 근거|음성 자막 기능|원문 자막 확인 중/,
+  );
+});
+
+test("native YouTube captions stay visible until prepared captions arrive", () => {
+  const workspaceSource = readFileSync(
+    resolve(featureDirectory, "LearningWorkspace.tsx"),
+    "utf8",
+  );
+  const playerSource = readFileSync(
+    resolve(featureDirectory, "LearningVideoPlayer.tsx"),
+    "utf8",
+  );
+
+  assert.match(workspaceSource, /preferNativeCaptions=/);
+  assert.match(workspaceSource, /caption=\{currentCaption\}/);
+  assert.match(playerSource, /preferNativeCaptions: boolean/);
+  assert.match(playerSource, /className="learning-player-caption"/);
+  assert.match(
+    playerSource,
+    /cc_load_policy: preferNativeCaptionsRef\.current \? 1 : 0/,
+  );
 });
 
 test("quiz polling keeps one bounded abortable loop for each quiz identity", () => {
@@ -87,6 +127,17 @@ test("next proposal requests are single-flight and cancel polling on unmount", (
   assert.match(source, /waitForProposalRun\(run, signal\)/);
   assert.match(source, /idempotencyKey/);
   assert.match(source, /activeRequestRef\.current\?\.controller\.abort\(\)/);
+});
+
+test("note drafting pins one playback position until the learner changes it", () => {
+  const source = readFileSync(
+    resolve(featureDirectory, "LearningWorkspace.tsx"),
+    "utf8",
+  );
+
+  assert.match(source, /notePositionSeconds/);
+  assert.match(source, /현재 위치로 바꾸기/);
+  assert.doesNotMatch(source, /positionSeconds: state\.currentTime/);
 });
 
 test("learning workspace collapses safely at phone width", () => {

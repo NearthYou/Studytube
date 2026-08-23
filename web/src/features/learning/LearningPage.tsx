@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { useNavigate } from "react-router";
+import { askMcp } from "../../api.ts";
 import { startLearningIntake } from "../../learningIntake.ts";
 import type { Session } from "../../types.ts";
 import { extractYouTubeId } from "../../videoMetadata.ts";
@@ -36,17 +37,37 @@ export function LearningPage({ session }: { session: Session }) {
     setStatus("영상 학습을 준비하고 있습니다.");
     setIsSubmitting(true);
     try {
-      const result = await startLearningIntake({
-        videoUrl: normalizedUrl,
-        requestedAudioSeconds: DEFAULT_REQUESTED_AUDIO_SECONDS,
-      });
+      const [result, metadataResponse] = await Promise.all([
+        startLearningIntake({
+          videoUrl: normalizedUrl,
+          requestedAudioSeconds: DEFAULT_REQUESTED_AUDIO_SECONDS,
+        }),
+        askMcp({ url: normalizedUrl, limit: 1 }).catch(() => null),
+      ]);
       const contextId = result.context.studyContext.id;
-      const video = queueVideoFromLearningIntake({
+      const queuedVideo = queueVideoFromLearningIntake({
         videoId,
         videoUrl: normalizedUrl,
         contextId,
         workId: result.workId,
       });
+      const metadata =
+        metadataResponse?.result?.videos[0] ?? metadataResponse?.result;
+      const title = metadata?.title?.trim() || queuedVideo.title;
+      const channelName = metadata?.channel?.trim() || queuedVideo.channelName;
+      const metadataSummary = metadata?.summary?.trim();
+      const video: QueueVideo = {
+        ...queuedVideo,
+        title,
+        channelName,
+        thumbnailUrl: metadata?.thumbnailUrl?.trim() || queuedVideo.thumbnailUrl,
+        summary:
+          metadataSummary &&
+          metadataSummary !==
+            "YouTube oEmbed metadata fetched through the MCP server."
+            ? metadataSummary
+            : `${channelName}의 ${title} 영상입니다.`,
+      };
       const queue = addVideosToQueue([video], video);
       setRecentVideos(queue);
       patchLearningSession(session.user.id, videoId, {

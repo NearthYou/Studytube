@@ -15,6 +15,7 @@ export type ProviderBudgetPolicy = Readonly<{
   maxConcurrentWorksPerUser: number;
   microsPerAudioSecond: number;
   maxGlobalDailyCostMicrounits: number;
+  maxGlobalMonthlyCostMicrounits: number;
 }>;
 
 type ExistingReservationRow = ProviderBudgetReservation;
@@ -26,6 +27,7 @@ type ExistingWorkRow = {
 type BudgetSnapshotRow = {
   globalAudioSeconds: number;
   globalCostMicrounits: number;
+  globalMonthlyCostMicrounits: number;
   userAudioSeconds: number;
   globalConcurrentWorks: number;
   userConcurrentWorks: number;
@@ -326,6 +328,16 @@ export class PostgresProviderBudgetRepository implements ProviderBudgetRepositor
            FROM provider_work_reservations
            WHERE usage_day = $2::date AND state IN ('reserved', 'committed')), 0)
            AS "globalCostMicrounits",
+         COALESCE((SELECT sum(
+             CASE WHEN state = 'committed'
+               THEN COALESCE(actual_cost_microunits, estimated_cost_microunits)
+               ELSE estimated_cost_microunits END
+           )::float8
+           FROM provider_work_reservations
+           WHERE usage_day >= date_trunc('month', $2::date)::date
+             AND usage_day < (date_trunc('month', $2::date) + interval '1 month')::date
+             AND state IN ('reserved', 'committed')), 0)
+           AS "globalMonthlyCostMicrounits",
          COALESCE((SELECT sum(reserved_audio_seconds)::int
            FROM provider_subscription_reservations
            WHERE user_id = $1 AND usage_day = $2::date
@@ -340,6 +352,7 @@ export class PostgresProviderBudgetRepository implements ProviderBudgetRepositor
       result.rows[0] ?? {
         globalAudioSeconds: 0,
         globalCostMicrounits: 0,
+        globalMonthlyCostMicrounits: 0,
         userAudioSeconds: 0,
         globalConcurrentWorks: 0,
         userConcurrentWorks: 0,
@@ -352,6 +365,14 @@ export class PostgresProviderBudgetRepository implements ProviderBudgetRepositor
     requestedSeconds: number,
     joinsExistingWork: boolean,
   ): void {
+    if (
+      !joinsExistingWork &&
+      snapshot.globalMonthlyCostMicrounits +
+        requestedSeconds * this.policy.microsPerAudioSecond >
+        this.policy.maxGlobalMonthlyCostMicrounits
+    ) {
+      throw new ProviderBudgetUnavailableError('MONTHLY_CAP');
+    }
     if (
       !joinsExistingWork &&
       snapshot.globalAudioSeconds + requestedSeconds >

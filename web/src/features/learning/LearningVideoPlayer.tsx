@@ -39,13 +39,19 @@ export type LearningVideoPlayerHandle = {
 export const LearningVideoPlayer = forwardRef<
   LearningVideoPlayerHandle,
   {
+    caption: { korean: string; source: string };
     initialTime: number;
     onTimeChange: (seconds: number) => void;
+    preferNativeCaptions: boolean;
     videoId: string;
   }
->(function LearningVideoPlayer({ initialTime, onTimeChange, videoId }, ref) {
+>(function LearningVideoPlayer(
+  { caption, initialTime, onTimeChange, preferNativeCaptions, videoId },
+  ref,
+) {
   const playerRef = useRef<YoutubePlayer | null>(null);
   const initialTimeRef = useRef(initialTime);
+  const preferNativeCaptionsRef = useRef(preferNativeCaptions);
   const onTimeChangeRef = useRef(onTimeChange);
   const errorRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState("");
@@ -71,7 +77,12 @@ export const LearningVideoPlayer = forwardRef<
         playerRef.current?.destroy();
         playerRef.current = new youtube.Player("learning-youtube-player", {
           videoId,
-          playerVars: { rel: 0, playsinline: 1, enablejsapi: 1 },
+          playerVars: {
+            rel: 0,
+            playsinline: 1,
+            enablejsapi: 1,
+            cc_load_policy: preferNativeCaptionsRef.current ? 1 : 0,
+          },
           events: {
             onReady: ({ target }) => {
               playerRef.current = target;
@@ -119,6 +130,12 @@ export const LearningVideoPlayer = forwardRef<
   return (
     <section className="learning-player" aria-label="YouTube 영상 플레이어">
       <div id="learning-youtube-player" />
+      {(caption.korean || caption.source) && (
+        <div className="learning-player-caption" aria-live="polite">
+          {caption.korean && <p>{caption.korean}</p>}
+          {caption.source && <small>{caption.source}</small>}
+        </div>
+      )}
       {error && (
         <div
           className="learning-player-error"

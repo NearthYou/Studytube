@@ -68,57 +68,26 @@ export class VideoAssetService {
     );
     signal.throwIfAborted();
 
-    let source = captions.sourceSegments.length
+    const source = captions.sourceSegments.length
       ? captions.sourceSegments
       : captions.translated
         ? []
         : captions.segments;
-    let translated = captions.translatedSegments.length
+    const translated = captions.translatedSegments.length
       ? captions.translatedSegments
       : captions.translated
         ? captions.segments
         : [];
-    let sourceKind: Extract<
-      CaptionArtifactKind,
-      'youtube_caption' | 'transcription'
-    > = 'youtube_caption';
-    let sourceLanguage = captions.sourceLanguage || 'und';
+    const sourceKind: Extract<CaptionArtifactKind, 'youtube_caption'> =
+      'youtube_caption';
+    const sourceLanguage = captions.sourceLanguage || 'und';
 
     if (source.length === 0) {
-      const model = 'gpt-4o-mini-transcribe-2025-12-15';
-      if (!(await artifacts.hasActiveSttApproval(model))) {
-        return this.failLearningCaption(artifacts, request, 'STT_NOT_APPROVED');
-      }
-      signal.throwIfAborted();
-      const transcription = this.normalizeTranscriptionResponse(
-        await this.aiProxyService.transcribe(
-          {
-            videoId: request.canonicalVideoId,
-            durationSeconds: request.durationSeconds,
-            model,
-          },
-          signal,
-        ),
+      return this.failLearningCaption(
+        artifacts,
+        request,
+        'CAPTION_PROVIDER_UNAVAILABLE',
       );
-      signal.throwIfAborted();
-      if (transcription.errorCode) {
-        return this.failLearningCaption(
-          artifacts,
-          request,
-          transcription.errorCode,
-        );
-      }
-      if (transcription.segments.length === 0) {
-        return this.failLearningCaption(
-          artifacts,
-          request,
-          'TRANSCRIPTION_PROVIDER_UNAVAILABLE',
-        );
-      }
-      source = transcription.segments;
-      translated = transcription.translatedSegments;
-      sourceLanguage = transcription.sourceLanguage || 'und';
-      sourceKind = 'transcription';
     }
 
     const sourceGeneration = await artifacts.createGeneration({
@@ -472,27 +441,13 @@ export class VideoAssetService {
     };
   }
 
-  private normalizeTranscriptionResponse(response: unknown): {
-    sourceLanguage: string;
-    segments: VideoAssetSegment[];
-    translatedSegments: VideoAssetSegment[];
-    errorCode: CaptionSafeErrorCode | null;
-  } {
-    const value = this.objectValue(response);
-    return {
-      sourceLanguage: this.stringValue(value.sourceLanguage),
-      segments: this.normalizeSegments(value.segments),
-      translatedSegments: this.normalizeSegments(value.translatedSegments),
-      errorCode: this.captionSafeErrorCode(value.errorCode),
-    };
-  }
-
   private async appendCaptionSegments(
     artifacts: CaptionArtifactRepository,
     artifactId: string,
     segments: VideoAssetSegment[],
     request: CaptionPipelineRequest,
     signal: AbortSignal,
+    startOrdinal = 0,
   ): Promise<void> {
     for (let offset = 0; offset < segments.length; offset += 50) {
       signal.throwIfAborted();
@@ -500,7 +455,7 @@ export class VideoAssetService {
         artifactId,
         request,
         segments: segments.slice(offset, offset + 50).map((segment, index) => ({
-          ordinal: offset + index,
+          ordinal: startOrdinal + offset + index,
           ...segment,
         })),
       });

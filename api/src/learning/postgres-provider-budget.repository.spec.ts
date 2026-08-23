@@ -178,6 +178,48 @@ describe('PostgresProviderBudgetRepository', () => {
       ),
     ).toBe(false);
   });
+
+  it('rejects before durable work when the monthly one-dollar cap is exhausted', async () => {
+    const query = jest
+      .fn()
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            globalAudioSeconds: 0,
+            globalCostMicrounits: 0,
+            globalMonthlyCostMicrounits: 990_000,
+            userAudioSeconds: 0,
+            globalConcurrentWorks: 0,
+            userConcurrentWorks: 0,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ rows: [] });
+    const repository = new PostgresProviderBudgetRepository(
+      {
+        connect: jest.fn().mockResolvedValue({ query, release: jest.fn() }),
+      } as unknown as Pool,
+      {
+        ...policy(),
+        microsPerAudioSecond: 50,
+        maxGlobalDailyCostMicrounits: 100_000,
+        maxGlobalMonthlyCostMicrounits: 1_000_000,
+      },
+    );
+
+    await expect(repository.reserve(command)).rejects.toMatchObject({
+      reason: 'MONTHLY_CAP',
+    });
+    expect(
+      sqlCalls(query).some((sql) =>
+        sql.includes("date_trunc('month', $2::date)"),
+      ),
+    ).toBe(true);
+  });
 });
 
 function policy(
@@ -193,6 +235,7 @@ function policy(
     maxConcurrentWorksPerUser: 1,
     microsPerAudioSecond: 1,
     maxGlobalDailyCostMicrounits: 28_800,
+    maxGlobalMonthlyCostMicrounits: 1_000_000,
     ...overrides,
   };
 }

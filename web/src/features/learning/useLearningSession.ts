@@ -5,7 +5,7 @@ import {
   type ProgressiveCaptionState,
 } from "./captionState.ts";
 
-export type LearningTab = "transcript" | "notes" | "quiz";
+export type LearningTab = "summary" | "transcript" | "notes" | "quiz";
 
 export type LearningSessionState = {
   videoId: string;
@@ -14,6 +14,7 @@ export type LearningSessionState = {
   selectedTab: LearningTab;
   currentTime: number;
   noteDraft: string;
+  notePositionSeconds: number | null;
   notes: LearningNote[];
   captions: ProgressiveCaptionState;
 };
@@ -93,22 +94,34 @@ function normalizeLearningSession(
   value: Partial<LearningSessionState>,
   videoId: string,
 ): LearningSessionState {
-  const selectedTab: LearningTab = ["transcript", "notes", "quiz"].includes(
-    value.selectedTab ?? "",
-  )
+  const selectedTab: LearningTab = [
+    "summary",
+    "transcript",
+    "notes",
+    "quiz",
+  ].includes(value.selectedTab ?? "")
     ? (value.selectedTab as LearningTab)
-    : "transcript";
+    : "summary";
+  const currentTime =
+    typeof value.currentTime === "number" && Number.isFinite(value.currentTime)
+      ? Math.max(0, value.currentTime)
+      : 0;
+  const noteDraft = typeof value.noteDraft === "string" ? value.noteDraft : "";
+  const notePositionSeconds =
+    typeof value.notePositionSeconds === "number" &&
+    Number.isFinite(value.notePositionSeconds)
+      ? Math.max(0, value.notePositionSeconds)
+      : noteDraft
+        ? currentTime
+        : null;
   return {
     videoId,
     contextId: typeof value.contextId === "string" ? value.contextId : "",
     workId: typeof value.workId === "string" ? value.workId : "",
     selectedTab,
-    currentTime:
-      typeof value.currentTime === "number" &&
-      Number.isFinite(value.currentTime)
-        ? Math.max(0, value.currentTime)
-        : 0,
-    noteDraft: typeof value.noteDraft === "string" ? value.noteDraft : "",
+    currentTime,
+    noteDraft,
+    notePositionSeconds,
     notes: Array.isArray(value.notes) ? value.notes : [],
     captions: value.captions
       ? { ...EMPTY_CAPTION_STATE, ...value.captions }

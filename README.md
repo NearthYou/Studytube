@@ -53,7 +53,7 @@ YouTube에서 외국어 영상을 공부하면 재생 화면, 번역, 메모, �
 
 처음에는 원문 자막을 받은 뒤 번역과 검색 준비가 모두 끝날 때까지 학습 화면이 비어 있었다. 긴 영상일수록 번역 종료가 학습 시작을 막는 증상이 생겼다.
 
-원문 자막, 한국어 번역, retrieval 준비 상태를 각각 저장하고, 준비된 segment부터 먼저 보여주도록 바꿨다. source, translation, index의 pending과 partial, complete, failed 상태를 화면에 전달해야 해 중간 상태는 복잡해졌지만, 전체 번역을 기다리지 않고 학습을 시작할 수 있다.
+원문, 번역, index artifact는 pending, partial, ready, failed 상태로 저장한다. API는 이 상태와 retrieval-ready boolean으로 complete를 포함한 단일 caption phase를 만들어 화면에 보낸다. 준비된 segment부터 먼저 보여주도록 바꿨다. 상태를 합쳐야 해 중간 처리는 복잡해졌지만, 전체 번역을 기다리지 않고 학습을 시작할 수 있다.
 
 ### 비용이 생기는 작업은 먼저 예약한다
 

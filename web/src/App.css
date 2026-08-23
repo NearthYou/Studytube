@@ -5843,6 +5843,12 @@ footer {
   background: #fff;
 }
 
+.learning-tools .learning-tablist button {
+  padding-inline: 8px;
+  white-space: nowrap;
+  font-size: var(--font-13);
+}
+
 .learning-source-status {
   padding: 12px 14px;
   border: 1px solid var(--line);

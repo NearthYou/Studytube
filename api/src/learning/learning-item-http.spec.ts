@@ -12,6 +12,8 @@ import { LearningItemService } from './learning-item.service';
 import { LearningItemController } from './learning-item.controller';
 import { LEARNING_NOTE_REPOSITORY } from './learning-note.repository';
 import { createOpenApiDocument } from '../openapi';
+import { validate } from 'class-validator';
+import { StartLearningItemDto } from './learning-item.dto';
 import {
   PROVIDER_BUDGET_REPOSITORY,
   ProviderBudgetUnavailableError,
@@ -250,6 +252,21 @@ describe('LearningItemService intake boundary', () => {
       }),
     ).rejects.toBe(persistenceError);
     expect(releaseSubscription).toHaveBeenCalledWith(8, '42');
+  });
+});
+
+describe('StartLearningItemDto', () => {
+  it('rejects transcription requests longer than ten minutes', async () => {
+    const input = Object.assign(new StartLearningItemDto(), {
+      videoUrl: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+      requestedAudioSeconds: 601,
+    });
+
+    const errors = await validate(input);
+
+    expect(errors).toEqual([
+      expect.objectContaining({ property: 'requestedAudioSeconds' }),
+    ]);
   });
 });
 

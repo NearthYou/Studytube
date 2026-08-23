@@ -1,4 +1,6 @@
 export const PROVIDER_BUDGET_REPOSITORY = Symbol('PROVIDER_BUDGET_REPOSITORY');
+export const MAX_LEARNING_AUDIO_SECONDS = 600;
+export const DEFAULT_ESTIMATED_MICROUNITS_PER_AUDIO_SECOND = 50;
 
 export type ReserveProviderWorkCommand = Readonly<{
   userId: number;

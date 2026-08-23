@@ -1,6 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { AiProxyService } from './ai-proxy.service';
 import type { BoardRepository, StudyPost } from './study-board.types';
+import {
+  DEFAULT_ESTIMATED_MICROUNITS_PER_AUDIO_SECOND,
+  MAX_LEARNING_AUDIO_SECONDS,
+} from './learning/provider-budget.repository';
 import type {
   CaptionArtifactKind,
   CaptionArtifactRepository,
@@ -28,6 +32,8 @@ type SummaryResponse = {
   message: string;
   failed: boolean;
 };
+
+const STT_MODEL_SNAPSHOT = 'gpt-4o-mini-transcribe-2025-12-15';
 
 export class CaptionTranslationPendingError extends Error {
   readonly code = 'CAPTION_TRANSLATION_PENDING';
@@ -83,11 +89,10 @@ export class VideoAssetService {
     const sourceLanguage = captions.sourceLanguage || 'und';
 
     if (source.length === 0) {
-      return this.failLearningCaption(
-        artifacts,
-        request,
-        'CAPTION_PROVIDER_UNAVAILABLE',
-      );
+      if (!(await artifacts.hasActiveSttApproval(STT_MODEL_SNAPSHOT))) {
+        return this.failLearningCaption(artifacts, request, 'STT_NOT_APPROVED');
+      }
+      return this.prepareTranscribedCaptions(artifacts, request, signal);
     }
 
     const sourceGeneration = await artifacts.createGeneration({
@@ -463,6 +468,123 @@ export class VideoAssetService {
     }
   }
 
+  private normalizeTranscriptionResponse(response: unknown): {
+    sourceLanguage: string;
+    segments: VideoAssetSegment[];
+    translatedSegments: VideoAssetSegment[];
+    errorCode: CaptionSafeErrorCode | null;
+    mediaDurationSeconds: number | null;
+  } {
+    const value = this.objectValue(response);
+    return {
+      sourceLanguage: this.stringValue(value.sourceLanguage),
+      segments: this.normalizeSegments(value.segments),
+      translatedSegments: this.normalizeSegments(value.translatedSegments),
+      errorCode: this.captionSafeErrorCode(value.errorCode),
+      mediaDurationSeconds: this.positiveDuration(value.mediaDurationSeconds),
+    };
+  }
+
+  private async prepareTranscribedCaptions(
+    artifacts: CaptionArtifactRepository,
+    request: CaptionPipelineRequest,
+    signal: AbortSignal,
+  ): Promise<LearningCaptionResult> {
+    const durationSeconds = Math.min(
+      request.durationSeconds,
+      MAX_LEARNING_AUDIO_SECONDS,
+    );
+    signal.throwIfAborted();
+    const transcription = this.normalizeTranscriptionResponse(
+      await this.aiProxyService.transcribe(
+        {
+          videoId: request.canonicalVideoId,
+          startSeconds: 0,
+          durationSeconds,
+          targetLanguage: request.targetLanguage,
+          model: STT_MODEL_SNAPSHOT,
+        },
+        signal,
+      ),
+    );
+    signal.throwIfAborted();
+    if (transcription.errorCode || transcription.segments.length === 0) {
+      return this.failLearningCaption(
+        artifacts,
+        request,
+        transcription.errorCode ?? 'TRANSCRIPTION_PROVIDER_UNAVAILABLE',
+      );
+    }
+
+    const sourceLanguage = transcription.sourceLanguage || 'und';
+    const sourceGeneration = await artifacts.createGeneration({
+      kind: 'transcription',
+      sourceLanguage,
+      request,
+    });
+    await this.appendCaptionSegments(
+      artifacts,
+      sourceGeneration.id,
+      transcription.segments,
+      request,
+      signal,
+    );
+    await this.publishCaptionGeneration(
+      artifacts,
+      sourceGeneration.id,
+      request,
+      signal,
+    );
+
+    let translationArtifactId: string | null = null;
+    if (
+      sourceLanguage !== request.targetLanguage &&
+      transcription.translatedSegments.length === 0
+    ) {
+      throw new CaptionTranslationPendingError();
+    }
+    if (transcription.translatedSegments.length > 0) {
+      const translationGeneration = await artifacts.createGeneration({
+        kind: 'translation',
+        parentArtifactId: sourceGeneration.id,
+        sourceLanguage,
+        targetLanguage: request.targetLanguage,
+        request,
+      });
+      translationArtifactId = translationGeneration.id;
+      await this.appendCaptionSegments(
+        artifacts,
+        translationGeneration.id,
+        transcription.translatedSegments,
+        request,
+        signal,
+      );
+      await this.publishCaptionGeneration(
+        artifacts,
+        translationGeneration.id,
+        request,
+        signal,
+      );
+    }
+
+    const billedSeconds = Math.min(
+      durationSeconds,
+      transcription.mediaDurationSeconds ?? durationSeconds,
+    );
+    await artifacts.commitWork({
+      request,
+      actualCostMicrounits: Math.round(
+        billedSeconds * DEFAULT_ESTIMATED_MICROUNITS_PER_AUDIO_SECOND,
+      ),
+    });
+    return {
+      sourceArtifactId: sourceGeneration.id,
+      translationArtifactId,
+      source: 'transcription',
+      status: 'ready',
+    };
+  }
+
   private async publishCaptionGeneration(
     artifacts: CaptionArtifactRepository,
     artifactId: string,
@@ -642,6 +764,13 @@ export class VideoAssetService {
 
   private stringValue(value: unknown): string {
     return typeof value === 'string' ? value : '';
+  }
+
+  private positiveDuration(value: unknown): number | null {
+    const duration = Number(value);
+    return Number.isFinite(duration) && duration > 0 && duration <= 14_400
+      ? duration
+      : null;
   }
 }
 

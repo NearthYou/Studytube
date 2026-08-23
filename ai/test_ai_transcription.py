@@ -162,7 +162,7 @@ class AiServiceTest(unittest.TestCase):
             "gpt-4o-mini-transcribe-2025-12-15",
         )
 
-    def test_audio_download_keeps_the_original_format_without_ffmpeg(self):
+    def test_audio_download_cuts_the_first_ten_minutes_of_a_long_video(self):
         captured_command = []
 
         def fake_run(command, **_kwargs):
@@ -174,7 +174,7 @@ class AiServiceTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory, mock.patch.object(
             main,
             "fetch_yt_dlp_metadata",
-            return_value=({"duration": 190}, ""),
+            return_value=({"duration": 3200}, ""),
         ), mock.patch.object(
             main,
             "yt_dlp_commands",
@@ -183,6 +183,10 @@ class AiServiceTest(unittest.TestCase):
             main,
             "yt_dlp_secret_config_args",
             return_value=nullcontext([]),
+        ), mock.patch.object(
+            main,
+            "ffmpeg_location_args",
+            return_value=["--ffmpeg-location", "test-ffmpeg"],
         ), mock.patch.object(main.subprocess, "run", side_effect=fake_run):
             audio_path, duration = main.download_youtube_audio_window(
                 {
@@ -194,11 +198,16 @@ class AiServiceTest(unittest.TestCase):
             )
 
         self.assertEqual(audio_path.suffix, ".webm")
-        self.assertEqual(duration, 190)
+        self.assertEqual(duration, 3200)
         self.assertNotIn("--extract-audio", captured_command)
         self.assertNotIn("--audio-format", captured_command)
-        self.assertNotIn("--download-sections", captured_command)
-        self.assertNotIn("--force-keyframes-at-cuts", captured_command)
+        self.assertIn("--download-sections", captured_command)
+        self.assertEqual(
+            captured_command[captured_command.index("--download-sections") + 1],
+            "*0-600",
+        )
+        self.assertIn("--force-keyframes-at-cuts", captured_command)
+        self.assertIn("--ffmpeg-location", captured_command)
 
     def test_production_transcription_translates_the_ready_source_window(self):
         source = [{"start": 0, "end": 5, "text": "hello"}]

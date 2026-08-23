@@ -27,6 +27,7 @@ class TranscriptionRuntime:
     secret_config_args: Callable[[], Any]
     yt_dlp_commands: Callable[[], list[list[str]]]
     yt_dlp_recovery_args: Callable[[], list[str]]
+    ffmpeg_location_args: Callable[[], list[str]]
     subprocess_environment: Callable[[], dict[str, str]]
     translate_segments: Callable[[list[dict[str, Any]], str], list[dict[str, Any]]]
     default_adapter: Callable[[dict[str, Any]], dict[str, Any]]
@@ -115,12 +116,21 @@ def download_youtube_audio_window(
     media_duration = normalize_transcription_duration(
         metadata.get("duration") if isinstance(metadata, dict) else None
     ) or (start_seconds + requested_duration)
-    if (
-        start_seconds != 0
-        or start_seconds >= media_duration
-        or media_duration > requested_duration
-    ):
+    if start_seconds >= media_duration:
         raise RuntimeError("TRANSCRIPTION_PROVIDER_UNAVAILABLE")
+
+    window_end = min(start_seconds + requested_duration, media_duration)
+    needs_bounded_download = start_seconds > 0 or window_end < media_duration
+    section_args = (
+        [
+            *runtime.ffmpeg_location_args(),
+            "--download-sections",
+            f"*{start_seconds:g}-{window_end:g}",
+            "--force-keyframes-at-cuts",
+        ]
+        if needs_bounded_download
+        else []
+    )
 
     output_template = str(directory / "window.%(ext)s")
     with runtime.secret_config_args() as secret_config_args:
@@ -130,6 +140,7 @@ def download_youtube_audio_window(
                     *command,
                     *runtime.yt_dlp_recovery_args(),
                     *secret_config_args,
+                    *section_args,
                     "--no-playlist",
                     "--quiet",
                     "--no-warnings",

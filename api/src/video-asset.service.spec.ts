@@ -700,10 +700,17 @@ describe('VideoAssetService learning caption generations', () => {
     expect(artifacts.committedCosts).toEqual([0]);
   });
 
-  it('does not request audio transcription when YouTube provides no captions', async () => {
+  it('transcribes the first ten minutes when YouTube provides no captions', async () => {
     const artifacts = new RecordingCaptionArtifacts();
     artifacts.sttApproved = true;
-    const transcribe = jest.fn();
+    const transcribe = jest.fn().mockResolvedValue({
+      provider: 'openai-audio-transcription',
+      status: 'ready',
+      sourceLanguage: 'en',
+      segments: [{ start: 0, end: 3, text: 'hello without captions' }],
+      translatedSegments: [{ start: 0, end: 3, text: '자막 없이 안녕하세요' }],
+      errorCode: '',
+    });
     const service = new VideoAssetService(
       new RecordingRepository(),
       {
@@ -723,15 +730,115 @@ describe('VideoAssetService learning caption generations', () => {
       artifacts,
     );
 
+    await expect(
+      service.prepareLearningCaptions({ ...request, durationSeconds: 3_200 }),
+    ).resolves.toEqual({
+      sourceArtifactId: '1',
+      translationArtifactId: '2',
+      source: 'transcription',
+      status: 'ready',
+    });
+    expect(artifacts.hasActiveSttApproval).toHaveBeenCalledWith(
+      'gpt-4o-mini-transcribe-2025-12-15',
+    );
+    expect(transcribe).toHaveBeenCalledWith(
+      {
+        videoId: request.canonicalVideoId,
+        startSeconds: 0,
+        durationSeconds: 600,
+        targetLanguage: 'ko',
+        model: 'gpt-4o-mini-transcribe-2025-12-15',
+      },
+      expect.any(AbortSignal),
+    );
+    expect(artifacts.events).toEqual([
+      'create:transcription:1',
+      'append:1:1',
+      'publish:1',
+      'create:translation:2',
+      'append:2:1',
+      'publish:2',
+    ]);
+    expect(artifacts.failures).toEqual([]);
+    expect(JSON.stringify(artifacts.failures)).not.toContain(
+      'credential-canary',
+    );
+    expect(JSON.stringify(artifacts.failures)).not.toContain('query-canary');
+  });
+
+  it('does not call transcription without an active cost approval', async () => {
+    const artifacts = new RecordingCaptionArtifacts();
+    const transcribe = jest.fn();
+    const service = new VideoAssetService(
+      new RecordingRepository(),
+      {
+        captions: jest.fn().mockResolvedValue({
+          provider: 'caption-source-unavailable',
+          sourceLanguage: '',
+          translated: false,
+          sourceSegments: [],
+          translatedSegments: [],
+          segments: [],
+          message: 'Bearer credential-canary',
+        }),
+        transcribe,
+        summary: jest.fn(),
+      } as unknown as AiProxyService,
+      artifacts,
+    );
+
     await expect(service.prepareLearningCaptions(request)).resolves.toEqual({
       sourceArtifactId: null,
       translationArtifactId: null,
       source: 'none',
       status: 'failed',
-      errorCode: 'CAPTION_PROVIDER_UNAVAILABLE',
+      errorCode: 'STT_NOT_APPROVED',
     });
     expect(transcribe).not.toHaveBeenCalled();
-    expect(artifacts.failures).toEqual(['CAPTION_PROVIDER_UNAVAILABLE']);
+    expect(artifacts.failures).toEqual(['STT_NOT_APPROVED']);
+    expect(JSON.stringify(artifacts.failures)).not.toContain(
+      'credential-canary',
+    );
+  });
+
+  it('persists only a safe code when transcription fails', async () => {
+    const artifacts = new RecordingCaptionArtifacts();
+    artifacts.sttApproved = true;
+    const service = new VideoAssetService(
+      new RecordingRepository(),
+      {
+        captions: jest.fn().mockResolvedValue({
+          provider: 'caption-source-unavailable',
+          sourceLanguage: '',
+          translated: false,
+          sourceSegments: [],
+          translatedSegments: [],
+          segments: [],
+          message: '',
+        }),
+        transcribe: jest.fn().mockResolvedValue({
+          provider: 'transcription-unavailable',
+          status: 'failed',
+          sourceLanguage: '',
+          segments: [],
+          translatedSegments: [],
+          errorCode: 'TRANSCRIPTION_PROVIDER_UNAVAILABLE',
+          message:
+            'Bearer credential-canary https://u:p@example.invalid/?token=query-canary',
+        }),
+        summary: jest.fn(),
+      } as unknown as AiProxyService,
+      artifacts,
+    );
+
+    await expect(service.prepareLearningCaptions(request)).resolves.toEqual({
+      sourceArtifactId: null,
+      translationArtifactId: null,
+      source: 'none',
+      status: 'failed',
+      errorCode: 'TRANSCRIPTION_PROVIDER_UNAVAILABLE',
+    });
+    expect(artifacts.failures).toEqual(['TRANSCRIPTION_PROVIDER_UNAVAILABLE']);
     expect(JSON.stringify(artifacts.failures)).not.toContain(
       'credential-canary',
     );
@@ -807,9 +914,9 @@ class RecordingCaptionArtifacts implements CaptionArtifactRepository {
   committedCosts: number[] = [];
   private nextId = 1;
 
-  hasActiveSttApproval(): Promise<boolean> {
+  hasActiveSttApproval = jest.fn((): Promise<boolean> => {
     return Promise.resolve(this.sttApproved);
-  }
+  });
 
   createGeneration(input: {
     kind: 'youtube_caption' | 'transcription' | 'translation';

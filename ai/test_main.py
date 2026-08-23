@@ -13,6 +13,7 @@ from urllib.parse import parse_qsl, urlparse
 
 import embeddings as embeddings_module
 import main
+import youtube_search as youtube_search_module
 from main import (
     build_quiz_response,
     build_study_plan,
@@ -1509,8 +1510,8 @@ class AiServiceTest(unittest.TestCase):
             def get(*_args, **_kwargs):
                 return FakeResponse()
 
-        original_httpx = main.httpx
-        main.httpx = FakeHttpx
+        original_httpx = youtube_search_module.httpx
+        youtube_search_module.httpx = FakeHttpx
 
         try:
             response = handle_mcp_request(
@@ -1522,7 +1523,7 @@ class AiServiceTest(unittest.TestCase):
                 }
             )
         finally:
-            main.httpx = original_httpx
+            youtube_search_module.httpx = original_httpx
 
         result = response["result"]
         self.assertEqual(result["provider"], "youtube-search-page")

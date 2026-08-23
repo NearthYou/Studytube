@@ -48,6 +48,27 @@ from study_generation import (
     tokenize,
     tool_reason,
 )
+from youtube_runtime import (
+    youtube_cookie_file_cookies,
+    youtube_httpx_request_kwargs,
+)
+from youtube_search import (
+    best_thumbnail,
+    clean_text,
+    extract_text,
+    extract_video_hint,
+    fetch_youtube_oembed,
+    iter_video_renderers,
+    lookup_youtube,
+    parse_yt_initial_data,
+    search_youtube,
+    search_youtube_data_api,
+    search_youtube_page,
+    thumbnail_for_video,
+    video_metadata,
+    youtube_lookup_response,
+    youtube_search_url,
+)
 from runtime_environment import load_runtime_environment
 from telemetry import configure_fastapi_telemetry
 from mcp_server import (
@@ -426,50 +447,6 @@ def build_quiz_response(payload: dict[str, Any]) -> dict[str, Any]:
             "totalTokens": 0,
             "estimatedCostUsd": 0,
         },
-    }
-
-
-def lookup_youtube(params: dict[str, Any]) -> dict[str, Any]:
-    url = str(params.get("url") or "").strip()
-    query = str(params.get("query") or "").strip()
-    limit = max(1, min(int(params.get("limit") or 5), 10))
-
-    if url:
-        oembed_video = fetch_youtube_oembed(url)
-
-        if oembed_video:
-            return youtube_lookup_response(
-                "youtube-oembed",
-                [oembed_video],
-                url,
-                query or oembed_video["title"],
-            )
-
-    if query:
-        videos = search_youtube(query, limit)
-
-        if videos:
-            return youtube_lookup_response(
-                videos[0]["provider"],
-                videos,
-                youtube_search_url(query),
-                query,
-            )
-
-    target = url or youtube_search_url(query or "AI learning")
-
-    return {
-        "provider": "youtube-search-unavailable",
-        "title": query or extract_video_hint(url) or "YouTube metadata unavailable",
-        "channel": "YouTube",
-        "thumbnailUrl": "",
-        "sourceUrl": target,
-        "durationLabel": "metadata unavailable",
-        "summary": (
-            "No external YouTube metadata could be fetched. Configure "
-            "YOUTUBE_API_KEY or allow outbound access for the MCP server."
-        ),
-        "videos": [],
     }
 
 
@@ -2555,21 +2532,6 @@ def yt_dlp_secret_config_args():
             pass
 
 
-def youtube_httpx_request_kwargs(**kwargs: Any) -> dict[str, Any]:
-    proxy_url = os.getenv("YOUTUBE_PROXY_URL", "").strip()
-    if proxy_url:
-        kwargs["proxy"] = proxy_url
-
-    cookies = youtube_cookie_file_cookies()
-    if cookies:
-        existing_cookies = kwargs.get("cookies")
-        if isinstance(existing_cookies, dict):
-            cookies = {**cookies, **existing_cookies}
-        kwargs["cookies"] = cookies
-
-    return kwargs
-
-
 def youtube_subprocess_environment() -> dict[str, str]:
     allowed_names = (
         "PATH",
@@ -2602,47 +2564,6 @@ def youtube_subprocess_environment() -> dict[str, str]:
         environment["HTTPS_PROXY"] = proxy_url
         environment["NODE_USE_ENV_PROXY"] = "1"
     return environment
-
-
-def youtube_cookie_file_cookies() -> dict[str, str]:
-    cookies_file = os.getenv("YOUTUBE_COOKIES_FILE", "").strip()
-    if not cookies_file:
-        return {}
-
-    try:
-        lines = Path(cookies_file).expanduser().read_text(
-            encoding="utf-8",
-            errors="ignore",
-        ).splitlines()
-    except OSError:
-        return {}
-
-    cookies: dict[str, str] = {}
-    for raw_line in lines:
-        line = raw_line.strip()
-        if not line:
-            continue
-
-        if line.startswith("#HttpOnly_"):
-            line = line.removeprefix("#HttpOnly_")
-        elif line.startswith("#"):
-            continue
-
-        parts = line.split("\t")
-        if len(parts) < 7:
-            continue
-
-        domain, _include_subdomains, _path, _secure, _expires, name, value = parts[:7]
-        if not name or not value:
-            continue
-
-        normalized_domain = domain.lower()
-        if "youtube.com" not in normalized_domain and "google.com" not in normalized_domain:
-            continue
-
-        cookies[name] = value
-
-    return cookies
 
 
 def caption_url_with_recovery_params(caption_url: str, video_id: str = "") -> str:
@@ -4011,301 +3932,6 @@ def normalize_caption_duration(value: Any) -> float | None:
         return None
 
     return min(round(duration, 3), 14400)
-
-
-def fetch_youtube_oembed(url: str) -> dict[str, Any] | None:
-    if httpx is None:
-        return None
-
-    try:
-        response = httpx.get(
-            "https://www.youtube.com/oembed",
-            params={"url": url, "format": "json"},
-            timeout=4.0,
-        )
-        response.raise_for_status()
-        data = response.json()
-        video_id = extract_video_hint(url)
-
-        return {
-            "provider": "youtube-oembed",
-            "videoId": video_id,
-            "title": data.get("title", "YouTube video"),
-            "channel": data.get("author_name", "YouTube"),
-            "thumbnailUrl": data.get("thumbnail_url") or thumbnail_for_video(video_id),
-            "sourceUrl": url,
-            "durationLabel": "external metadata",
-            "summary": "YouTube oEmbed metadata fetched through the MCP server.",
-        }
-    except Exception:
-        return None
-
-
-def search_youtube(query: str, limit: int) -> list[dict[str, Any]]:
-    api_results = search_youtube_data_api(query, limit)
-
-    if api_results:
-        return api_results
-
-    return search_youtube_page(query, limit)
-
-
-def search_youtube_data_api(query: str, limit: int) -> list[dict[str, Any]]:
-    api_key = os.getenv("YOUTUBE_API_KEY")
-
-    if httpx is None or not api_key:
-        return []
-
-    try:
-        response = httpx.get(
-            "https://www.googleapis.com/youtube/v3/search",
-            params={
-                "key": api_key,
-                "part": "snippet",
-                "q": query,
-                "type": "video",
-                "maxResults": limit,
-                "safeSearch": "moderate",
-            },
-            timeout=8.0,
-        )
-        response.raise_for_status()
-        data = response.json()
-    except Exception:
-        return []
-
-    videos = []
-
-    for item in data.get("items", []):
-        video_id = (item.get("id") or {}).get("videoId")
-        snippet = item.get("snippet") or {}
-
-        if not video_id:
-            continue
-
-        videos.append(
-            video_metadata(
-                provider="youtube-data-api",
-                video_id=video_id,
-                title=snippet.get("title") or "YouTube video",
-                channel=snippet.get("channelTitle") or "YouTube",
-                thumbnail_url=best_thumbnail(snippet.get("thumbnails")),
-                summary=snippet.get("description")
-                or f"Actual YouTube search result for '{query}'.",
-            )
-        )
-
-    return videos
-
-
-def search_youtube_page(query: str, limit: int) -> list[dict[str, Any]]:
-    if httpx is None:
-        return []
-
-    try:
-        response = httpx.get(
-            youtube_search_url(query),
-            headers={
-                "User-Agent": (
-                    "Mozilla/5.0 StudyTubeBoard/1.0 "
-                    "(educational metadata retrieval)"
-                )
-            },
-            timeout=8.0,
-        )
-        response.raise_for_status()
-    except Exception:
-        return []
-
-    initial_data = parse_yt_initial_data(response.text)
-
-    if not initial_data:
-        return []
-
-    videos: list[dict[str, Any]] = []
-    seen: set[str] = set()
-
-    for renderer in iter_video_renderers(initial_data):
-        video_id = str(renderer.get("videoId") or "").strip()
-
-        if not video_id or video_id in seen:
-            continue
-
-        seen.add(video_id)
-        videos.append(
-            video_metadata(
-                provider="youtube-search-page",
-                video_id=video_id,
-                title=extract_text(renderer.get("title")) or "YouTube video",
-                channel=(
-                    extract_text(renderer.get("ownerText"))
-                    or extract_text(renderer.get("longBylineText"))
-                    or "YouTube"
-                ),
-                thumbnail_url=best_thumbnail(
-                    (renderer.get("thumbnail") or {}).get("thumbnails")
-                ),
-                summary=(
-                    extract_text(renderer.get("descriptionSnippet"))
-                    or extract_text(renderer.get("detailedMetadataSnippets"))
-                    or f"Actual YouTube search result for '{query}'."
-                ),
-            )
-        )
-
-        if len(videos) >= limit:
-            break
-
-    return videos
-
-
-def parse_yt_initial_data(html: str) -> dict[str, Any] | None:
-    patterns = [
-        r"var ytInitialData\s*=\s*({.*?});\s*</script>",
-        r"ytInitialData\s*=\s*({.*?});\s*</script>",
-    ]
-
-    for pattern in patterns:
-        match = re.search(pattern, html, re.DOTALL)
-
-        if not match:
-            continue
-
-        try:
-            data = json.loads(match.group(1))
-        except json.JSONDecodeError:
-            continue
-
-        if isinstance(data, dict):
-            return data
-
-    return None
-
-
-def iter_video_renderers(value: Any):
-    if isinstance(value, dict):
-        renderer = value.get("videoRenderer")
-
-        if isinstance(renderer, dict):
-            yield renderer
-
-        for child in value.values():
-            yield from iter_video_renderers(child)
-    elif isinstance(value, list):
-        for child in value:
-            yield from iter_video_renderers(child)
-
-
-def video_metadata(
-    provider: str,
-    video_id: str | None,
-    title: str,
-    channel: str,
-    thumbnail_url: str | None,
-    summary: str,
-) -> dict[str, Any]:
-    source_url = f"https://www.youtube.com/watch?v={video_id}" if video_id else ""
-
-    return {
-        "provider": provider,
-        "videoId": video_id,
-        "title": clean_text(title),
-        "channel": clean_text(channel),
-        "thumbnailUrl": thumbnail_url or thumbnail_for_video(video_id),
-        "sourceUrl": source_url,
-        "durationLabel": "external metadata",
-        "summary": clean_text(summary),
-    }
-
-
-def youtube_lookup_response(
-    provider: str,
-    videos: list[dict[str, Any]],
-    target: str,
-    query: str,
-) -> dict[str, Any]:
-    first = videos[0]
-
-    return {
-        "provider": provider,
-        "title": first["title"],
-        "channel": first["channel"],
-        "thumbnailUrl": first["thumbnailUrl"],
-        "sourceUrl": first.get("sourceUrl") or target,
-        "durationLabel": first.get("durationLabel") or "external metadata",
-        "summary": f"Fetched {len(videos)} real YouTube metadata result(s) for '{query}'.",
-        "videos": videos,
-    }
-
-
-def best_thumbnail(thumbnails: Any) -> str | None:
-    if isinstance(thumbnails, dict):
-        candidates = [
-            item.get("url")
-            for item in thumbnails.values()
-            if isinstance(item, dict) and item.get("url")
-        ]
-
-        return candidates[-1] if candidates else None
-
-    if isinstance(thumbnails, list):
-        candidates = [
-            item.get("url")
-            for item in thumbnails
-            if isinstance(item, dict) and item.get("url")
-        ]
-
-        return candidates[-1] if candidates else None
-
-    return None
-
-
-def thumbnail_for_video(video_id: str | None) -> str:
-    if not video_id:
-        return ""
-
-    return f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
-
-
-def extract_text(value: Any) -> str:
-    if isinstance(value, str):
-        return value
-
-    if isinstance(value, list):
-        return clean_text(" ".join(extract_text(item) for item in value))
-
-    if not isinstance(value, dict):
-        return ""
-
-    if isinstance(value.get("simpleText"), str):
-        return value["simpleText"]
-
-    if isinstance(value.get("text"), str):
-        return value["text"]
-
-    if isinstance(value.get("runs"), list):
-        return clean_text(
-            " ".join(str(run.get("text") or "") for run in value["runs"])
-        )
-
-    if isinstance(value.get("snippetText"), dict):
-        return extract_text(value["snippetText"])
-
-    return ""
-
-
-def clean_text(text: str) -> str:
-    return re.sub(r"\s+", " ", text).strip()
-
-
-def youtube_search_url(query: str) -> str:
-    return f"https://www.youtube.com/results?search_query={quote_plus(query)}"
-
-
-def extract_video_hint(url: str) -> str | None:
-    match = re.search(r"[?&]v=([^&]+)", url)
-
-    return match.group(1) if match else None
 
 
 def json_rpc_error(request_id: Any, code: int, message: str) -> dict[str, Any]:

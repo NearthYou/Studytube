@@ -12,6 +12,7 @@ from unittest import mock
 from urllib.parse import parse_qsl, urlparse
 
 import embeddings as embeddings_module
+import caption_translation as caption_translation_module
 import main
 import youtube_search as youtube_search_module
 from main import (
@@ -918,8 +919,8 @@ class AiServiceTest(unittest.TestCase):
 
         original_openai = main.OpenAI
         original_key = os.environ.get("OPENAI_API_KEY")
-        original_batch_size = main.CAPTION_TRANSLATION_BATCH_SIZE
-        original_translate_batch = main.translate_caption_batch
+        original_batch_size = caption_translation_module.CAPTION_TRANSLATION_BATCH_SIZE
+        original_translate_batch = caption_translation_module.translate_caption_batch
 
         class FakeOpenAI:
             pass
@@ -935,8 +936,8 @@ class AiServiceTest(unittest.TestCase):
 
         main.OpenAI = FakeOpenAI
         os.environ["OPENAI_API_KEY"] = "test-key"
-        main.CAPTION_TRANSLATION_BATCH_SIZE = 2
-        main.translate_caption_batch = fake_translate_batch
+        caption_translation_module.CAPTION_TRANSLATION_BATCH_SIZE = 2
+        caption_translation_module.translate_caption_batch = fake_translate_batch
 
         try:
             translated = main.translate_caption_segments(
@@ -948,8 +949,8 @@ class AiServiceTest(unittest.TestCase):
             )
         finally:
             main.OpenAI = original_openai
-            main.CAPTION_TRANSLATION_BATCH_SIZE = original_batch_size
-            main.translate_caption_batch = original_translate_batch
+            caption_translation_module.CAPTION_TRANSLATION_BATCH_SIZE = original_batch_size
+            caption_translation_module.translate_caption_batch = original_translate_batch
             if original_key is None:
                 os.environ.pop("OPENAI_API_KEY", None)
             else:

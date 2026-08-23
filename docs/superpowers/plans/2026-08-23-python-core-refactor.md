@@ -40,7 +40,7 @@
 - [ ] Run focused embedding tests and full `test_main`.
 - [ ] Commit with `refactor(ai): 임베딩 모듈 분리`.
 
-### Task 2: Extract study-plan and quiz generation
+### Task 2: Extract study-plan Agent generation
 
 **Files:**
 - Create: `ai/study_generation.py`
@@ -49,12 +49,12 @@
 - Test: `ai/tests/test_study_generation_boundary.py`
 
 **Interfaces:**
-- Produces: `build_study_plan(payload)`, `build_quiz_response(payload)`, `choose_agent_tool`, playlist recommendation helpers, and `AGENT_TOOLS`.
+- Produces: `build_study_plan(payload)`, `choose_agent_tool`, playlist recommendation helpers, and `AGENT_TOOLS`.
 - Consumes: a callable YouTube lookup seam supplied by `build_study_plan` instead of importing `main`.
 
 - [ ] Write the boundary RED test.
-- [ ] Move deterministic generation helpers and OpenAI tool selection.
-- [ ] Keep `main.build_study_plan` and `main.build_quiz_response` as direct imports.
+- [ ] Move deterministic study-plan helpers and OpenAI tool selection. Caption-grounded quiz generation moves with the caption module because it consumes caption normalization and lookup directly.
+- [ ] Keep `main.build_study_plan` as a lookup-seam compatibility wrapper.
 - [ ] Patch `study_generation.OpenAI` and lookup seams in tests.
 - [ ] Run focused and full AI tests.
 - [ ] Commit with `refactor(ai): 학습 생성 모듈 분리`.

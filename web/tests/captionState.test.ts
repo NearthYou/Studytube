@@ -80,7 +80,7 @@ test("uses learner-facing caption progress copy", () => {
       phase: "failed",
       errorCode: "CAPTION_PROVIDER_UNAVAILABLE",
     }),
-    "YouTube 자막이 없어 영상 설명과 공개 정보로 학습 자료를 준비했어요.",
+    "서버 자막을 가져오지 못했어요. YouTube 기본 자막이 있으면 플레이어에 표시하고, 학습 자료는 영상 설명으로 준비했어요.",
   );
 });
 

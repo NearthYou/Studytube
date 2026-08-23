@@ -2097,7 +2097,7 @@
       "StartLearningItemDto": {
         "properties": {
           "requestedAudioSeconds": {
-            "maximum": 14400,
+            "maximum": 600,
             "minimum": 1,
             "type": "number"
           },

@@ -5,6 +5,7 @@ import {
   createLearningNote,
   deleteLearningNote,
   fetchLearningCaptions,
+  ApiRequestError,
   updateLearningNote,
   type AdaptiveQuizLoop,
   type AdaptiveQuizSubmission,
@@ -255,13 +256,17 @@ function ActiveLearningWorkspace({
   }
 
   async function createNoteWithContextRecovery(body: string) {
+    const safePositionSeconds = Math.round(notePositionSeconds * 1000) / 1000;
     try {
       return await createLearningNote({
         contextId,
-        positionSeconds: notePositionSeconds,
+        positionSeconds: safePositionSeconds,
         body,
       });
-    } catch {
+    } catch (error) {
+      if (!(error instanceof ApiRequestError) || error.status !== 404) {
+        throw error;
+      }
       const recovered = await startLearningIntake({
         videoUrl: video.videoUrl,
         requestedAudioSeconds: REQUESTED_AUDIO_SECONDS,
@@ -273,7 +278,7 @@ function ActiveLearningWorkspace({
       });
       return createLearningNote({
         contextId: recoveredContextId,
-        positionSeconds: notePositionSeconds,
+        positionSeconds: safePositionSeconds,
         body,
       });
     }

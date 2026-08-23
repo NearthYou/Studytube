@@ -40,35 +40,6 @@ services:
       retries: 20
       start_period: 5s
 
-  youtube-pot:
-    image: brainicism/bgutil-ytdlp-pot-provider:1.3.1@sha256:1aaa43a0ca72dfca6a6d2129a0fb4a23465c25adb1b043f8aff829a20825646b
-    container_name: studytube-youtube-pot
-    restart: unless-stopped
-    init: true
-    ports:
-      - "127.0.0.1:4416:4416"
-    networks:
-      - youtube_pot
-    cap_drop:
-      - ALL
-    security_opt:
-      - no-new-privileges:true
-    read_only: true
-    mem_limit: 160m
-    cpus: 0.25
-    tmpfs:
-      - /tmp:size=32m,mode=1777
-    healthcheck:
-      test:
-        - CMD
-        - node
-        - -e
-        - fetch('http://127.0.0.1:4416/ping').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))
-      interval: 10s
-      timeout: 3s
-      retries: 12
-      start_period: 10s
-
   caddy:
     image: caddy:2.11.4-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
     container_name: studytube-caddy
@@ -111,6 +82,4 @@ networks:
   postgres_data:
     driver: bridge
   valkey_data:
-    driver: bridge
-  youtube_pot:
     driver: bridge

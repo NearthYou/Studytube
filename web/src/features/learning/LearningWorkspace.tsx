@@ -17,6 +17,7 @@ import { readWatchQueue } from "../../watchQueueStorage.ts";
 import {
   captionPairAt,
   captionPhaseMessage,
+  canRetryCaptions,
   EMPTY_CAPTION_STATE,
   mergeCaptionState,
   quizPreparation,
@@ -357,7 +358,11 @@ function ActiveLearningWorkspace({
             : "이 영상을 새 학습으로 등록한 뒤 자막을 준비할 수 있습니다."}
         </p>
         {!contextId && <Link to="/">새 학습으로 등록</Link>}
-        {contextId && state.captions.phase === "failed" ? (
+        {contextId &&
+        state.captions.phase === "failed" &&
+        !canRetryCaptions(state.captions.errorCode) ? (
+          <Link to="/">자막이 있는 다른 영상 선택</Link>
+        ) : contextId && state.captions.phase === "failed" ? (
           <button
             disabled={captionRetrying}
             type="button"

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   captionPairAt,
+  canRetryCaptions,
   captionPhaseMessage,
   mergeCaptionState,
   quizPreparation,
@@ -77,10 +78,16 @@ test("uses learner-facing caption progress copy", () => {
     captionPhaseMessage({
       ...pending,
       phase: "failed",
-      errorCode: "STT_NOT_APPROVED",
+      errorCode: "CAPTION_PROVIDER_UNAVAILABLE",
     }),
-    "자막을 만들지 못했어요. 다시 시도해 주세요.",
+    "이 영상은 제공되는 자막이 없어요. 자막이 있는 영상을 선택해주세요.",
   );
+});
+
+test("does not retry videos that have no provided captions", () => {
+  assert.equal(canRetryCaptions("CAPTION_PROVIDER_UNAVAILABLE"), false);
+  assert.equal(canRetryCaptions("STT_DISABLED"), false);
+  assert.equal(canRetryCaptions("TRANSLATION_PROVIDER_UNAVAILABLE"), true);
 });
 
 test("shows a Korean message when caption translation is unavailable", () => {

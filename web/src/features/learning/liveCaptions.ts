@@ -31,3 +31,7 @@ export async function blobToBase64(blob: Blob): Promise<string> {
   }
   return btoa(binary);
 }
+
+export function roundCaptionSeconds(seconds: number): number {
+  return Math.round(seconds * 1_000) / 1_000;
+}

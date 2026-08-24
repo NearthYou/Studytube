@@ -338,26 +338,15 @@ describe('Learning workspace OpenAPI boundary', () => {
     });
 
     expect(
-      document.paths?.['/learning/contexts/{contextId}/overview']?.get
-        ?.responses?.['200'],
-    ).toMatchObject({
-      content: {
-        'application/json': {
-          schema: {
-            type: 'object',
-            properties: {
-              status: { type: 'string' },
-              coverage: { type: 'object' },
-              summary: { type: 'object' },
-            },
-          },
-        },
-      },
-    });
+      jsonResponseSchema(
+        document.paths?.['/learning/contexts/{contextId}/overview']?.get,
+      ),
+    ).toEqual({ $ref: '#/components/schemas/LearningOverview' });
     expect(
-      document.paths?.['/learning/contexts/{contextId}/explanations']?.post
-        ?.responses?.['200'],
-    ).toBeDefined();
+      jsonResponseSchema(
+        document.paths?.['/learning/contexts/{contextId}/explanations']?.post,
+      ),
+    ).toEqual({ $ref: '#/components/schemas/LearningSegmentExplanation' });
   });
 });
 
@@ -383,4 +372,16 @@ async function createService(
     ],
   }).compile();
   return module.get(LearningItemService);
+}
+
+function jsonResponseSchema(operation: unknown): unknown {
+  const typed = operation as
+    | {
+        responses?: Record<
+          string,
+          { content?: Record<string, { schema?: unknown }> }
+        >;
+      }
+    | undefined;
+  return typed?.responses?.['200']?.content?.['application/json']?.schema;
 }

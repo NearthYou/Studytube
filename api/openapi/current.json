@@ -979,6 +979,25 @@
         ],
         "type": "object"
       },
+      "ExplainLearningSegmentDto": {
+        "properties": {
+          "endSeconds": {
+            "maximum": 86400,
+            "minimum": 0.001,
+            "type": "number"
+          },
+          "startSeconds": {
+            "maximum": 86400,
+            "minimum": 0,
+            "type": "number"
+          }
+        },
+        "required": [
+          "startSeconds",
+          "endSeconds"
+        ],
+        "type": "object"
+      },
       "FinalizeLiveCaptionsDto": {
         "properties": {
           "contextId": {
@@ -1072,6 +1091,106 @@
           "body",
           "createdAt",
           "updatedAt"
+        ],
+        "type": "object"
+      },
+      "LearningOverview": {
+        "properties": {
+          "contextId": {
+            "pattern": "^[1-9]\\d*$",
+            "type": "string"
+          },
+          "coverage": {
+            "properties": {
+              "endSeconds": {
+                "minimum": 0,
+                "type": "number"
+              },
+              "scope": {
+                "enum": [
+                  "full_video",
+                  "study_range"
+                ],
+                "type": "string"
+              },
+              "startSeconds": {
+                "minimum": 0,
+                "type": "number"
+              }
+            },
+            "required": [
+              "scope",
+              "startSeconds",
+              "endSeconds"
+            ],
+            "type": "object"
+          },
+          "errorCode": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "ready",
+              "failed"
+            ],
+            "type": "string"
+          },
+          "summary": {
+            "properties": {
+              "chapters": {
+                "items": {
+                  "properties": {
+                    "body": {
+                      "type": "string"
+                    },
+                    "endSeconds": {
+                      "minimum": 0,
+                      "type": "number"
+                    },
+                    "startSeconds": {
+                      "minimum": 0,
+                      "type": "number"
+                    },
+                    "title": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "startSeconds",
+                    "endSeconds",
+                    "title",
+                    "body"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 5,
+                "minItems": 3,
+                "type": "array"
+              },
+              "overview": {
+                "type": "string"
+              },
+              "takeaways": {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 3,
+                "type": "array"
+              }
+            },
+            "required": [
+              "overview",
+              "chapters",
+              "takeaways"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "contextId",
+          "status",
+          "coverage"
         ],
         "type": "object"
       },
@@ -1254,6 +1373,59 @@
           "expiresAt",
           "approvedCourseId",
           "approvedCourseVersion"
+        ],
+        "type": "object"
+      },
+      "LearningSegmentExplanation": {
+        "properties": {
+          "citation": {
+            "properties": {
+              "endSeconds": {
+                "minimum": 0,
+                "type": "number"
+              },
+              "startSeconds": {
+                "minimum": 0,
+                "type": "number"
+              }
+            },
+            "required": [
+              "startSeconds",
+              "endSeconds"
+            ],
+            "type": "object"
+          },
+          "contextNote": {
+            "type": "string"
+          },
+          "keyExpressions": {
+            "items": {
+              "properties": {
+                "meaning": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "text",
+                "meaning"
+              ],
+              "type": "object"
+            },
+            "maxItems": 4,
+            "type": "array"
+          },
+          "plainMeaning": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "plainMeaning",
+          "keyExpressions",
+          "contextNote",
+          "citation"
         ],
         "type": "object"
       },
@@ -4159,6 +4331,47 @@
         ]
       }
     },
+    "/learning/contexts/{contextId}/explanations": {
+      "post": {
+        "operationId": "LearningItemController_explainSegment",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "contextId",
+            "required": true,
+            "schema": {
+              "pattern": "^[1-9]\\d*$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExplainLearningSegmentDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LearningSegmentExplanation"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "LearningItem"
+        ]
+      }
+    },
     "/learning/contexts/{contextId}/notes": {
       "post": {
         "operationId": "LearningItemController_createNote",
@@ -4285,6 +4498,37 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/LearningNote"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "LearningItem"
+        ]
+      }
+    },
+    "/learning/contexts/{contextId}/overview": {
+      "get": {
+        "operationId": "LearningItemController_getOverview",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "contextId",
+            "required": true,
+            "schema": {
+              "pattern": "^[1-9]\\d*$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LearningOverview"
                 }
               }
             },

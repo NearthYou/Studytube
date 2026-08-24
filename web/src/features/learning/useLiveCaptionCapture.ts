@@ -6,6 +6,7 @@ import {
 import {
   blobToBase64,
   mergeLiveCaptionChunk,
+  roundCaptionSeconds,
   selectRecordingMimeType,
   type LiveCaptionChunk,
 } from "./liveCaptions.ts";
@@ -119,7 +120,7 @@ export function useLiveCaptionCapture(input: {
       void finalize();
       return;
     }
-    const startSeconds = currentTimeRef.current;
+    const startSeconds = roundCaptionSeconds(currentTimeRef.current);
     if (startSeconds >= MAX_VIDEO_SECONDS) {
       runtime.active = false;
       void finalize();
@@ -158,7 +159,9 @@ export function useLiveCaptionCapture(input: {
       if (!current || current !== runtime) return;
       window.clearTimeout(current.timer);
       current.recorder = null;
-      const endSeconds = Math.min(currentTimeRef.current, MAX_VIDEO_SECONDS);
+      const endSeconds = roundCaptionSeconds(
+        Math.min(currentTimeRef.current, MAX_VIDEO_SECONDS),
+      );
       const duration = endSeconds - startSeconds;
       const ordinal = current.ordinal;
       current.ordinal += 1;

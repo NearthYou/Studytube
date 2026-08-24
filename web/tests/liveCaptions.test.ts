@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   blobToBase64,
   mergeLiveCaptionChunk,
+  roundCaptionSeconds,
   selectRecordingMimeType,
   type LiveCaptionChunk,
 } from "../src/features/learning/liveCaptions.ts";
@@ -48,4 +49,9 @@ test("prefers a compact Opus recording supported by the browser", () => {
 
 test("encodes only the audio bytes sent to the server", async () => {
   assert.equal(await blobToBase64(new Blob(["test"])), "dGVzdA==");
+});
+
+test("rounds player timestamps to the API millisecond contract", () => {
+  assert.equal(roundCaptionSeconds(27.123456), 27.123);
+  assert.equal(roundCaptionSeconds(599.9999), 600);
 });

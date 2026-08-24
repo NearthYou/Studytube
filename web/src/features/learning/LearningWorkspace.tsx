@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
-import { Link, useSearchParams } from "react-router";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import {
   createLearningNote,
   deleteLearningNote,
@@ -39,6 +39,7 @@ import { LearningOverviewPanel } from "./LearningOverviewPanel.tsx";
 import { TranscriptDrawer } from "./TranscriptDrawer.tsx";
 import { LearningNotesPanel } from "./LearningNotesPanel.tsx";
 import { AdaptiveQuizPanel } from "./AdaptiveQuizPanel.tsx";
+import { CourseNavigator } from "./CourseNavigator.ts";
 import "./LearningWorkspace.css";
 
 const TABS: Array<{ id: LearningTab; label: string }> = [
@@ -51,6 +52,7 @@ const MAX_CAPTION_POLLS = 170;
 const REQUESTED_AUDIO_SECONDS = 600;
 
 export function LearningWorkspace({ session }: { session: Session }) {
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [queue] = useState(() => readWatchQueue());
   const requestedVideoId = searchParams.get("videoId") ?? "";
@@ -66,6 +68,10 @@ export function LearningWorkspace({ session }: { session: Session }) {
       key={`${session.user.id}:${currentVideo.videoId}`}
       userId={session.user.id}
       video={currentVideo}
+      queue={queue}
+      onSelectVideo={(selected) =>
+        navigate(`/watch?videoId=${selected.videoId}`)
+      }
     />
   );
 }
@@ -90,9 +96,13 @@ function EmptyWorkspace() {
 function ActiveLearningWorkspace({
   userId,
   video,
+  queue,
+  onSelectVideo,
 }: {
   userId: number;
   video: QueueVideo;
+  queue: QueueVideo[];
+  onSelectVideo: (video: QueueVideo) => void;
 }) {
   const { state, update } = useLearningSession(userId, video.videoId);
   const [captionRefresh, setCaptionRefresh] = useState(0);
@@ -108,6 +118,9 @@ function ActiveLearningWorkspace({
   const notePositionSeconds =
     state.notePositionSeconds ?? state.currentTime;
   const contextId = state.contextId || video.learningContextId || "";
+  const courseVideos = video.course
+    ? queue.filter((item) => item.course?.id === video.course?.id)
+    : [];
   const handleLiveFinalized = useCallback(
     () => setCaptionRefresh((value) => value + 1),
     [],
@@ -441,6 +454,12 @@ function ActiveLearningWorkspace({
         </div>
         <Link to="/">다른 영상 학습</Link>
       </header>
+
+      <CourseNavigator
+        currentVideoId={video.videoId}
+        onSelect={onSelectVideo}
+        videos={courseVideos}
+      />
 
       <div className="learning-desk">
         <section className="learning-stage">

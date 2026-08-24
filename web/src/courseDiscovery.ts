@@ -13,13 +13,35 @@ export function hasLearningPreferences(
 
 export function createPersonalizedCoursePrompt(
   profile: LearningPreferences | null,
+  subject = '',
 ) {
+  const requestedSubject = subject.trim();
+  const requestTail =
+    '실제로 재생할 수 있는 YouTube 영상 2~4개를 쉬운 순서로 추천해줘.';
+
   if (!hasLearningPreferences(profile)) {
-    return '';
+    return requestedSubject
+      ? [`배울 내용: ${requestedSubject}`, requestTail].join('\n')
+      : '';
   }
 
   const interests = profile.interests.slice(0, 2).join(', ');
-  return `${interests}를 ${profile.pace} 배울 수 있는 코스 추천해줘`;
+  if (requestedSubject) {
+    return [
+      `배울 내용: ${requestedSubject}`,
+      `관심사: ${interests}`,
+      `학습 속도: ${profile.pace}`,
+      `학습 목표: ${profile.goal}`,
+      requestTail,
+    ].join('\n');
+  }
+
+  return [
+    `관심사: ${interests}`,
+    `학습 속도: ${profile.pace}`,
+    `학습 목표: ${profile.goal}`,
+    requestTail,
+  ].join('\n');
 }
 
 export function createPromptSuggestions(profile: LearningPreferences | null) {

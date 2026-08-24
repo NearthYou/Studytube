@@ -1,12 +1,24 @@
 import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
-import { useNavigate } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { askAgent, askMcp, askRag, createPost, fetchPosts } from "../../api";
 import { createCourse, fetchOwnerCourses, publishCourse } from "../../courseApi";
 import { createPersonalizedCoursePrompt, createPromptSuggestions, findMatchingCourses, hasLearningPreferences } from "../../courseDiscovery";
 import { addVideosToQueue } from "../../watchQueueStorage";
-import { findPostIdForQueueVideo, postPayloadFromQueueVideo, queueVideoFromCourseStep, queueVideoFromMcpVideo, queueVideoFromRagPost, queueVideoFromRecommendation, uniqueVideos, type QueueVideo } from "../../watchQueue";
+import {
+  attachCourseSequence,
+  canFormCourse,
+  findPostIdForQueueVideo,
+  postPayloadFromQueueVideo,
+  queueVideoFromCourseStep,
+  queueVideoFromMcpVideo,
+  queueVideoFromRagPost,
+  queueVideoFromRecommendation,
+  uniqueVideos,
+  type QueueVideo,
+} from "../../watchQueue";
 import type { AgentResponse, Course, McpResponse, Playlist, RagResponse, Session, StudyPost } from "../../types";
+import "./CoursePage.css";
 
 export function CoursePage({ session }: { session: Session }) {
   const navigate = useNavigate();
@@ -64,7 +76,11 @@ export function CoursePage({ session }: { session: Session }) {
   }
 
   async function generateNewCourse() {
-    const goal = query.trim() || ragResult?.query || initialQuery;
+    const subject = query.trim();
+    const goal =
+      createPersonalizedCoursePrompt(profile, subject) ||
+      subject ||
+      initialQuery;
 
     if (!goal || isGenerating) {
       if (!goal) {
@@ -103,10 +119,26 @@ export function CoursePage({ session }: { session: Session }) {
       setMcpResult(null);
     }
 
+    const playableVideos = uniqueVideos([
+      ...(agentResponse.status === "fulfilled"
+        ? agentResponse.value.recommendations.flatMap((item) => {
+            const video = queueVideoFromRecommendation(item);
+            return video ? [video] : [];
+          })
+        : []),
+      ...(mcpResponse.status === "fulfilled"
+        ? (mcpResponse.value.result?.videos ?? []).flatMap((item) => {
+            const video = queueVideoFromMcpVideo(item);
+            return video ? [video] : [];
+          })
+        : []),
+    ]);
     setStatus(
-      agentResponse.status === "fulfilled" || mcpResponse.status === "fulfilled"
-        ? "새 학습 코스를 만들었어요. 저장하거나 바로 시청할 수 있습니다."
-        : "새 코스를 만들지 못했어요. 잠시 후 다시 시도해주세요.",
+      canFormCourse(playableVideos)
+        ? `${playableVideos.length}개 영상을 학습 순서로 정리했습니다.`
+        : playableVideos.length === 1
+          ? "관련 영상 한 개를 찾았습니다. 코스로 묶으려면 영상이 두 개 이상 필요합니다."
+          : "재생할 수 있는 관련 영상을 찾지 못했습니다. 주제를 조금 더 구체적으로 적어주세요.",
     );
     setIsGenerating(false);
   }
@@ -115,6 +147,19 @@ export function CoursePage({ session }: { session: Session }) {
     const queue = addVideosToQueue(relatedVideos, video);
     const firstVideo = queue.find((item) => item.id === video.id) ?? video;
     navigate(`/watch?videoId=${firstVideo.videoId}`);
+  }
+
+  function addCourseAndWatch(
+    video: QueueVideo,
+    videos: QueueVideo[],
+    course: { id: string; title: string },
+  ) {
+    const courseVideos = attachCourseSequence(videos, course);
+    const selected =
+      courseVideos.find((item) => item.videoId === video.videoId) ??
+      courseVideos[0];
+    addVideosToQueue(courseVideos, selected);
+    navigate(`/watch?videoId=${selected.videoId}`);
   }
 
   function playSavedPlaylist(playlist: Playlist) {
@@ -128,13 +173,17 @@ export function CoursePage({ session }: { session: Session }) {
       return;
     }
 
-    addVideosToQueue(courseVideos, courseVideos[0]);
-    navigate(`/watch?videoId=${courseVideos[0].videoId}`);
+    addCourseAndWatch(courseVideos[0], courseVideos, {
+      id: `saved-course-${course?.id ?? playlist.id}`,
+      title: course?.title ?? playlist.title,
+    });
   }
 
   async function saveGeneratedCourse() {
-    if (generatedVideos.length === 0) {
-      setStatus("저장할 코스가 없어요. 먼저 새 코스를 만들어주세요.");
+    if (!canFormCourse(generatedVideos)) {
+      setStatus(
+        "코스로 묶으려면 재생할 수 있는 영상이 두 개 이상 필요합니다.",
+      );
       return;
     }
 
@@ -144,9 +193,7 @@ export function CoursePage({ session }: { session: Session }) {
     try {
       const postIds = await ensurePostIdsForGeneratedVideos(generatedVideos);
 
-      const title =
-        agentResult?.playlistTitle ??
-        `${query.trim() || initialQuery || "맞춤"} 학습 코스`;
+      const title = generatedTitle;
       const description =
         agentResult?.rationale ??
         "내 취향과 검색 결과를 바탕으로 만든 학습 코스입니다.";
@@ -171,8 +218,12 @@ export function CoursePage({ session }: { session: Session }) {
       setStatus(
         `"${saved.title}" 코스를 저장했어요. 학습 화면에서 바로 선택할 수 있습니다.`,
       );
-    } catch {
-      setStatus("학습 코스 저장에 실패했어요.");
+    } catch (error) {
+      setStatus(
+        error instanceof Error
+          ? `코스를 저장하지 못했습니다. ${error.message}`
+          : "코스를 저장하지 못했습니다. 잠시 후 다시 시도해주세요.",
+      );
     } finally {
       setIsSavingPlaylist(false);
     }
@@ -212,9 +263,10 @@ export function CoursePage({ session }: { session: Session }) {
   const existingVideos =
     ragResult?.relatedPosts.map(queueVideoFromRagPost) ?? [];
   const agentVideos =
-    agentResult?.recommendations.map((item) =>
-      queueVideoFromRecommendation(item),
-    ) ?? [];
+    agentResult?.recommendations.flatMap((item) => {
+      const video = queueVideoFromRecommendation(item);
+      return video ? [video] : [];
+    }) ?? [];
   const mcpVideos =
     mcpResult?.result?.videos.flatMap((item) => {
       const video = queueVideoFromMcpVideo(item);
@@ -222,6 +274,14 @@ export function CoursePage({ session }: { session: Session }) {
       return video ? [video] : [];
     }) ?? [];
   const generatedVideos = uniqueVideos([...agentVideos, ...mcpVideos]);
+  const generatedCourseReady = canFormCourse(generatedVideos);
+  const generatedTitle =
+    (
+      agentResult?.playlistTitle ??
+      `${query.trim() || profile?.interests[0] || "맞춤"} 학습 코스`
+    )
+      .trim()
+      .slice(0, 120);
   const promptSuggestions = createPromptSuggestions(profile);
 
   return (
@@ -256,16 +316,27 @@ export function CoursePage({ session }: { session: Session }) {
         </section>
       )}
 
-      <details className="course-builder">
-        <summary>새 코스 찾기</summary>
+      <section className="course-builder">
+        <header className="course-builder-heading">
+          <div>
+            <h2>새 코스 만들기</h2>
+            <p>배우고 싶은 내용을 적으면 실제 영상 여러 개를 순서대로 묶습니다.</p>
+          </div>
+          <Link to="/me">학습 설정 바꾸기</Link>
+        </header>
         <div className="course-builder-body">
-          <p>배우고 싶은 주제나 목표가 분명할 때만 새 코스를 찾아보세요.</p>
           {hasProfile && (
             <div className="preference-summary">
-              <strong>{profile.goal}</strong>
-              <span>
-                {profile.interests.join(", ")} / {profile.pace}
-              </span>
+              <strong>이번 코스에 적용되는 학습 설정</strong>
+              <span>관심사 {profile.interests.join(", ")}</span>
+              <span>학습 속도 {profile.pace}</span>
+              <span>목표 {profile.goal}</span>
+            </div>
+          )}
+          {!hasProfile && (
+            <div className="preference-summary empty">
+              <strong>학습 설정이 아직 없습니다</strong>
+              <span>주제만으로도 만들 수 있고, 설정을 저장하면 관심사와 속도를 함께 반영합니다.</span>
             </div>
           )}
           <div className="quick-prompts" aria-label="추천 예시">
@@ -292,9 +363,9 @@ export function CoursePage({ session }: { session: Session }) {
           </form>
           <p className="system-note" aria-live="polite">{status}</p>
         </div>
-      </details>
+      </section>
 
-      {(courseMatches.length > 0 || existingVideos.length > 0 || ragResult) && (
+      {(courseMatches.length > 0 || existingVideos.length > 0) && (
         <section className="course-results">
           <div className="section-title">
             <h2>함께 참고한 학습 자료</h2>
@@ -333,30 +404,17 @@ export function CoursePage({ session }: { session: Session }) {
               </span>
             </button>
           ))}
-          {ragResult &&
-            existingVideos.length === 0 &&
-            courseMatches.length === 0 && (
-              <div className="empty-product">
-                <strong>아직 딱 맞는 코스가 없어요</strong>
-                <p>
-                  코스 만들기를 누르면 관련 영상을 찾아 학습 순서로 정리합니다.
-                </p>
-                <button type="button" onClick={() => void generateNewCourse()}>
-                  새 코스 만들기
-                </button>
-              </div>
-            )}
         </section>
       )}
 
-      {generatedVideos.length > 0 && (
+      {generatedCourseReady && (
         <section className="course-results">
           <div className="playlist-toolbar">
             <div>
               <strong>
-                새 학습 코스 {generatedVideos.length}개 영상
+                {generatedTitle}
               </strong>
-              <small>확인한 뒤 저장하거나 바로 학습할 수 있습니다.</small>
+              <small>{generatedVideos.length}개 영상을 위에서부터 순서대로 학습합니다.</small>
             </div>
             <button
               type="button"
@@ -371,7 +429,12 @@ export function CoursePage({ session }: { session: Session }) {
               className="video-result"
               key={video.id}
               type="button"
-              onClick={() => addAndWatch(video, generatedVideos)}
+              onClick={() =>
+                addCourseAndWatch(video, generatedVideos, {
+                  id: `generated-course-${generatedVideos.map((item) => item.videoId).join("-")}`,
+                  title: generatedTitle,
+                })
+              }
             >
               <img src={video.thumbnailUrl} alt="" />
               <span>
@@ -381,6 +444,29 @@ export function CoursePage({ session }: { session: Session }) {
               </span>
             </button>
           ))}
+        </section>
+      )}
+
+      {!generatedCourseReady && generatedVideos.length === 1 && (
+        <section className="course-results single-video-result">
+          <div className="section-title">
+            <div>
+              <h2>관련 영상 한 개를 찾았습니다</h2>
+              <p>코스로 묶으려면 영상이 두 개 이상 필요합니다. 이 영상은 바로 학습할 수 있습니다.</p>
+            </div>
+          </div>
+          <button
+            className="video-result"
+            type="button"
+            onClick={() => addAndWatch(generatedVideos[0], generatedVideos)}
+          >
+            <img src={generatedVideos[0].thumbnailUrl} alt="" />
+            <span>
+              <strong>{generatedVideos[0].title}</strong>
+              <small>{generatedVideos[0].channelName || "YouTube"}</small>
+              <em>이 영상 학습하기</em>
+            </span>
+          </button>
         </section>
       )}
 

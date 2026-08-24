@@ -54,13 +54,17 @@ test('builds course prompts from the active learning profile', () => {
   assert.equal(hasLearningPreferences(profile), true);
   assert.equal(
     createPersonalizedCoursePrompt(profile),
-    'React, 영어 회화를 하루 20분 배울 수 있는 코스 추천해줘',
+    '관심사: React, 영어 회화\n학습 속도: 하루 20분\n학습 목표: 퇴근 후 복습\n실제로 재생할 수 있는 YouTube 영상 2~4개를 쉬운 순서로 추천해줘.',
   );
   assert.deepEqual(createPromptSuggestions(profile), [
     'React 입문 코스',
     '퇴근 후 복습',
     '하루 20분 따라갈 수 있는 취향 코스',
   ]);
+  assert.equal(
+    createPersonalizedCoursePrompt(profile, '중국어 여행 회화'),
+    '배울 내용: 중국어 여행 회화\n관심사: React, 영어 회화\n학습 속도: 하루 20분\n학습 목표: 퇴근 후 복습\n실제로 재생할 수 있는 YouTube 영상 2~4개를 쉬운 순서로 추천해줘.',
+  );
 });
 
 test('does not show temporary prompts before a learner sets preferences', () => {
@@ -72,6 +76,10 @@ test('does not show temporary prompts before a learner sets preferences', () => 
 
   assert.equal(hasLearningPreferences(emptyProfile), false);
   assert.equal(createPersonalizedCoursePrompt(emptyProfile), '');
+  assert.equal(
+    createPersonalizedCoursePrompt(emptyProfile, '중국어 여행 회화'),
+    '배울 내용: 중국어 여행 회화\n실제로 재생할 수 있는 YouTube 영상 2~4개를 쉬운 순서로 추천해줘.',
+  );
   assert.deepEqual(createPromptSuggestions(emptyProfile), []);
   assert.equal(createPersonalizedCoursePrompt(null), '');
 });

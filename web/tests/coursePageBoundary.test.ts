@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../src");
 const appSource = readFileSync(resolve(root, "App.tsx"), "utf8");
 const coursePath = resolve(root, "features/course/CoursePage.tsx");
+const courseCssPath = resolve(root, "features/course/CoursePage.css");
 
 test("the active Course screen owns its feature module", () => {
   assert.equal(existsSync(coursePath), true);
@@ -44,4 +45,13 @@ test("a single recommendation is never presented or saved as a course", () => {
   assert.match(source, /관련 영상 한 개를 찾았습니다/);
   assert.match(source, /코스로 묶으려면 영상이 두 개 이상 필요합니다/);
   assert.match(source, /const title = generatedTitle/);
+});
+
+test("course builder heading stays subordinate to the page title", () => {
+  const css = readFileSync(courseCssPath, "utf8");
+
+  assert.match(
+    css,
+    /\.course-builder-heading h2\s*\{[^}]*font-size:\s*24px/,
+  );
 });

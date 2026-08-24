@@ -24,3 +24,13 @@ test("course creation has one clear primary action and visible progress", () => 
   assert.match(source, /내 코스/);
   assert.doesNotMatch(source, /기존 코스 먼저 찾기|새로 만들어줘/);
 });
+
+test("saved course continuation appears before optional course discovery", () => {
+  const source = readFileSync(coursePath, "utf8");
+  const continuation = source.indexOf("이어갈 코스");
+  const builder = source.indexOf('className="course-builder"');
+
+  assert.ok(continuation >= 0);
+  assert.ok(builder > continuation);
+  assert.match(source, /<summary>새 코스 찾기<\/summary>/);
+});

@@ -16,6 +16,9 @@ export function MyPage({
   const [user, setUser] = useState(session.user);
   const [courseCount, setCourseCount] = useState(0);
   const [videoCount, setVideoCount] = useState(0);
+  const [savedSentenceCount] = useState(() =>
+    countSavedSentences(session.user.id),
+  );
   const [status, setStatus] = useState("계정 정보를 불러오는 중입니다.");
   const [isVerifying, setIsVerifying] = useState(false);
 
@@ -61,13 +64,13 @@ export function MyPage({
     <main className="page-shell profile-page">
       <section className="profile-hero">
         <div>
-          <h1>내 정보</h1>
+          <h1>내 학습</h1>
           <p>
-            관심사와 목표를 관리하면 새 코스와 다음 학습 순서에 바로 반영됩니다.
+            이어갈 코스와 저장한 문장을 한곳에서 확인하세요.
           </p>
           <div className="profile-actions">
-            <Link className="primary-link" to="/courses">
-              내 코스 보기
+            <Link className="primary-link" to="/">
+              이어서 학습
             </Link>
             <button
               className="secondary-action"
@@ -86,6 +89,10 @@ export function MyPage({
           <span>
             <strong>{videoCount}</strong>
             학습할 영상
+          </span>
+          <span>
+            <strong>{savedSentenceCount}</strong>
+            저장한 문장
           </span>
         </div>
       </section>
@@ -155,4 +162,22 @@ function formatDate(value: string) {
   return Number.isNaN(date.getTime())
     ? "-"
     : new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium" }).format(date);
+}
+
+function countSavedSentences(userId: number) {
+  try {
+    const prefix = `studytube.learningSession:user-${userId}:`;
+    let count = 0;
+    for (let index = 0; index < window.sessionStorage.length; index += 1) {
+      const key = window.sessionStorage.key(index);
+      if (!key?.startsWith(prefix)) continue;
+      const value = JSON.parse(window.sessionStorage.getItem(key) ?? "{}") as {
+        notes?: unknown[];
+      };
+      count += Array.isArray(value.notes) ? value.notes.length : 0;
+    }
+    return count;
+  } catch {
+    return 0;
+  }
 }

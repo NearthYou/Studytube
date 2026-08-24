@@ -34,7 +34,7 @@ test("learning home starts with URL registration and has an honest empty state",
   const source = readFileSync(learningPagePath, "utf8");
 
   assert.match(source, /YouTube 영상 주소/);
-  assert.match(source, /시작하기/);
+  assert.match(source, /바로 시작/);
   assert.match(source, /아직 학습한 영상이 없습니다/);
   assert.match(source, /새 영상 등록/);
   assert.doesNotMatch(source, />[^\n<]*(?:Agent|MCP|RAG|AI)[^\n<]*</);
@@ -54,6 +54,14 @@ test("new learning intake keeps the public video title and introduction", () => 
   assert.match(source, /askMcp\(\{ url: normalizedUrl, limit: 1 \}\)/);
   assert.match(source, /metadata\?\.title/);
   assert.match(source, /summary:/);
+  assert.doesNotMatch(source, /`\$\{channelName\}의 \$\{title\} 영상입니다/);
+});
+
+test("learning home shows one clear continue card instead of a video grid", () => {
+  const source = readFileSync(learningPagePath, "utf8");
+
+  assert.match(source, /const recentVideo = recentVideos\[0\]/);
+  assert.doesNotMatch(source, /recentVideos\.slice\(0, 6\)\.map/);
 });
 
 test("legacy recent videos pass cost admission before the new workspace opens", () => {
@@ -68,4 +76,13 @@ test("login return state preserves the selected video query", () => {
     protectedRouteSource,
     /from:\s*location\.pathname\s*\+\s*location\.search\s*\+\s*location\.hash/,
   );
+});
+
+test("navigation and authentication links keep a touchable target", () => {
+  const theme = readFileSync(
+    resolve(testDirectory, "../src/styles/theme.css"),
+    "utf8",
+  );
+
+  assert.match(theme, /\.site-nav a,[\s\S]*\.auth-card a[\s\S]*min-height: 44px/);
 });

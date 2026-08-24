@@ -66,7 +66,7 @@ export function LearningPage({ session }: { session: Session }) {
           metadataSummary !==
             "YouTube oEmbed metadata fetched through the MCP server."
             ? metadataSummary
-            : `${channelName}의 ${title} 영상입니다.`,
+            : "",
       };
       const queue = addVideosToQueue([video], video);
       setRecentVideos(queue);
@@ -123,6 +123,8 @@ export function LearningPage({ session }: { session: Session }) {
     navigate(`/watch?videoId=${encodeURIComponent(video.videoId)}`);
   }
 
+  const recentVideo = recentVideos[0];
+
   return (
     <main className="page-shell learning-home">
       <section className="learning-intake-card">
@@ -144,7 +146,7 @@ export function LearningPage({ session }: { session: Session }) {
               onChange={(event) => setVideoUrl(event.target.value)}
             />
             <button disabled={isSubmitting} type="submit">
-              {isSubmitting ? "준비 중" : "시작하기"}
+              {isSubmitting ? "영상을 여는 중" : "바로 시작"}
             </button>
           </div>
         </form>
@@ -169,7 +171,7 @@ export function LearningPage({ session }: { session: Session }) {
           </div>
           <a href="#learning-video-url">새 영상 등록</a>
         </div>
-        {recentVideos.length === 0 ? (
+        {!recentVideo ? (
           <div className="learning-empty-state">
             <strong>아직 학습한 영상이 없습니다</strong>
             <p>위에 YouTube 주소를 입력하면 첫 학습을 시작할 수 있습니다.</p>
@@ -179,21 +181,18 @@ export function LearningPage({ session }: { session: Session }) {
           </div>
         ) : (
           <div className="recent-learning-list">
-            {recentVideos.slice(0, 6).map((video) => (
-              <button
-                disabled={isSubmitting}
-                key={video.id}
-                type="button"
-                onClick={() => void resume(video)}
-              >
-                <img src={video.thumbnailUrl} alt="" />
-                <span>
-                  <strong>{video.title}</strong>
-                  <small>{video.channelName}</small>
-                </span>
-                <b>이어서 보기</b>
-              </button>
-            ))}
+            <button
+              disabled={isSubmitting}
+              type="button"
+              onClick={() => void resume(recentVideo)}
+            >
+              <img src={recentVideo.thumbnailUrl} alt="" />
+              <span>
+                <strong>{recentVideo.title}</strong>
+                <small>{recentVideo.channelName}</small>
+              </span>
+              <b>이어서 보기</b>
+            </button>
           </div>
         )}
       </section>

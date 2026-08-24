@@ -28,7 +28,7 @@ export function VerificationPage() {
   return (
     <main className="auth-page">
       <section className="auth-card">
-        <p className="eyebrow">StudyTube Account</p>
+        <p className="eyebrow">StudyTube 계정</p>
         <h1>이메일 인증</h1>
         <p>{status}</p>
         <div className="auth-switch">

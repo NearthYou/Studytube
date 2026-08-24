@@ -14,6 +14,18 @@ test("learning workspace is split into a focused feature boundary", () => {
     true,
   );
   assert.equal(existsSync(resolve(featureDirectory, "captionState.ts")), true);
+  assert.equal(
+    existsSync(resolve(featureDirectory, "CurrentSentencePanel.tsx")),
+    true,
+  );
+  assert.equal(
+    existsSync(resolve(featureDirectory, "LearningOverviewPanel.tsx")),
+    true,
+  );
+  assert.equal(
+    existsSync(resolve(featureDirectory, "TranscriptDrawer.tsx")),
+    true,
+  );
 });
 
 test("learning workspace keeps the player and study tools in one desktop desk", () => {
@@ -28,24 +40,48 @@ test("learning workspace keeps the player and study tools in one desktop desk", 
   assert.ok(player >= 0);
   assert.ok(desk >= 0);
   assert.ok(tools > player);
-  assert.match(source, /원문/);
-  assert.match(source, /한국어/);
-  assert.match(source, /label: "전체 자막"/);
-  assert.match(source, /label: "문장 해설"/);
-  assert.match(source, /label: "저장 문장"/);
+  assert.match(source, /label: "지금 문장"/);
+  assert.match(source, /label: "내용 정리"/);
+  assert.match(source, /label: "내 메모"/);
   assert.match(source, /label: "퀴즈"/);
+  assert.doesNotMatch(source, /label: "전체 자막"/);
 });
 
-test("learning workspace shows useful video context without technical labels", () => {
+test("learning workspace never samples arbitrary captions as a summary", () => {
   const source = readFileSync(
     resolve(featureDirectory, "LearningWorkspace.tsx"),
     "utf8",
   );
+  const overview = readFileSync(
+    resolve(featureDirectory, "LearningOverviewPanel.tsx"),
+    "utf8",
+  );
 
-  assert.match(source, /function LearningSummaryPanel/);
-  assert.match(source, /핵심 내용/);
-  assert.match(source, /video\.summary/);
-  assert.doesNotMatch(source, /AI 요약|자막 근거|문제 근거/);
+  assert.doesNotMatch(source, /highlightIndexes|Math\.floor\(\(segments\.length/);
+  assert.doesNotMatch(source, /video\.summary/);
+  assert.match(overview, /내용 정리는 자막이 준비되면 열립니다/);
+  assert.match(overview, /이번 학습 정리/);
+  assert.doesNotMatch(`${source}\n${overview}`, /AI 요약|자막 근거|문제 근거/);
+});
+
+test("full transcript opens as a drawer instead of a primary tab", () => {
+  const source = readFileSync(
+    resolve(featureDirectory, "LearningWorkspace.tsx"),
+    "utf8",
+  );
+  const drawer = readFileSync(
+    resolve(featureDirectory, "TranscriptDrawer.tsx"),
+    "utf8",
+  );
+  const current = readFileSync(
+    resolve(featureDirectory, "CurrentSentencePanel.tsx"),
+    "utf8",
+  );
+
+  assert.match(`${source}\n${current}`, />\s*전체 자막 보기\s*</);
+  assert.match(drawer, /role="dialog"/);
+  assert.match(drawer, /aria-modal="true"/);
+  assert.match(drawer, /전체 자막 닫기/);
 });
 
 test("YouTube loading and playback lifecycle stay behind one player interface", () => {
@@ -75,7 +111,7 @@ test("unfinished learning tools are presented as preparation states", () => {
   assert.match(source, /const MAX_CAPTION_POLLS = 170/);
   assert.match(source, /startLearningIntake/);
   assert.match(source, /자막 다시 만들기/);
-  assert.match(source, /재생 소리로 자막을 만들 수 있습니다/);
+  assert.match(source, /재생 소리로 자막 만들기/);
   assert.doesNotMatch(source, /자막이 있는 다른 영상 선택/);
   assert.match(source, /canRetryCaptions/);
   assert.doesNotMatch(source, /Agent|MCP|RAG|AI/);
@@ -135,12 +171,16 @@ test("starting a note pins the current playback position automatically", () => {
     resolve(featureDirectory, "LearningWorkspace.tsx"),
     "utf8",
   );
+  const current = readFileSync(
+    resolve(featureDirectory, "CurrentSentencePanel.tsx"),
+    "utf8",
+  );
 
   assert.match(source, /function startNoteDraft/);
   assert.match(source, /notePositionSeconds: state\.currentTime/);
   assert.match(source, /selectedTab: "notes"/);
   assert.match(source, /noteInputRef\.current\?\.focus\(\)/);
-  assert.match(source, />\s*메모하기\s*</);
+  assert.match(current, />\s*이 문장 저장\s*</);
   assert.doesNotMatch(source, /현재 위치로 바꾸기/);
   assert.doesNotMatch(source, /positionSeconds: state\.currentTime/);
 });
@@ -156,8 +196,8 @@ test("captionless videos can create progressive captions from shared tab audio",
   );
 
   assert.match(workspaceSource, /useLiveCaptionCapture/);
-  assert.match(workspaceSource, />\s*자막 시작\s*</);
-  assert.match(workspaceSource, />\s*자막 중지\s*</);
+  assert.match(workspaceSource, /재생 소리로 자막 만들기/);
+  assert.match(workspaceSource, /자막 만들기 중지/);
   assert.match(captureSource, /getDisplayMedia/);
   assert.match(captureSource, /systemAudio:\s*"exclude"/);
   assert.match(captureSource, /captureLiveCaptionChunk/);
@@ -191,15 +231,28 @@ test("note save reconnects a stale learning context once before failing", () => 
 });
 
 test("learning workspace collapses safely at phone width", () => {
-  const css = readFileSync(resolve(testDirectory, "../src/App.css"), "utf8");
+  const css = readFileSync(
+    resolve(featureDirectory, "LearningWorkspace.css"),
+    "utf8",
+  );
 
   assert.match(css, /@media \(max-width: 520px\)/);
   assert.match(css, /\.learning-desk\s*\{[\s\S]*grid-template-columns:/);
   assert.match(css, /\.learning-tools\s*\{[\s\S]*overflow:/);
-  assert.match(
-    css,
-    /\.learning-intake-form > div[\s\S]*grid-template-columns: 1fr/,
-  );
-  assert.match(css, /\.current-caption > div[\s\S]*grid-template-columns: 1fr/);
   assert.match(css, /\.learning-tablist button[\s\S]*min-width: 0/);
+});
+
+test("global theme keeps Korean words intact on a dark surface", () => {
+  const theme = readFileSync(
+    resolve(testDirectory, "../src/styles/theme.css"),
+    "utf8",
+  );
+
+  assert.match(theme, /--app-background:\s*#0c0f14/i);
+  assert.match(theme, /--app-surface:\s*#141922/i);
+  assert.match(theme, /--app-accent:\s*#4c8dff/i);
+  assert.match(theme, /word-break:\s*keep-all/);
+  assert.match(theme, /overflow-wrap:\s*break-word/);
+  assert.match(theme, /text-wrap:\s*pretty/);
+  assert.doesNotMatch(theme, /overflow-wrap:\s*anywhere/);
 });

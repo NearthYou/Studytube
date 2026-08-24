@@ -5,7 +5,7 @@ import {
   type ProgressiveCaptionState,
 } from "./captionState.ts";
 
-export type LearningTab = "summary" | "transcript" | "notes" | "quiz";
+export type LearningTab = "current" | "overview" | "notes" | "quiz";
 
 export type LearningSessionState = {
   videoId: string;
@@ -94,14 +94,12 @@ function normalizeLearningSession(
   value: Partial<LearningSessionState>,
   videoId: string,
 ): LearningSessionState {
-  const selectedTab: LearningTab = [
-    "summary",
-    "transcript",
-    "notes",
-    "quiz",
-  ].includes(value.selectedTab ?? "")
-    ? (value.selectedTab as LearningTab)
-    : "summary";
+  const storedTab = value.selectedTab;
+  const selectedTab: LearningTab = ["current", "overview", "notes", "quiz"].includes(
+    storedTab ?? "",
+  )
+    ? (storedTab as LearningTab)
+    : "current";
   const currentTime =
     typeof value.currentTime === "number" && Number.isFinite(value.currentTime)
       ? Math.max(0, value.currentTime)

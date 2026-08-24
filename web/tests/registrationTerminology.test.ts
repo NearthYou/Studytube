@@ -12,6 +12,10 @@ const activeCopy = [
   "features/learning/LearningWorkspace.tsx",
   "features/course/CoursePage.tsx",
   "features/onboarding/TutorialPage.tsx",
+  "features/account/MyEditPage.tsx",
+  "features/auth/AuthPage.tsx",
+  "features/auth/VerificationPage.tsx",
+  "features/auth/RegistrationCompletionPage.tsx",
 ].map((path) => readFileSync(sourcePath(path), "utf8")).join("\n");
 
 test("default registration draft title is a playlist title", () => {
@@ -27,4 +31,9 @@ test("visible active copy avoids retired draft terminology", () => {
 
 test("active playlist copy does not fall back to public social wording", () => {
   assert.doesNotMatch(activeCopy, /공개 플레이리스트[^\n"]*코스/);
+});
+
+test("active copy hides implementation terms and translated account labels", () => {
+  assert.doesNotMatch(activeCopy, />[^\n<]*(?:AI|Agent|MCP|RAG)[^\n<]*</);
+  assert.doesNotMatch(activeCopy, /StudyTube Account/);
 });

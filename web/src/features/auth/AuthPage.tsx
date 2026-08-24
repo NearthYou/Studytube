@@ -119,7 +119,7 @@ export function AuthPage({
   return (
     <main className="auth-page">
       <section className="auth-card">
-        <p className="eyebrow">StudyTube Account</p>
+        <p className="eyebrow">StudyTube 계정</p>
         <h1>{mode === "login" ? "로그인" : "회원가입"}</h1>
         <p>{status}</p>
         <form className="stack-form" onSubmit={submit}>

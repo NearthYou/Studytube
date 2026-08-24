@@ -143,6 +143,35 @@ test("does not expose raw English API errors to Korean users", async () => {
   }
 });
 
+test("explains a learning daily limit without calling it a service outage", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        code: "LEARNING_DAILY_LIMIT_REACHED",
+        message: "Provider budget unavailable",
+      }),
+      {
+        status: 503,
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+
+  try {
+    await assert.rejects(requestJson("/learning/items/intake"), (error) => {
+      assert.ok(error instanceof Error);
+      assert.equal(
+        error.message,
+        "오늘 준비할 수 있는 자막 분량을 모두 사용했습니다. 이미 등록한 영상으로 학습하거나 내일 다시 시도해주세요.",
+      );
+      assert.doesNotMatch(error.message, /서비스가.*불안정/);
+      return true;
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("keeps the session when only the current password is wrong", async () => {
   const originalFetch = globalThis.fetch;
   let unauthorized = 0;

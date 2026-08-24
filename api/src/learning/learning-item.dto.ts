@@ -46,3 +46,15 @@ export class UpdateLearningNoteDto {
   @Length(1, 4_000)
   body!: string;
 }
+
+export class ExplainLearningSegmentDto {
+  @IsNumber({ maxDecimalPlaces: 3 })
+  @Min(0)
+  @Max(86_400)
+  startSeconds!: number;
+
+  @IsNumber({ maxDecimalPlaces: 3 })
+  @Min(0.001)
+  @Max(86_400)
+  endSeconds!: number;
+}

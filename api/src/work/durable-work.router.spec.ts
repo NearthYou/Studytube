@@ -73,6 +73,26 @@ describe('DurableWorkRouter', () => {
     });
   });
 
+  it('routes learning summaries through their dedicated durable handler', async () => {
+    const summary = {
+      handle: jest.fn().mockResolvedValue({ summaryId: 'summary-1' }),
+    };
+    const router = new DurableWorkRouter(
+      { handle: jest.fn() },
+      { handle: jest.fn() },
+      { handle: jest.fn() },
+      undefined,
+      undefined,
+      summary,
+    );
+    const summaryJob = job('learning_summary.requested');
+
+    await expect(router.handle(summaryJob)).resolves.toEqual({
+      summaryId: 'summary-1',
+    });
+    expect(summary.handle).toHaveBeenCalledWith(summaryJob, undefined);
+  });
+
   it('settles terminal and final-attempt jobs as failed', async () => {
     const terminal = new WorkJobTerminalError('INVALID_QUIZ_RESPONSE');
     const exhausted = new WorkJobTerminalError(

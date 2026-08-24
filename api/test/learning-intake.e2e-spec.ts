@@ -17,6 +17,10 @@ import { PostgresLearningItemRepository } from '../src/learning/postgres-learnin
 import { PostgresLearningNoteRepository } from '../src/learning/postgres-learning-note.repository';
 import { PostgresProviderBudgetRepository } from '../src/learning/postgres-provider-budget.repository';
 import { PROVIDER_BUDGET_REPOSITORY } from '../src/learning/provider-budget.repository';
+import { LearningOverviewService } from '../src/learning/learning-overview.service';
+import { PostgresLearningOverviewRepository } from '../src/learning/postgres-learning-overview.repository';
+import { LEARNING_OVERVIEW_REPOSITORY } from '../src/learning/learning-overview.repository';
+import type { AiProxyService } from '../src/ai-proxy.service';
 
 const DATABASE_URL =
   process.env.DATABASE_URL ?? 'postgresql://app:app@localhost:5432/app_dev';
@@ -45,6 +49,7 @@ describe('authenticated learning intake', () => {
     pool = new Pool({ connectionString: DATABASE_URL });
     const items = new PostgresLearningItemRepository(pool);
     const notes = new PostgresLearningNoteRepository(pool);
+    const overviews = new PostgresLearningOverviewRepository(pool);
     budget = new PostgresProviderBudgetRepository(pool, {
       enabled: true,
       maxGlobalDailyAudioSeconds: 3_600,
@@ -83,10 +88,22 @@ describe('authenticated learning intake', () => {
         Reflector,
         { provide: LEARNING_ITEM_REPOSITORY, useValue: items },
         { provide: LEARNING_NOTE_REPOSITORY, useValue: notes },
+        { provide: LEARNING_OVERVIEW_REPOSITORY, useValue: overviews },
         { provide: PROVIDER_BUDGET_REPOSITORY, useValue: budget },
         {
           provide: LearningItemService,
           useFactory: () => new LearningItemService(budget, items),
+        },
+        {
+          provide: LearningOverviewService,
+          useFactory: () =>
+            new LearningOverviewService(overviews, {
+              explainLearningSegment: jest.fn().mockResolvedValue({
+                plainMeaning: '상대에게 천천히 진행하자고 말하는 표현입니다.',
+                keyExpressions: [{ text: '你好', meaning: '안녕하세요' }],
+                contextNote: '처음 인사하는 장면에서 사용했습니다.',
+              }),
+            } as unknown as AiProxyService),
         },
         {
           provide: AuthService,
@@ -125,6 +142,10 @@ describe('authenticated learning intake', () => {
        WHERE video_source_id IN (
          SELECT id FROM video_sources WHERE canonical_video_id LIKE 'u2test%'
        )`,
+    );
+    await pool.query(
+      `DELETE FROM work_outbox_events
+       WHERE event_type = 'learning_summary.requested'`,
     );
     const work = await pool.query<{ workId: string }>(
       `SELECT work_id::text AS "workId"
@@ -590,8 +611,58 @@ describe('authenticated learning intake', () => {
       .expect(200)
       .expect(({ body }) => expect(body).toMatchObject({ phase: 'complete' }));
 
+    const overviewResponse = await request(server)
+      .get(`/learning/contexts/${contextId}/overview`)
+      .set('Cookie', cookie(tokenFor(ownerId)))
+      .expect(200);
+    expect(overviewResponse.body).toEqual({
+      contextId,
+      status: 'pending',
+      coverage: { scope: 'full_video', startSeconds: 0, endSeconds: 4 },
+    });
+    await request(server)
+      .get(`/learning/contexts/${contextId}/overview`)
+      .set('Cookie', cookie(tokenFor(ownerId)))
+      .expect(200);
+    const queuedSummary = await pool.query<{
+      summaries: number;
+      events: number;
+    }>(
+      `SELECT
+         (SELECT count(*)::int FROM learning_context_summaries
+          WHERE study_context_id = $1) AS summaries,
+         (SELECT count(*)::int FROM work_outbox_events
+          WHERE event_type = 'learning_summary.requested'
+            AND aggregate_type = 'learning_context_summary') AS events`,
+      [contextId],
+    );
+    expect(queuedSummary.rows[0]).toEqual({ summaries: 1, events: 1 });
+
+    await request(server)
+      .post(`/learning/contexts/${contextId}/explanations`)
+      .set('Origin', WEB_ORIGIN)
+      .set('Cookie', cookie(tokenFor(ownerId)))
+      .send({ startSeconds: 0, endSeconds: 4 })
+      .expect(201)
+      .expect((response) => {
+        const body: unknown = response.body;
+        if (!body || typeof body !== 'object') {
+          throw new Error('Expected explanation response body');
+        }
+        const explanation = body as Record<string, unknown>;
+        expect(typeof explanation.plainMeaning).toBe('string');
+        expect(explanation.citation).toEqual({
+          startSeconds: 0,
+          endSeconds: 4,
+        });
+      });
+
     await request(server)
       .get(`/learning/contexts/${contextId}/captions`)
+      .set('Cookie', cookie(tokenFor(otherId)))
+      .expect(404);
+    await request(server)
+      .get(`/learning/contexts/${contextId}/overview`)
       .set('Cookie', cookie(tokenFor(otherId)))
       .expect(404);
   });

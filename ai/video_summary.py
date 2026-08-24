@@ -44,6 +44,14 @@ def summary_runtime() -> VideoSummaryRuntime:
     return _runtime
 
 def build_youtube_summary(payload: dict[str, Any]) -> dict[str, Any]:
+    response_shape = str(payload.get("responseShape") or "").strip()
+
+    if response_shape == "learning-overview":
+        return build_learning_overview(payload)
+
+    if response_shape == "segment-explanation":
+        return build_segment_explanation(payload)
+
     video_id = str(payload.get("videoId") or "").strip()
     title = clean_text(str(payload.get("title") or "")).strip()
     channel_name = clean_text(str(payload.get("channelName") or "")).strip()
@@ -102,6 +110,214 @@ def build_youtube_summary(payload: dict[str, Any]) -> dict[str, Any]:
         ),
         "message": "Detailed AI summary unavailable; generated structured notes locally.",
     }
+
+
+def build_learning_overview(payload: dict[str, Any]) -> dict[str, Any]:
+    segments = normalize_caption_segments(
+        payload.get("segments") if isinstance(payload.get("segments"), list) else []
+    )
+    coverage = normalize_summary_coverage(payload.get("coverage"), segments)
+    client = summary_runtime().openai_client()
+
+    if client is None or len(segments) < 3 or coverage is None:
+        return {"status": "failed", "errorCode": "SUMMARY_UNAVAILABLE"}
+
+    try:  # pragma: no cover - live credentials are optional in local tests
+        response = client.chat.completions.create(
+            model=os.getenv("LLM_MODEL", "gpt-4o-mini"),
+            temperature=0.2,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "주어진 자막 범위만 사용해 한국어 학습 정리를 만든다. "
+                        "홍보 문구, 채널 정보, 엔딩 인사를 핵심으로 고르지 않는다. "
+                        "JSON만 반환하고 overview, chapters, takeaways 키를 사용한다. "
+                        "chapters는 시간 순서대로 3개에서 5개이며 각 항목은 "
+                        "startSeconds, endSeconds, title, body를 가진다. "
+                        "takeaways는 최대 3개다."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        {
+                            "coverage": coverage,
+                            "transcript": segments,
+                            "writing": (
+                                "개요는 2~3문장으로 쓰고, 자막에 없는 내용을 만들지 마세요. "
+                                "제목과 본문은 짧고 자연스러운 한국어로 작성하세요."
+                            ),
+                        },
+                        ensure_ascii=False,
+                    ),
+                },
+            ],
+        )
+        content = getattr(response.choices[0].message, "content", "") or ""
+        parsed = parse_learning_overview(content, coverage)
+        if parsed:
+            return {
+                "status": "ready",
+                "provider": "openai-transcript-summary",
+                "summary": parsed,
+            }
+    except Exception:
+        pass
+
+    return {"status": "failed", "errorCode": "SUMMARY_UNAVAILABLE"}
+
+
+def build_segment_explanation(payload: dict[str, Any]) -> dict[str, Any]:
+    source = clean_text(str(payload.get("source") or "")).strip()
+    korean = clean_text(str(payload.get("korean") or "")).strip()
+    client = summary_runtime().openai_client()
+
+    if client is None or not source:
+        return {"status": "failed", "errorCode": "EXPLANATION_UNAVAILABLE"}
+
+    try:  # pragma: no cover - live credentials are optional in local tests
+        response = client.chat.completions.create(
+            model=os.getenv("LLM_MODEL", "gpt-4o-mini"),
+            temperature=0.15,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "외국어 영상의 한 문장을 한국어로 짧게 설명한다. "
+                        "JSON만 반환하고 plainMeaning, keyExpressions, contextNote를 사용한다. "
+                        "keyExpressions는 최대 4개이며 각 항목은 text와 meaning을 가진다. "
+                        "자막에 없는 상황을 지어내지 않는다."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        {"source": source, "korean": korean},
+                        ensure_ascii=False,
+                    ),
+                },
+            ],
+        )
+        content = getattr(response.choices[0].message, "content", "") or ""
+        parsed = parse_segment_explanation(content)
+        if parsed:
+            return parsed
+    except Exception:
+        pass
+
+    return {"status": "failed", "errorCode": "EXPLANATION_UNAVAILABLE"}
+
+
+def normalize_summary_coverage(
+    value: Any,
+    segments: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    raw = value if isinstance(value, dict) else {}
+    try:
+        start = float(raw.get("startSeconds", segments[0]["start"] if segments else 0))
+        end = float(raw.get("endSeconds", segments[-1]["end"] if segments else 0))
+    except (TypeError, ValueError, KeyError):
+        return None
+    scope = raw.get("scope")
+    if scope not in {"full_video", "study_range"} or start < 0 or end <= start:
+        return None
+    return {"scope": scope, "startSeconds": start, "endSeconds": end}
+
+
+def parse_learning_overview(
+    content: str,
+    coverage: dict[str, Any],
+) -> dict[str, Any] | None:
+    data = parse_json_content(content)
+    if not isinstance(data, dict):
+        return None
+    overview = clean_text(str(data.get("overview") or "")).strip()
+    chapters = data.get("chapters")
+    takeaways = data.get("takeaways")
+    if (
+        len(overview) < 20
+        or not isinstance(chapters, list)
+        or not 3 <= len(chapters) <= 5
+        or not isinstance(takeaways, list)
+        or len(takeaways) > 3
+    ):
+        return None
+    parsed_chapters: list[dict[str, Any]] = []
+    for chapter in chapters:
+        if not isinstance(chapter, dict):
+            return None
+        try:
+            start = float(chapter.get("startSeconds"))
+            end = float(chapter.get("endSeconds"))
+        except (TypeError, ValueError):
+            return None
+        title = clean_text(str(chapter.get("title") or "")).strip()
+        body = clean_text(str(chapter.get("body") or "")).strip()
+        if (
+            start < coverage["startSeconds"]
+            or end > coverage["endSeconds"]
+            or end <= start
+            or not title
+            or not body
+        ):
+            return None
+        parsed_chapters.append(
+            {
+                "startSeconds": start,
+                "endSeconds": end,
+                "title": title[:120],
+                "body": body[:2000],
+            }
+        )
+    parsed_takeaways = [
+        clean_text(str(item)).strip()[:1000]
+        for item in takeaways
+        if clean_text(str(item)).strip()
+    ]
+    if len(parsed_takeaways) != len(takeaways):
+        return None
+    return {
+        "overview": overview[:4000],
+        "chapters": parsed_chapters,
+        "takeaways": parsed_takeaways,
+    }
+
+
+def parse_segment_explanation(content: str) -> dict[str, Any] | None:
+    data = parse_json_content(content)
+    if not isinstance(data, dict):
+        return None
+    plain_meaning = clean_text(str(data.get("plainMeaning") or "")).strip()
+    context_note = clean_text(str(data.get("contextNote") or "")).strip()
+    expressions = data.get("keyExpressions")
+    if not plain_meaning or not isinstance(expressions, list) or len(expressions) > 4:
+        return None
+    parsed_expressions = []
+    for expression in expressions:
+        if not isinstance(expression, dict):
+            return None
+        text = clean_text(str(expression.get("text") or "")).strip()
+        meaning = clean_text(str(expression.get("meaning") or "")).strip()
+        if not text or not meaning:
+            return None
+        parsed_expressions.append({"text": text[:200], "meaning": meaning[:500]})
+    return {
+        "plainMeaning": plain_meaning[:2000],
+        "keyExpressions": parsed_expressions,
+        "contextNote": context_note[:2000],
+    }
+
+
+def parse_json_content(content: str) -> Any:
+    normalized = content.strip()
+    match = re.search(r"(\{.*\}|\[.*\])", normalized, re.S)
+    if match:
+        normalized = match.group(1)
+    try:
+        return json.loads(normalized)
+    except json.JSONDecodeError:
+        return None
 
 
 def summary_response_cache_key(

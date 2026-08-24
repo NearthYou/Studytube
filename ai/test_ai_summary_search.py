@@ -24,6 +24,77 @@ from main import (
 )
 
 class AiServiceTest(unittest.TestCase):
+    def test_learning_overview_returns_only_validated_summary_content(self):
+        class FakeOpenAI:
+            def __init__(self):
+                self.chat = self.Chat()
+
+            class Chat:
+                def __init__(self):
+                    self.completions = self.Completions()
+
+                class Completions:
+                    @staticmethod
+                    def create(**_kwargs):
+                        content = {
+                            "overview": "영상은 학습 습관을 만들 때 작은 반복을 먼저 설계해야 하는 이유를 설명합니다. 무리한 목표보다 다시 시작하기 쉬운 환경이 중요하다는 흐름으로 이어집니다.",
+                            "chapters": [
+                                {"startSeconds": 0, "endSeconds": 20, "title": "작게 시작하기", "body": "첫 구간은 부담을 낮추는 방법을 설명합니다."},
+                                {"startSeconds": 20, "endSeconds": 40, "title": "반복 만들기", "body": "두 번째 구간은 반복 가능한 기준을 다룹니다."},
+                                {"startSeconds": 40, "endSeconds": 60, "title": "다시 이어가기", "body": "마지막 구간은 중단 뒤 복귀하는 방법을 설명합니다."},
+                            ],
+                            "takeaways": ["작게 시작한다", "반복 가능한 기준을 정한다"],
+                        }
+                        message = type("Message", (), {"content": json.dumps(content, ensure_ascii=False)})()
+                        choice = type("Choice", (), {"message": message})()
+                        return type("Response", (), {"choices": [choice]})()
+
+        original_openai = main.OpenAI
+        original_key = os.environ.get("OPENAI_API_KEY")
+        main.OpenAI = FakeOpenAI
+        os.environ["OPENAI_API_KEY"] = "test-key"
+        try:
+            response = main.build_youtube_summary({
+                "responseShape": "learning-overview",
+                "videoId": "study123",
+                "coverage": {"scope": "study_range", "startSeconds": 0, "endSeconds": 60},
+                "segments": [
+                    {"start": 0, "end": 20, "text": "Start with a small habit."},
+                    {"start": 20, "end": 40, "text": "Make repetition easy."},
+                    {"start": 40, "end": 60, "text": "Return after a missed day."},
+                ],
+            })
+        finally:
+            main.OpenAI = original_openai
+            if original_key is None:
+                os.environ.pop("OPENAI_API_KEY", None)
+            else:
+                os.environ["OPENAI_API_KEY"] = original_key
+
+        self.assertEqual(response["status"], "ready")
+        self.assertEqual(len(response["summary"]["chapters"]), 3)
+        self.assertNotIn("sections", response)
+
+    def test_segment_explanation_never_falls_back_to_generic_copy(self):
+        original_openai = main.OpenAI
+        original_key = os.environ.get("OPENAI_API_KEY")
+        main.OpenAI = None
+        os.environ.pop("OPENAI_API_KEY", None)
+        try:
+            response = main.build_youtube_summary({
+                "responseShape": "segment-explanation",
+                "source": "Take it one step at a time.",
+                "korean": "한 번에 한 단계씩 해보세요.",
+                "startSeconds": 10,
+                "endSeconds": 14,
+            })
+        finally:
+            main.OpenAI = original_openai
+            if original_key is not None:
+                os.environ["OPENAI_API_KEY"] = original_key
+
+        self.assertEqual(response, {"status": "failed", "errorCode": "EXPLANATION_UNAVAILABLE"})
+
     def test_youtube_summary_uses_openai_sections_from_transcript(self):
         class FakeOpenAI:
             def __init__(self):

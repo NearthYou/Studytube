@@ -10,6 +10,7 @@ import type { LearningItemRepository } from './learning-item.repository';
 import { LEARNING_ITEM_REPOSITORY } from './learning-item.repository';
 import { LearningItemService } from './learning-item.service';
 import { LearningItemController } from './learning-item.controller';
+import { LearningOverviewService } from './learning-overview.service';
 import { LEARNING_NOTE_REPOSITORY } from './learning-note.repository';
 import { createOpenApiDocument } from '../openapi';
 import { validate } from 'class-validator';
@@ -298,7 +299,7 @@ describe('SessionGuard learning boundary', () => {
   });
 });
 
-describe('Learning caption OpenAPI boundary', () => {
+describe('Learning workspace OpenAPI boundary', () => {
   let app: INestApplication;
 
   afterEach(async () => {
@@ -310,6 +311,7 @@ describe('Learning caption OpenAPI boundary', () => {
       controllers: [LearningItemController],
       providers: [
         { provide: LearningItemService, useValue: {} },
+        { provide: LearningOverviewService, useValue: {} },
         { provide: LEARNING_NOTE_REPOSITORY, useValue: {} },
       ],
     }).compile();
@@ -334,6 +336,28 @@ describe('Learning caption OpenAPI boundary', () => {
         },
       },
     });
+
+    expect(
+      document.paths?.['/learning/contexts/{contextId}/overview']?.get
+        ?.responses?.['200'],
+    ).toMatchObject({
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            properties: {
+              status: { type: 'string' },
+              coverage: { type: 'object' },
+              summary: { type: 'object' },
+            },
+          },
+        },
+      },
+    });
+    expect(
+      document.paths?.['/learning/contexts/{contextId}/explanations']?.post
+        ?.responses?.['200'],
+    ).toBeDefined();
   });
 });
 

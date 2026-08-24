@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { HttpModule } from '@nestjs/axios';
 import { ConfigModule } from '@nestjs/config';
 import { AuthModule } from '../auth/auth.module';
 import { LearningController } from './learning.controller';
@@ -37,12 +38,27 @@ import {
   type RetrievalRepository,
 } from '../retrieval/retrieval.repository';
 import { PostgresRetrievalRepository } from '../retrieval/postgres-retrieval.repository';
+import { AiProxyService } from '../ai-proxy.service';
+import {
+  LEARNING_OVERVIEW_REPOSITORY,
+  type LearningOverviewRepository,
+} from './learning-overview.repository';
+import { PostgresLearningOverviewRepository } from './postgres-learning-overview.repository';
+import { LearningOverviewService } from './learning-overview.service';
 
 @Module({
-  imports: [AuthModule, ConfigModule],
+  imports: [AuthModule, ConfigModule, HttpModule],
   controllers: [LearningController, LearningItemController],
   providers: [
     LearningDatabase,
+    AiProxyService,
+    {
+      provide: LEARNING_OVERVIEW_REPOSITORY,
+      useFactory: (database: LearningDatabase): LearningOverviewRepository =>
+        new PostgresLearningOverviewRepository(database.pool),
+      inject: [LearningDatabase],
+    },
+    LearningOverviewService,
     {
       provide: LEARNING_ITEM_REPOSITORY,
       useFactory: (database: DatabaseService) =>
@@ -135,7 +151,9 @@ import { PostgresRetrievalRepository } from '../retrieval/postgres-retrieval.rep
     PROVIDER_BUDGET_REPOSITORY,
     LEARNING_REPOSITORY,
     LEARNING_PROPOSAL_REPOSITORY,
+    LEARNING_OVERVIEW_REPOSITORY,
     LearningService,
+    LearningOverviewService,
   ],
 })
 export class LearningModule {}

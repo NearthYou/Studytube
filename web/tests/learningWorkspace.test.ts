@@ -271,4 +271,8 @@ test("learning panels override the retired white workspace surface", () => {
     css,
     /\.learning-workspace \.learning-tabpanel\s*\{[^}]*background:\s*var\(--app-surface\)/,
   );
+  assert.match(
+    css,
+    /\.learning-overview-panel h2\s*\{[^}]*font-size:\s*24px/,
+  );
 });

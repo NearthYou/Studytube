@@ -16,6 +16,7 @@ import {
 } from '@nestjs/common';
 import { ApiNotFoundResponse, ApiOkResponse } from '@nestjs/swagger';
 import type { AuthenticatedRequest } from '../auth/session.guard';
+import { AuthHttpException } from '../auth/auth-http.exception';
 import {
   CreateLearningNoteDto,
   ExplainLearningSegmentDto,
@@ -66,12 +67,11 @@ export class LearningItemController {
       }
       if (error instanceof ProviderBudgetUnavailableError) {
         observabilityRuntime.metrics.learningEvent('reservation', 'denied');
-        throw new ServiceUnavailableException({
-          code: error.code,
-          reason: error.reason,
-          message:
-            '현재 영상 처리를 시작할 수 없습니다. 잠시 후 다시 시도해주세요.',
-        });
+        throw new AuthHttpException(
+          providerBudgetClientCode(error.reason),
+          'Learning intake limit reached',
+          HttpStatus.SERVICE_UNAVAILABLE,
+        );
       }
       if (error instanceof LearningIntakeCompensationError) {
         throw new ServiceUnavailableException({
@@ -230,6 +230,16 @@ export class LearningItemController {
     if (!deleted) throw new NotFoundException('메모를 찾을 수 없습니다.');
     return { deleted: true };
   }
+}
+
+function providerBudgetClientCode(
+  reason: ProviderBudgetUnavailableError['reason'],
+) {
+  if (reason === 'USER_DAILY_CAP') return 'LEARNING_DAILY_LIMIT_REACHED';
+  if (reason === 'USER_CONCURRENCY_CAP') {
+    return 'LEARNING_PREPARATION_IN_PROGRESS';
+  }
+  return 'PROVIDER_BUDGET_UNAVAILABLE';
 }
 
 function captionSegmentSchema() {

@@ -170,6 +170,10 @@ function localizedApiError(
       "서비스가 일시적으로 불안정합니다. 잠시 후 다시 시도해주세요.",
     PROVIDER_BUDGET_UNAVAILABLE:
       "현재 영상 처리를 시작할 수 없습니다. 잠시 후 다시 시도해주세요.",
+    LEARNING_DAILY_LIMIT_REACHED:
+      "오늘 준비할 수 있는 자막 분량을 모두 사용했습니다. 이미 등록한 영상으로 학습하거나 내일 다시 시도해주세요.",
+    LEARNING_PREPARATION_IN_PROGRESS:
+      "다른 영상의 자막을 준비하고 있습니다. 준비가 끝난 뒤 다시 시도해주세요.",
     UNAUTHORIZED: "로그인이 필요합니다.",
   };
   if (code && codeMessages[code]) {

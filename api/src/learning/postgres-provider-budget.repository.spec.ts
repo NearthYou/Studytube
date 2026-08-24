@@ -135,6 +135,12 @@ describe('PostgresProviderBudgetRepository', () => {
     });
     expect(sqlAt(query, -1)).toBe('ROLLBACK');
     expect(sqlAt(query, 3)).toContain('FOR UPDATE');
+    expect(sqlAt(query, 4)).toContain(
+      "state = 'committed' AND actual_cost_microunits = 0 THEN 0",
+    );
+    expect(sqlAt(query, 4)).toContain(
+      'JOIN provider_work_reservations AS work',
+    );
     expect(
       sqlCalls(query).some((sql) =>
         sql.includes('INSERT INTO work_outbox_events'),

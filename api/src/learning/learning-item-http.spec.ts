@@ -256,6 +256,33 @@ describe('LearningItemService intake boundary', () => {
   });
 });
 
+describe('LearningItemController intake errors', () => {
+  it('returns a stable daily-limit code instead of pretending the service is down', async () => {
+    const controller = new LearningItemController(
+      {
+        start: jest
+          .fn()
+          .mockRejectedValue(
+            new ProviderBudgetUnavailableError('USER_DAILY_CAP'),
+          ),
+      } as unknown as LearningItemService,
+      {} as LearningOverviewService,
+      {} as never,
+    );
+
+    try {
+      await controller.start({ principal: { userId: 7 } } as never, {
+        videoUrl: 'https://youtu.be/dQw4w9WgXcQ',
+        requestedAudioSeconds: 600,
+      });
+      throw new Error('Expected learning intake to be rejected');
+    } catch (error) {
+      expect(error).toMatchObject({ code: 'LEARNING_DAILY_LIMIT_REACHED' });
+      expect((error as { getStatus: () => number }).getStatus()).toBe(503);
+    }
+  });
+});
+
 describe('StartLearningItemDto', () => {
   it('rejects transcription requests longer than ten minutes', async () => {
     const input = Object.assign(new StartLearningItemDto(), {

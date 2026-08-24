@@ -317,7 +317,12 @@ export class PostgresProviderBudgetRepository implements ProviderBudgetRepositor
   ): Promise<BudgetSnapshotRow> {
     const result = await client.query<BudgetSnapshotRow>(
       `SELECT
-         COALESCE((SELECT sum(reserved_audio_seconds)::int
+         COALESCE((SELECT sum(
+             CASE
+               WHEN state = 'committed' AND actual_cost_microunits = 0 THEN 0
+               ELSE reserved_audio_seconds
+             END
+           )::int
            FROM provider_work_reservations
            WHERE usage_day = $2::date AND state IN ('reserved', 'committed')), 0)
            AS "globalAudioSeconds",
@@ -339,10 +344,20 @@ export class PostgresProviderBudgetRepository implements ProviderBudgetRepositor
              AND usage_day < (date_trunc('month', $2::date) + interval '1 month')::date
              AND state IN ('reserved', 'committed')), 0)
            AS "globalMonthlyCostMicrounits",
-         COALESCE((SELECT sum(reserved_audio_seconds)::int
-           FROM provider_subscription_reservations
-           WHERE user_id = $1 AND usage_day = $2::date
-             AND state IN ('reserved', 'committed')), 0) AS "userAudioSeconds",
+         COALESCE((SELECT sum(
+             CASE
+               WHEN work.state = 'committed'
+                 AND work.actual_cost_microunits = 0 THEN 0
+               ELSE subscription.reserved_audio_seconds
+             END
+           )::int
+           FROM provider_subscription_reservations AS subscription
+           JOIN provider_work_reservations AS work
+             ON work.id = subscription.work_reservation_id
+           WHERE subscription.user_id = $1
+             AND subscription.usage_day = $2::date
+             AND subscription.state IN ('reserved', 'committed')), 0)
+           AS "userAudioSeconds",
          (SELECT count(*)::int FROM provider_work_reservations
            WHERE state = 'reserved') AS "globalConcurrentWorks",
          (SELECT count(*)::int FROM provider_subscription_reservations

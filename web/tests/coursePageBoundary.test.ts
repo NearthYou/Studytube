@@ -32,5 +32,16 @@ test("saved course continuation appears before optional course discovery", () =>
 
   assert.ok(continuation >= 0);
   assert.ok(builder > continuation);
-  assert.match(source, /<summary>새 코스 찾기<\/summary>/);
+  assert.doesNotMatch(source, /<details className="course-builder">/);
+  assert.match(source, /이번 코스에 적용되는 학습 설정/);
+  assert.match(source, /학습 설정 바꾸기/);
+});
+
+test("a single recommendation is never presented or saved as a course", () => {
+  const source = readFileSync(coursePath, "utf8");
+
+  assert.match(source, /canFormCourse\(generatedVideos\)/);
+  assert.match(source, /관련 영상 한 개를 찾았습니다/);
+  assert.match(source, /코스로 묶으려면 영상이 두 개 이상 필요합니다/);
+  assert.match(source, /const title = generatedTitle/);
 });

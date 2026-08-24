@@ -42,5 +42,9 @@ test("account screen makes learning preferences and progress its primary job", (
   assert.match(source, /진행 중인 코스/);
   assert.match(source, /학습할 영상/);
   assert.match(source, /저장한 문장/);
+  assert.match(
+    source,
+    /코스를 찾을 때 관심사, 학습 속도와 목표를 검색 조건에 함께\s+넣습니다/,
+  );
   assert.doesNotMatch(source, /보드 플레이리스트|등록 영상/);
 });

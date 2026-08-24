@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { CourseStep, StudyPost } from '../src/types.ts';
 import {
+  attachCourseSequence,
+  canFormCourse,
   DEFAULT_LEARNING_STATE,
   extractPostIds,
   findPostIdForQueueVideo,
@@ -12,6 +14,7 @@ import {
   queueVideoFromDirectVideoId,
   queueVideoFromMcpVideo,
   queueVideoFromPost,
+  queueVideoFromRecommendation,
   queueVideoKey,
   replaceVideoInQueueIfPresent,
   uniqueVideos,
@@ -234,4 +237,56 @@ test('rejects MCP videos without a usable video id', () => {
   });
 
   assert.equal(queueVideo, null);
+});
+
+test('rejects search pages and placeholder ids instead of treating them as videos', () => {
+  const recommendation = queueVideoFromRecommendation({
+    title: 'React search results',
+    source: 'youtube-search-page',
+    url: 'https://www.youtube.com/results?search_query=react',
+    thumbnailUrl: '',
+    why: '검색 결과 페이지',
+  });
+  const mcpVideo = queueVideoFromMcpVideo({
+    provider: 'youtube-search-page',
+    videoId: 'youtube-search-page',
+    title: 'React search results',
+    channel: 'youtube-search-page',
+    thumbnailUrl: '',
+    sourceUrl: 'https://www.youtube.com/results?search_query=react',
+    durationLabel: '',
+    summary: '',
+  });
+
+  assert.equal(recommendation, null);
+  assert.equal(mcpVideo, null);
+});
+
+test('keeps a named course sequence and its position on every queued video', () => {
+  const sequenced = attachCourseSequence(
+    [
+      video({ id: 'post-1', videoId: 'SqcY0GlETPk' }),
+      video({ id: 'post-2', videoId: 'sHS1z9Pr4v8' }),
+    ],
+    { id: 'course-7', title: '실전 영어 코스' },
+  );
+
+  assert.deepEqual(
+    sequenced.map((item) => item.course),
+    [
+      { id: 'course-7', title: '실전 영어 코스', position: 1, total: 2 },
+      { id: 'course-7', title: '실전 영어 코스', position: 2, total: 2 },
+    ],
+  );
+});
+
+test('requires at least two playable videos before presenting a course', () => {
+  assert.equal(canFormCourse([video()]), false);
+  assert.equal(
+    canFormCourse([
+      video(),
+      video({ id: 'post-2', videoId: 'sHS1z9Pr4v8' }),
+    ]),
+    true,
+  );
 });

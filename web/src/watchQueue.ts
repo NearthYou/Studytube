@@ -5,7 +5,20 @@ import type {
   RagResponse,
   StudyPost,
 } from './types.ts';
-import { deriveTags, extractYouTubeId, slugify } from './videoMetadata.ts';
+import {
+  deriveTags,
+  extractYouTubeId,
+  playableYouTubeVideoId,
+  slugify,
+  youtubeThumbnailUrl,
+} from './videoMetadata.ts';
+
+export type QueueCourse = {
+  id: string;
+  title: string;
+  position: number;
+  total: number;
+};
 
 export type QueueVideo = {
   id: string;
@@ -23,6 +36,7 @@ export type QueueVideo = {
   learning?: VideoLearningState;
   learningContextId?: string;
   learningWorkId?: string;
+  course?: QueueCourse;
 };
 
 export function queueVideoFromLearningIntake(input: {
@@ -152,15 +166,19 @@ export function queueVideoFromRagPost(
 
 export function queueVideoFromRecommendation(
   item: AgentResponse['recommendations'][number],
-): QueueVideo {
-  const videoId = extractYouTubeId(item.url) ?? slugify(item.title);
+): QueueVideo | null {
+  const videoId = playableYouTubeVideoId(item.url);
+
+  if (!videoId) {
+    return null;
+  }
 
   return {
     id: `agent-${videoId}-${slugify(item.title)}`,
     title: item.title,
     videoId,
-    videoUrl: item.url,
-    thumbnailUrl: item.thumbnailUrl,
+    videoUrl: `https://www.youtube.com/watch?v=${videoId}`,
+    thumbnailUrl: item.thumbnailUrl || youtubeThumbnailUrl(videoId),
     channelName: item.source,
     summary: item.why,
     translatedNotes: item.why,
@@ -171,7 +189,7 @@ export function queueVideoFromRecommendation(
 export function queueVideoFromMcpVideo(
   item: NonNullable<McpResponse['result']>['videos'][number],
 ): QueueVideo | null {
-  const videoId = item.videoId ?? extractYouTubeId(item.sourceUrl);
+  const videoId = playableYouTubeVideoId(item.sourceUrl, item.videoId ?? '');
 
   if (!videoId) {
     return null;
@@ -181,13 +199,32 @@ export function queueVideoFromMcpVideo(
     id: `mcp-${videoId}`,
     title: item.title,
     videoId,
-    videoUrl: item.sourceUrl,
-    thumbnailUrl: item.thumbnailUrl,
+    videoUrl: `https://www.youtube.com/watch?v=${videoId}`,
+    thumbnailUrl: item.thumbnailUrl || youtubeThumbnailUrl(videoId),
     channelName: item.channel,
     summary: item.summary,
     translatedNotes: item.summary,
     source: item.provider,
   };
+}
+
+export function attachCourseSequence(
+  videos: QueueVideo[],
+  course: { id: string; title: string },
+) {
+  return videos.map((video, index) => ({
+    ...video,
+    course: {
+      id: course.id,
+      title: course.title,
+      position: index + 1,
+      total: videos.length,
+    },
+  }));
+}
+
+export function canFormCourse(videos: QueueVideo[]) {
+  return uniqueVideos(videos).length >= 2;
 }
 
 export function uniqueVideos(videos: QueueVideo[]) {

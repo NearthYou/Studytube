@@ -118,7 +118,10 @@ export function MyPage({
             </div>
             <div>
               <dt>코스 활용</dt>
-              <dd>새 코스를 만들 때 이 설정을 기본값으로 사용합니다.</dd>
+              <dd>
+                코스를 찾을 때 관심사, 학습 속도와 목표를 검색 조건에 함께
+                넣습니다.
+              </dd>
             </div>
           </dl>
         </section>

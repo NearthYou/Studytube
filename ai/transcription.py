@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from dataclasses import dataclass
 import math
 import os
@@ -18,11 +19,18 @@ from caption_utils import (
 
 
 STT_MODEL_SNAPSHOT = "gpt-4o-mini-transcribe-2025-12-15"
+LIVE_AUDIO_TYPES = {
+    "audio/webm": "webm",
+    "audio/webm;codecs=opus": "webm",
+    "audio/ogg": "ogg",
+    "audio/ogg;codecs=opus": "ogg",
+}
 
 
 @dataclass(frozen=True)
 class TranscriptionRuntime:
     openai_client: Callable[[], Any | None]
+    live_openai_client: Callable[[], Any | None]
     fetch_metadata: Callable[[str], tuple[dict[str, Any] | None, Exception | None]]
     secret_config_args: Callable[[], Any]
     yt_dlp_commands: Callable[[], list[list[str]]]
@@ -95,6 +103,73 @@ def production_transcription_adapter(
             "translatedSegments": [],
             "mediaDurationSeconds": media_duration,
         }
+
+
+def transcribe_browser_audio_chunk(
+    payload: dict[str, Any],
+    *,
+    client: Any | None = None,
+    translator: Callable[
+        [list[dict[str, Any]], str], list[dict[str, Any]]
+    ]
+    | None = None,
+) -> dict[str, Any]:
+    if client is None and os.getenv("BROWSER_STT_ENABLED", "").casefold() != "true":
+        return transcription_failure("STT_DISABLED")
+    model = str(payload.get("model") or "").strip()
+    mime_type = str(payload.get("mimeType") or "").strip().casefold()
+    duration = normalize_transcription_duration(payload.get("durationSeconds"))
+    encoded = str(payload.get("audioBase64") or "").strip()
+    if (
+        model != STT_MODEL_SNAPSHOT
+        or mime_type not in LIVE_AUDIO_TYPES
+        or not duration
+        or duration > 12
+        or len(encoded) > 400_000
+    ):
+        return transcription_failure("TRANSCRIPTION_PROVIDER_UNAVAILABLE")
+    try:
+        audio = base64.b64decode(encoded, validate=True)
+    except (ValueError, TypeError):
+        return transcription_failure("TRANSCRIPTION_PROVIDER_UNAVAILABLE")
+    if not audio or len(audio) > 300_000:
+        return transcription_failure("TRANSCRIPTION_PROVIDER_UNAVAILABLE")
+    active_client = client or transcription_runtime().live_openai_client()
+    if active_client is None:
+        return transcription_failure("TRANSCRIPTION_PROVIDER_UNAVAILABLE")
+    try:
+        response = active_client.audio.transcriptions.create(
+            model=STT_MODEL_SNAPSHOT,
+            file=(
+                f"caption.{LIVE_AUDIO_TYPES[mime_type]}",
+                audio,
+                f"audio/{LIVE_AUDIO_TYPES[mime_type]}",
+            ),
+        )
+        source = clean_caption_text(str(getattr(response, "text", "") or ""))
+        if not source:
+            return transcription_failure("TRANSCRIPTION_PROVIDER_UNAVAILABLE")
+        source_language = normalize_language(
+            str(getattr(response, "language", "") or "")
+        ) or "und"
+        segments = fallback_caption_segments(source, duration)
+        translate = translator or transcription_runtime().translate_segments
+        translated = translate(segments, "ko")
+        korean = " ".join(
+            clean_caption_text(str(segment.get("text") or ""))
+            for segment in translated
+            if isinstance(segment, dict)
+        ).strip()
+        return {
+            "provider": "openai-audio-transcription",
+            "status": "ready",
+            "sourceLanguage": source_language,
+            "source": source,
+            "korean": korean,
+            "errorCode": "",
+        }
+    except Exception:
+        return transcription_failure("TRANSCRIPTION_PROVIDER_UNAVAILABLE")
 
 
 def download_youtube_audio_window(

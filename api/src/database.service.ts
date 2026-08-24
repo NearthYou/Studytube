@@ -70,6 +70,8 @@ import type { LearningItemRepository } from './learning/learning-item.repository
 import { PostgresLearningItemRepository } from './learning/postgres-learning-item.repository';
 import type { CaptionArtifactRepository } from './video-asset.types';
 import { PostgresCaptionArtifactRepository } from './postgres-caption-artifact.repository';
+import { PostgresLiveCaptionRepository } from './postgres-live-caption.repository';
+import type { LiveCaptionRepository } from './live-caption.service';
 import { PostgresWorkRepository } from './work/postgres-work.repository';
 import type { WorkRepository } from './work/work.repository';
 import { PostgresRetrievalRepository } from './retrieval/postgres-retrieval.repository';
@@ -101,6 +103,7 @@ export class DatabaseService
   private courseRepository?: CourseRepository;
   private learningItemRepository?: LearningItemRepository;
   private captionArtifactRepository?: CaptionArtifactRepository;
+  private liveCaptionRepository?: LiveCaptionRepository;
   private workRepository?: WorkRepository;
   private retrievalRepository?: RetrievalRepository;
   private verificationEmailOutboxRepository?: VerificationEmailOutboxRepository;
@@ -220,6 +223,11 @@ export class DatabaseService
       this.pool,
     );
     return this.captionArtifactRepository;
+  }
+
+  getLiveCaptionRepository(): LiveCaptionRepository {
+    this.liveCaptionRepository ??= new PostgresLiveCaptionRepository(this.pool);
+    return this.liveCaptionRepository;
   }
 
   getWorkRepository(): WorkRepository {

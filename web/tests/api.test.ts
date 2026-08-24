@@ -2,10 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   approveLearningProposal,
+  captureLiveCaptionChunk,
   completeRegistration,
   consumeEmailVerification,
   dismissLearningProposal,
   fetchRegistrationReadiness,
+  finalizeLiveCaptions,
   logout,
   requestJson,
   resendEmailVerification,
@@ -14,6 +16,36 @@ import {
   updateMe,
   verifyMe,
 } from "../src/api.ts";
+
+test("uploads and finalizes captured captions through authenticated endpoints", async () => {
+  const chunk = await captureRequest(
+    () =>
+      captureLiveCaptionChunk({
+        contextId: "42",
+        sessionId: "15ed31b7-0951-4ccb-b878-494ed3c3954f",
+        ordinal: 0,
+        startSeconds: 12,
+        endSeconds: 20,
+        mimeType: "audio/webm;codecs=opus",
+        audioBase64: "dGVzdA==",
+      }),
+    { source: "hello", korean: "안녕하세요" },
+  );
+
+  assert.match(chunk.input, /\/ai\/live-captions\/chunks$/);
+  assert.equal(chunk.init?.method, "POST");
+
+  const finalize = await captureRequest(
+    () =>
+      finalizeLiveCaptions({
+        contextId: "42",
+        sessionId: "15ed31b7-0951-4ccb-b878-494ed3c3954f",
+      }),
+    { status: "ready" },
+  );
+  assert.match(finalize.input, /\/ai\/live-captions\/finalize$/);
+  assert.equal(finalize.init?.method, "POST");
+});
 
 test("uses the browser cookie for protected requests without an authorization header", async () => {
   const originalFetch = globalThis.fetch;

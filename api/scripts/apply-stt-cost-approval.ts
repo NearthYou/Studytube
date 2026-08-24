@@ -3,7 +3,10 @@ import { Pool } from 'pg';
 const PINNED_MODEL = 'gpt-4o-mini-transcribe-2025-12-15';
 
 async function main() {
-  if (process.env.STT_PROVIDER_ENABLED !== 'true') {
+  if (
+    process.env.STT_PROVIDER_ENABLED !== 'true' &&
+    process.env.BROWSER_STT_ENABLED !== 'true'
+  ) {
     process.stdout.write('stt_cost_approval=disabled\n');
     return;
   }

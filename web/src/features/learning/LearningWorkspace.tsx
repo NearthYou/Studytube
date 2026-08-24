@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Link, useSearchParams } from "react-router";
 import {
@@ -36,6 +36,7 @@ import {
 } from "./LearningVideoPlayer.tsx";
 import { useAdaptiveQuiz } from "./useAdaptiveQuiz.ts";
 import { useNextLearningProposal } from "./useNextLearningProposal.ts";
+import { useLiveCaptionCapture } from "./useLiveCaptionCapture.ts";
 
 const TABS: Array<{ id: LearningTab; label: string }> = [
   { id: "summary", label: "문장 해설" },
@@ -102,9 +103,43 @@ function ActiveLearningWorkspace({
   const tablistRef = useRef<HTMLDivElement>(null);
   const notePositionSeconds =
     state.notePositionSeconds ?? state.currentTime;
-  const currentCaption = captionPairAt(state.captions, state.currentTime);
-  const quizState = quizPreparation(state.captions);
   const contextId = state.contextId || video.learningContextId || "";
+  const handleLiveFinalized = useCallback(
+    () => setCaptionRefresh((value) => value + 1),
+    [],
+  );
+  const liveCaptions = useLiveCaptionCapture({
+    contextId,
+    currentTime: state.currentTime,
+    onFinalized: handleLiveFinalized,
+  });
+  const displayedCaptions: ProgressiveCaptionState =
+    liveCaptions.chunks.length > 0
+      ? {
+          ...state.captions,
+          phase: liveCaptions.active ? "partial" : "index_pending",
+          sourceLanguage:
+            liveCaptions.chunks[0]?.sourceLanguage ||
+            state.captions.sourceLanguage,
+          sourceSegments: liveCaptions.chunks.map((chunk) => ({
+            start: chunk.start,
+            end: chunk.end,
+            text: chunk.source,
+          })),
+          koreanSegments: liveCaptions.chunks
+            .filter((chunk) => chunk.korean)
+            .map((chunk) => ({
+              start: chunk.start,
+              end: chunk.end,
+              text: chunk.korean,
+            })),
+          stale: false,
+          errorMessage: undefined,
+          errorCode: undefined,
+        }
+      : state.captions;
+  const currentCaption = captionPairAt(displayedCaptions, state.currentTime);
+  const quizState = quizPreparation(state.captions);
   const quiz = useAdaptiveQuiz({
     contextId,
     currentTime: state.currentTime,
@@ -404,7 +439,7 @@ function ActiveLearningWorkspace({
             caption={currentCaption}
             initialTime={state.currentTime}
             onTimeChange={(currentTime) => update({ currentTime })}
-            preferNativeCaptions={state.captions.sourceSegments.length === 0}
+            preferNativeCaptions={displayedCaptions.sourceSegments.length === 0}
             ref={playerRef}
             videoId={video.videoId}
           />
@@ -413,8 +448,8 @@ function ActiveLearningWorkspace({
         <div>
           <small>
             원문{" "}
-            {state.captions.sourceLanguage &&
-              `(${state.captions.sourceLanguage})`}
+            {displayedCaptions.sourceLanguage &&
+              `(${displayedCaptions.sourceLanguage})`}
           </small>
           <p>{currentCaption.source || "자막을 불러오는 중이에요."}</p>
         </div>
@@ -423,18 +458,35 @@ function ActiveLearningWorkspace({
           <p>{currentCaption.korean || "한국어로 옮기는 중이에요."}</p>
         </div>
         <p className="caption-progress" aria-live="polite">
-          {contextId
-            ? captionPhaseMessage(state.captions)
-            : "이 영상을 새 학습으로 등록한 뒤 자막을 준비할 수 있습니다."}
+          {liveCaptions.message || (contextId
+            ? captionPhaseMessage(displayedCaptions)
+            : "이 영상을 새 학습으로 등록한 뒤 자막을 준비할 수 있습니다.")}
         </p>
         {!contextId && <Link to="/">새 학습으로 등록</Link>}
+        {contextId && liveCaptions.active ? (
+          <button type="button" onClick={liveCaptions.stop}>
+            자막 중지
+          </button>
+        ) : null}
+        {contextId &&
+        !liveCaptions.active &&
+        liveCaptions.phase !== "saving" &&
+        displayedCaptions.sourceSegments.length === 0 &&
+        state.captions.phase === "failed" ? (
+          <button type="button" onClick={() => void liveCaptions.start()}>
+            자막 시작
+          </button>
+        ) : null}
         {contextId &&
         state.captions.phase === "failed" &&
-        !canRetryCaptions(state.captions.errorCode) ? (
+        !canRetryCaptions(state.captions.errorCode) &&
+        displayedCaptions.sourceSegments.length === 0 ? (
           <p className="caption-fallback-note">
-            자막 없이도 영상 설명과 공개 정보로 학습을 계속할 수 있습니다.
+            영상 설명으로 먼저 학습하거나, 재생 소리로 자막을 만들 수 있습니다.
           </p>
-        ) : contextId && state.captions.phase === "failed" ? (
+        ) : contextId &&
+          state.captions.phase === "failed" &&
+          displayedCaptions.sourceSegments.length === 0 ? (
           <button
             disabled={captionRetrying}
             type="button"
@@ -442,7 +494,9 @@ function ActiveLearningWorkspace({
           >
             {captionRetrying ? "다시 준비하고 있어요" : "자막 다시 만들기"}
           </button>
-        ) : contextId && state.captions.phase !== "complete" ? (
+        ) : contextId &&
+          state.captions.phase !== "complete" &&
+          liveCaptions.chunks.length === 0 ? (
           <button
             type="button"
             onClick={() => setCaptionRefresh((value) => value + 1)}
@@ -452,7 +506,7 @@ function ActiveLearningWorkspace({
         ) : null}
           </section>
           <div className="learning-source-status">
-            {state.captions.sourceSegments.length === 0 &&
+            {displayedCaptions.sourceSegments.length === 0 &&
             state.captions.phase === "failed"
               ? "영상 설명과 공개 정보로 학습 내용을 정리했어요."
               : "자막과 영상 정보를 함께 정리하고 있어요."}
@@ -499,13 +553,13 @@ function ActiveLearningWorkspace({
         >
           {state.selectedTab === "summary" && (
             <LearningSummaryPanel
-              captions={state.captions}
+              captions={displayedCaptions}
               onSeek={seek}
               video={video}
             />
           )}
           {state.selectedTab === "transcript" && (
-            <TranscriptPanel captions={state.captions} onSeek={seek} />
+            <TranscriptPanel captions={displayedCaptions} onSeek={seek} />
           )}
           {state.selectedTab === "notes" && (
             <section className="learning-notes-panel">

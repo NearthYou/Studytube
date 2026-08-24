@@ -230,6 +230,27 @@ export class AiProxyService {
     );
   }
 
+  async transcribeLiveCaptionChunk(body: {
+    audioBase64: string;
+    mimeType: string;
+    durationSeconds: number;
+    model: string;
+  }): Promise<{
+    sourceLanguage: string;
+    source: string;
+    korean: string;
+  }> {
+    const value = await this.postStrict(
+      '/live-captions/transcribe',
+      body,
+      45_000,
+    );
+    if (!isLiveCaptionTranscription(value)) {
+      throw new Error('자막을 만들지 못했습니다. 잠시 후 다시 시도해주세요.');
+    }
+    return value;
+  }
+
   summary(body: unknown, signal?: AbortSignal): Promise<unknown> {
     return this.post(
       '/youtube/summary',
@@ -453,6 +474,22 @@ function isEmbeddingResponse(value: unknown): value is EmbeddingResponse {
       (dimension) =>
         typeof dimension === 'number' && Number.isFinite(dimension),
     )
+  );
+}
+
+function isLiveCaptionTranscription(value: unknown): value is {
+  sourceLanguage: string;
+  source: string;
+  korean: string;
+} {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    candidate.status === 'ready' &&
+    typeof candidate.sourceLanguage === 'string' &&
+    typeof candidate.source === 'string' &&
+    candidate.source.trim().length > 0 &&
+    typeof candidate.korean === 'string'
   );
 }
 

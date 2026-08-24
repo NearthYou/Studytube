@@ -200,7 +200,8 @@ case "$course_cutover_mode" in
 esac
 
 validate_stt_cost_approval() {
-  [[ "${STT_PROVIDER_ENABLED:-false}" == 'true' ]] || return 0
+  [[ "${STT_PROVIDER_ENABLED:-false}" == 'true' ||
+     "${BROWSER_STT_ENABLED:-false}" == 'true' ]] || return 0
   local key value
   local required=(
     STT_COST_APPROVAL_RECORD
@@ -541,7 +542,7 @@ run_isolated_migration_command() {
   local executor
   # The isolated child shell expands these positional and allowlisted variables.
   # shellcheck disable=SC2016
-  executor='exec /usr/bin/env -i HOME=/nonexistent PATH="$1" LANG=C.UTF-8 LC_ALL=C.UTF-8 NODE_ENV=production DATABASE_URL="$DATABASE_URL" COURSE_CUTOVER_MODE="${COURSE_CUTOVER_MODE:-}" REQUIRED_MIGRATIONS_DIR="${REQUIRED_MIGRATIONS_DIR:-}" STT_PROVIDER_ENABLED="${STT_PROVIDER_ENABLED:-false}" STT_COST_APPROVAL_MODEL="${STT_COST_APPROVAL_MODEL:-}" STT_COST_APPROVAL_MAX_USD="${STT_COST_APPROVAL_MAX_USD:-}" STT_COST_APPROVAL_EXPIRES_AT="${STT_COST_APPROVAL_EXPIRES_AT:-}" ALLOW_COURSE_BACKFILL="$2" "${@:3}"'
+  executor='exec /usr/bin/env -i HOME=/nonexistent PATH="$1" LANG=C.UTF-8 LC_ALL=C.UTF-8 NODE_ENV=production DATABASE_URL="$DATABASE_URL" COURSE_CUTOVER_MODE="${COURSE_CUTOVER_MODE:-}" REQUIRED_MIGRATIONS_DIR="${REQUIRED_MIGRATIONS_DIR:-}" STT_PROVIDER_ENABLED="${STT_PROVIDER_ENABLED:-false}" BROWSER_STT_ENABLED="${BROWSER_STT_ENABLED:-false}" STT_COST_APPROVAL_MODEL="${STT_COST_APPROVAL_MODEL:-}" STT_COST_APPROVAL_MAX_USD="${STT_COST_APPROVAL_MAX_USD:-}" STT_COST_APPROVAL_EXPIRES_AT="${STT_COST_APPROVAL_EXPIRES_AT:-}" ALLOW_COURSE_BACKFILL="$2" "${@:3}"'
   assert_transient_unit_inactive "$unit_name"
   acquire_deployment_control
   trap cleanup_active_transient_unit EXIT
@@ -753,6 +754,7 @@ ai_environment_keys=(
   MCP_SERVICE_ASSERTION_SECRET
   OPENAI_API_KEY
   STT_PROVIDER_ENABLED
+  BROWSER_STT_ENABLED
   STT_COST_APPROVAL_RECORD
   STT_COST_APPROVAL_MODEL
   STT_COST_APPROVAL_ENVIRONMENT
@@ -876,6 +878,7 @@ migration_environment_keys=(
   COURSE_CUTOVER_MODE
   REQUIRED_MIGRATIONS_DIR
   STT_PROVIDER_ENABLED
+  BROWSER_STT_ENABLED
   STT_COST_APPROVAL_MODEL
   STT_COST_APPROVAL_MAX_USD
   STT_COST_APPROVAL_EXPIRES_AT

@@ -75,7 +75,7 @@ test("unfinished learning tools are presented as preparation states", () => {
   assert.match(source, /const MAX_CAPTION_POLLS = 170/);
   assert.match(source, /startLearningIntake/);
   assert.match(source, /자막 다시 만들기/);
-  assert.match(source, /영상 설명과 공개 정보로 학습을 계속할 수 있습니다/);
+  assert.match(source, /재생 소리로 자막을 만들 수 있습니다/);
   assert.doesNotMatch(source, /자막이 있는 다른 영상 선택/);
   assert.match(source, /canRetryCaptions/);
   assert.doesNotMatch(source, /Agent|MCP|RAG|AI/);
@@ -143,6 +143,28 @@ test("starting a note pins the current playback position automatically", () => {
   assert.match(source, />\s*메모하기\s*</);
   assert.doesNotMatch(source, /현재 위치로 바꾸기/);
   assert.doesNotMatch(source, /positionSeconds: state\.currentTime/);
+});
+
+test("captionless videos can create progressive captions from shared tab audio", () => {
+  const workspaceSource = readFileSync(
+    resolve(featureDirectory, "LearningWorkspace.tsx"),
+    "utf8",
+  );
+  const captureSource = readFileSync(
+    resolve(featureDirectory, "useLiveCaptionCapture.ts"),
+    "utf8",
+  );
+
+  assert.match(workspaceSource, /useLiveCaptionCapture/);
+  assert.match(workspaceSource, />\s*자막 시작\s*</);
+  assert.match(workspaceSource, />\s*자막 중지\s*</);
+  assert.match(captureSource, /getDisplayMedia/);
+  assert.match(captureSource, /systemAudio:\s*"exclude"/);
+  assert.match(captureSource, /captureLiveCaptionChunk/);
+  assert.match(captureSource, /finalizeLiveCaptions/);
+  assert.match(captureSource, /const MAX_PENDING_UPLOADS = 2/);
+  assert.match(captureSource, /const MAX_CAPTURE_MILLISECONDS = 10 \* 60 \* 1_000/);
+  assert.doesNotMatch(workspaceSource, /음성 자막 기능|AI 자막/);
 });
 
 test("direct watch URLs select their video and start learning automatically", () => {

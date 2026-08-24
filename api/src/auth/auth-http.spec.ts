@@ -3,6 +3,7 @@ import { Test } from '@nestjs/testing';
 import supertest from 'supertest';
 import { AiProxyService } from '../ai-proxy.service';
 import { AiController } from '../ai.controller';
+import { LiveCaptionService } from '../live-caption.service';
 import { AppController } from '../app.controller';
 import { AppService } from '../app.service';
 import { configureApplication } from '../configure-application';
@@ -91,6 +92,10 @@ describe('authentication HTTP boundary', () => {
         {
           provide: AiProxyService,
           useValue: { recommend },
+        },
+        {
+          provide: LiveCaptionService,
+          useValue: { capture: jest.fn(), finalize: jest.fn() },
         },
         {
           provide: AuthCookiePolicy,

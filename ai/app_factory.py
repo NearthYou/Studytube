@@ -55,6 +55,7 @@ class FeatureHandlers:
     youtube_lookup: Callable[[dict[str, Any]], dict[str, Any]]
     youtube_captions: Callable[[dict[str, Any]], dict[str, Any]]
     youtube_transcribe: Callable[[dict[str, Any]], dict[str, Any]]
+    live_caption_transcribe: Callable[[dict[str, Any]], dict[str, Any]]
     youtube_summary: Callable[[dict[str, Any]], dict[str, Any]]
     study_plan: Callable[[dict[str, Any]], dict[str, Any]]
     quiz_generation: Callable[[dict[str, Any]], dict[str, Any]]
@@ -76,6 +77,7 @@ class ApplicationRuntime:
     youtube_lookup_endpoint: Callable[..., Any]
     youtube_captions_endpoint: Callable[..., Any]
     youtube_transcribe_endpoint: Callable[..., Any]
+    live_caption_transcribe_endpoint: Callable[..., Any]
     youtube_summary_endpoint: Callable[..., Any]
     study_plan_endpoint: Callable[..., Any]
     quiz_generation_endpoint: Callable[..., Any]
@@ -199,6 +201,10 @@ def create_application(handlers: FeatureHandlers) -> ApplicationRuntime:
     def youtube_transcribe_endpoint(payload: dict[str, Any]):
         return handlers.youtube_transcribe(payload)
 
+    @app.post("/live-captions/transcribe")
+    def live_caption_transcribe_endpoint(payload: dict[str, Any]):
+        return handlers.live_caption_transcribe(payload)
+
     @app.post("/youtube/summary")
     def youtube_summary_endpoint(payload: dict[str, Any]):
         return handlers.youtube_summary(payload)
@@ -225,6 +231,7 @@ def create_application(handlers: FeatureHandlers) -> ApplicationRuntime:
         youtube_lookup_endpoint=youtube_lookup_endpoint,
         youtube_captions_endpoint=youtube_captions_endpoint,
         youtube_transcribe_endpoint=youtube_transcribe_endpoint,
+        live_caption_transcribe_endpoint=live_caption_transcribe_endpoint,
         youtube_summary_endpoint=youtube_summary_endpoint,
         study_plan_endpoint=study_plan_endpoint,
         quiz_generation_endpoint=quiz_generation_endpoint,

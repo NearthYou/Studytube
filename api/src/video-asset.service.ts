@@ -5,6 +5,7 @@ import {
   DEFAULT_ESTIMATED_MICROUNITS_PER_AUDIO_SECOND,
   MAX_LEARNING_AUDIO_SECONDS,
 } from './learning/provider-budget.repository';
+import { STT_MODEL_SNAPSHOT } from './transcription.constants';
 import type {
   CaptionArtifactKind,
   CaptionArtifactRepository,
@@ -32,8 +33,6 @@ type SummaryResponse = {
   message: string;
   failed: boolean;
 };
-
-const STT_MODEL_SNAPSHOT = 'gpt-4o-mini-transcribe-2025-12-15';
 
 export class CaptionTranslationPendingError extends Error {
   readonly code = 'CAPTION_TRANSLATION_PENDING';

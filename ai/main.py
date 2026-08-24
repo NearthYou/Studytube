@@ -164,6 +164,11 @@ configure_transcription_runtime(
         openai_client=lambda: (
             OpenAI(timeout=90.0, max_retries=2) if OpenAI is not None else None
         ),
+        live_openai_client=lambda: (
+            OpenAI(timeout=30.0, max_retries=0)
+            if OpenAI is not None and os.getenv("OPENAI_API_KEY")
+            else None
+        ),
         fetch_metadata=lambda video_id: fetch_yt_dlp_metadata(video_id),
         secret_config_args=lambda: yt_dlp_secret_config_args(),
         yt_dlp_commands=lambda: yt_dlp_commands(),
@@ -206,6 +211,9 @@ application_runtime = create_application(
         youtube_lookup=lambda payload: handle_mcp_request(payload),
         youtube_captions=lambda payload: load_translated_captions(payload),
         youtube_transcribe=lambda payload: transcribe_youtube_audio(payload),
+        live_caption_transcribe=lambda payload: transcribe_browser_audio_chunk(
+            payload
+        ),
         youtube_summary=lambda payload: build_youtube_summary(payload),
         study_plan=lambda payload: build_study_plan(payload),
         quiz_generation=lambda payload: build_quiz_response(payload),
@@ -226,6 +234,9 @@ embeddings_endpoint = application_runtime.embeddings_endpoint
 youtube_lookup_endpoint = application_runtime.youtube_lookup_endpoint
 youtube_captions_endpoint = application_runtime.youtube_captions_endpoint
 youtube_transcribe_endpoint = application_runtime.youtube_transcribe_endpoint
+live_caption_transcribe_endpoint = (
+    application_runtime.live_caption_transcribe_endpoint
+)
 youtube_summary_endpoint = application_runtime.youtube_summary_endpoint
 study_plan_endpoint = application_runtime.study_plan_endpoint
 quiz_generation_endpoint = application_runtime.quiz_generation_endpoint

@@ -55,6 +55,45 @@ describe('AiProxyService', () => {
     );
   });
 
+  it('uses the short strict route for browser audio chunks', async () => {
+    const post = jest.fn().mockReturnValue(
+      of({
+        data: {
+          status: 'ready',
+          sourceLanguage: 'en',
+          source: 'hello',
+          korean: '안녕하세요',
+        },
+      }),
+    );
+    const service = new AiProxyService(
+      {
+        get: jest.fn((key: string) =>
+          key === 'AI_SERVICE_URL' ? 'http://ai.local' : undefined,
+        ),
+      } as never,
+      { post } as never,
+    );
+    const body = {
+      audioBase64: 'dGVzdA==',
+      mimeType: 'audio/webm',
+      durationSeconds: 5,
+      model: 'gpt-4o-mini-transcribe-2025-12-15',
+    };
+
+    await expect(
+      service.transcribeLiveCaptionChunk(body),
+    ).resolves.toMatchObject({
+      source: 'hello',
+      korean: '안녕하세요',
+    });
+    expect(post).toHaveBeenCalledWith(
+      'http://ai.local/live-captions/transcribe',
+      body,
+      expect.objectContaining({ timeout: 45_000 }),
+    );
+  });
+
   it('allows summary generation timeout to be configured for long videos', async () => {
     const post = jest.fn().mockReturnValue(of({ data: { mode: 'summary' } }));
     const service = new AiProxyService(

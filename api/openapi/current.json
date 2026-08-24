@@ -544,6 +544,56 @@
         ],
         "type": "object"
       },
+      "CaptureLiveCaptionChunkDto": {
+        "properties": {
+          "audioBase64": {
+            "format": "base64",
+            "maxLength": 400000,
+            "type": "string"
+          },
+          "contextId": {
+            "pattern": "^\\d+$",
+            "type": "string"
+          },
+          "endSeconds": {
+            "maximum": 600,
+            "minimum": 0,
+            "type": "number"
+          },
+          "mimeType": {
+            "enum": [
+              "audio/webm",
+              "audio/webm;codecs=opus",
+              "audio/ogg",
+              "audio/ogg;codecs=opus"
+            ],
+            "type": "string"
+          },
+          "ordinal": {
+            "minimum": 0,
+            "type": "number"
+          },
+          "sessionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "startSeconds": {
+            "maximum": 600,
+            "minimum": 0,
+            "type": "number"
+          }
+        },
+        "required": [
+          "contextId",
+          "sessionId",
+          "ordinal",
+          "startSeconds",
+          "endSeconds",
+          "mimeType",
+          "audioBase64"
+        ],
+        "type": "object"
+      },
       "CommentResponse": {
         "properties": {
           "authorId": {
@@ -929,6 +979,23 @@
         ],
         "type": "object"
       },
+      "FinalizeLiveCaptionsDto": {
+        "properties": {
+          "contextId": {
+            "pattern": "^\\d+$",
+            "type": "string"
+          },
+          "sessionId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "contextId",
+          "sessionId"
+        ],
+        "type": "object"
+      },
       "LearningIntakeResponse": {
         "properties": {
           "admission": {
@@ -1187,6 +1254,54 @@
           "expiresAt",
           "approvedCourseId",
           "approvedCourseVersion"
+        ],
+        "type": "object"
+      },
+      "LiveCaptionChunkResponseDto": {
+        "properties": {
+          "end": {
+            "minimum": 0,
+            "type": "number"
+          },
+          "korean": {
+            "type": "string"
+          },
+          "ordinal": {
+            "minimum": 0,
+            "type": "number"
+          },
+          "source": {
+            "type": "string"
+          },
+          "sourceLanguage": {
+            "type": "string"
+          },
+          "start": {
+            "minimum": 0,
+            "type": "number"
+          }
+        },
+        "required": [
+          "ordinal",
+          "start",
+          "end",
+          "sourceLanguage",
+          "source",
+          "korean"
+        ],
+        "type": "object"
+      },
+      "LiveCaptionFinalizeResponseDto": {
+        "properties": {
+          "status": {
+            "enum": [
+              "ready"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
         ],
         "type": "object"
       },
@@ -2706,6 +2821,68 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/StudyPlanResponse"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "Ai"
+        ]
+      }
+    },
+    "/ai/live-captions/chunks": {
+      "post": {
+        "operationId": "AiController_captureLiveCaptionChunk",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CaptureLiveCaptionChunkDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LiveCaptionChunkResponseDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "Ai"
+        ]
+      }
+    },
+    "/ai/live-captions/finalize": {
+      "post": {
+        "operationId": "AiController_finalizeLiveCaptions",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FinalizeLiveCaptionsDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LiveCaptionFinalizeResponseDto"
                 }
               }
             },

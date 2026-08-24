@@ -439,6 +439,40 @@ export function fetchLearningCaptions(
   );
 }
 
+export type LiveCaptionChunkResponse = Readonly<{
+  ordinal: number;
+  start: number;
+  end: number;
+  sourceLanguage: string;
+  source: string;
+  korean: string;
+}>;
+
+export function captureLiveCaptionChunk(input: {
+  contextId: string;
+  sessionId: string;
+  ordinal: number;
+  startSeconds: number;
+  endSeconds: number;
+  mimeType: string;
+  audioBase64: string;
+}): Promise<LiveCaptionChunkResponse> {
+  return requestJson<LiveCaptionChunkResponse>("/ai/live-captions/chunks", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function finalizeLiveCaptions(input: {
+  contextId: string;
+  sessionId: string;
+}): Promise<{ status: "ready" }> {
+  return requestJson<{ status: "ready" }>("/ai/live-captions/finalize", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
 export function updateLearningNote(input: {
   contextId: string;
   noteId: string;

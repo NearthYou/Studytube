@@ -17,6 +17,7 @@ import { ObservabilityModule } from './observability';
 import { LearningModule } from './learning/learning.module';
 import { McpModule } from './mcp/mcp.module';
 import { runtimeConfigOptions } from './runtime-environment-files';
+import { LiveCaptionService } from './live-caption.service';
 
 @Module({
   imports: [
@@ -33,6 +34,18 @@ import { runtimeConfigOptions } from './runtime-environment-files';
   providers: [
     AppService,
     AiProxyService,
+    {
+      provide: LiveCaptionService,
+      useFactory: (
+        aiProxyService: AiProxyService,
+        databaseService: DatabaseService,
+      ) =>
+        new LiveCaptionService(
+          aiProxyService,
+          databaseService.getLiveCaptionRepository(),
+        ),
+      inject: [AiProxyService, DatabaseService],
+    },
     {
       provide: VideoAssetService,
       useFactory: (

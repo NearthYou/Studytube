@@ -9,6 +9,8 @@ import type {
   StudyPost,
   LearningNote,
   LearningCaptionSnapshotResponse,
+  LearningOverviewResponse,
+  SegmentExplanationResponse,
   User,
   VideoSummaryResponse,
 } from "./types";
@@ -436,6 +438,35 @@ export function fetchLearningCaptions(
 ): Promise<LearningCaptionSnapshotResponse> {
   return requestJson<LearningCaptionSnapshotResponse>(
     `/learning/contexts/${contextId}/captions`,
+  );
+}
+
+export function fetchLearningOverview(
+  contextId: string,
+  options: { signal?: AbortSignal } = {},
+): Promise<LearningOverviewResponse> {
+  return requestJson<LearningOverviewResponse>(
+    `/learning/contexts/${contextId}/overview`,
+    options,
+  );
+}
+
+export function explainLearningSegment(input: {
+  contextId: string;
+  startSeconds: number;
+  endSeconds: number;
+  signal?: AbortSignal;
+}): Promise<SegmentExplanationResponse> {
+  return requestJson<SegmentExplanationResponse>(
+    `/learning/contexts/${input.contextId}/explanations`,
+    {
+      method: "POST",
+      signal: input.signal,
+      body: JSON.stringify({
+        startSeconds: input.startSeconds,
+        endSeconds: input.endSeconds,
+      }),
+    },
   );
 }
 

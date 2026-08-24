@@ -38,7 +38,9 @@ test("account screen makes learning preferences and progress its primary job", (
     "utf8",
   );
   assert.match(source, /학습 설정/);
+  assert.match(source, /내 학습/);
   assert.match(source, /진행 중인 코스/);
   assert.match(source, /학습할 영상/);
+  assert.match(source, /저장한 문장/);
   assert.doesNotMatch(source, /보드 플레이리스트|등록 영상/);
 });

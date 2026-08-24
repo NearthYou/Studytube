@@ -6,7 +6,7 @@
   color: white;
   font-size: clamp(14px, 2.15vw, 16px);
   font-weight: 600;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
   cursor: pointer;
   transition:
     background-color 0.2s ease,

@@ -288,6 +288,34 @@ export type LearningCaptionSnapshotResponse = {
   errorCode?: string;
 };
 
+export type LearningOverviewResponse = {
+  contextId: string;
+  status: "pending" | "ready" | "failed";
+  coverage: {
+    scope: "full_video" | "study_range";
+    startSeconds: number;
+    endSeconds: number;
+  };
+  summary?: {
+    overview: string;
+    chapters: Array<{
+      startSeconds: number;
+      endSeconds: number;
+      title: string;
+      body: string;
+    }>;
+    takeaways: string[];
+  };
+  errorCode?: string;
+};
+
+export type SegmentExplanationResponse = {
+  plainMeaning: string;
+  keyExpressions: Array<{ text: string; meaning: string }>;
+  contextNote: string;
+  citation: { startSeconds: number; endSeconds: number };
+};
+
 export type VideoSummarySection = {
   label: string;
   body: string;

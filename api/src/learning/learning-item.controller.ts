@@ -18,11 +18,17 @@ import { ApiNotFoundResponse, ApiOkResponse } from '@nestjs/swagger';
 import type { AuthenticatedRequest } from '../auth/session.guard';
 import {
   CreateLearningNoteDto,
+  ExplainLearningSegmentDto,
   LearningContextParamDto,
   LearningNoteParamDto,
   StartLearningItemDto,
   UpdateLearningNoteDto,
 } from './learning-item.dto';
+import {
+  InvalidLearningSegmentRangeError,
+  LearningExplanationUnavailableError,
+  LearningOverviewService,
+} from './learning-overview.service';
 import {
   LearningIntakeCompensationError,
   LearningItemService,
@@ -39,6 +45,7 @@ import { observabilityRuntime } from '../observability';
 export class LearningItemController {
   constructor(
     private readonly service: LearningItemService,
+    private readonly overview: LearningOverviewService,
     @Inject(LEARNING_NOTE_REPOSITORY)
     private readonly notes: LearningNoteRepository,
   ) {}
@@ -145,6 +152,52 @@ export class LearningItemController {
     return snapshot;
   }
 
+  @Get('contexts/:contextId/overview')
+  @ApiOkResponse({ schema: learningOverviewSchema() })
+  async getOverview(
+    @Req() request: AuthenticatedRequest,
+    @Param() params: LearningContextParamDto,
+  ) {
+    const overview = await this.overview.getOverview(
+      request.principal.userId,
+      params.contextId,
+    );
+    if (!overview) {
+      throw new NotFoundException('학습 자료를 찾을 수 없습니다.');
+    }
+    return overview;
+  }
+
+  @Post('contexts/:contextId/explanations')
+  @ApiOkResponse({ schema: learningExplanationSchema() })
+  async explainSegment(
+    @Req() request: AuthenticatedRequest,
+    @Param() params: LearningContextParamDto,
+    @Body() body: ExplainLearningSegmentDto,
+  ) {
+    try {
+      const explanation = await this.overview.explainSegment(
+        request.principal.userId,
+        params.contextId,
+        body,
+      );
+      if (!explanation) {
+        throw new NotFoundException('이 구간의 자막을 찾을 수 없습니다.');
+      }
+      return explanation;
+    } catch (error) {
+      if (error instanceof InvalidLearningSegmentRangeError) {
+        throw new BadRequestException('설명할 구간을 다시 선택해주세요.');
+      }
+      if (error instanceof LearningExplanationUnavailableError) {
+        throw new ServiceUnavailableException(
+          '지금은 이 문장을 설명할 수 없습니다. 잠시 후 다시 시도해주세요.',
+        );
+      }
+      throw error;
+    }
+  }
+
   @Patch('contexts/:contextId/notes/:noteId')
   async updateNote(
     @Req() request: AuthenticatedRequest,
@@ -187,6 +240,50 @@ function captionSegmentSchema() {
       start: { type: 'number' as const },
       end: { type: 'number' as const },
       text: { type: 'string' as const },
+    },
+  };
+}
+
+function learningOverviewSchema() {
+  return {
+    type: 'object' as const,
+    required: ['contextId', 'status', 'coverage'],
+    properties: {
+      contextId: { type: 'string' as const },
+      status: {
+        type: 'string' as const,
+        enum: ['pending', 'ready', 'failed'],
+      },
+      coverage: {
+        type: 'object' as const,
+        properties: {
+          scope: { type: 'string' as const },
+          startSeconds: { type: 'number' as const },
+          endSeconds: { type: 'number' as const },
+        },
+      },
+      summary: {
+        type: 'object' as const,
+        properties: {
+          overview: { type: 'string' as const },
+          chapters: { type: 'array' as const },
+          takeaways: { type: 'array' as const },
+        },
+      },
+      errorCode: { type: 'string' as const },
+    },
+  };
+}
+
+function learningExplanationSchema() {
+  return {
+    type: 'object' as const,
+    required: ['plainMeaning', 'keyExpressions', 'contextNote', 'citation'],
+    properties: {
+      plainMeaning: { type: 'string' as const },
+      keyExpressions: { type: 'array' as const },
+      contextNote: { type: 'string' as const },
+      citation: { type: 'object' as const },
     },
   };
 }

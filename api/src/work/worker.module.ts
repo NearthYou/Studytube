@@ -42,6 +42,14 @@ import { observabilityRuntime } from '../observability/runtime';
 import { runtimeConfigOptions } from '../runtime-environment-files';
 import { DurableJobExecutor } from './durable-job.executor';
 import type { JobExecutionStore } from './job-execution.store';
+import {
+  AiLearningOverviewGenerator,
+  LearningSummaryJobHandler,
+} from '../learning/learning-summary.worker';
+import {
+  LEARNING_OVERVIEW_REPOSITORY,
+  type LearningOverviewRepository,
+} from '../learning/learning-overview.repository';
 
 @Module({
   imports: [
@@ -148,6 +156,24 @@ import type { JobExecutionStore } from './job-execution.store';
       inject: [LearningService, DurableJobExecutor],
     },
     {
+      provide: LearningSummaryJobHandler,
+      useFactory: (
+        repository: LearningOverviewRepository,
+        aiProxy: AiProxyService,
+        executor: DurableJobExecutor,
+      ) =>
+        new LearningSummaryJobHandler(
+          repository,
+          new AiLearningOverviewGenerator(aiProxy),
+          executor,
+        ),
+      inject: [
+        LEARNING_OVERVIEW_REPOSITORY,
+        AiProxyService,
+        DurableJobExecutor,
+      ],
+    },
+    {
       provide: UnsupportedWorkJobHandler,
       useFactory: (executor: DurableJobExecutor) =>
         new UnsupportedWorkJobHandler(executor),
@@ -161,6 +187,7 @@ import type { JobExecutionStore } from './job-execution.store';
         unsupported: UnsupportedWorkJobHandler,
         quiz: QuizGenerationJobHandler,
         learning: LearningService,
+        summary: LearningSummaryJobHandler,
       ) =>
         new DurableWorkRouter(
           videoAssets,
@@ -168,6 +195,7 @@ import type { JobExecutionStore } from './job-execution.store';
           unsupported,
           quiz,
           learning,
+          summary,
         ),
       inject: [
         VideoAssetJobHandler,
@@ -175,6 +203,7 @@ import type { JobExecutionStore } from './job-execution.store';
         UnsupportedWorkJobHandler,
         QuizGenerationJobHandler,
         LearningService,
+        LearningSummaryJobHandler,
       ],
     },
     {

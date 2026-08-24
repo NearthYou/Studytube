@@ -7,8 +7,6 @@ import {
   fetchLearningCaptions,
   ApiRequestError,
   updateLearningNote,
-  type AdaptiveQuizLoop,
-  type AdaptiveQuizSubmission,
 } from "../../api.ts";
 import type { LearningNote, Session } from "../../types.ts";
 import { startLearningIntake } from "../../learningIntake.ts";
@@ -28,7 +26,6 @@ import {
   type ProgressiveCaptionState,
 } from "./captionState.ts";
 import { useLearningSession, type LearningTab } from "./useLearningSession.ts";
-import type { QuizUiState } from "./adaptiveQuizFlow.ts";
 import { NextLearningProposal } from "./NextLearningProposal.tsx";
 import {
   LearningVideoPlayer,
@@ -37,11 +34,17 @@ import {
 import { useAdaptiveQuiz } from "./useAdaptiveQuiz.ts";
 import { useNextLearningProposal } from "./useNextLearningProposal.ts";
 import { useLiveCaptionCapture } from "./useLiveCaptionCapture.ts";
+import { CurrentSentencePanel } from "./CurrentSentencePanel.tsx";
+import { LearningOverviewPanel } from "./LearningOverviewPanel.tsx";
+import { TranscriptDrawer } from "./TranscriptDrawer.tsx";
+import { LearningNotesPanel } from "./LearningNotesPanel.tsx";
+import { AdaptiveQuizPanel } from "./AdaptiveQuizPanel.tsx";
+import "./LearningWorkspace.css";
 
 const TABS: Array<{ id: LearningTab; label: string }> = [
-  { id: "summary", label: "문장 해설" },
-  { id: "transcript", label: "전체 자막" },
-  { id: "notes", label: "저장 문장" },
+  { id: "current", label: "지금 문장" },
+  { id: "overview", label: "내용 정리" },
+  { id: "notes", label: "내 메모" },
   { id: "quiz", label: "퀴즈" },
 ];
 const MAX_CAPTION_POLLS = 170;
@@ -96,6 +99,7 @@ function ActiveLearningWorkspace({
   const [captionRetrying, setCaptionRetrying] = useState(false);
   const [noteBusyId, setNoteBusyId] = useState("");
   const [noteStatus, setNoteStatus] = useState("");
+  const [transcriptOpen, setTranscriptOpen] = useState(false);
   const playerRef = useRef<LearningVideoPlayerHandle | null>(null);
   const noteInputRef = useRef<HTMLTextAreaElement | null>(null);
   const captionsRef = useRef(state.captions);
@@ -139,6 +143,11 @@ function ActiveLearningWorkspace({
         }
       : state.captions;
   const currentCaption = captionPairAt(displayedCaptions, state.currentTime);
+  const currentSegment =
+    displayedCaptions.sourceSegments.find(
+      (segment) =>
+        state.currentTime >= segment.start && state.currentTime < segment.end,
+    ) ?? displayedCaptions.sourceSegments[0];
   const quizState = quizPreparation(state.captions);
   const quiz = useAdaptiveQuiz({
     contextId,
@@ -444,67 +453,6 @@ function ActiveLearningWorkspace({
             videoId={video.videoId}
           />
 
-          <section className="current-caption" aria-label="현재 자막">
-        <div>
-          <small>
-            원문{" "}
-            {displayedCaptions.sourceLanguage &&
-              `(${displayedCaptions.sourceLanguage})`}
-          </small>
-          <p>{currentCaption.source || "자막을 불러오는 중이에요."}</p>
-        </div>
-        <div>
-          <small>한국어</small>
-          <p>{currentCaption.korean || "한국어로 옮기는 중이에요."}</p>
-        </div>
-        <p className="caption-progress" aria-live="polite">
-          {liveCaptions.message || (contextId
-            ? captionPhaseMessage(displayedCaptions)
-            : "이 영상을 새 학습으로 등록한 뒤 자막을 준비할 수 있습니다.")}
-        </p>
-        {!contextId && <Link to="/">새 학습으로 등록</Link>}
-        {contextId && liveCaptions.active ? (
-          <button type="button" onClick={liveCaptions.stop}>
-            자막 중지
-          </button>
-        ) : null}
-        {contextId &&
-        !liveCaptions.active &&
-        liveCaptions.phase !== "saving" &&
-        displayedCaptions.sourceSegments.length === 0 &&
-        state.captions.phase === "failed" ? (
-          <button type="button" onClick={() => void liveCaptions.start()}>
-            자막 시작
-          </button>
-        ) : null}
-        {contextId &&
-        state.captions.phase === "failed" &&
-        !canRetryCaptions(state.captions.errorCode) &&
-        displayedCaptions.sourceSegments.length === 0 ? (
-          <p className="caption-fallback-note">
-            영상 설명으로 먼저 학습하거나, 재생 소리로 자막을 만들 수 있습니다.
-          </p>
-        ) : contextId &&
-          state.captions.phase === "failed" &&
-          displayedCaptions.sourceSegments.length === 0 ? (
-          <button
-            disabled={captionRetrying}
-            type="button"
-            onClick={() => void retryCaptions()}
-          >
-            {captionRetrying ? "다시 준비하고 있어요" : "자막 다시 만들기"}
-          </button>
-        ) : contextId &&
-          state.captions.phase !== "complete" &&
-          liveCaptions.chunks.length === 0 ? (
-          <button
-            type="button"
-            onClick={() => setCaptionRefresh((value) => value + 1)}
-          >
-            상태 새로고침
-          </button>
-        ) : null}
-          </section>
           <div className="learning-source-status">
             {displayedCaptions.sourceSegments.length === 0 &&
             state.captions.phase === "failed"
@@ -515,9 +463,9 @@ function ActiveLearningWorkspace({
 
         <section className="learning-tools" aria-label="학습 도구">
           <div className="learning-tools-heading">
-            <span>{formatTime(state.currentTime)}</span>
-            <button type="button" onClick={startNoteDraft}>
-              메모하기
+            <span>이 영상에서 필요한 것만 모았습니다</span>
+            <button type="button" onClick={() => setTranscriptOpen(true)}>
+              전체 자막
             </button>
           </div>
           <section className="learning-tabs">
@@ -551,54 +499,71 @@ function ActiveLearningWorkspace({
           role="tabpanel"
           tabIndex={0}
         >
-          {state.selectedTab === "summary" && (
-            <LearningSummaryPanel
-              captions={displayedCaptions}
+          {state.selectedTab === "current" && (
+            <>
+              <CurrentSentencePanel
+                key={`${currentSegment?.start ?? state.currentTime}:${currentSegment?.end ?? state.currentTime}`}
+                contextId={contextId}
+                currentTime={state.currentTime}
+                korean={currentCaption.korean}
+                onOpenTranscript={() => setTranscriptOpen(true)}
+                onSave={startNoteDraft}
+                segmentEnd={currentSegment?.end ?? state.currentTime}
+                segmentStart={currentSegment?.start ?? state.currentTime}
+                source={currentCaption.source}
+                sourceLanguage={displayedCaptions.sourceLanguage}
+                status={
+                  liveCaptions.message ||
+                  (contextId
+                    ? captionPhaseMessage(displayedCaptions)
+                    : "영상을 학습 목록에 담고 있어요.")
+                }
+              />
+              {contextId && liveCaptions.active ? (
+                <button type="button" onClick={liveCaptions.stop}>
+                  자막 만들기 중지
+                </button>
+              ) : contextId &&
+                state.captions.phase === "failed" &&
+                displayedCaptions.sourceSegments.length === 0 &&
+                canRetryCaptions(state.captions.errorCode) ? (
+                <button
+                  disabled={captionRetrying}
+                  type="button"
+                  onClick={() => void retryCaptions()}
+                >
+                  {captionRetrying ? "자막을 다시 준비하고 있어요" : "자막 다시 만들기"}
+                </button>
+              ) : contextId &&
+                state.captions.phase === "failed" &&
+                displayedCaptions.sourceSegments.length === 0 ? (
+                <button type="button" onClick={() => void liveCaptions.start()}>
+                  재생 소리로 자막 만들기
+                </button>
+              ) : null}
+            </>
+          )}
+          {state.selectedTab === "overview" && (
+            <LearningOverviewPanel
+              active={state.selectedTab === "overview"}
+              contextId={contextId}
               onSeek={seek}
-              video={video}
             />
           )}
-          {state.selectedTab === "transcript" && (
-            <TranscriptPanel captions={displayedCaptions} onSeek={seek} />
-          )}
           {state.selectedTab === "notes" && (
-            <section className="learning-notes-panel">
-              <label htmlFor="learning-note">
-                {formatTime(notePositionSeconds)}에 메모
-              </label>
-              <textarea
-                id="learning-note"
-                ref={noteInputRef}
-                value={state.noteDraft}
-                onChange={(event) => updateNoteDraft(event.target.value)}
-                placeholder="지금 구간에서 기억할 내용을 적어보세요."
-              />
-              <div className="learning-note-actions">
-                <button
-                  disabled={noteBusyId === "new" || !state.noteDraft.trim()}
-                  type="button"
-                  onClick={saveNote}
-                >
-                  저장
-                </button>
-              </div>
-              <p aria-live="polite">{noteStatus}</p>
-              <div className="learning-note-list">
-                {state.notes.map((note) => (
-                  <NoteEditor
-                    busy={noteBusyId === note.id}
-                    key={note.id}
-                    note={note}
-                    onDelete={() => removeNote(note)}
-                    onSave={(body) => editNote(note, body)}
-                    onSeek={() => seek(note.positionSeconds)}
-                  />
-                ))}
-                {state.notes.length === 0 && (
-                  <p>아직 저장한 메모가 없습니다.</p>
-                )}
-              </div>
-            </section>
+            <LearningNotesPanel
+              busyId={noteBusyId}
+              draft={state.noteDraft}
+              inputRef={noteInputRef}
+              notes={state.notes}
+              onDelete={(note) => void removeNote(note)}
+              onDraftChange={updateNoteDraft}
+              onSave={() => void saveNote()}
+              onSeek={seek}
+              onUpdate={(note, body) => void editNote(note, body)}
+              positionSeconds={notePositionSeconds}
+              status={noteStatus}
+            />
           )}
           {state.selectedTab === "quiz" && (
             <AdaptiveQuizPanel
@@ -643,270 +608,15 @@ function ActiveLearningWorkspace({
           onRequestAnother={() => void nextLearning.request()}
         />
       )}
-    </main>
-  );
-}
-
-function LearningSummaryPanel({
-  captions,
-  onSeek,
-  video,
-}: {
-  captions: ProgressiveCaptionState;
-  onSeek: (seconds: number) => void;
-  video: QueueVideo;
-}) {
-  const segments =
-    captions.koreanSegments.length > 0
-      ? captions.koreanSegments
-      : captions.sourceSegments;
-  const highlightIndexes = Array.from(
-    new Set(
-      segments.length > 0
-        ? [0, Math.floor((segments.length - 1) / 2), segments.length - 1]
-        : [],
-    ),
-  );
-  return (
-    <section className="learning-summary-panel">
-      <h2>핵심 내용</h2>
-      <p>
-        {video.summary.trim() ||
-          `${video.channelName || "YouTube"}의 ${video.title} 영상입니다.`}
-      </p>
-      {highlightIndexes.length > 0 ? (
-        <ol>
-          {highlightIndexes.map((index) => {
-            const segment = segments[index];
-            return (
-              <li key={`${segment.start}:${segment.end}`}>
-                <button type="button" onClick={() => onSeek(segment.start)}>
-                  {formatTime(segment.start)}
-                </button>
-                <p>{segment.text}</p>
-              </li>
-            );
-          })}
-        </ol>
-      ) : (
-        <p>자막이 준비되면 중요한 내용을 여기에서 바로 볼 수 있어요.</p>
-      )}
-    </section>
-  );
-}
-
-function AdaptiveQuizPanel({
-  answers,
-  loop,
-  onAnswer,
-  onRequest,
-  onSeek,
-  onSubmit,
-  state,
-  statusRef,
-  submission,
-}: {
-  answers: Record<string, number>;
-  loop: AdaptiveQuizLoop | null;
-  onAnswer: (questionId: string, choiceIndex: number) => void;
-  onRequest: () => void;
-  onSeek: (seconds: number) => void;
-  onSubmit: () => void;
-  state: QuizUiState;
-  statusRef: React.RefObject<HTMLDivElement | null>;
-  submission: AdaptiveQuizSubmission | null;
-}) {
-  if (["request", "generating", "failed", "stale"].includes(state.phase)) {
-    return (
-      <section className="learning-preparing-state">
-        <h2>지금까지 퀴즈</h2>
-        <div aria-live="polite" ref={statusRef} tabIndex={-1}>
-          {state.message}
-        </div>
-        {state.phase === "generating" && (
-          <span>완료되면 자동으로 표시됩니다.</span>
-        )}
-        {state.phase === "request" && state.evidenceReady && (
-          <button type="button" onClick={onRequest}>
-            퀴즈 만들기
-          </button>
-        )}
-        {state.phase === "request" && !state.evidenceReady && (
-          <span>자막이 준비되면 퀴즈를 시작할 수 있어요.</span>
-        )}
-        {state.phase === "failed" && (
-          <button type="button" onClick={onRequest}>
-            다시 만들기
-          </button>
-        )}
-        {state.phase === "stale" && (
-          <button type="button" onClick={onRequest}>
-            새 퀴즈 만들기
-          </button>
-        )}
-      </section>
-    );
-  }
-
-  return (
-    <section className="adaptive-quiz-panel">
-      <h2>지금까지 퀴즈</h2>
-      {loop?.questions.map((question) => {
-        const evaluated = submission?.attempt.answers.find(
-          (answer) => answer.questionId === question.id,
-        );
-        return (
-          <fieldset key={question.id}>
-            <legend>
-              {question.position}. {question.prompt}
-            </legend>
-            {question.choices.map((choice, index) => (
-              <label key={choice}>
-                <input
-                  checked={answers[question.id] === index}
-                  disabled={
-                    state.phase === "submitting" || state.phase === "evaluated"
-                  }
-                  name={question.id}
-                  onChange={() => onAnswer(question.id, index)}
-                  type="radio"
-                />
-                {choice}
-              </label>
-            ))}
-            {evaluated && (
-              <div>
-                <p>
-                  {evaluated.correct
-                    ? "정답입니다."
-                    : "다시 볼 부분이 있습니다."}
-                </p>
-                <p>{evaluated.explanation}</p>
-                <button
-                  type="button"
-                  onClick={() => onSeek(evaluated.citation.startSeconds)}
-                >
-                  {formatTime(evaluated.citation.startSeconds)} 근거 보기
-                </button>
-              </div>
-            )}
-          </fieldset>
-        );
-      })}
-      {(state.phase === "ready" || state.phase === "answering") && (
-        <button
-          disabled={state.phase !== "answering"}
-          type="button"
-          onClick={onSubmit}
-        >
-          답 확인하기
-        </button>
-      )}
-      {state.phase === "submitting" && <p>답을 확인하고 있습니다.</p>}
-      {state.phase === "evaluated" && submission && (
-        <div ref={statusRef} tabIndex={-1}>
-          <p>점수 {submission.attempt.score}점</p>
-          {submission.reviewProposal && (
-            <button
-              type="button"
-              onClick={() =>
-                onSeek(submission.reviewProposal!.citation.startSeconds)
-              }
-            >
-              복습 구간으로 이동
-            </button>
-          )}
-        </div>
-      )}
-    </section>
-  );
-}
-
-function TranscriptPanel({
-  captions,
-  onSeek,
-}: {
-  captions: ProgressiveCaptionState;
-  onSeek: (seconds: number) => void;
-}) {
-  if (
-    captions.sourceSegments.length === 0 &&
-    captions.koreanSegments.length === 0
-  ) {
-    return (
-      <section className="learning-preparing-state">
-        <h2>전체 자막</h2>
-        <p>{captionPhaseMessage(captions)}</p>
-      </section>
-    );
-  }
-  const starts = Array.from(
-    new Set(
-      [...captions.sourceSegments, ...captions.koreanSegments].map(
-        (segment) => segment.start,
-      ),
-    ),
-  ).sort((left, right) => left - right);
-  return (
-    <ol className="learning-transcript">
-      {starts.map((start) => {
-        const pair = captionPairAt(captions, start + 0.001);
-        return (
-          <li key={start}>
-            <button type="button" onClick={() => onSeek(start)}>
-              {formatTime(start)}
-            </button>
-            <div>
-              {pair.source && (
-                <p lang={captions.sourceLanguage || undefined}>{pair.source}</p>
-              )}
-              <p lang="ko">
-                {pair.korean || "한국어로 옮기는 중이에요."}
-              </p>
-            </div>
-          </li>
-        );
-      })}
-    </ol>
-  );
-}
-
-function NoteEditor({
-  busy,
-  note,
-  onDelete,
-  onSave,
-  onSeek,
-}: {
-  busy: boolean;
-  note: LearningNote;
-  onDelete: () => void;
-  onSave: (body: string) => void;
-  onSeek: () => void;
-}) {
-  const [body, setBody] = useState(note.body);
-  return (
-    <article>
-      <button className="note-time" type="button" onClick={onSeek}>
-        {formatTime(note.positionSeconds)}로 이동
-      </button>
-      <textarea
-        aria-label={`${formatTime(note.positionSeconds)} 메모 내용`}
-        value={body}
-        onChange={(event) => setBody(event.target.value)}
+      <TranscriptDrawer
+        captions={displayedCaptions}
+        onClose={() => setTranscriptOpen(false)}
+        onSeek={(seconds) => {
+          seek(seconds);
+          setTranscriptOpen(false);
+        }}
+        open={transcriptOpen}
       />
-      <div>
-        <button
-          disabled={busy || body.trim() === note.body}
-          type="button"
-          onClick={() => onSave(body)}
-        >
-          수정 저장
-        </button>
-        <button disabled={busy} type="button" onClick={onDelete}>
-          삭제
-        </button>
-      </div>
-    </article>
+    </main>
   );
 }

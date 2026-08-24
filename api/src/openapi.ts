@@ -58,6 +58,12 @@ const jsonResponseSchemas: Record<string, Schema> = {
     $ref: '#/components/schemas/LearningNote',
   },
   LearningItemController_deleteNote: deletedSchema(),
+  LearningItemController_getOverview: {
+    $ref: '#/components/schemas/LearningOverview',
+  },
+  LearningItemController_explainSegment: {
+    $ref: '#/components/schemas/LearningSegmentExplanation',
+  },
   LearningController_createNextLearningProposal: {
     $ref: '#/components/schemas/LearningProposal',
   },
@@ -226,6 +232,85 @@ export function createOpenApiDocument(app: INestApplication) {
         body: { type: 'string', minLength: 1, maxLength: 4000 },
         createdAt: { type: 'string', format: 'date-time' },
         updatedAt: { type: 'string', format: 'date-time' },
+      },
+    },
+    LearningOverview: {
+      type: 'object',
+      required: ['contextId', 'status', 'coverage'],
+      properties: {
+        contextId: { type: 'string', pattern: '^[1-9]\\d*$' },
+        status: {
+          type: 'string',
+          enum: ['pending', 'ready', 'failed'],
+        },
+        coverage: {
+          type: 'object',
+          required: ['scope', 'startSeconds', 'endSeconds'],
+          properties: {
+            scope: {
+              type: 'string',
+              enum: ['full_video', 'study_range'],
+            },
+            startSeconds: { type: 'number', minimum: 0 },
+            endSeconds: { type: 'number', minimum: 0 },
+          },
+        },
+        summary: {
+          type: 'object',
+          required: ['overview', 'chapters', 'takeaways'],
+          properties: {
+            overview: { type: 'string' },
+            chapters: {
+              type: 'array',
+              minItems: 3,
+              maxItems: 5,
+              items: {
+                type: 'object',
+                required: ['startSeconds', 'endSeconds', 'title', 'body'],
+                properties: {
+                  startSeconds: { type: 'number', minimum: 0 },
+                  endSeconds: { type: 'number', minimum: 0 },
+                  title: { type: 'string' },
+                  body: { type: 'string' },
+                },
+              },
+            },
+            takeaways: {
+              type: 'array',
+              maxItems: 3,
+              items: { type: 'string' },
+            },
+          },
+        },
+        errorCode: { type: 'string' },
+      },
+    },
+    LearningSegmentExplanation: {
+      type: 'object',
+      required: ['plainMeaning', 'keyExpressions', 'contextNote', 'citation'],
+      properties: {
+        plainMeaning: { type: 'string' },
+        keyExpressions: {
+          type: 'array',
+          maxItems: 4,
+          items: {
+            type: 'object',
+            required: ['text', 'meaning'],
+            properties: {
+              text: { type: 'string' },
+              meaning: { type: 'string' },
+            },
+          },
+        },
+        contextNote: { type: 'string' },
+        citation: {
+          type: 'object',
+          required: ['startSeconds', 'endSeconds'],
+          properties: {
+            startSeconds: { type: 'number', minimum: 0 },
+            endSeconds: { type: 'number', minimum: 0 },
+          },
+        },
       },
     },
     LearningProposal: {

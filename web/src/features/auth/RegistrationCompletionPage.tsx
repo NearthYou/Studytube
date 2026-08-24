@@ -70,7 +70,7 @@ export function RegistrationCompletionPage({
   return (
     <main className="auth-page">
       <section className="auth-card">
-        <p className="eyebrow">StudyTube Account</p>
+        <p className="eyebrow">StudyTube 계정</p>
         <h1>가입 완료</h1>
         <p>{status}</p>
         {readiness === "ready" && (

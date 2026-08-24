@@ -16,6 +16,7 @@ export class DurableWorkRouter {
     private readonly unsupported: DurableHandler,
     private readonly quiz?: DurableHandler,
     private readonly learning?: Pick<LearningService, 'settleAgentWorkItem'>,
+    private readonly summary?: DurableHandler,
   ) {}
 
   async handle(
@@ -46,6 +47,9 @@ export class DurableWorkRouter {
     }
     if (job.eventType === 'quiz_generation.requested' && this.quiz) {
       return this.quiz;
+    }
+    if (job.eventType === 'learning_summary.requested' && this.summary) {
+      return this.summary;
     }
     return this.unsupported;
   }

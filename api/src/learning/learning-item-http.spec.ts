@@ -10,6 +10,7 @@ import type { LearningItemRepository } from './learning-item.repository';
 import { LEARNING_ITEM_REPOSITORY } from './learning-item.repository';
 import { LearningItemService } from './learning-item.service';
 import { LearningItemController } from './learning-item.controller';
+import { LearningOverviewService } from './learning-overview.service';
 import { LEARNING_NOTE_REPOSITORY } from './learning-note.repository';
 import { createOpenApiDocument } from '../openapi';
 import { validate } from 'class-validator';
@@ -298,7 +299,7 @@ describe('SessionGuard learning boundary', () => {
   });
 });
 
-describe('Learning caption OpenAPI boundary', () => {
+describe('Learning workspace OpenAPI boundary', () => {
   let app: INestApplication;
 
   afterEach(async () => {
@@ -310,6 +311,7 @@ describe('Learning caption OpenAPI boundary', () => {
       controllers: [LearningItemController],
       providers: [
         { provide: LearningItemService, useValue: {} },
+        { provide: LearningOverviewService, useValue: {} },
         { provide: LEARNING_NOTE_REPOSITORY, useValue: {} },
       ],
     }).compile();
@@ -334,6 +336,17 @@ describe('Learning caption OpenAPI boundary', () => {
         },
       },
     });
+
+    expect(
+      jsonResponseSchema(
+        document.paths?.['/learning/contexts/{contextId}/overview']?.get,
+      ),
+    ).toEqual({ $ref: '#/components/schemas/LearningOverview' });
+    expect(
+      jsonResponseSchema(
+        document.paths?.['/learning/contexts/{contextId}/explanations']?.post,
+      ),
+    ).toEqual({ $ref: '#/components/schemas/LearningSegmentExplanation' });
   });
 });
 
@@ -359,4 +372,16 @@ async function createService(
     ],
   }).compile();
   return module.get(LearningItemService);
+}
+
+function jsonResponseSchema(operation: unknown): unknown {
+  const typed = operation as
+    | {
+        responses?: Record<
+          string,
+          { content?: Record<string, { schema?: unknown }> }
+        >;
+      }
+    | undefined;
+  return typed?.responses?.['200']?.content?.['application/json']?.schema;
 }

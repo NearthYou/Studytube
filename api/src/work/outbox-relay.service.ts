@@ -1,6 +1,7 @@
 import type { WorkRepository } from './work.repository';
 import {
   LEARNING_CAPTION_HANDLER_VERSION,
+  LEARNING_SUMMARY_HANDLER_VERSION,
   RETRIEVAL_EMBEDDING_HANDLER_VERSION,
   QUIZ_GENERATION_HANDLER_VERSION,
   VIDEO_ASSET_HANDLER_VERSION,
@@ -148,6 +149,9 @@ export class OutboxRelayService {
     }
     if (eventType === 'quiz_generation.requested') {
       return QUIZ_GENERATION_HANDLER_VERSION;
+    }
+    if (eventType === 'learning_summary.requested') {
+      return LEARNING_SUMMARY_HANDLER_VERSION;
     }
     return 'unsupported-event-v1';
   }

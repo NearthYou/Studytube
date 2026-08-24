@@ -232,7 +232,7 @@ export function MyEditPage({
         <section className="profile-form-section preference-section">
           <div>
             <strong>학습 취향</strong>
-            <p>AI Agent가 코스를 추천할 때 사용할 관심사, 속도, 목표입니다.</p>
+            <p>다음 코스를 추천할 때 사용할 관심사, 속도와 목표입니다.</p>
           </div>
           <label>
             관심사

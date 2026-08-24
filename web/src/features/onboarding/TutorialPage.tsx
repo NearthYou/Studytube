@@ -31,7 +31,7 @@ export function TutorialPage({
   const [preferenceStatus, setPreferenceStatus] = useState(
     hasLearningPreferences(session.user.preferences)
       ? "저장된 학습 취향을 추천에 사용합니다."
-      : "관심사, 학습 속도, 목표를 저장하면 AI 탐색 추천에 바로 반영됩니다.",
+      : "관심사, 학습 속도와 목표를 저장하면 다음 학습 제안에 반영됩니다.",
   );
   const [isSavingPreferences, setIsSavingPreferences] = useState(false);
   const tutorialSteps = [
@@ -42,7 +42,7 @@ export function TutorialPage({
     },
     {
       number: "02",
-      title: "AI 추천으로 코스를 만듭니다",
+      title: "학습 순서를 이어서 제안합니다",
       body: "관심 주제를 입력하면 관련 영상을 묶어 작은 플레이리스트로 시작할 수 있습니다.",
     },
     {
@@ -64,7 +64,7 @@ export function TutorialPage({
     },
     {
       label: "코스",
-      title: "AI 추천",
+      title: "학습 추천",
       meta: "관심사 기반 큐",
     },
     {
@@ -117,7 +117,7 @@ export function TutorialPage({
         pace: nextUser.preferences.pace,
         goal: nextUser.preferences.goal,
       });
-      setPreferenceStatus("학습 취향을 저장했습니다. AI 탐색에 반영됩니다.");
+      setPreferenceStatus("학습 취향을 저장했습니다. 다음 학습에 반영됩니다.");
     } catch (error) {
       setPreferenceStatus(
         error instanceof Error
@@ -148,7 +148,7 @@ export function TutorialPage({
               첫 영상 등록
             </button>
             <button type="button" onClick={() => finishTutorial("/courses")}>
-              AI 추천 보기
+              추천 영상 보기
             </button>
             <button
               className="quiet-button"
@@ -199,7 +199,7 @@ export function TutorialPage({
           <div>
             <strong>학습 취향 선택</strong>
             <p>
-              AI 탐색과 코스 추천에 사용할 관심사, 학습 속도, 목표를 먼저
+              영상과 코스 추천에 사용할 관심사, 학습 속도와 목표를 먼저
               정합니다.
             </p>
           </div>

@@ -112,6 +112,32 @@ type RelayLifecycle = {
 };
 
 describe('OutboxRelayService', () => {
+  it('publishes learning summaries with the summary handler version', async () => {
+    const event: ClaimedOutboxEvent = {
+      ...EVENT,
+      eventType: 'learning_summary.requested',
+      aggregateType: 'learning_context_summary',
+      aggregateId: '9',
+      payload: { summaryId: '9' },
+    };
+    const repository = new MemoryWorkRepository(event);
+    const queue = new MemoryQueue();
+    const relay = new OutboxRelayService(repository, queue);
+
+    await expect(
+      (relay as unknown as RelayContract).publishOnce(),
+    ).resolves.toBe(1);
+    expect([...queue.jobs.values()][0]).toMatchObject({
+      name: 'learning_summary.requested',
+      data: {
+        eventType: 'learning_summary.requested',
+        handlerVersion: 'learning-summary-v1',
+        payload: event.payload,
+      },
+      options: { jobId: `${event.id}-learning-summary-v1` },
+    });
+  });
+
   it('publishes learning intake with the caption handler while preserving event payload', async () => {
     const event: ClaimedOutboxEvent = {
       ...EVENT,

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import "./App.css";
+import "./styles/theme.css";
 import { AppRoutes } from "./app/AppRoutes";
 import { SiteNav } from "./app/SiteNav";
 import { normalizeSession, readSession, saveSession } from "./authSession";

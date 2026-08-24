@@ -228,40 +228,7 @@ export function CoursePage({ session }: { session: Session }) {
     <main className="page-shell course-page">
       <section className="page-heading">
         <h1>내 코스</h1>
-        <p>
-          배우고 싶은 주제와 목표를 적으면 학습 순서까지 정리해드립니다.
-        </p>
-        {hasProfile && (
-          <div className="preference-summary">
-            <strong>{profile.goal}</strong>
-            <span>
-              {profile.interests.join(", ")} / {profile.pace}
-            </span>
-          </div>
-        )}
-        <div className="quick-prompts" aria-label="추천 예시">
-          {promptSuggestions.map((prompt) => (
-            <button key={prompt} type="button" onClick={() => setQuery(prompt)}>
-              {prompt}
-            </button>
-          ))}
-        </div>
-        <form className="search-hero" onSubmit={submit}>
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="예: 퇴근 후 20분씩 영어 회화를 배우고 싶어"
-            disabled={isSearching || isGenerating}
-          />
-          <button
-            aria-busy={isGenerating}
-            type="submit"
-            disabled={isSearching || isGenerating}
-          >
-            {isGenerating ? "코스 만드는 중" : "코스 만들기"}
-          </button>
-        </form>
-        <p className="system-note" aria-live="polite">{status}</p>
+        <p>다음에 볼 영상과 지금까지 이어온 학습을 확인하세요.</p>
       </section>
 
       {playlists.length > 0 && (
@@ -278,6 +245,54 @@ export function CoursePage({ session }: { session: Session }) {
           ))}
         </section>
       )}
+
+      {playlists.length === 0 && (
+        <section className="learning-empty-state">
+          <strong>이어갈 코스가 아직 없습니다</strong>
+          <p>영상을 먼저 학습하면 다음 순서를 제안해드립니다.</p>
+          <button type="button" onClick={() => navigate("/")}>
+            영상으로 시작하기
+          </button>
+        </section>
+      )}
+
+      <details className="course-builder">
+        <summary>새 코스 찾기</summary>
+        <div className="course-builder-body">
+          <p>배우고 싶은 주제나 목표가 분명할 때만 새 코스를 찾아보세요.</p>
+          {hasProfile && (
+            <div className="preference-summary">
+              <strong>{profile.goal}</strong>
+              <span>
+                {profile.interests.join(", ")} / {profile.pace}
+              </span>
+            </div>
+          )}
+          <div className="quick-prompts" aria-label="추천 예시">
+            {promptSuggestions.map((prompt) => (
+              <button key={prompt} type="button" onClick={() => setQuery(prompt)}>
+                {prompt}
+              </button>
+            ))}
+          </div>
+          <form className="search-hero" onSubmit={submit}>
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="예: 퇴근 후 20분씩 중국어 회화를 배우고 싶어"
+              disabled={isSearching || isGenerating}
+            />
+            <button
+              aria-busy={isGenerating}
+              type="submit"
+              disabled={isSearching || isGenerating}
+            >
+              {isGenerating ? "코스 만드는 중" : "코스 만들기"}
+            </button>
+          </form>
+          <p className="system-note" aria-live="polite">{status}</p>
+        </div>
+      </details>
 
       {(courseMatches.length > 0 || existingVideos.length > 0 || ragResult) && (
         <section className="course-results">

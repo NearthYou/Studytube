@@ -261,6 +261,36 @@ export class AiProxyService {
     );
   }
 
+  generateLearningOverview(
+    body: unknown,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
+    return this.postStrict(
+      '/youtube/summary',
+      {
+        ...(body && typeof body === 'object' ? body : {}),
+        responseShape: 'learning-overview',
+      },
+      Number(this.configService.get<string>('AI_SUMMARY_TIMEOUT_MS')) || 180000,
+      signal,
+    );
+  }
+
+  explainLearningSegment(
+    body: unknown,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
+    return this.postStrict(
+      '/youtube/summary',
+      {
+        ...(body && typeof body === 'object' ? body : {}),
+        responseShape: 'segment-explanation',
+      },
+      Number(this.configService.get<string>('AI_SUMMARY_TIMEOUT_MS')) || 60000,
+      signal,
+    );
+  }
+
   plan(body: unknown): Promise<unknown> {
     return this.post(
       '/agent/study-plan',

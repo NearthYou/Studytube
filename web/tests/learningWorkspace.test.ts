@@ -256,3 +256,19 @@ test("global theme keeps Korean words intact on a dark surface", () => {
   assert.match(theme, /text-wrap:\s*pretty/);
   assert.doesNotMatch(theme, /overflow-wrap:\s*anywhere/);
 });
+
+test("learning panels override the retired white workspace surface", () => {
+  const css = readFileSync(
+    resolve(featureDirectory, "LearningWorkspace.css"),
+    "utf8",
+  );
+
+  assert.match(
+    css,
+    /\.learning-workspace \.learning-tabs\s*\{[^}]*background:\s*var\(--app-surface\)/,
+  );
+  assert.match(
+    css,
+    /\.learning-workspace \.learning-tabpanel\s*\{[^}]*background:\s*var\(--app-surface\)/,
+  );
+});

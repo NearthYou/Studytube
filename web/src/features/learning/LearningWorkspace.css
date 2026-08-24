@@ -91,6 +91,10 @@
 .learning-workspace .learning-tabs {
   display: grid;
   min-height: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--app-surface);
+  box-shadow: none;
 }
 
 .learning-workspace .learning-tablist {
@@ -124,6 +128,7 @@
   max-height: calc(100vh - 210px);
   overflow: auto;
   padding: 18px;
+  background: var(--app-surface);
 }
 
 .course-navigator {

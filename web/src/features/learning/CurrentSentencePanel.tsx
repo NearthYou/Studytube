@@ -16,12 +16,14 @@ type Props = {
   status: string;
   captionsReady: boolean;
   coverageRepairing: boolean;
+  coverageCaptureActive: boolean;
   coverageStartsAt: number | null;
   emptyState: CaptionlessPanelPresentation;
   onEmptyAction: () => void;
   onOpenTranscript: () => void;
   onPause: () => void;
   onSave: () => void;
+  onStartCoverageCapture: () => void;
 };
 
 export function CurrentSentencePanel({
@@ -35,12 +37,14 @@ export function CurrentSentencePanel({
   status,
   captionsReady,
   coverageRepairing,
+  coverageCaptureActive,
   coverageStartsAt,
   emptyState,
   onEmptyAction,
   onOpenTranscript,
   onPause,
   onSave,
+  onStartCoverageCapture,
 }: Props) {
   const [explanation, setExplanation] =
     useState<SegmentExplanationResponse | null>(null);
@@ -119,10 +123,23 @@ export function CurrentSentencePanel({
             </>
           ) : (
             <LearningPanelState
+              actionDisabled={coverageCaptureActive}
+              actionLabel={
+                coverageStartsAt !== null && currentTime < coverageStartsAt
+                  ? coverageCaptureActive
+                    ? "자막 만드는 중"
+                    : "처음부터 자막 시작"
+                  : ""
+              }
               description={
                 coverageRepairing
-                  ? "영상은 계속 볼 수 있어요. 준비되는 문장부터 바로 표시할게요."
+                  ? "영상은 계속 볼 수 있어요. 바로 필요하면 처음부터 자막을 시작할 수 있어요."
                   : "이 구간의 자막을 확인하고 있어요. 준비되면 바로 표시할게요."
+              }
+              onAction={
+                coverageStartsAt !== null && currentTime < coverageStartsAt
+                  ? onStartCoverageCapture
+                  : undefined
               }
               title={
                 coverageStartsAt !== null && currentTime < coverageStartsAt

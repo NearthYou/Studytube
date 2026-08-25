@@ -314,7 +314,10 @@ test("a partial transcript that starts late repairs the opening automatically", 
   assert.match(workspace, /needsInitialCaptionRepair/);
   assert.match(workspace, /repairInitialGap:\s*true/);
   assert.match(workspace, /initialGapRepairStartedRef/);
+  assert.match(workspace, /liveCaptions\.start\(0\)/);
+  assert.match(workspace, /seek\(0\)/);
   assert.match(panel, /앞부분 자막을 준비하고 있어요/);
+  assert.match(panel, /처음부터 자막 시작/);
   assert.doesNotMatch(panel, /재생 위치를 옮기거나 전체 자막에서 문장을 골라 보세요/);
 });
 

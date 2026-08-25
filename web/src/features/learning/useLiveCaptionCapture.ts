@@ -224,8 +224,15 @@ export function useLiveCaptionCapture(input: {
     recordNextRef.current = recordNext;
   }, [recordNext]);
 
-  const start = useCallback(async () => {
+  const start = useCallback(async (startAtSeconds?: number) => {
     if (!contextId || runtimeRef.current) return;
+    if (
+      typeof startAtSeconds === "number" &&
+      Number.isFinite(startAtSeconds) &&
+      startAtSeconds >= 0
+    ) {
+      currentTimeRef.current = startAtSeconds;
+    }
     if (currentTimeRef.current >= MAX_VIDEO_SECONDS) {
       transition("failed", "자막은 영상 앞부분 10분까지 만들 수 있습니다.");
       return;

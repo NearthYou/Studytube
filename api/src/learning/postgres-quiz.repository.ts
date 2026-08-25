@@ -514,8 +514,11 @@ export class PostgresQuizRepository {
             SELECT 'caption-segment:' || segment.id::text AS "resourceId",
                    segment.text AS content,
                    source.canonical_url AS "sourceUrl",
-                   segment.start_seconds::float8 AS "startSeconds",
-                   segment.end_seconds::float8 AS "endSeconds"
+                   floor(segment.start_seconds)::integer AS "startSeconds",
+                   greatest(
+                     floor(segment.start_seconds)::integer + 1,
+                     ceil(segment.end_seconds)::integer
+                   ) AS "endSeconds"
             FROM caption_artifact_segments AS segment
             JOIN caption_artifacts AS artifact ON artifact.id = segment.artifact_id
             JOIN video_sources AS source ON source.id = artifact.video_source_id

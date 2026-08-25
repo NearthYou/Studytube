@@ -99,6 +99,8 @@ test("YouTube loading and playback lifecycle stay behind one player interface", 
   assert.match(source, /youtubeApiPromise = null/);
   assert.match(source, /playerRef\.current\?\.destroy\(\)/);
   assert.match(source, /플레이어 스크립트를 불러오지 못했습니다/);
+  assert.match(source, /\}, \[videoId\]\);/);
+  assert.doesNotMatch(source, /key=\{preferNativeCaptions/);
 });
 
 test("unfinished learning tools are presented as preparation states", () => {

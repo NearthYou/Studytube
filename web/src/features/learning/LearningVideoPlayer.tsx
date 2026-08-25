@@ -18,7 +18,7 @@ type YoutubePlayer = {
 
 type YoutubeApi = {
   Player: new (
-    element: string | HTMLElement,
+    elementId: string,
     options: {
       videoId: string;
       playerVars: Record<string, number>;
@@ -65,8 +65,8 @@ export const LearningVideoPlayer = forwardRef<
   ref,
 ) {
   const playerRef = useRef<YoutubePlayer | null>(null);
-  const containerRef = useRef<HTMLDivElement | null>(null);
   const initialTimeRef = useRef(initialTime);
+  const preferNativeCaptionsRef = useRef(preferNativeCaptions);
   const onTimeChangeRef = useRef(onTimeChange);
   const onDurationChangeRef = useRef(onDurationChange);
   const onEndedRef = useRef(onEnded);
@@ -75,6 +75,7 @@ export const LearningVideoPlayer = forwardRef<
   onTimeChangeRef.current = onTimeChange;
   onDurationChangeRef.current = onDurationChange;
   onEndedRef.current = onEnded;
+  preferNativeCaptionsRef.current = preferNativeCaptions;
 
   useImperativeHandle(
     ref,
@@ -95,13 +96,13 @@ export const LearningVideoPlayer = forwardRef<
     async function mountPlayer() {
       try {
         const youtube = await loadYoutubeApi();
-        if (cancelled || !containerRef.current) return;
+        if (cancelled) return;
         playerRef.current?.destroy();
-        playerRef.current = new youtube.Player(containerRef.current, {
+        playerRef.current = new youtube.Player("learning-youtube-player", {
           videoId,
           playerVars: youtubePlayerVars(
             initialTimeRef.current,
-            preferNativeCaptions,
+            preferNativeCaptionsRef.current,
           ),
           events: {
             onReady: ({ target }) => {
@@ -145,14 +146,18 @@ export const LearningVideoPlayer = forwardRef<
     return () => {
       cancelled = true;
       window.clearInterval(interval);
-      const currentTime = playerRef.current?.getCurrentTime();
-      if (typeof currentTime === "number" && Number.isFinite(currentTime)) {
-        initialTimeRef.current = currentTime;
+      try {
+        const currentTime = playerRef.current?.getCurrentTime();
+        if (typeof currentTime === "number" && Number.isFinite(currentTime)) {
+          initialTimeRef.current = currentTime;
+        }
+      } catch {
+        // The iframe may finish its own teardown before React unmounts it.
       }
       playerRef.current?.destroy();
       playerRef.current = null;
     };
-  }, [preferNativeCaptions, videoId]);
+  }, [videoId]);
 
   useEffect(() => {
     if (error) errorRef.current?.focus();
@@ -160,11 +165,7 @@ export const LearningVideoPlayer = forwardRef<
 
   return (
     <section className="learning-player" aria-label="YouTube 영상 플레이어">
-      <div
-        id="learning-youtube-player"
-        key={preferNativeCaptions ? "native-captions" : "learning-captions"}
-        ref={containerRef}
-      />
+      <div id="learning-youtube-player" />
       {(caption.korean || caption.source) && (
         <div className="learning-player-caption" aria-live="polite">
           {caption.source && (

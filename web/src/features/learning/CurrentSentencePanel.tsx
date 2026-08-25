@@ -15,6 +15,8 @@ type Props = {
   korean: string;
   status: string;
   captionsReady: boolean;
+  coverageRepairing: boolean;
+  coverageStartsAt: number | null;
   emptyState: CaptionlessPanelPresentation;
   onEmptyAction: () => void;
   onOpenTranscript: () => void;
@@ -32,6 +34,8 @@ export function CurrentSentencePanel({
   korean,
   status,
   captionsReady,
+  coverageRepairing,
+  coverageStartsAt,
   emptyState,
   onEmptyAction,
   onOpenTranscript,
@@ -115,8 +119,16 @@ export function CurrentSentencePanel({
             </>
           ) : (
             <LearningPanelState
-              description="재생 위치를 옮기거나 전체 자막에서 문장을 골라 보세요."
-              title="이 구간에는 표시할 문장이 없어요"
+              description={
+                coverageRepairing
+                  ? "영상은 계속 볼 수 있어요. 준비되는 문장부터 바로 표시할게요."
+                  : "이 구간의 자막을 확인하고 있어요. 준비되면 바로 표시할게요."
+              }
+              title={
+                coverageStartsAt !== null && currentTime < coverageStartsAt
+                  ? "앞부분 자막을 준비하고 있어요"
+                  : "이 구간의 자막을 준비하고 있어요"
+              }
             />
           )}
         </>

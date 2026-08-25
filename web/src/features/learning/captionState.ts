@@ -100,6 +100,18 @@ export function quizPreparation(
     : { ready: false, message: "자막 문장 5개를 본 뒤 퀴즈가 열려요." };
 }
 
+export function needsInitialCaptionRepair(state: ProgressiveCaptionState) {
+  if (
+    state.sourceSegments.length === 0 ||
+    ["source_pending", "transcription_pending", "translation_pending", "failed"].includes(
+      state.phase,
+    )
+  ) {
+    return false;
+  }
+  return Math.min(...state.sourceSegments.map((segment) => segment.start)) > 5;
+}
+
 export function canRetryCaptions(errorCode?: string) {
   return ![
     "CAPTION_PROVIDER_UNAVAILABLE",

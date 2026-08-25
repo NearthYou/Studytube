@@ -89,6 +89,35 @@ describe('LearningItemService intake boundary', () => {
     expect(attachContext).toHaveBeenCalledWith(7, '41', '13');
   });
 
+  it('reserves a separately keyed provider work for an opening gap repair', async () => {
+    const reserve = jest.fn().mockResolvedValue({
+      reservationId: '41',
+      workId: '8f8de73b-6f6a-42a4-a550-a515b4206cb1',
+      admission: 'created',
+      reservedAudioSeconds: 600,
+      subscriptionCreated: true,
+    });
+    const ensureContext = jest.fn().mockResolvedValue({
+      studyContext: { id: '13' },
+    });
+    const service = await createService(
+      { reserve, attachContext: jest.fn().mockResolvedValue(true) },
+      { ensureContext },
+    );
+
+    await service.start(7, {
+      videoUrl: 'https://youtu.be/dQw4w9WgXcQ',
+      requestedAudioSeconds: 600,
+      repairInitialGap: true,
+    });
+
+    expect(reserve).toHaveBeenCalledWith(
+      expect.objectContaining({
+        processingPurpose: 'initial-gap-repair-v1',
+      }),
+    );
+  });
+
   it('does not create learning data when cost admission is unavailable', async () => {
     const reserve = jest
       .fn()

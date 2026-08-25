@@ -62,3 +62,35 @@ test("polls only the stored owner caption snapshot endpoint", async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+test("requests one separately keyed repair for a missing opening range", async () => {
+  const originalFetch = globalThis.fetch;
+  let capturedBody: unknown;
+  globalThis.fetch = async (_input, init) => {
+    capturedBody = JSON.parse(String(init?.body));
+    return new Response(
+      JSON.stringify({
+        admission: "created",
+        workId: "8f8de73b-6f6a-42a4-a550-a515b4206cb1",
+        reservedAudioSeconds: 600,
+        context: { studyContext: { id: "13" } },
+      }),
+      { status: 201, headers: { "Content-Type": "application/json" } },
+    );
+  };
+
+  try {
+    await startLearningIntake({
+      videoUrl: "https://youtu.be/dQw4w9WgXcQ",
+      requestedAudioSeconds: 600,
+      repairInitialGap: true,
+    });
+    assert.deepEqual(capturedBody, {
+      videoUrl: "https://youtu.be/dQw4w9WgXcQ",
+      requestedAudioSeconds: 600,
+      repairInitialGap: true,
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

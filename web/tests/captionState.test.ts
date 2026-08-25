@@ -5,6 +5,7 @@ import {
   canRetryCaptions,
   captionPhaseMessage,
   mergeCaptionState,
+  needsInitialCaptionRepair,
   quizPreparation,
   type ProgressiveCaptionState,
 } from "../src/features/learning/captionState.ts";
@@ -74,6 +75,25 @@ test("opens a quiz after five watched caption sentences even while indexing", ()
     ready: true,
     message: "퀴즈를 시작할 수 있습니다.",
   });
+});
+
+test("detects a missing opening range without retrying complete coverage", () => {
+  assert.equal(
+    needsInitialCaptionRepair({
+      ...pending,
+      phase: "index_pending",
+      sourceSegments: [{ start: 388, end: 393, text: "late" }],
+    }),
+    true,
+  );
+  assert.equal(
+    needsInitialCaptionRepair({
+      ...pending,
+      phase: "complete",
+      sourceSegments: [{ start: 0, end: 5, text: "opening" }],
+    }),
+    false,
+  );
 });
 
 test("uses learner-facing caption progress copy", () => {

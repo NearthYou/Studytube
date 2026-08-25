@@ -145,7 +145,10 @@ test("native YouTube captions stay visible until prepared captions arrive", () =
     "utf8",
   );
 
-  assert.match(workspaceSource, /preferNativeCaptions=/);
+  assert.match(
+    workspaceSource,
+    /preferNativeCaptions=\{!currentCaption\.source\}/,
+  );
   assert.match(workspaceSource, /caption=\{currentCaption\}/);
   assert.match(playerSource, /preferNativeCaptions: boolean/);
   assert.match(playerSource, /className="learning-player-caption"/);

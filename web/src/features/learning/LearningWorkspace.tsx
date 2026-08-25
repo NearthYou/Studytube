@@ -608,7 +608,7 @@ function ActiveLearningWorkspace({
             onDurationChange={setDurationSeconds}
             onEnded={finishVideo}
             onTimeChange={trackPlayback}
-            preferNativeCaptions={displayedCaptions.sourceSegments.length === 0}
+            preferNativeCaptions={!currentCaption.source}
             ref={playerRef}
             videoId={video.videoId}
           />

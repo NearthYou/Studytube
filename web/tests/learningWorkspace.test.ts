@@ -134,15 +134,16 @@ test("native YouTube captions stay visible until prepared captions arrive", () =
     resolve(featureDirectory, "LearningVideoPlayer.tsx"),
     "utf8",
   );
+  const optionsSource = readFileSync(
+    resolve(featureDirectory, "youtubePlayerOptions.ts"),
+    "utf8",
+  );
 
   assert.match(workspaceSource, /preferNativeCaptions=/);
   assert.match(workspaceSource, /caption=\{currentCaption\}/);
   assert.match(playerSource, /preferNativeCaptions: boolean/);
   assert.match(playerSource, /className="learning-player-caption"/);
-  assert.match(
-    playerSource,
-    /cc_load_policy: preferNativeCaptionsRef\.current \? 1 : 0/,
-  );
+  assert.match(optionsSource, /cc_load_policy: preferNativeCaptions \? 1 : 0/);
 });
 
 test("quiz polling keeps one bounded abortable loop for each quiz identity", () => {

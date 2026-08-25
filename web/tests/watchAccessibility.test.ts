@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 const directory = dirname(fileURLToPath(import.meta.url));
 const source = (path: string) => readFileSync(resolve(directory, "../src", path), "utf8");
 const playerSource = source("features/learning/LearningVideoPlayer.tsx");
+const playerOptionsSource = source("features/learning/youtubePlayerOptions.ts");
 const workspaceSource = source("features/learning/LearningWorkspace.tsx");
 const authSource = source("features/auth/AuthPage.tsx");
 
@@ -23,7 +24,7 @@ test("empty learning state guides the first registration", () => {
 
 test("prepared captions render over the video without blocking controls", () => {
   assert.match(playerSource, /learning-player-caption/);
-  assert.match(playerSource, /cc_load_policy/);
+  assert.match(playerOptionsSource, /cc_load_policy/);
   assert.match(workspaceSource, /caption=\{currentCaption\}/);
 });
 

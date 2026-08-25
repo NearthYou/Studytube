@@ -97,7 +97,7 @@ def create_playlist_recommendations(state: dict[str, Any]) -> list[dict[str, Any
             external.get("videos") or [],
             key=lambda video: learning_order_score(str(video.get("title") or "")),
         )
-        for video in ordered_videos:
+        for video in ordered_videos[:4]:
             recommendations.append(
                 {
                     "title": video["title"],

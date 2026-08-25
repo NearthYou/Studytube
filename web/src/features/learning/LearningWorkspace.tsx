@@ -40,6 +40,7 @@ import { TranscriptDrawer } from "./TranscriptDrawer.tsx";
 import { LearningNotesPanel } from "./LearningNotesPanel.tsx";
 import { AdaptiveQuizPanel } from "./AdaptiveQuizPanel.tsx";
 import { CourseNavigator } from "./CourseNavigator.ts";
+import { captionlessPanelPresentation } from "./learningPanelPresentation.ts";
 import "./LearningWorkspace.css";
 
 const TABS: Array<{ id: LearningTab; label: string }> = [
@@ -156,6 +157,14 @@ function ActiveLearningWorkspace({
         }
       : state.captions;
   const currentCaption = captionPairAt(displayedCaptions, state.currentTime);
+  const captionsReady = displayedCaptions.sourceSegments.length > 0;
+  const captionPanel = captionlessPanelPresentation({
+    contextReady: Boolean(contextId),
+    liveActive: liveCaptions.active,
+    phase: displayedCaptions.phase,
+    retrying: captionRetrying,
+    retryable: canRetryCaptions(state.captions.errorCode),
+  });
   const currentSegment =
     displayedCaptions.sourceSegments.find(
       (segment) =>
@@ -299,6 +308,20 @@ function ActiveLearningWorkspace({
       });
     } finally {
       setCaptionRetrying(false);
+    }
+  }
+
+  function handleCaptionPanelAction() {
+    if (captionPanel.action === "stop") {
+      liveCaptions.stop();
+      return;
+    }
+    if (captionPanel.action === "retry") {
+      void retryCaptions();
+      return;
+    }
+    if (captionPanel.action === "capture") {
+      void liveCaptions.start();
     }
   }
 
@@ -473,20 +496,15 @@ function ActiveLearningWorkspace({
           />
 
           <div className="learning-source-status">
-            {displayedCaptions.sourceSegments.length === 0 &&
-            state.captions.phase === "failed"
-              ? "영상 설명과 공개 정보로 학습 내용을 정리했어요."
-              : "자막과 영상 정보를 함께 정리하고 있어요."}
+            {!captionsReady && state.captions.phase === "failed"
+              ? "영상은 바로 볼 수 있어요. 학습 자막은 오른쪽에서 만들 수 있습니다."
+              : captionsReady
+                ? "재생 위치에 맞춰 문장과 학습 내용을 보여드려요."
+                : "학습 자막을 준비하고 있어요."}
           </div>
         </section>
 
         <section className="learning-tools" aria-label="학습 도구">
-          <div className="learning-tools-heading">
-            <span>이 영상에서 필요한 것만 모았습니다</span>
-            <button type="button" onClick={() => setTranscriptOpen(true)}>
-              전체 자막
-            </button>
-          </div>
           <section className="learning-tabs">
         <div
           aria-label="학습 자료"
@@ -519,48 +537,27 @@ function ActiveLearningWorkspace({
           tabIndex={0}
         >
           {state.selectedTab === "current" && (
-            <>
-              <CurrentSentencePanel
-                key={`${currentSegment?.start ?? state.currentTime}:${currentSegment?.end ?? state.currentTime}`}
-                contextId={contextId}
-                currentTime={state.currentTime}
-                korean={currentCaption.korean}
-                onOpenTranscript={() => setTranscriptOpen(true)}
-                onSave={startNoteDraft}
-                segmentEnd={currentSegment?.end ?? state.currentTime}
-                segmentStart={currentSegment?.start ?? state.currentTime}
-                source={currentCaption.source}
-                sourceLanguage={displayedCaptions.sourceLanguage}
-                status={
-                  liveCaptions.message ||
-                  (contextId
-                    ? captionPhaseMessage(displayedCaptions)
-                    : "영상을 학습 목록에 담고 있어요.")
-                }
-              />
-              {contextId && liveCaptions.active ? (
-                <button type="button" onClick={liveCaptions.stop}>
-                  자막 만들기 중지
-                </button>
-              ) : contextId &&
-                state.captions.phase === "failed" &&
-                displayedCaptions.sourceSegments.length === 0 &&
-                canRetryCaptions(state.captions.errorCode) ? (
-                <button
-                  disabled={captionRetrying}
-                  type="button"
-                  onClick={() => void retryCaptions()}
-                >
-                  {captionRetrying ? "자막을 다시 준비하고 있어요" : "자막 다시 만들기"}
-                </button>
-              ) : contextId &&
-                state.captions.phase === "failed" &&
-                displayedCaptions.sourceSegments.length === 0 ? (
-                <button type="button" onClick={() => void liveCaptions.start()}>
-                  재생 소리로 자막 만들기
-                </button>
-              ) : null}
-            </>
+            <CurrentSentencePanel
+              key={`${currentSegment?.start ?? state.currentTime}:${currentSegment?.end ?? state.currentTime}`}
+              captionsReady={captionsReady}
+              contextId={contextId}
+              currentTime={state.currentTime}
+              emptyState={captionPanel}
+              korean={currentCaption.korean}
+              onEmptyAction={handleCaptionPanelAction}
+              onOpenTranscript={() => setTranscriptOpen(true)}
+              onSave={startNoteDraft}
+              segmentEnd={currentSegment?.end ?? state.currentTime}
+              segmentStart={currentSegment?.start ?? state.currentTime}
+              source={currentCaption.source}
+              sourceLanguage={displayedCaptions.sourceLanguage}
+              status={
+                liveCaptions.message ||
+                (contextId
+                  ? captionPhaseMessage(displayedCaptions)
+                  : "영상을 학습 목록에 담고 있어요.")
+              }
+            />
           )}
           {state.selectedTab === "overview" && (
             <LearningOverviewPanel

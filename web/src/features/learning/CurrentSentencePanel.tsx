@@ -2,6 +2,8 @@ import { useState } from "react";
 import { explainLearningSegment } from "../../api.ts";
 import type { SegmentExplanationResponse } from "../../types.ts";
 import { formatTime } from "../../videoSummaryDetails.ts";
+import type { CaptionlessPanelPresentation } from "./learningPanelPresentation.ts";
+import { LearningPanelState } from "./LearningPanelState.tsx";
 
 type Props = {
   contextId: string;
@@ -12,6 +14,9 @@ type Props = {
   source: string;
   korean: string;
   status: string;
+  captionsReady: boolean;
+  emptyState: CaptionlessPanelPresentation;
+  onEmptyAction: () => void;
   onOpenTranscript: () => void;
   onSave: () => void;
 };
@@ -25,6 +30,9 @@ export function CurrentSentencePanel({
   source,
   korean,
   status,
+  captionsReady,
+  emptyState,
+  onEmptyAction,
   onOpenTranscript,
   onSave,
 }: Props) {
@@ -54,45 +62,64 @@ export function CurrentSentencePanel({
 
   return (
     <section className="current-sentence-panel">
-      <header>
-        <div>
-          <span>지금 듣는 문장</span>
-          <time>{formatTime(currentTime)}</time>
-        </div>
-        <button className="quiet-action" type="button" onClick={onOpenTranscript}>
-          전체 자막 보기
-        </button>
-      </header>
+      {!captionsReady ? (
+        <LearningPanelState
+          actionDisabled={emptyState.actionDisabled}
+          actionLabel={emptyState.actionLabel}
+          description={emptyState.description}
+          onAction={emptyState.action ? onEmptyAction : undefined}
+          title={emptyState.title}
+        />
+      ) : (
+        <>
+          <header>
+            <div>
+              <span>지금 듣는 문장</span>
+              <time>{formatTime(currentTime)}</time>
+            </div>
+            <button className="quiet-action" type="button" onClick={onOpenTranscript}>
+              전체 자막
+            </button>
+          </header>
 
-      <div className="sentence-copy">
-        <small>{sourceLanguage ? `원문 ${sourceLanguage}` : "원문"}</small>
-        <p lang={sourceLanguage || undefined}>
-          {source || "자막을 준비하고 있어요."}
-        </p>
-      </div>
-      <div className="sentence-copy translated">
-        <small>한국어</small>
-        <p lang="ko">{korean || "번역을 준비하고 있어요."}</p>
-      </div>
+          {source ? (
+            <>
+              <div className="sentence-copy">
+                <small>{sourceLanguage ? `원문 ${sourceLanguage}` : "원문"}</small>
+                <p lang={sourceLanguage || undefined}>{source}</p>
+              </div>
+              <div className="sentence-copy translated">
+                <small>한국어</small>
+                <p lang="ko">{korean || "번역을 준비하고 있어요."}</p>
+              </div>
 
-      <p className="sentence-status" aria-live="polite">
-        {status}
-      </p>
-      <div className="sentence-actions">
-        <button type="button" onClick={onSave}>
-          이 문장 저장
-        </button>
-        <button
-          className="secondary-action"
-          disabled={!source || loading}
-          type="button"
-          onClick={() => void explain()}
-        >
-          {loading ? "설명하는 중" : "이 문장 이해하기"}
-        </button>
-      </div>
+              <p className="sentence-status" aria-live="polite">
+                {status}
+              </p>
+              <div className="sentence-actions">
+                <button type="button" onClick={onSave}>
+                  이 문장 저장
+                </button>
+                <button
+                  className="secondary-action"
+                  disabled={loading}
+                  type="button"
+                  onClick={() => void explain()}
+                >
+                  {loading ? "설명하는 중" : "문장 이해하기"}
+                </button>
+              </div>
+            </>
+          ) : (
+            <LearningPanelState
+              description="재생 위치를 옮기거나 전체 자막에서 문장을 골라 보세요."
+              title="이 구간에는 표시할 문장이 없어요"
+            />
+          )}
+        </>
+      )}
 
-      {explanation && (
+      {captionsReady && explanation && (
         <div className="sentence-explanation" aria-live="polite">
           <p>{explanation.plainMeaning}</p>
           {explanation.keyExpressions.length > 0 && (
@@ -108,7 +135,7 @@ export function CurrentSentencePanel({
           {explanation.contextNote && <p>{explanation.contextNote}</p>}
         </div>
       )}
-      {message && <p className="sentence-status">{message}</p>}
+      {captionsReady && message && <p className="sentence-status">{message}</p>}
     </section>
   );
 }

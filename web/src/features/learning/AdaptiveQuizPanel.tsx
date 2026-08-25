@@ -5,6 +5,8 @@ import type {
 } from "../../api.ts";
 import { formatTime } from "../../videoSummaryDetails.ts";
 import type { QuizUiState } from "./adaptiveQuizFlow.ts";
+import { quizPanelPresentation } from "./learningPanelPresentation.ts";
+import { LearningPanelState } from "./LearningPanelState.tsx";
 
 export function AdaptiveQuizPanel({
   answers,
@@ -28,35 +30,21 @@ export function AdaptiveQuizPanel({
   submission: AdaptiveQuizSubmission | null;
 }) {
   if (["request", "generating", "failed", "stale"].includes(state.phase)) {
+    const presentation = quizPanelPresentation(state);
     return (
-      <section className="learning-preparing-state">
-        <h2>지금까지 퀴즈</h2>
-        <div aria-live="polite" ref={statusRef} tabIndex={-1}>
-          {state.message}
-        </div>
-        {state.phase === "generating" && (
-          <span>완료되면 이 화면에 바로 표시됩니다.</span>
-        )}
-        {state.phase === "request" && state.evidenceReady && (
-          <button type="button" onClick={onRequest}>
-            퀴즈 시작
-          </button>
-        )}
-        {state.phase === "request" && !state.evidenceReady && (
-          <span>자막이 준비되면 퀴즈를 풀 수 있어요.</span>
-        )}
-        {(state.phase === "failed" || state.phase === "stale") && (
-          <button type="button" onClick={onRequest}>
-            새 퀴즈 준비하기
-          </button>
-        )}
-      </section>
+      <LearningPanelState
+        actionLabel={presentation.actionLabel}
+        description={presentation.description}
+        onAction={presentation.actionLabel ? onRequest : undefined}
+        statusRef={statusRef}
+        title={presentation.title}
+      />
     );
   }
 
   return (
     <section className="adaptive-quiz-panel">
-      <h2>지금까지 퀴즈</h2>
+      <h2>퀴즈</h2>
       {loop?.questions.map((question) => {
         const evaluated = submission?.attempt.answers.find(
           (answer) => answer.questionId === question.id,

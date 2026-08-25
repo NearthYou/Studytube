@@ -1,5 +1,6 @@
 import { formatTime } from "../../videoSummaryDetails.ts";
 import { useLearningOverview } from "./useLearningOverview.ts";
+import { LearningPanelState } from "./LearningPanelState.tsx";
 
 export function LearningOverviewPanel({
   active,
@@ -14,19 +15,19 @@ export function LearningOverviewPanel({
 
   if (!contextId || overview.status === "pending") {
     return (
-      <section className="learning-overview-state" aria-live="polite">
-        <h2>내용 정리</h2>
-        <p>내용 정리는 자막이 준비되면 열립니다.</p>
-      </section>
+      <LearningPanelState
+        description="학습 자막이 준비되면 영상의 흐름과 주요 구간을 보여드릴게요."
+        title="내용 정리를 준비하고 있어요"
+      />
     );
   }
 
   if (overview.status === "failed" || !overview.summary) {
     return (
-      <section className="learning-overview-state" aria-live="polite">
-        <h2>내용 정리</h2>
-        <p>내용을 정리하지 못했어요. 영상과 자막은 그대로 볼 수 있습니다.</p>
-      </section>
+      <LearningPanelState
+        description="영상은 계속 볼 수 있어요. 학습 자막을 만든 뒤 다시 확인해 주세요."
+        title="내용을 정리하지 못했어요"
+      />
     );
   }
 

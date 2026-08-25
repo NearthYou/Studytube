@@ -108,16 +108,16 @@ export function canRetryCaptions(errorCode?: string) {
 function captionFailureMessage(errorCode?: string) {
   const messages: Record<string, string> = {
     STT_NOT_APPROVED:
-      "서버 자막을 가져오지 못했어요. YouTube 기본 자막이 있으면 플레이어에 표시하고, 학습 자료는 영상 설명으로 준비했어요.",
+      "학습 자막을 자동으로 만들지 못했어요.",
     STT_DISABLED:
-      "서버 자막을 가져오지 못했어요. YouTube 기본 자막이 있으면 플레이어에 표시하고, 학습 자료는 영상 설명으로 준비했어요.",
+      "학습 자막을 자동으로 만들지 못했어요.",
     VIDEO_LIVE_UNSUPPORTED: "실시간 영상은 아직 자막을 만들 수 없어요.",
     VIDEO_RESTRICTED: "이 영상에서는 자막을 만들 수 없어요.",
     VIDEO_AUTH_REQUIRED: "로그인이 필요한 영상이라 자막을 만들 수 없어요.",
     VIDEO_TOO_LONG: "처리할 수 있는 길이를 넘은 영상입니다.",
     CAPTION_PROVIDER_UNAVAILABLE:
-      "서버 자막을 가져오지 못했어요. YouTube 기본 자막이 있으면 플레이어에 표시하고, 학습 자료는 영상 설명으로 준비했어요.",
-    TRANSCRIPTION_PROVIDER_UNAVAILABLE: "자막을 만들지 못했어요.",
+      "학습 자막을 자동으로 만들지 못했어요.",
+    TRANSCRIPTION_PROVIDER_UNAVAILABLE: "학습 자막을 만들지 못했어요.",
     TRANSLATION_PROVIDER_UNAVAILABLE: "한국어로 옮기지 못했어요.",
   };
   return errorCode ? messages[errorCode] : undefined;

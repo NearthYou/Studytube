@@ -59,7 +59,7 @@ test("learning workspace never samples arbitrary captions as a summary", () => {
 
   assert.doesNotMatch(source, /highlightIndexes|Math\.floor\(\(segments\.length/);
   assert.doesNotMatch(source, /video\.summary/);
-  assert.match(overview, /내용 정리는 자막이 준비되면 열립니다/);
+  assert.match(overview, /내용 정리를 준비하고 있어요/);
   assert.match(overview, /이번 학습 정리/);
   assert.doesNotMatch(`${source}\n${overview}`, /AI 요약|자막 근거|문제 근거/);
 });
@@ -78,7 +78,7 @@ test("full transcript opens as a drawer instead of a primary tab", () => {
     "utf8",
   );
 
-  assert.match(`${source}\n${current}`, />\s*전체 자막 보기\s*</);
+  assert.match(`${source}\n${current}`, />\s*전체 자막\s*</);
   assert.match(drawer, /role="dialog"/);
   assert.match(drawer, /aria-modal="true"/);
   assert.match(drawer, /전체 자막 닫기/);
@@ -107,16 +107,20 @@ test("unfinished learning tools are presented as preparation states", () => {
     resolve(featureDirectory, "captionState.ts"),
     "utf8",
   );
+  const presentationSource = readFileSync(
+    resolve(featureDirectory, "learningPanelPresentation.ts"),
+    "utf8",
+  );
   assert.match(stateSource, /퀴즈를 준비하고 있어요/);
   assert.match(source, /const MAX_CAPTION_POLLS = 170/);
   assert.match(source, /startLearningIntake/);
-  assert.match(source, /자막 다시 만들기/);
-  assert.match(source, /재생 소리로 자막 만들기/);
+  assert.match(presentationSource, /학습 자막 만들기/);
+  assert.match(presentationSource, /다시 시도/);
   assert.doesNotMatch(source, /자막이 있는 다른 영상 선택/);
   assert.match(source, /canRetryCaptions/);
   assert.doesNotMatch(source, /Agent|MCP|RAG|AI/);
   assert.doesNotMatch(
-    `${source}\n${stateSource}`,
+    `${source}\n${stateSource}\n${presentationSource}`,
     /자막 근거|문제 근거|음성 자막 기능|원문 자막 확인 중/,
   );
 });
@@ -194,10 +198,15 @@ test("captionless videos can create progressive captions from shared tab audio",
     resolve(featureDirectory, "useLiveCaptionCapture.ts"),
     "utf8",
   );
+  const presentationSource = readFileSync(
+    resolve(featureDirectory, "learningPanelPresentation.ts"),
+    "utf8",
+  );
 
   assert.match(workspaceSource, /useLiveCaptionCapture/);
-  assert.match(workspaceSource, /재생 소리로 자막 만들기/);
-  assert.match(workspaceSource, /자막 만들기 중지/);
+  assert.match(workspaceSource, /captionPanel\.action === "capture"/);
+  assert.match(workspaceSource, /captionPanel\.action === "stop"/);
+  assert.match(presentationSource, /학습 자막 만들기/);
   assert.match(captureSource, /getDisplayMedia/);
   assert.match(captureSource, /systemAudio:\s*"exclude"/);
   assert.match(captureSource, /captureLiveCaptionChunk/);

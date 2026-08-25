@@ -200,45 +200,43 @@ def search_youtube_page(query: str, limit: int) -> list[dict[str, Any]]:
     if not initial_data:
         return []
 
-    videos: list[dict[str, Any]] = []
+    captioned_videos: list[dict[str, Any]] = []
+    fallback_videos: list[dict[str, Any]] = []
     seen: set[str] = set()
 
     for renderer in iter_video_renderers(initial_data):
         video_id = str(renderer.get("videoId") or "").strip()
 
-        if (
-            not video_id
-            or video_id in seen
-            or not video_renderer_has_captions(renderer)
-        ):
+        if not video_id or video_id in seen:
             continue
 
         seen.add(video_id)
-        videos.append(
-            video_metadata(
-                provider="youtube-search-page",
-                video_id=video_id,
-                title=extract_text(renderer.get("title")) or "YouTube video",
-                channel=(
-                    extract_text(renderer.get("ownerText"))
-                    or extract_text(renderer.get("longBylineText"))
-                    or "YouTube"
-                ),
-                thumbnail_url=best_thumbnail(
-                    (renderer.get("thumbnail") or {}).get("thumbnails")
-                ),
-                summary=(
-                    extract_text(renderer.get("descriptionSnippet"))
-                    or extract_text(renderer.get("detailedMetadataSnippets"))
-                    or f"Actual YouTube search result for '{query}'."
-                ),
-            )
+        video = video_metadata(
+            provider="youtube-search-page",
+            video_id=video_id,
+            title=extract_text(renderer.get("title")) or "YouTube video",
+            channel=(
+                extract_text(renderer.get("ownerText"))
+                or extract_text(renderer.get("longBylineText"))
+                or "YouTube"
+            ),
+            thumbnail_url=best_thumbnail(
+                (renderer.get("thumbnail") or {}).get("thumbnails")
+            ),
+            summary=(
+                extract_text(renderer.get("descriptionSnippet"))
+                or extract_text(renderer.get("detailedMetadataSnippets"))
+                or f"Actual YouTube search result for '{query}'."
+            ),
         )
+        target = (
+            captioned_videos
+            if video_renderer_has_captions(renderer)
+            else fallback_videos
+        )
+        target.append(video)
 
-        if len(videos) >= limit:
-            break
-
-    return videos
+    return [*captioned_videos, *fallback_videos][:limit]
 
 
 def video_renderer_has_captions(renderer: dict[str, Any]) -> bool:

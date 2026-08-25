@@ -117,6 +117,66 @@ class StudyGenerationGraphTest(unittest.TestCase):
         self.assertEqual(len(response["recommendations"]), 1)
         self.assertEqual(response["guardrails"]["maxIterations"], 1)
 
+    def test_expands_a_short_cpp_goal_until_it_has_a_course(self):
+        queries = []
+
+        def lookup(payload):
+            queries.append(payload["query"])
+            video_id = f"cpp{len(queries)}"
+            return {
+                "provider": "youtube-test",
+                "summary": "C++ lesson",
+                "videos": [
+                    {
+                        "title": f"C++ lesson {len(queries)}",
+                        "sourceUrl": f"https://youtu.be/{video_id}",
+                        "thumbnailUrl": f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg",
+                        "provider": "youtube-test",
+                        "summary": "C++ for beginners",
+                    }
+                ],
+            }
+
+        response = study_generation.build_study_plan(
+            {"goal": "배울 내용: C++ 배우고 싶어\n학습 목표: 기초부터"},
+            lookup,
+        )
+
+        self.assertEqual(queries[0], "C++")
+        self.assertIn("C++ 기초 강의", queries)
+        self.assertGreaterEqual(len(response["recommendations"]), 2)
+        self.assertLessEqual(len(response["recommendations"]), 4)
+
+    def test_orders_beginner_lessons_before_advanced_lessons(self):
+        response = study_generation.build_study_plan(
+            {"goal": "C++", "maxIterations": 1},
+            lambda _payload: {
+                "provider": "youtube-test",
+                "summary": "C++ lessons",
+                "videos": [
+                    {
+                        "title": "Advanced C++ project",
+                        "sourceUrl": "https://youtu.be/advanced001",
+                        "thumbnailUrl": "advanced.jpg",
+                        "provider": "youtube-test",
+                        "summary": "advanced",
+                    },
+                    {
+                        "title": "C++ basics for beginners",
+                        "sourceUrl": "https://youtu.be/beginner001",
+                        "thumbnailUrl": "beginner.jpg",
+                        "provider": "youtube-test",
+                        "summary": "beginner",
+                    },
+                ],
+            },
+        )
+
+        self.assertEqual(
+            [item["title"] for item in response["recommendations"]],
+            ["C++ basics for beginners", "Advanced C++ project"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

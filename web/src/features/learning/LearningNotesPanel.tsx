@@ -8,6 +8,8 @@ export function LearningNotesPanel({
   inputRef,
   notes,
   positionSeconds,
+  source,
+  korean,
   status,
   onDelete,
   onDraftChange,
@@ -20,6 +22,8 @@ export function LearningNotesPanel({
   inputRef: RefObject<HTMLTextAreaElement | null>;
   notes: LearningNote[];
   positionSeconds: number;
+  source: string;
+  korean: string;
   status: string;
   onDelete: (note: LearningNote) => void;
   onDraftChange: (value: string) => void;
@@ -29,28 +33,52 @@ export function LearningNotesPanel({
 }) {
   return (
     <section className="learning-notes-panel">
-      <label htmlFor="learning-note">
-        {formatTime(positionSeconds)}에 남길 메모
-      </label>
-      <textarea
-        id="learning-note"
-        ref={inputRef}
-        value={draft}
-        onChange={(event) => onDraftChange(event.target.value)}
-        placeholder="이 장면에서 기억할 내용을 적어보세요."
-      />
-      <div className="learning-note-actions">
-        <button
-          disabled={busyId === "new" || !draft.trim()}
-          type="button"
-          onClick={onSave}
-        >
-          메모 저장
-        </button>
+      <div className="learning-note-composer">
+        <header>
+          <div>
+            <strong>메모 작성</strong>
+            <span>고정된 장면에 저장됩니다.</span>
+          </div>
+          <time>{formatTime(positionSeconds)}</time>
+        </header>
+
+        {(source || korean) && (
+          <div className="learning-note-context">
+            {source && <p>{source}</p>}
+            {korean && <p lang="ko">{korean}</p>}
+          </div>
+        )}
+
+        <label htmlFor="learning-note">내 메모</label>
+        <textarea
+          id="learning-note"
+          maxLength={4000}
+          ref={inputRef}
+          value={draft}
+          onChange={(event) => onDraftChange(event.target.value)}
+          placeholder="이 장면에서 기억할 내용이나 떠오른 생각을 적어보세요."
+        />
+        <div className="learning-note-actions">
+          <span>{draft.length.toLocaleString()} / 4,000</span>
+          <button
+            disabled={busyId === "new" || !draft.trim()}
+            type="button"
+            onClick={onSave}
+          >
+            {busyId === "new" ? "저장 중" : "메모 저장"}
+          </button>
+        </div>
+        {status && (
+          <p className="sentence-status" aria-live="polite">
+            {status}
+          </p>
+        )}
       </div>
-      <p className="sentence-status" aria-live="polite">
-        {status}
-      </p>
+
+      <header className="learning-note-list-heading">
+        <strong>저장한 메모</strong>
+        <span>{notes.length}개</span>
+      </header>
       <div className="learning-note-list">
         {notes.map((note) => (
           <NoteEditor
@@ -62,7 +90,11 @@ export function LearningNotesPanel({
             onSeek={() => onSeek(note.positionSeconds)}
           />
         ))}
-        {notes.length === 0 && <p>저장한 메모가 아직 없습니다.</p>}
+        {notes.length === 0 && (
+          <p className="learning-note-empty">
+            저장한 메모가 없습니다. 기억하고 싶은 문장부터 남겨보세요.
+          </p>
+        )}
       </div>
     </section>
   );
@@ -89,6 +121,7 @@ function NoteEditor({
       </button>
       <textarea
         aria-label={`${formatTime(note.positionSeconds)} 메모 내용`}
+        maxLength={4000}
         value={body}
         onChange={(event) => setBody(event.target.value)}
       />

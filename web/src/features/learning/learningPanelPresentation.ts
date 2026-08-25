@@ -99,16 +99,16 @@ export function quizPanelPresentation(state: QuizUiState): PanelPresentation {
 
   if (state.evidenceReady) {
     return {
-      title: "지금까지 본 내용을 확인해 볼까요?",
-      description: "짧은 퀴즈로 놓친 부분을 확인할 수 있어요.",
-      actionLabel: "퀴즈 만들기",
+      title: "지금까지 본 내용으로 퀴즈를 만들고 있어요",
+      description: "준비되면 이 화면에 바로 보여드릴게요.",
+      actionLabel: "",
     };
   }
 
   return {
-    title: "퀴즈는 자막이 준비되면 열려요",
+    title: "퀴즈를 만들려면 학습 자막이 필요해요",
     description:
-      "학습 자막을 만든 뒤 지금까지 본 내용으로 문제를 만들 수 있어요.",
-    actionLabel: "",
+      "학습 자막이 준비된 뒤 이 탭을 열면 지금까지 본 내용으로 퀴즈를 자동으로 만들어요.",
+    actionLabel: "학습 자막 준비하기",
   };
 }

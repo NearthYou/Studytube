@@ -92,6 +92,10 @@ test("YouTube loading and playback lifecycle stay behind one player interface", 
 
   assert.match(source, /export type LearningVideoPlayerHandle/);
   assert.match(source, /seek: \(seconds: number\) => void/);
+  assert.match(source, /pause: \(\) => void/);
+  assert.match(source, /pauseVideo: \(\) => void/);
+  assert.match(source, /onStateChange/);
+  assert.match(source, /getDuration/);
   assert.match(source, /youtubeApiPromise = null/);
   assert.match(source, /playerRef\.current\?\.destroy\(\)/);
   assert.match(source, /플레이어 스크립트를 불러오지 못했습니다/);
@@ -182,12 +186,52 @@ test("starting a note pins the current playback position automatically", () => {
   );
 
   assert.match(source, /function startNoteDraft/);
+  assert.match(source, /playerRef\.current\?\.pause\(\)/);
   assert.match(source, /notePositionSeconds: state\.currentTime/);
   assert.match(source, /selectedTab: "notes"/);
   assert.match(source, /noteInputRef\.current\?\.focus\(\)/);
   assert.match(current, />\s*이 문장 저장\s*</);
   assert.doesNotMatch(source, /현재 위치로 바꾸기/);
   assert.doesNotMatch(source, /positionSeconds: state\.currentTime/);
+});
+
+test("learning playback records history and shows a clear completion action", () => {
+  const source = readFileSync(
+    resolve(featureDirectory, "LearningWorkspace.tsx"),
+    "utf8",
+  );
+
+  assert.match(source, /recordLearningHistory/);
+  assert.match(source, /onEnded=/);
+  assert.match(source, /학습 완료/);
+  assert.match(source, /다음 영상/);
+});
+
+test("sentence study actions pause playback before the sentence can change", () => {
+  const workspace = readFileSync(
+    resolve(featureDirectory, "LearningWorkspace.tsx"),
+    "utf8",
+  );
+  const current = readFileSync(
+    resolve(featureDirectory, "CurrentSentencePanel.tsx"),
+    "utf8",
+  );
+
+  assert.match(workspace, /onPause=\{pauseForStudy\}/);
+  assert.match(current, /onPause\(\);[\s\S]*explainLearningSegment/);
+  assert.match(workspace, /active:\s*state\.selectedTab === "quiz"/);
+});
+
+test("note composer keeps the pinned sentence beside the draft", () => {
+  const source = readFileSync(
+    resolve(featureDirectory, "LearningNotesPanel.tsx"),
+    "utf8",
+  );
+
+  assert.match(source, /고정된 장면/);
+  assert.match(source, /source: string/);
+  assert.match(source, /korean: string/);
+  assert.match(source, /저장한 메모/);
 });
 
 test("captionless videos can create progressive captions from shared tab audio", () => {

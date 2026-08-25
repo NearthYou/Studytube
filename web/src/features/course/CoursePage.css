@@ -8,6 +8,18 @@
   box-shadow: none;
 }
 
+.prepared-course .playlist-toolbar,
+.recent-learning .section-title {
+  margin-bottom: 12px;
+}
+
+.course-recommendation-basis {
+  margin: 4px 0 0;
+  color: var(--app-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
 .course-builder-heading,
 .course-builder-heading > div,
 .preference-summary {

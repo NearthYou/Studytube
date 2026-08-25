@@ -11,18 +11,21 @@ import { youtubePlayerVars } from "./youtubePlayerOptions.ts";
 type YoutubePlayer = {
   destroy: () => void;
   getCurrentTime: () => number;
+  getDuration: () => number;
+  pauseVideo: () => void;
   seekTo: (seconds: number, allowSeekAhead: boolean) => void;
 };
 
 type YoutubeApi = {
   Player: new (
-    elementId: string,
+    element: string | HTMLElement,
     options: {
       videoId: string;
       playerVars: Record<string, number>;
       events: {
         onReady: (event: { target: YoutubePlayer }) => void;
         onError: () => void;
+        onStateChange: (event: { data: number; target: YoutubePlayer }) => void;
       };
     },
   ) => YoutubePlayer;
@@ -34,6 +37,7 @@ type YoutubeWindow = Window & {
 };
 
 export type LearningVideoPlayerHandle = {
+  pause: () => void;
   seek: (seconds: number) => void;
 };
 
@@ -42,25 +46,42 @@ export const LearningVideoPlayer = forwardRef<
   {
     caption: { korean: string; source: string };
     initialTime: number;
+    onDurationChange: (seconds: number) => void;
+    onEnded: (positionSeconds: number, durationSeconds: number) => void;
     onTimeChange: (seconds: number) => void;
     preferNativeCaptions: boolean;
     videoId: string;
   }
 >(function LearningVideoPlayer(
-  { caption, initialTime, onTimeChange, preferNativeCaptions, videoId },
+  {
+    caption,
+    initialTime,
+    onDurationChange,
+    onEnded,
+    onTimeChange,
+    preferNativeCaptions,
+    videoId,
+  },
   ref,
 ) {
   const playerRef = useRef<YoutubePlayer | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const initialTimeRef = useRef(initialTime);
-  const preferNativeCaptionsRef = useRef(preferNativeCaptions);
   const onTimeChangeRef = useRef(onTimeChange);
+  const onDurationChangeRef = useRef(onDurationChange);
+  const onEndedRef = useRef(onEnded);
   const errorRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState("");
   onTimeChangeRef.current = onTimeChange;
+  onDurationChangeRef.current = onDurationChange;
+  onEndedRef.current = onEnded;
 
   useImperativeHandle(
     ref,
     () => ({
+      pause() {
+        playerRef.current?.pauseVideo();
+      },
       seek(seconds: number) {
         playerRef.current?.seekTo(seconds, true);
       },
@@ -74,23 +95,31 @@ export const LearningVideoPlayer = forwardRef<
     async function mountPlayer() {
       try {
         const youtube = await loadYoutubeApi();
-        if (cancelled) return;
+        if (cancelled || !containerRef.current) return;
         playerRef.current?.destroy();
-        playerRef.current = new youtube.Player("learning-youtube-player", {
+        playerRef.current = new youtube.Player(containerRef.current, {
           videoId,
           playerVars: youtubePlayerVars(
             initialTimeRef.current,
-            preferNativeCaptionsRef.current,
+            preferNativeCaptions,
           ),
           events: {
             onReady: ({ target }) => {
               playerRef.current = target;
+              const duration = target.getDuration();
+              if (Number.isFinite(duration) && duration > 0) {
+                onDurationChangeRef.current(duration);
+              }
               setError("");
             },
             onError: () => {
               setError(
                 "영상을 재생할 수 없습니다. 원본 영상이 공개 상태인지 확인해주세요.",
               );
+            },
+            onStateChange: ({ data, target }) => {
+              if (data !== 0) return;
+              onEndedRef.current(target.getCurrentTime(), target.getDuration());
             },
           },
         });
@@ -116,10 +145,14 @@ export const LearningVideoPlayer = forwardRef<
     return () => {
       cancelled = true;
       window.clearInterval(interval);
+      const currentTime = playerRef.current?.getCurrentTime();
+      if (typeof currentTime === "number" && Number.isFinite(currentTime)) {
+        initialTimeRef.current = currentTime;
+      }
       playerRef.current?.destroy();
       playerRef.current = null;
     };
-  }, [videoId]);
+  }, [preferNativeCaptions, videoId]);
 
   useEffect(() => {
     if (error) errorRef.current?.focus();
@@ -127,11 +160,19 @@ export const LearningVideoPlayer = forwardRef<
 
   return (
     <section className="learning-player" aria-label="YouTube 영상 플레이어">
-      <div id="learning-youtube-player" />
+      <div
+        id="learning-youtube-player"
+        key={preferNativeCaptions ? "native-captions" : "learning-captions"}
+        ref={containerRef}
+      />
       {(caption.korean || caption.source) && (
         <div className="learning-player-caption" aria-live="polite">
-          {caption.korean && <p>{caption.korean}</p>}
-          {caption.source && <small>{caption.source}</small>}
+          {caption.source && (
+            <p className="learning-caption-source">{caption.source}</p>
+          )}
+          {caption.korean && (
+            <p className="learning-caption-korean">{caption.korean}</p>
+          )}
         </div>
       )}
       {error && (

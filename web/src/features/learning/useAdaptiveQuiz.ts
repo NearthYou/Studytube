@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   fetchAdaptiveQuiz,
   requestAdaptiveQuiz,
@@ -8,6 +8,7 @@ import {
 } from "../../api.ts";
 import {
   quizStateFromApi,
+  shouldAutoRequestQuiz,
   transitionQuizState,
   type QuizUiState,
 } from "./adaptiveQuizFlow.ts";
@@ -15,10 +16,12 @@ import {
 const MAX_QUIZ_POLLS = 10;
 
 export function useAdaptiveQuiz({
+  active,
   contextId,
   currentTime,
   evidenceReady,
 }: {
+  active: boolean;
   contextId: string;
   currentTime: number;
   evidenceReady: boolean;
@@ -33,6 +36,8 @@ export function useAdaptiveQuiz({
   );
   const statusRef = useRef<HTMLDivElement>(null);
   const evidenceReadyRef = useRef(evidenceReady);
+  const currentTimeRef = useRef(currentTime);
+  const autoRequestedContextRef = useRef("");
   const loopId = loop?.id;
   const loopState = loop?.state;
 
@@ -41,8 +46,55 @@ export function useAdaptiveQuiz({
   }, [evidenceReady]);
 
   useEffect(() => {
+    currentTimeRef.current = currentTime;
+  }, [currentTime]);
+
+  const request = useCallback(async () => {
+    if (!contextId || !evidenceReadyRef.current) return;
+    setSubmission(null);
+    setAnswers({});
+    setState((current) => transitionQuizState(current, { type: "requested" }));
+    try {
+      const next = await requestAdaptiveQuiz({
+        contextId,
+        startSeconds: 0,
+        endSeconds: Math.max(1, Math.floor(currentTimeRef.current)),
+        idempotencyKey: crypto.randomUUID(),
+      });
+      setLoop(next);
+      setState(quizStateFromApi(next, true));
+    } catch (error) {
+      setState((current) => ({
+        ...current,
+        phase: "failed",
+        message:
+          error instanceof Error
+            ? error.message
+            : "퀴즈를 만들지 못했습니다. 다시 시도해주세요.",
+      }));
+    }
+  }, [contextId]);
+
+  useEffect(() => {
     if (!loop) setState(quizStateFromApi(null, evidenceReady));
   }, [evidenceReady, loop]);
+
+  useEffect(() => {
+    if (
+      !shouldAutoRequestQuiz({
+        active,
+        contextId,
+        evidenceReady,
+        hasLoop: Boolean(loop),
+        phase: state.phase,
+        requestedContextId: autoRequestedContextRef.current,
+      })
+    ) {
+      return;
+    }
+    autoRequestedContextRef.current = contextId;
+    void request();
+  }, [active, contextId, evidenceReady, loop, request, state.phase]);
 
   useEffect(() => {
     if (!loopId || loopState !== "generating") return;
@@ -82,32 +134,6 @@ export function useAdaptiveQuiz({
       statusRef.current?.focus();
     }
   }, [state.phase]);
-
-  async function request() {
-    if (!contextId || !evidenceReady) return;
-    setSubmission(null);
-    setAnswers({});
-    setState((current) => transitionQuizState(current, { type: "requested" }));
-    try {
-      const next = await requestAdaptiveQuiz({
-        contextId,
-        startSeconds: 0,
-        endSeconds: Math.max(1, Math.floor(currentTime)),
-        idempotencyKey: crypto.randomUUID(),
-      });
-      setLoop(next);
-      setState(quizStateFromApi(next, true));
-    } catch (error) {
-      setState((current) => ({
-        ...current,
-        phase: "failed",
-        message:
-          error instanceof Error
-            ? error.message
-            : "퀴즈를 만들지 못했습니다. 다시 시도해주세요.",
-      }));
-    }
-  }
 
   function chooseAnswer(questionId: string, choiceIndex: number) {
     setAnswers((current) => ({ ...current, [questionId]: choiceIndex }));

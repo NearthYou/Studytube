@@ -16,6 +16,7 @@ def build_study_plan(
     max_iterations = bounded_iterations(payload.get("maxIterations"))
     state: StudyPlanGraphState = {
         "goal": goal,
+        "search_queries": build_search_queries(goal),
         "max_iterations": max_iterations,
         "next_tool": None,
         "external": None,
@@ -56,6 +57,30 @@ def choose_agent_tool(state: dict[str, Any]) -> ToolName:
     return "create_playlist_draft"
 
 
+def build_search_queries(goal: str) -> list[str]:
+    subject = goal.strip()
+    for line in goal.splitlines():
+        label, separator, value = line.partition(":")
+        if separator and label.strip() in {"배울 내용", "주제", "관심사"}:
+            subject = value.strip()
+            break
+    subject = re.sub(
+        r"\s*(?:배우고|공부하고|익히고)\s*싶(?:어|어요|습니다).*$",
+        "",
+        subject,
+    ).strip()
+    subject = subject or goal.strip()
+    return list(
+        dict.fromkeys(
+            [
+                subject,
+                f"{subject} 기초 강의",
+                f"{subject} tutorial for beginners",
+            ]
+        )
+    )
+
+
 def bounded_iterations(value: Any) -> int:
     try:
         parsed = int(value or 3)
@@ -68,7 +93,11 @@ def create_playlist_recommendations(state: dict[str, Any]) -> list[dict[str, Any
     recommendations = []
     external = state.get("external")
     if external:
-        for video in external.get("videos") or []:
+        ordered_videos = sorted(
+            external.get("videos") or [],
+            key=lambda video: learning_order_score(str(video.get("title") or "")),
+        )
+        for video in ordered_videos:
             recommendations.append(
                 {
                     "title": video["title"],
@@ -81,10 +110,26 @@ def create_playlist_recommendations(state: dict[str, Any]) -> list[dict[str, Any
     return recommendations
 
 
+def learning_order_score(title: str) -> int:
+    normalized = title.casefold()
+    if any(
+        marker in normalized
+        for marker in ["입문", "기초", "초보", "beginner", "basics", "intro"]
+    ):
+        return 0
+    if any(
+        marker in normalized
+        for marker in ["고급", "심화", "advanced", "expert", "project"]
+    ):
+        return 2
+    return 1
+
+
 def create_playlist_title(goal: str, language: str) -> str:
+    subject = build_search_queries(goal)[0]
     if language.lower().startswith("ko"):
-        return f"{goal} 맞춤 학습 코스"
-    return f"Study playlist for {goal}"
+        return f"{subject} 학습 코스"
+    return f"Study playlist for {subject}"
 
 
 def create_agent_rationale(

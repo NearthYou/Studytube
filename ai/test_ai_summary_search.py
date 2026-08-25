@@ -603,7 +603,7 @@ class AiServiceTest(unittest.TestCase):
         self.assertEqual(result["videos"][0]["videoId"], "abc123")
         self.assertEqual(result["videos"][0]["title"], "Real React Hooks Lesson")
 
-    def test_youtube_page_search_excludes_videos_without_caption_badges(self):
+    def test_youtube_page_search_uses_videos_without_caption_badges_as_fallback(self):
         class FakeResponse:
             text = """
             <script>
@@ -631,7 +631,49 @@ class AiServiceTest(unittest.TestCase):
         finally:
             youtube_search_module.httpx = original_httpx
 
-        self.assertEqual(videos, [])
+        self.assertEqual([video["videoId"] for video in videos], ["noCaption1"])
+
+    def test_youtube_page_search_keeps_captioned_videos_first(self):
+        class FakeResponse:
+            text = """
+            <script>
+            var ytInitialData = {"contents":[
+              {"videoRenderer":{
+                "videoId":"noCaption1",
+                "title":{"runs":[{"text":"No caption lesson"}]},
+                "ownerText":{"runs":[{"text":"Channel"}]},
+                "thumbnail":{"thumbnails":[]}
+              }},
+              {"videoRenderer":{
+                "videoId":"captioned1",
+                "title":{"runs":[{"text":"Captioned lesson"}]},
+                "ownerText":{"runs":[{"text":"Channel"}]},
+                "badges":[{"metadataBadgeRenderer":{"label":"CC"}}],
+                "thumbnail":{"thumbnails":[]}
+              }}
+            ]};
+            </script>
+            """
+
+            def raise_for_status(self):
+                return None
+
+        class FakeHttpx:
+            @staticmethod
+            def get(*_args, **_kwargs):
+                return FakeResponse()
+
+        original_httpx = youtube_search_module.httpx
+        youtube_search_module.httpx = FakeHttpx
+        try:
+            videos = youtube_search_module.search_youtube_page("lesson", 5)
+        finally:
+            youtube_search_module.httpx = original_httpx
+
+        self.assertEqual(
+            [video["videoId"] for video in videos],
+            ["captioned1", "noCaption1"],
+        )
 
     def test_youtube_url_lookup_uses_public_description_when_captions_are_missing(self):
         class FakeResponse:

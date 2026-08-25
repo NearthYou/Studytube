@@ -47,12 +47,30 @@ test("ignores a stale caption generation", () => {
   assert.deepEqual(next, pending);
 });
 
-test("keeps quiz unavailable until caption evidence is indexed", () => {
+test("opens a quiz after five watched caption sentences even while indexing", () => {
   assert.deepEqual(quizPreparation(pending), {
     ready: false,
-    message: "퀴즈를 준비하고 있어요.",
+    message: "자막 문장 5개를 본 뒤 퀴즈가 열려요.",
   });
-  assert.deepEqual(quizPreparation({ ...pending, phase: "complete" }), {
+  const fiveSegments = Array.from({ length: 5 }, (_, index) => ({
+    start: index * 10,
+    end: index * 10 + 5,
+    text: `sentence ${index + 1}`,
+  }));
+  const indexing = {
+    ...pending,
+    phase: "index_pending" as const,
+    sourceSegments: fiveSegments,
+  };
+  assert.deepEqual(quizPreparation(indexing, 35), {
+    ready: false,
+    message: "자막 문장 5개를 본 뒤 퀴즈가 열려요.",
+  });
+  assert.deepEqual(quizPreparation(indexing, 50), {
+    ready: true,
+    message: "퀴즈를 시작할 수 있습니다.",
+  });
+  assert.deepEqual(quizPreparation({ ...indexing, phase: "complete" }, 50), {
     ready: true,
     message: "퀴즈를 시작할 수 있습니다.",
   });

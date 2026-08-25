@@ -117,7 +117,7 @@ test("unfinished learning tools are presented as preparation states", () => {
     resolve(featureDirectory, "learningPanelPresentation.ts"),
     "utf8",
   );
-  assert.match(stateSource, /퀴즈를 준비하고 있어요/);
+  assert.match(stateSource, /자막 문장 5개를 본 뒤 퀴즈가 열려요/);
   assert.match(source, /const MAX_CAPTION_POLLS = 170/);
   assert.match(source, /startLearningIntake/);
   assert.match(presentationSource, /학습 자막 만들기/);

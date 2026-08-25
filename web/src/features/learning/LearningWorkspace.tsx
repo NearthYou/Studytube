@@ -426,6 +426,12 @@ function ActiveLearningWorkspace({
     playerRef.current?.pause();
   }
 
+  function startOpeningLiveCaptions() {
+    pauseForStudy();
+    seek(0);
+    void liveCaptions.start(0);
+  }
+
   function selectTab(tab: LearningTab) {
     if (tab === "notes" || tab === "quiz") pauseForStudy();
     update(
@@ -675,6 +681,7 @@ function ActiveLearningWorkspace({
               key={`${currentSegment?.start ?? state.currentTime}:${currentSegment?.end ?? state.currentTime}`}
               captionsReady={captionsReady}
               coverageRepairing={coverageRepairing}
+              coverageCaptureActive={liveCaptions.active}
               coverageStartsAt={coverageStartsAt}
               contextId={contextId}
               currentTime={state.currentTime}
@@ -684,6 +691,7 @@ function ActiveLearningWorkspace({
               onOpenTranscript={() => setTranscriptOpen(true)}
               onPause={pauseForStudy}
               onSave={startNoteDraft}
+              onStartCoverageCapture={startOpeningLiveCaptions}
               segmentEnd={currentSegment?.end ?? state.currentTime}
               segmentStart={currentSegment?.start ?? state.currentTime}
               source={currentCaption.source}

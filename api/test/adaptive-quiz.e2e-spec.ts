@@ -119,7 +119,7 @@ describe('adaptive quiz PostgreSQL checkpoint (e2e)', () => {
   });
 
   it('uses ready caption segments while indexing and rejects stale generation submit', async () => {
-    const fallback = await createReadyContext('adaptive002', false);
+    const fallback = await createReadyContext('adaptive002', 2);
     users.push(fallback.userId);
     const fallbackQuiz = await service.requestAdaptiveQuiz(
       fallback.userId,
@@ -127,12 +127,17 @@ describe('adaptive quiz PostgreSQL checkpoint (e2e)', () => {
       `caption-fallback-${randomUUID()}`,
       { startSeconds: 0, endSeconds: 60 },
     );
-    await expect(
-      pool.query(
-        'SELECT count(*)::integer AS count FROM adaptive_quiz_evidence WHERE loop_id = $1',
-        [fallbackQuiz.id],
+    const fallbackEvidence = await pool.query<{ resourceId: string }>(
+      `SELECT resource_id AS "resourceId"
+       FROM adaptive_quiz_evidence WHERE loop_id = $1 ORDER BY position`,
+      [fallbackQuiz.id],
+    );
+    expect(fallbackEvidence.rows).toHaveLength(5);
+    expect(
+      fallbackEvidence.rows.every((row) =>
+        row.resourceId.startsWith('caption-segment:'),
       ),
-    ).resolves.toMatchObject({ rows: [{ count: 5 }] });
+    ).toBe(true);
 
     const pending = await createReadyContext('adaptive004', false, false);
     users.push(pending.userId);
@@ -203,7 +208,7 @@ describe('adaptive quiz PostgreSQL checkpoint (e2e)', () => {
 
   async function createReadyContext(
     videoId: string,
-    indexed = true,
+    indexed: boolean | number = true,
     artifactReady = true,
   ) {
     const email = `${videoId}-${randomUUID()}@example.test`;
@@ -262,7 +267,10 @@ describe('adaptive quiz PostgreSQL checkpoint (e2e)', () => {
           `Grounded caption ${index + 1}`,
         ],
       );
-      if (indexed) {
+      if (
+        indexed === true ||
+        (typeof indexed === 'number' && index < indexed)
+      ) {
         await pool.query(
           `INSERT INTO retrieval_embeddings (
              source_kind, source_id, owner_id, visibility, model, dimensions,

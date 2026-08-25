@@ -177,6 +177,39 @@ class StudyGenerationGraphTest(unittest.TestCase):
             ["C++ basics for beginners", "Advanced C++ project"],
         )
 
+    def test_keeps_searching_for_beginner_results_after_four_generic_hits(self):
+        queries = []
+
+        def lookup(payload):
+            queries.append(payload["query"])
+            if len(queries) == 1:
+                titles = [f"C++ Weekly advanced episode {index}" for index in range(4)]
+            else:
+                titles = ["C++ 기초 강의", "C++ beginner tutorial"]
+            return {
+                "provider": "youtube-test",
+                "summary": "C++ lessons",
+                "videos": [
+                    {
+                        "title": title,
+                        "sourceUrl": f"https://youtu.be/course{len(queries)}{index}",
+                        "thumbnailUrl": "thumb.jpg",
+                        "provider": "youtube-test",
+                        "summary": title,
+                    }
+                    for index, title in enumerate(titles)
+                ],
+            }
+
+        response = study_generation.build_study_plan({"goal": "C++"}, lookup)
+
+        self.assertEqual(len(queries), 3)
+        self.assertEqual(
+            [item["title"] for item in response["recommendations"][:2]],
+            ["C++ 기초 강의", "C++ beginner tutorial"],
+        )
+        self.assertEqual(len(response["recommendations"]), 4)
+
 
 if __name__ == "__main__":
     unittest.main()

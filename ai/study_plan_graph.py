@@ -83,8 +83,6 @@ def create_study_plan_graph():
                     else failed_search_update(state)
                 )
             merged = merge_youtube_results(merged, result)
-            if len(merged["videos"]) >= 4:
-                break
         return (
             {"external": merged, "search_failed": False}
             if merged is not None
@@ -180,7 +178,7 @@ def merge_youtube_results(
             continue
         seen.add(source_url)
         videos.append(video)
-        if len(videos) >= 4:
+        if len(videos) >= 12:
             break
     base = dict(current or incoming)
     base["videos"] = videos

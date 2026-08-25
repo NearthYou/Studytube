@@ -72,7 +72,7 @@ test("uses learner-facing caption progress copy", () => {
       ...pending,
       phase: "index_pending",
     }),
-    "자막이 준비됐어요. 퀴즈를 만들고 있어요.",
+    "자막을 학습에 연결하고 있어요.",
   );
   assert.equal(
     captionPhaseMessage({

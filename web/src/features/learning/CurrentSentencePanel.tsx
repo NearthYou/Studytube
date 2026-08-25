@@ -18,6 +18,7 @@ type Props = {
   emptyState: CaptionlessPanelPresentation;
   onEmptyAction: () => void;
   onOpenTranscript: () => void;
+  onPause: () => void;
   onSave: () => void;
 };
 
@@ -34,6 +35,7 @@ export function CurrentSentencePanel({
   emptyState,
   onEmptyAction,
   onOpenTranscript,
+  onPause,
   onSave,
 }: Props) {
   const [explanation, setExplanation] =
@@ -43,6 +45,7 @@ export function CurrentSentencePanel({
 
   async function explain() {
     if (!contextId || !source || segmentEnd <= segmentStart) return;
+    onPause();
     setLoading(true);
     setMessage("");
     try {

@@ -98,6 +98,31 @@ export function quizControls(state: QuizUiState) {
   };
 }
 
+export function shouldAutoRequestQuiz({
+  active,
+  contextId,
+  evidenceReady,
+  hasLoop,
+  phase,
+  requestedContextId,
+}: {
+  active: boolean;
+  contextId: string;
+  evidenceReady: boolean;
+  hasLoop: boolean;
+  phase: QuizUiPhase;
+  requestedContextId: string;
+}) {
+  return (
+    active &&
+    Boolean(contextId) &&
+    evidenceReady &&
+    !hasLoop &&
+    phase === "request" &&
+    requestedContextId !== contextId
+  );
+}
+
 function messageFor(state: QuizApiState): string {
   const messages: Record<QuizApiState, string> = {
     generating: "시청한 구간에서 문제를 만들고 있습니다.",

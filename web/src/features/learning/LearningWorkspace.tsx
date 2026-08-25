@@ -41,6 +41,10 @@ import { LearningNotesPanel } from "./LearningNotesPanel.tsx";
 import { AdaptiveQuizPanel } from "./AdaptiveQuizPanel.tsx";
 import { CourseNavigator } from "./CourseNavigator.ts";
 import { captionlessPanelPresentation } from "./learningPanelPresentation.ts";
+import {
+  readLearningHistory,
+  recordLearningHistory,
+} from "./learningHistory.ts";
 import "./LearningWorkspace.css";
 
 const TABS: Array<{ id: LearningTab; label: string }> = [
@@ -111,17 +115,33 @@ function ActiveLearningWorkspace({
   const [noteBusyId, setNoteBusyId] = useState("");
   const [noteStatus, setNoteStatus] = useState("");
   const [transcriptOpen, setTranscriptOpen] = useState(false);
+  const [durationSeconds, setDurationSeconds] = useState(0);
+  const [videoEnded, setVideoEnded] = useState(false);
   const playerRef = useRef<LearningVideoPlayerHandle | null>(null);
   const noteInputRef = useRef<HTMLTextAreaElement | null>(null);
   const captionsRef = useRef(state.captions);
   const intakeStartedRef = useRef(false);
   const tablistRef = useRef<HTMLDivElement>(null);
+  const lastHistoryWriteRef = useRef(0);
+  const [historyEntry] = useState(() =>
+    readLearningHistory().find(
+      (entry) => entry.video.videoId === video.videoId,
+    ),
+  );
   const notePositionSeconds =
     state.notePositionSeconds ?? state.currentTime;
   const contextId = state.contextId || video.learningContextId || "";
   const courseVideos = video.course
     ? queue.filter((item) => item.course?.id === video.course?.id)
     : [];
+  const orderedCourseVideos = [...courseVideos].sort(
+    (left, right) =>
+      (left.course?.position ?? 0) - (right.course?.position ?? 0),
+  );
+  const currentCourseIndex = orderedCourseVideos.findIndex(
+    (item) => item.videoId === video.videoId,
+  );
+  const nextCourseVideo = orderedCourseVideos[currentCourseIndex + 1] ?? null;
   const handleLiveFinalized = useCallback(
     () => setCaptionRefresh((value) => value + 1),
     [],
@@ -157,6 +177,7 @@ function ActiveLearningWorkspace({
         }
       : state.captions;
   const currentCaption = captionPairAt(displayedCaptions, state.currentTime);
+  const noteCaption = captionPairAt(displayedCaptions, notePositionSeconds);
   const captionsReady = displayedCaptions.sourceSegments.length > 0;
   const captionPanel = captionlessPanelPresentation({
     contextReady: Boolean(contextId),
@@ -172,6 +193,7 @@ function ActiveLearningWorkspace({
     ) ?? displayedCaptions.sourceSegments[0];
   const quizState = quizPreparation(state.captions);
   const quiz = useAdaptiveQuiz({
+    active: state.selectedTab === "quiz",
     contextId,
     currentTime: state.currentTime,
     evidenceReady: quizState.ready,
@@ -326,20 +348,66 @@ function ActiveLearningWorkspace({
   }
 
   function seek(seconds: number) {
+    setVideoEnded(false);
     playerRef.current?.seek(seconds);
     update({ currentTime: seconds });
   }
 
+  function trackPlayback(currentTime: number) {
+    update({ currentTime });
+    const now = Date.now();
+    if (now - lastHistoryWriteRef.current < 5_000) return;
+    lastHistoryWriteRef.current = now;
+    recordLearningHistory({
+      video,
+      positionSeconds: currentTime,
+      durationSeconds,
+    });
+  }
+
+  function finishVideo(positionSeconds: number, playerDuration: number) {
+    const completedDuration = playerDuration || durationSeconds;
+    setDurationSeconds(completedDuration);
+    setVideoEnded(true);
+    update({ currentTime: positionSeconds });
+    recordLearningHistory({
+      video,
+      positionSeconds,
+      durationSeconds: completedDuration,
+      completed: true,
+    });
+  }
+
+  function pauseForStudy() {
+    playerRef.current?.pause();
+  }
+
   function selectTab(tab: LearningTab) {
-    update({ selectedTab: tab });
+    if (tab === "notes" || tab === "quiz") pauseForStudy();
+    update(
+      tab === "notes"
+        ? {
+            selectedTab: tab,
+            notePositionSeconds:
+              state.notePositionSeconds ?? state.currentTime,
+          }
+        : { selectedTab: tab },
+    );
   }
 
   function startNoteDraft() {
+    pauseForStudy();
     update({
       selectedTab: "notes",
       notePositionSeconds: state.currentTime,
     });
     queueMicrotask(() => noteInputRef.current?.focus());
+  }
+
+  function prepareCaptionsForQuiz() {
+    pauseForStudy();
+    update({ selectedTab: "current" });
+    handleCaptionPanelAction();
   }
 
   function handleTabKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
@@ -488,12 +556,34 @@ function ActiveLearningWorkspace({
         <section className="learning-stage">
           <LearningVideoPlayer
             caption={currentCaption}
-            initialTime={state.currentTime}
-            onTimeChange={(currentTime) => update({ currentTime })}
+            initialTime={
+              historyEntry?.completed
+                ? 0
+                : state.currentTime || historyEntry?.lastPositionSeconds || 0
+            }
+            onDurationChange={setDurationSeconds}
+            onEnded={finishVideo}
+            onTimeChange={trackPlayback}
             preferNativeCaptions={displayedCaptions.sourceSegments.length === 0}
             ref={playerRef}
             videoId={video.videoId}
           />
+
+          {videoEnded && (
+            <section className="learning-completion-card" aria-live="polite">
+              <div>
+                <strong>학습 완료</strong>
+                <span>이 영상의 진도를 기록했습니다.</span>
+              </div>
+              {nextCourseVideo ? (
+                <button type="button" onClick={() => onSelectVideo(nextCourseVideo)}>
+                  다음 영상
+                </button>
+              ) : (
+                <Link to="/courses">다음 영상 찾기</Link>
+              )}
+            </section>
+          )}
 
           <div className="learning-source-status">
             {!captionsReady && state.captions.phase === "failed"
@@ -546,6 +636,7 @@ function ActiveLearningWorkspace({
               korean={currentCaption.korean}
               onEmptyAction={handleCaptionPanelAction}
               onOpenTranscript={() => setTranscriptOpen(true)}
+              onPause={pauseForStudy}
               onSave={startNoteDraft}
               segmentEnd={currentSegment?.end ?? state.currentTime}
               segmentStart={currentSegment?.start ?? state.currentTime}
@@ -578,6 +669,8 @@ function ActiveLearningWorkspace({
               onSeek={seek}
               onUpdate={(note, body) => void editNote(note, body)}
               positionSeconds={notePositionSeconds}
+              source={noteCaption.source}
+              korean={noteCaption.korean}
               status={noteStatus}
             />
           )}
@@ -586,6 +679,7 @@ function ActiveLearningWorkspace({
               answers={quiz.answers}
               loop={quiz.loop}
               onAnswer={quiz.chooseAnswer}
+              onPrepareCaptions={prepareCaptionsForQuiz}
               onRequest={() => void quiz.request()}
               onSeek={seek}
               onSubmit={() => void quiz.submit()}

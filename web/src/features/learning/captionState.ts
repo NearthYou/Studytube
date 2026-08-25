@@ -74,7 +74,7 @@ export function captionPhaseMessage(state: ProgressiveCaptionState) {
     source_pending: "자막을 확인하고 있어요.",
     transcription_pending: "자막을 만들고 있어요. 잠시만 기다려 주세요.",
     translation_pending: "한국어로 옮기고 있어요.",
-    index_pending: "자막이 준비됐어요. 퀴즈를 만들고 있어요.",
+    index_pending: "자막을 학습에 연결하고 있어요.",
     partial: "준비된 자막부터 보여드리고 있어요.",
     failed:
       state.errorMessage ||

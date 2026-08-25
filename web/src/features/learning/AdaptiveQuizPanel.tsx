@@ -12,6 +12,7 @@ export function AdaptiveQuizPanel({
   answers,
   loop,
   onAnswer,
+  onPrepareCaptions,
   onRequest,
   onSeek,
   onSubmit,
@@ -22,6 +23,7 @@ export function AdaptiveQuizPanel({
   answers: Record<string, number>;
   loop: AdaptiveQuizLoop | null;
   onAnswer: (questionId: string, choiceIndex: number) => void;
+  onPrepareCaptions: () => void;
   onRequest: () => void;
   onSeek: (seconds: number) => void;
   onSubmit: () => void;
@@ -31,11 +33,15 @@ export function AdaptiveQuizPanel({
 }) {
   if (["request", "generating", "failed", "stale"].includes(state.phase)) {
     const presentation = quizPanelPresentation(state);
+    const action =
+      state.phase === "request" && !state.evidenceReady
+        ? onPrepareCaptions
+        : onRequest;
     return (
       <LearningPanelState
         actionLabel={presentation.actionLabel}
         description={presentation.description}
-        onAction={presentation.actionLabel ? onRequest : undefined}
+        onAction={presentation.actionLabel ? action : undefined}
         statusRef={statusRef}
         title={presentation.title}
       />

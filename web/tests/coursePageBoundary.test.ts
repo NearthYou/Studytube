@@ -36,6 +36,9 @@ test("saved course continuation appears before optional course discovery", () =>
   assert.doesNotMatch(source, /<details className="course-builder">/);
   assert.match(source, /이번 코스에 적용되는 학습 설정/);
   assert.match(source, /학습 설정 바꾸기/);
+  assert.match(source, /최근 학습/);
+  assert.match(source, /준비된 학습 순서/);
+  assert.match(source, /조회수 순이 아닙니다/);
 });
 
 test("a single recommendation is never presented or saved as a course", () => {
@@ -54,4 +57,12 @@ test("course builder heading stays subordinate to the page title", () => {
     css,
     /\.course-builder-heading h2\s*\{[^}]*font-size:\s*24px/,
   );
+});
+
+test("course recommendations survive reloads before the user saves a course", () => {
+  const source = readFileSync(coursePath, "utf8");
+
+  assert.match(source, /readCourseRecommendation/);
+  assert.match(source, /saveCourseRecommendation/);
+  assert.match(source, /readLearningHistory/);
 });

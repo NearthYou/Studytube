@@ -6,6 +6,14 @@ import { createCourse, fetchOwnerCourses, publishCourse } from "../../courseApi"
 import { createPersonalizedCoursePrompt, createPromptSuggestions, findMatchingCourses, hasLearningPreferences } from "../../courseDiscovery";
 import { addVideosToQueue } from "../../watchQueueStorage";
 import {
+  learningHistoryProgress,
+  readLearningHistory,
+} from "../learning/learningHistory";
+import {
+  readCourseRecommendation,
+  saveCourseRecommendation,
+} from "./courseRecommendationStorage";
+import {
   attachCourseSequence,
   canFormCourse,
   findPostIdForQueueVideo,
@@ -30,6 +38,10 @@ export function CoursePage({ session }: { session: Session }) {
   const [courseMatches, setCourseMatches] = useState<Playlist[]>([]);
   const [agentResult, setAgentResult] = useState<AgentResponse | null>(null);
   const [mcpResult, setMcpResult] = useState<McpResponse | null>(null);
+  const [recommendation, setRecommendation] = useState(() =>
+    readCourseRecommendation(),
+  );
+  const [learningHistory] = useState(() => readLearningHistory().slice(0, 6));
   const [courses, setCourses] = useState<Course[]>([]);
   const playlists = useMemo(
     () =>
@@ -98,7 +110,7 @@ export function CoursePage({ session }: { session: Session }) {
 
     const [ragResponse, agentResponse, mcpResponse] = await Promise.allSettled([
       askRag(goal),
-      askAgent(goal),
+      askAgent(goal, profile?.interests ?? []),
       askMcp(goal),
     ]);
 
@@ -132,7 +144,23 @@ export function CoursePage({ session }: { session: Session }) {
             return video ? [video] : [];
           })
         : []),
-    ]);
+    ]).slice(0, 4);
+    if (playableVideos.length > 0) {
+      const recommendationTitle = (
+        agentResponse.status === "fulfilled"
+          ? agentResponse.value.playlistTitle
+          : `${subject || profile?.interests[0] || "맞춤"} 학습 코스`
+      )
+        .trim()
+        .slice(0, 120);
+      setRecommendation(
+        saveCourseRecommendation({
+          goal: subject || goal,
+          title: recommendationTitle,
+          videos: playableVideos,
+        }),
+      );
+    }
     setStatus(
       canFormCourse(playableVideos)
         ? `${playableVideos.length}개 영상을 학습 순서로 정리했습니다.`
@@ -273,7 +301,10 @@ export function CoursePage({ session }: { session: Session }) {
 
       return video ? [video] : [];
     }) ?? [];
-  const generatedVideos = uniqueVideos([...agentVideos, ...mcpVideos]);
+  const generatedVideos = uniqueVideos([...agentVideos, ...mcpVideos]).slice(
+    0,
+    4,
+  );
   const generatedCourseReady = canFormCourse(generatedVideos);
   const generatedTitle =
     (
@@ -283,6 +314,10 @@ export function CoursePage({ session }: { session: Session }) {
       .trim()
       .slice(0, 120);
   const promptSuggestions = createPromptSuggestions(profile);
+  const preparedVideos =
+    generatedVideos.length === 0 ? (recommendation?.videos ?? []) : [];
+  const hasStartingPoint =
+    playlists.length > 0 || preparedVideos.length > 0 || learningHistory.length > 0;
 
   return (
     <main className="page-shell course-page">
@@ -306,7 +341,85 @@ export function CoursePage({ session }: { session: Session }) {
         </section>
       )}
 
-      {playlists.length === 0 && (
+      {preparedVideos.length > 0 && recommendation && (
+        <section className="course-results prepared-course">
+          <div className="playlist-toolbar">
+            <div>
+              <strong>준비된 학습 순서</strong>
+              <small>{recommendation.title}</small>
+            </div>
+            {canFormCourse(preparedVideos) ? (
+              <button
+                type="button"
+                onClick={() =>
+                  addCourseAndWatch(preparedVideos[0], preparedVideos, {
+                    id: `recent-recommendation-${recommendation.updatedAt}`,
+                    title: recommendation.title,
+                  })
+                }
+              >
+                이어서 시작
+              </button>
+            ) : (
+              <button type="button" onClick={() => setQuery(recommendation.goal)}>
+                이 주제로 더 찾기
+              </button>
+            )}
+          </div>
+          {preparedVideos.map((video, index) => (
+            <button
+              className="video-result"
+              key={video.videoId}
+              type="button"
+              onClick={() =>
+                canFormCourse(preparedVideos)
+                  ? addCourseAndWatch(video, preparedVideos, {
+                      id: `recent-recommendation-${recommendation.updatedAt}`,
+                      title: recommendation.title,
+                    })
+                  : addAndWatch(video, preparedVideos)
+              }
+            >
+              <img src={video.thumbnailUrl} alt="" />
+              <span>
+                <small>{index + 1}번째 영상</small>
+                <strong>{video.title}</strong>
+                <em>{index === 0 ? "이어서 학습" : "이 영상부터 시작"}</em>
+              </span>
+            </button>
+          ))}
+        </section>
+      )}
+
+      {learningHistory.length > 0 && (
+        <section className="course-results recent-learning">
+          <div className="section-title">
+            <h2>최근 학습</h2>
+            <span>{learningHistory.length}개</span>
+          </div>
+          {learningHistory.map((entry) => (
+            <button
+              className="video-result"
+              key={entry.video.videoId}
+              type="button"
+              onClick={() => addAndWatch(entry.video, [entry.video])}
+            >
+              <img src={entry.video.thumbnailUrl} alt="" />
+              <span>
+                <strong>{entry.video.title}</strong>
+                <small>
+                  {entry.completed
+                    ? "학습 완료"
+                    : `${learningHistoryProgress(entry)}% 학습`}
+                </small>
+                <em>{entry.completed ? "다시 보기" : "이어서 보기"}</em>
+              </span>
+            </button>
+          ))}
+        </section>
+      )}
+
+      {!hasStartingPoint && (
         <section className="learning-empty-state">
           <strong>이어갈 코스가 아직 없습니다</strong>
           <p>영상을 먼저 학습하면 다음 순서를 제안해드립니다.</p>
@@ -319,8 +432,8 @@ export function CoursePage({ session }: { session: Session }) {
       <section className="course-builder">
         <header className="course-builder-heading">
           <div>
-            <h2>새 코스 만들기</h2>
-            <p>배우고 싶은 내용을 적으면 실제 영상 여러 개를 순서대로 묶습니다.</p>
+            <h2>{hasStartingPoint ? "새로 찾기" : "코스 찾기"}</h2>
+            <p>배우고 싶은 내용을 적으면 관련 영상을 2~4개 골라 순서대로 보여드립니다.</p>
           </div>
           <Link to="/me">학습 설정 바꾸기</Link>
         </header>
@@ -362,6 +475,9 @@ export function CoursePage({ session }: { session: Session }) {
             </button>
           </form>
           <p className="system-note" aria-live="polite">{status}</p>
+          <p className="course-recommendation-basis">
+            주제 관련도, 학습 설정, 자막 가능성, 중복 여부를 기준으로 고릅니다. 조회수 순이 아닙니다.
+          </p>
         </div>
       </section>
 

@@ -54,6 +54,36 @@
   font-size: 14px;
 }
 
+.learning-completion-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid var(--app-accent);
+  border-radius: 10px;
+  background: var(--app-elevated);
+}
+
+.learning-completion-card > div {
+  display: grid;
+  gap: 3px;
+}
+
+.learning-completion-card strong {
+  color: var(--app-text);
+}
+
+.learning-completion-card span {
+  color: var(--app-muted);
+  font-size: 13px;
+}
+
+.learning-completion-card a {
+  color: var(--app-accent);
+  white-space: nowrap;
+}
+
 .learning-workspace .learning-tools {
   position: sticky;
   top: 82px;
@@ -412,7 +442,74 @@
   line-height: 1.6;
 }
 
-.learning-notes-panel textarea,
+.learning-note-composer {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--app-line);
+  border-radius: 10px;
+  background: var(--app-elevated);
+}
+
+.learning-note-composer > header,
+.learning-note-list-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.learning-note-composer > header > div {
+  display: grid;
+  gap: 3px;
+}
+
+.learning-note-composer header strong,
+.learning-note-list-heading strong {
+  color: var(--app-text);
+  font-size: 16px;
+}
+
+.learning-note-composer header span,
+.learning-note-list-heading span,
+.learning-note-actions > span {
+  color: var(--app-muted);
+  font-size: 12px;
+}
+
+.learning-note-composer time {
+  color: var(--app-accent);
+  font-size: 14px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.learning-note-context {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border-left: 3px solid var(--app-accent);
+  background: #10151d;
+}
+
+.learning-note-context p {
+  margin: 0;
+  color: var(--app-text);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.learning-note-context p + p {
+  color: var(--app-muted);
+}
+
+.learning-note-composer label {
+  color: var(--app-text);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.learning-note-composer textarea,
 .learning-note-list article textarea {
   width: 100%;
   min-height: 112px;
@@ -423,22 +520,39 @@
 
 .learning-note-list {
   display: grid;
-  gap: 0;
-  border-top: 1px solid var(--app-line);
+  gap: 10px;
 }
 
 .learning-note-list article {
   display: grid;
   gap: 10px;
-  padding: 14px 0;
-  border-bottom: 1px solid var(--app-line);
+  padding: 14px;
+  border: 1px solid var(--app-line);
+  border-radius: 10px;
+  background: #10151d;
 }
 
 .learning-note-list article > div,
 .learning-note-actions {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.learning-note-actions > span {
+  margin-right: auto;
+}
+
+.learning-note-empty {
+  margin: 0;
+  padding: 18px;
+  border: 1px dashed var(--app-line);
+  border-radius: 10px;
+  color: var(--app-muted);
+  font-size: 14px;
+  line-height: 1.6;
+  text-align: center;
 }
 
 .transcript-backdrop {

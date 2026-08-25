@@ -389,13 +389,16 @@ export function askMcp(
   });
 }
 
-export function askAgent(goal: string): Promise<AgentResponse> {
+export function askAgent(
+  goal: string,
+  interests: string[] = [],
+): Promise<AgentResponse> {
   return requestJson<AgentResponse>("/ai/agent/study-plan", {
     method: "POST",
     body: JSON.stringify({
       goal,
       language: "ko",
-      interests: ["youtube", "study"],
+      interests: interests.length > 0 ? interests : ["youtube", "study"],
     }),
   });
 }

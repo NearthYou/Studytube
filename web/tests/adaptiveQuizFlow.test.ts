@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   quizControls,
   quizStateFromApi,
+  shouldAutoRequestQuiz,
   transitionQuizState,
 } from "../src/features/learning/adaptiveQuizFlow.ts";
 
@@ -62,4 +63,40 @@ test("quiz stays blocked until caption evidence is ready", () => {
   assert.equal(state.phase, "request");
   assert.equal(quizControls(state).request, false);
   assert.equal(state.message, "퀴즈를 준비하고 있어요.");
+});
+
+test("opening the quiz tab requests one quiz as soon as captions are ready", () => {
+  assert.equal(
+    shouldAutoRequestQuiz({
+      active: true,
+      contextId: "context-1",
+      evidenceReady: true,
+      hasLoop: false,
+      phase: "request",
+      requestedContextId: "",
+    }),
+    true,
+  );
+  assert.equal(
+    shouldAutoRequestQuiz({
+      active: false,
+      contextId: "context-1",
+      evidenceReady: true,
+      hasLoop: false,
+      phase: "request",
+      requestedContextId: "",
+    }),
+    false,
+  );
+  assert.equal(
+    shouldAutoRequestQuiz({
+      active: true,
+      contextId: "context-1",
+      evidenceReady: true,
+      hasLoop: false,
+      phase: "request",
+      requestedContextId: "context-1",
+    }),
+    false,
+  );
 });

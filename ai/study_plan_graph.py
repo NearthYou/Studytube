@@ -12,6 +12,7 @@ ToolName = Literal["search_video", "create_playlist_draft"]
 
 class StudyPlanGraphState(TypedDict):
     goal: str
+    search_queries: list[str]
     max_iterations: int
     next_tool: ToolName | None
     external: dict[str, Any] | None
@@ -63,15 +64,32 @@ def create_study_plan_graph():
         state: StudyPlanGraphState,
         runtime: Runtime[StudyPlanGraphContext],
     ) -> dict[str, Any]:
-        try:
-            external = runtime.context.lookup_youtube(
-                {"query": state["goal"], "limit": 5}
-            )
-            if not usable_youtube_result(external):
-                return failed_search_update(state)
-            return {"external": external, "search_failed": False}
-        except Exception:  # pragma: no cover - provider behavior varies by runtime
-            return failed_search_update(state)
+        merged: dict[str, Any] | None = None
+        for query in state["search_queries"][: state["max_iterations"]]:
+            try:
+                result = runtime.context.lookup_youtube(
+                    {"query": query, "limit": 5}
+                )
+            except Exception:  # pragma: no cover - provider behavior varies
+                return (
+                    {"external": merged, "search_failed": False}
+                    if merged is not None
+                    else failed_search_update(state)
+                )
+            if not usable_youtube_result(result):
+                return (
+                    {"external": merged, "search_failed": False}
+                    if merged is not None
+                    else failed_search_update(state)
+                )
+            merged = merge_youtube_results(merged, result)
+            if len(merged["videos"]) >= 4:
+                break
+        return (
+            {"external": merged, "search_failed": False}
+            if merged is not None
+            else failed_search_update(state)
+        )
 
     def create_playlist_draft(
         state: StudyPlanGraphState,
@@ -145,6 +163,28 @@ def failed_search_update(state: StudyPlanGraphState) -> dict[str, Any]:
     trace = [dict(item) for item in state["trace"]]
     trace[-1]["error"] = "video search unavailable"
     return {"search_failed": True, "trace": trace}
+
+
+def merge_youtube_results(
+    current: dict[str, Any] | None,
+    incoming: dict[str, Any],
+) -> dict[str, Any]:
+    videos: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for video in [
+        *((current or {}).get("videos") or []),
+        *(incoming.get("videos") or []),
+    ]:
+        source_url = str(video.get("sourceUrl") or "")
+        if not source_url or source_url in seen:
+            continue
+        seen.add(source_url)
+        videos.append(video)
+        if len(videos) >= 4:
+            break
+    base = dict(current or incoming)
+    base["videos"] = videos
+    return base
 
 
 def run_study_plan_graph(

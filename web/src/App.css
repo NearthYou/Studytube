@@ -4691,7 +4691,7 @@ footer {
   pointer-events: none;
   position: absolute;
   right: clamp(12px, 4vw, 48px);
-  bottom: clamp(56px, 9%, 84px);
+  bottom: clamp(96px, 17%, 138px);
   left: clamp(12px, 4vw, 48px);
   z-index: 2;
   display: grid;
@@ -4702,24 +4702,24 @@ footer {
   text-shadow: 0 1px 4px #000;
 }
 
-.learning-player-caption p,
-.learning-player-caption small {
+.learning-player-caption p {
+  display: -webkit-box;
   width: fit-content;
   max-width: 92%;
   margin: 0;
   padding: 3px 9px;
+  overflow: hidden;
   border-radius: 5px;
   background: rgba(0, 0, 0, 0.74);
+  font-size: clamp(14px, 1.55vw, 19px);
+  font-weight: 650;
+  line-height: 1.38;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
-.learning-player-caption p {
-  font-size: clamp(16px, 2vw, 24px);
-  font-weight: 800;
-}
-
-.learning-player-caption small {
+.learning-caption-korean {
   color: #e5e7eb;
-  font-size: clamp(12px, 1.35vw, 16px);
 }
 
 .learning-player-error {

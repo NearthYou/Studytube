@@ -255,6 +255,9 @@ describe('adaptive quiz PostgreSQL checkpoint (e2e)', () => {
       [context.rows[0]!.id, artifact.rows[0]!.id],
     );
     for (let index = 0; index < 5; index += 1) {
+      const fractional = videoId === 'adaptive002';
+      const startSeconds = index * 10 + (fractional ? 0.25 : 0);
+      const endSeconds = index * 10 + (fractional ? 4.75 : 5);
       const segment = await pool.query<{ id: string }>(
         `INSERT INTO caption_artifact_segments (
            artifact_id, ordinal, start_seconds, end_seconds, text
@@ -262,8 +265,8 @@ describe('adaptive quiz PostgreSQL checkpoint (e2e)', () => {
         [
           artifact.rows[0]!.id,
           index,
-          index * 10,
-          index * 10 + 5,
+          startSeconds,
+          endSeconds,
           `Grounded caption ${index + 1}`,
         ],
       );
@@ -289,9 +292,9 @@ describe('adaptive quiz PostgreSQL checkpoint (e2e)', () => {
             `Grounded caption ${index + 1}`,
             createHash('sha256').update(`${videoId}:${index}`).digest(),
             `https://www.youtube.com/watch?v=${videoId}`,
-            index * 10,
+            startSeconds,
             index,
-            index * 10 + 5,
+            endSeconds,
             `caption-segment-${index + 1}`,
             artifact.rows[0]!.id,
             segment.rows[0]!.id,

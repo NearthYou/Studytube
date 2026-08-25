@@ -3,6 +3,7 @@ import { requestJson } from "./api.ts";
 export type LearningIntakeInput = {
   videoUrl: string;
   requestedAudioSeconds: number;
+  repairInitialGap?: boolean;
 };
 
 export type LearningIntakeResult = {

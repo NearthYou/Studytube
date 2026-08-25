@@ -1,4 +1,5 @@
 import {
+  IsBoolean,
   IsInt,
   IsNumber,
   IsString,
@@ -6,6 +7,7 @@ import {
   Matches,
   Max,
   Min,
+  IsOptional,
 } from 'class-validator';
 import { MAX_LEARNING_AUDIO_SECONDS } from './provider-budget.repository';
 
@@ -18,6 +20,10 @@ export class StartLearningItemDto {
   @Min(1)
   @Max(MAX_LEARNING_AUDIO_SECONDS)
   requestedAudioSeconds!: number;
+
+  @IsOptional()
+  @IsBoolean()
+  repairInitialGap?: boolean;
 }
 
 export class LearningContextParamDto {

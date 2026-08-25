@@ -49,7 +49,7 @@ export class PostgresProviderBudgetRepository implements ProviderBudgetRepositor
     }
     const usageDay = new Date().toISOString().slice(0, 10);
     const processingRangeKey = `0-${command.requestedAudioSeconds}`;
-    const workKey = `${command.provider}:${command.canonicalVideoId}:${processingRangeKey}`;
+    const workKey = providerWorkKey(command);
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
@@ -471,6 +471,13 @@ export class PostgresProviderBudgetRepository implements ProviderBudgetRepositor
     );
     return { id, workId, state: 'reserved' };
   }
+}
+
+export function providerWorkKey(command: ReserveProviderWorkCommand) {
+  const processingRangeKey = `0-${command.requestedAudioSeconds}`;
+  const purpose = command.processingPurpose ?? 'initial';
+  const initialKey = `${command.provider}:${command.canonicalVideoId}:${processingRangeKey}`;
+  return purpose === 'initial' ? initialKey : `${initialKey}:${purpose}`;
 }
 
 function validate(

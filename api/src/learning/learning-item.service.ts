@@ -26,6 +26,9 @@ export class LearningItemService {
       userId,
       ...video,
       requestedAudioSeconds: input.requestedAudioSeconds,
+      ...(input.repairInitialGap
+        ? { processingPurpose: 'initial-gap-repair-v1' as const }
+        : {}),
     });
     observabilityRuntime.metrics.learningEvent(
       'reservation',

@@ -22,6 +22,7 @@ import {
   canRetryCaptions,
   EMPTY_CAPTION_STATE,
   mergeCaptionState,
+  needsInitialCaptionRepair,
   quizPreparation,
   type ProgressiveCaptionState,
 } from "./captionState.ts";
@@ -117,10 +118,12 @@ function ActiveLearningWorkspace({
   const [transcriptOpen, setTranscriptOpen] = useState(false);
   const [durationSeconds, setDurationSeconds] = useState(0);
   const [videoEnded, setVideoEnded] = useState(false);
+  const [initialGapRepairing, setInitialGapRepairing] = useState(false);
   const playerRef = useRef<LearningVideoPlayerHandle | null>(null);
   const noteInputRef = useRef<HTMLTextAreaElement | null>(null);
   const captionsRef = useRef(state.captions);
   const intakeStartedRef = useRef(false);
+  const initialGapRepairStartedRef = useRef(false);
   const tablistRef = useRef<HTMLDivElement>(null);
   const lastHistoryWriteRef = useRef(0);
   const [historyEntry] = useState(() =>
@@ -179,6 +182,13 @@ function ActiveLearningWorkspace({
   const currentCaption = captionPairAt(displayedCaptions, state.currentTime);
   const noteCaption = captionPairAt(displayedCaptions, notePositionSeconds);
   const captionsReady = displayedCaptions.sourceSegments.length > 0;
+  const coverageStartsAt = captionsReady
+    ? Math.min(...displayedCaptions.sourceSegments.map((segment) => segment.start))
+    : null;
+  const coverageRepairing =
+    initialGapRepairing &&
+    state.captions.phase !== "failed" &&
+    (coverageStartsAt === null || coverageStartsAt > 5);
   const captionPanel = captionlessPanelPresentation({
     contextReady: Boolean(contextId),
     liveActive: liveCaptions.active,
@@ -245,6 +255,40 @@ function ActiveLearningWorkspace({
         });
       });
   }, [contextId, update, video.videoUrl]);
+
+  useEffect(() => {
+    if (
+      !contextId ||
+      initialGapRepairStartedRef.current ||
+      liveCaptions.active ||
+      !needsInitialCaptionRepair(state.captions)
+    ) {
+      return;
+    }
+    initialGapRepairStartedRef.current = true;
+    setInitialGapRepairing(true);
+    void startLearningIntake({
+      videoUrl: video.videoUrl,
+      requestedAudioSeconds: REQUESTED_AUDIO_SECONDS,
+      repairInitialGap: true,
+    })
+      .then((result) => {
+        const current = captionsRef.current;
+        update({
+          contextId: result.context.studyContext.id,
+          workId: result.workId,
+          captions: {
+            ...current,
+            phase: "source_pending",
+            stale: true,
+            errorMessage: undefined,
+            errorCode: undefined,
+          },
+        });
+        setCaptionRefresh((value) => value + 1);
+      })
+      .catch(() => setInitialGapRepairing(false));
+  }, [contextId, liveCaptions.active, state.captions, update, video.videoUrl]);
 
   useEffect(() => {
     if (!contextId) return;
@@ -630,6 +674,8 @@ function ActiveLearningWorkspace({
             <CurrentSentencePanel
               key={`${currentSegment?.start ?? state.currentTime}:${currentSegment?.end ?? state.currentTime}`}
               captionsReady={captionsReady}
+              coverageRepairing={coverageRepairing}
+              coverageStartsAt={coverageStartsAt}
               contextId={contextId}
               currentTime={state.currentTime}
               emptyState={captionPanel}

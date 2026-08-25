@@ -1,6 +1,9 @@
 import type { Pool } from 'pg';
 import { ProviderBudgetUnavailableError } from './provider-budget.repository';
-import { PostgresProviderBudgetRepository } from './postgres-provider-budget.repository';
+import {
+  PostgresProviderBudgetRepository,
+  providerWorkKey,
+} from './postgres-provider-budget.repository';
 
 const command = {
   userId: 7,
@@ -11,6 +14,22 @@ const command = {
 };
 
 describe('PostgresProviderBudgetRepository', () => {
+  it('keeps one opening repair distinct from the original provider work', () => {
+    expect(providerWorkKey(command)).toBe('youtube:dQw4w9WgXcQ:0-600');
+    expect(providerWorkKey(command)).not.toBe(
+      providerWorkKey({
+        ...command,
+        processingPurpose: 'initial-gap-repair-v1',
+      }),
+    );
+    expect(
+      providerWorkKey({
+        ...command,
+        processingPurpose: 'initial-gap-repair-v1',
+      }),
+    ).toContain('initial-gap-repair-v1');
+  });
+
   it('rejects a kill switch before opening a transaction', async () => {
     const connect = jest.fn();
     const repository = new PostgresProviderBudgetRepository(

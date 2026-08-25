@@ -298,6 +298,23 @@ test("learning workspace collapses safely at phone width", () => {
   assert.match(css, /\.learning-tablist button[\s\S]*min-width: 0/);
 });
 
+test("a partial transcript that starts late repairs the opening automatically", () => {
+  const workspace = readFileSync(
+    resolve(featureDirectory, "LearningWorkspace.tsx"),
+    "utf8",
+  );
+  const panel = readFileSync(
+    resolve(featureDirectory, "CurrentSentencePanel.tsx"),
+    "utf8",
+  );
+
+  assert.match(workspace, /needsInitialCaptionRepair/);
+  assert.match(workspace, /repairInitialGap:\s*true/);
+  assert.match(workspace, /initialGapRepairStartedRef/);
+  assert.match(panel, /앞부분 자막을 준비하고 있어요/);
+  assert.doesNotMatch(panel, /재생 위치를 옮기거나 전체 자막에서 문장을 골라 보세요/);
+});
+
 test("global theme keeps Korean words intact on a dark surface", () => {
   const theme = readFileSync(
     resolve(testDirectory, "../src/styles/theme.css"),

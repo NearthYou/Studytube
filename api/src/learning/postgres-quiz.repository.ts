@@ -525,9 +525,10 @@ export class PostgresQuizRepository {
             LIMIT 5
           )
           SELECT * FROM retrieval_evidence
+          WHERE (SELECT count(*) FROM retrieval_evidence) = 5
           UNION ALL
           SELECT * FROM caption_evidence
-          WHERE NOT EXISTS (SELECT 1 FROM retrieval_evidence)
+          WHERE (SELECT count(*) FROM retrieval_evidence) < 5
           ORDER BY "startSeconds"
           LIMIT 5
         `,

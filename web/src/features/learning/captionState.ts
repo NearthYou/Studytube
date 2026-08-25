@@ -87,10 +87,17 @@ export function captionPhaseMessage(state: ProgressiveCaptionState) {
     : messages[state.phase];
 }
 
-export function quizPreparation(state: ProgressiveCaptionState) {
-  return state.phase === "complete"
+export function quizPreparation(
+  state: ProgressiveCaptionState,
+  currentTime = Number.POSITIVE_INFINITY,
+) {
+  const watchedSentences = state.sourceSegments.filter(
+    (segment) => segment.end <= currentTime,
+  ).length;
+  const captionsUsable = ["index_pending", "complete"].includes(state.phase);
+  return captionsUsable && watchedSentences >= 5
     ? { ready: true, message: "퀴즈를 시작할 수 있습니다." }
-    : { ready: false, message: "퀴즈를 준비하고 있어요." };
+    : { ready: false, message: "자막 문장 5개를 본 뒤 퀴즈가 열려요." };
 }
 
 export function canRetryCaptions(errorCode?: string) {

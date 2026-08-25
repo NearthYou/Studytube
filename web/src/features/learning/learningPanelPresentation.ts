@@ -108,7 +108,7 @@ export function quizPanelPresentation(state: QuizUiState): PanelPresentation {
   return {
     title: "퀴즈를 만들려면 학습 자막이 필요해요",
     description:
-      "학습 자막이 준비된 뒤 이 탭을 열면 지금까지 본 내용으로 퀴즈를 자동으로 만들어요.",
+      "학습 자막 문장 5개를 본 뒤 이 탭을 열면 지금까지 본 내용으로 퀴즈를 자동으로 만들어요.",
     actionLabel: "학습 자막 준비하기",
   };
 }

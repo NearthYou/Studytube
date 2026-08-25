@@ -494,19 +494,41 @@ export class PostgresQuizRepository {
         endSeconds: number;
       }>(
         `
-          SELECT resource_id AS "resourceId", content,
-                 source_url AS "sourceUrl", start_seconds AS "startSeconds",
-                 end_seconds AS "endSeconds"
-          FROM retrieval_embeddings
-          WHERE source_kind = 'learning_context'
-            AND source_id = $1::bigint AND owner_id = $2
-            AND visibility = 'private' AND evidence_kind = 'caption_segment'
-            AND readiness = 'ready'
-            AND evidence_artifact_id = $3::bigint
-            AND artifact_generation = $4
-            AND source_version = $5::bigint
-            AND start_seconds >= $6 AND end_seconds <= $7
-          ORDER BY start_seconds, chunk_index
+          WITH retrieval_evidence AS (
+            SELECT resource_id AS "resourceId", content,
+                   source_url AS "sourceUrl",
+                   start_seconds AS "startSeconds",
+                   end_seconds AS "endSeconds"
+            FROM retrieval_embeddings
+            WHERE source_kind = 'learning_context'
+              AND source_id = $1::bigint AND owner_id = $2
+              AND visibility = 'private' AND evidence_kind = 'caption_segment'
+              AND readiness IN ('partial', 'ready')
+              AND evidence_artifact_id = $3::bigint
+              AND artifact_generation = $4
+              AND source_version = $5::bigint
+              AND start_seconds >= $6 AND end_seconds <= $7
+            ORDER BY start_seconds, chunk_index
+            LIMIT 5
+          ), caption_evidence AS (
+            SELECT 'caption-segment:' || segment.id::text AS "resourceId",
+                   segment.text AS content,
+                   source.canonical_url AS "sourceUrl",
+                   segment.start_seconds::float8 AS "startSeconds",
+                   segment.end_seconds::float8 AS "endSeconds"
+            FROM caption_artifact_segments AS segment
+            JOIN caption_artifacts AS artifact ON artifact.id = segment.artifact_id
+            JOIN video_sources AS source ON source.id = artifact.video_source_id
+            WHERE segment.artifact_id = $3::bigint
+              AND segment.start_seconds >= $6 AND segment.end_seconds <= $7
+            ORDER BY segment.start_seconds, segment.ordinal
+            LIMIT 5
+          )
+          SELECT * FROM retrieval_evidence
+          UNION ALL
+          SELECT * FROM caption_evidence
+          WHERE NOT EXISTS (SELECT 1 FROM retrieval_evidence)
+          ORDER BY "startSeconds"
           LIMIT 5
         `,
         [

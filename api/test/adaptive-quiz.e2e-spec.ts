@@ -118,8 +118,23 @@ describe('adaptive quiz PostgreSQL checkpoint (e2e)', () => {
     expect(rows.rows[0]).toEqual({ attempts: 1, proposals: 1 });
   });
 
-  it('does not create work before evidence is ready and rejects stale generation submit', async () => {
-    const pending = await createReadyContext('adaptive002', false);
+  it('uses ready caption segments while indexing and rejects stale generation submit', async () => {
+    const fallback = await createReadyContext('adaptive002', false);
+    users.push(fallback.userId);
+    const fallbackQuiz = await service.requestAdaptiveQuiz(
+      fallback.userId,
+      fallback.contextId,
+      `caption-fallback-${randomUUID()}`,
+      { startSeconds: 0, endSeconds: 60 },
+    );
+    await expect(
+      pool.query(
+        'SELECT count(*)::integer AS count FROM adaptive_quiz_evidence WHERE loop_id = $1',
+        [fallbackQuiz.id],
+      ),
+    ).resolves.toMatchObject({ rows: [{ count: 5 }] });
+
+    const pending = await createReadyContext('adaptive004', false, false);
     users.push(pending.userId);
     await expect(
       service.requestAdaptiveQuiz(
@@ -186,7 +201,11 @@ describe('adaptive quiz PostgreSQL checkpoint (e2e)', () => {
     ).resolves.toMatchObject({ state: 'stale' });
   });
 
-  async function createReadyContext(videoId: string, indexed = true) {
+  async function createReadyContext(
+    videoId: string,
+    indexed = true,
+    artifactReady = true,
+  ) {
     const email = `${videoId}-${randomUUID()}@example.test`;
     const user = await pool.query<{ id: number }>(
       `INSERT INTO users (
@@ -222,8 +241,8 @@ describe('adaptive quiz PostgreSQL checkpoint (e2e)', () => {
     );
     await pool.query(
       `INSERT INTO caption_generation_states (artifact_id, status, last_ordinal)
-       VALUES ($1, 'ready', 4)`,
-      [artifact.rows[0]!.id],
+       VALUES ($1, $2, 4)`,
+      [artifact.rows[0]!.id, artifactReady ? 'ready' : 'pending'],
     );
     await pool.query(
       `UPDATE study_contexts SET current_source_caption_artifact_id = $2

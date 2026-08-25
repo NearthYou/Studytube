@@ -6,6 +6,7 @@ import {
   useState,
 } from "react";
 import { Link } from "react-router";
+import { youtubePlayerVars } from "./youtubePlayerOptions.ts";
 
 type YoutubePlayer = {
   destroy: () => void;
@@ -77,16 +78,13 @@ export const LearningVideoPlayer = forwardRef<
         playerRef.current?.destroy();
         playerRef.current = new youtube.Player("learning-youtube-player", {
           videoId,
-          playerVars: {
-            rel: 0,
-            playsinline: 1,
-            enablejsapi: 1,
-            cc_load_policy: preferNativeCaptionsRef.current ? 1 : 0,
-          },
+          playerVars: youtubePlayerVars(
+            initialTimeRef.current,
+            preferNativeCaptionsRef.current,
+          ),
           events: {
             onReady: ({ target }) => {
               playerRef.current = target;
-              target.seekTo(initialTimeRef.current, true);
               setError("");
             },
             onError: () => {

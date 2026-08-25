@@ -1,41 +1,9 @@
 from __future__ import annotations
 
-import os
 import re
 from typing import Any, Callable
 
-try:
-    from openai import OpenAI
-except ModuleNotFoundError:  # pragma: no cover - local test fallback
-    OpenAI = None
-
-
-AGENT_TOOLS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "search_video",
-            "description": "Search or look up external YouTube video metadata.",
-            "parameters": {
-                "type": "object",
-                "properties": {"query": {"type": "string"}},
-                "required": ["query"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "create_playlist_draft",
-            "description": "Create a playlist draft from retrieved posts and videos.",
-            "parameters": {
-                "type": "object",
-                "properties": {"title": {"type": "string"}},
-                "required": ["title"],
-            },
-        },
-    },
-]
+from study_plan_graph import StudyPlanGraphState, ToolName, run_study_plan_graph
 
 
 def build_study_plan(
@@ -45,33 +13,26 @@ def build_study_plan(
     goal = str(payload.get("goal") or "React 공부").strip()
     language = str(payload.get("language") or "ko")
     interests = [str(item) for item in payload.get("interests") or []]
-    max_iterations = min(int(payload.get("maxIterations") or 3), 4)
-    state: dict[str, Any] = {
+    max_iterations = bounded_iterations(payload.get("maxIterations"))
+    state: StudyPlanGraphState = {
         "goal": goal,
-        "language": language,
-        "interests": interests,
+        "max_iterations": max_iterations,
+        "next_tool": None,
         "external": None,
+        "recommendations": [],
+        "search_failed": False,
         "trace": [],
     }
 
-    for iteration in range(max_iterations):
-        tool_name = choose_agent_tool(state, iteration)
-        state["trace"].append(
-            {
-                "iteration": iteration + 1,
-                "tool": tool_name,
-                "reason": tool_reason(tool_name),
-            }
-        )
-        try:
-            if tool_name == "search_video":
-                state["external"] = lookup_youtube({"query": goal, "limit": 5})
-            elif tool_name == "create_playlist_draft":
-                break
-        except Exception as exc:  # pragma: no cover - defensive runtime path
-            state["trace"][-1]["error"] = str(exc)
+    state = run_study_plan_graph(
+        state,
+        choose_tool=choose_agent_tool,
+        tool_reason=tool_reason,
+        lookup_youtube=lookup_youtube,
+        create_recommendations=create_playlist_recommendations,
+    )
 
-    recommendations = create_playlist_recommendations(state)
+    recommendations = state["recommendations"]
     return {
         "mode": "agent",
         "goal": goal,
@@ -83,49 +44,24 @@ def build_study_plan(
         "guardrails": {
             "maxIterations": max_iterations,
             "loopStopped": True,
-            "toolCalling": "OpenAI function-calling schema when configured; deterministic tool loop fallback otherwise.",
+            "orchestration": "langgraph",
+            "toolCalling": "LangGraph routes bounded search and draft nodes.",
         },
     }
 
 
-def choose_agent_tool(state: dict[str, Any], iteration: int) -> str:
-    llm_choice = choose_tool_with_llm(state)
-    if llm_choice:
-        return llm_choice
-    if iteration == 0 and not state.get("external"):
+def choose_agent_tool(state: dict[str, Any]) -> ToolName:
+    if state.get("external") is None:
         return "search_video"
     return "create_playlist_draft"
 
 
-def choose_tool_with_llm(state: dict[str, Any]) -> str | None:
-    if OpenAI is None or not os.getenv("OPENAI_API_KEY"):
-        return None
-    try:  # pragma: no cover - requires external credentials
-        client = OpenAI()
-        response = client.chat.completions.create(
-            model=os.getenv("LLM_MODEL", "gpt-4o-mini"),
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "Choose the next StudyTube agent tool. "
-                        "Use search_video to gather read-only YouTube metadata, then "
-                        "create_playlist_draft when enough evidence exists."
-                    ),
-                },
-                {"role": "user", "content": str(state)},
-            ],
-            tools=AGENT_TOOLS,
-            tool_choice="auto",
-        )
-        tool_calls = getattr(response.choices[0].message, "tool_calls", None)
-        if tool_calls:
-            name = tool_calls[0].function.name
-            if name in {"search_video", "create_playlist_draft"}:
-                return name
-    except Exception:
-        return None
-    return None
+def bounded_iterations(value: Any) -> int:
+    try:
+        parsed = int(value or 3)
+    except (TypeError, ValueError):
+        parsed = 3
+    return max(1, min(parsed, 4))
 
 
 def create_playlist_recommendations(state: dict[str, Any]) -> list[dict[str, Any]]:
@@ -185,7 +121,7 @@ def tokenize(text: str) -> set[str]:
     return set(re.findall(r"[a-zA-Z0-9가-힣]+", text.lower()))
 
 
-def tool_reason(tool_name: str) -> str:
+def tool_reason(tool_name: ToolName) -> str:
     return {
         "search_video": "외부 YouTube 메타데이터로 추천 후보를 보강합니다.",
         "create_playlist_draft": "수집한 근거를 학습 코스 초안으로 정리합니다.",

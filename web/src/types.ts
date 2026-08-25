@@ -239,6 +239,7 @@ export type AgentResponse = {
   guardrails?: {
     maxIterations: number;
     loopStopped: boolean;
+    orchestration?: "langgraph";
     toolCalling: string;
   };
 };

@@ -1,0 +1,169 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Callable, Literal, TypedDict, cast
+
+from langgraph.graph import END, START, StateGraph
+from langgraph.runtime import Runtime
+
+
+ToolName = Literal["search_video", "create_playlist_draft"]
+
+
+class StudyPlanGraphState(TypedDict):
+    goal: str
+    max_iterations: int
+    next_tool: ToolName | None
+    external: dict[str, Any] | None
+    recommendations: list[dict[str, Any]]
+    search_failed: bool
+    trace: list[dict[str, Any]]
+
+
+ToolChoice = Callable[[dict[str, Any]], ToolName]
+ToolReason = Callable[[ToolName], str]
+YoutubeLookup = Callable[[dict[str, Any]], dict[str, Any]]
+PlaylistBuilder = Callable[[dict[str, Any]], list[dict[str, Any]]]
+
+
+@dataclass(frozen=True)
+class StudyPlanGraphContext:
+    choose_tool: ToolChoice
+    tool_reason: ToolReason
+    lookup_youtube: YoutubeLookup
+    create_recommendations: PlaylistBuilder
+
+
+def create_study_plan_graph():
+    workflow = StateGraph(
+        StudyPlanGraphState,
+        context_schema=StudyPlanGraphContext,
+    )
+
+    def decide(
+        state: StudyPlanGraphState,
+        runtime: Runtime[StudyPlanGraphContext],
+    ) -> dict[str, Any]:
+        iteration = len(state["trace"])
+        tool_name = runtime.context.choose_tool(cast(dict[str, Any], state))
+        trace = [
+            *state["trace"],
+            {
+                "iteration": iteration + 1,
+                "tool": tool_name,
+                "reason": runtime.context.tool_reason(tool_name),
+            },
+        ]
+        return {
+            "next_tool": tool_name,
+            "trace": trace,
+        }
+
+    def search_video(
+        state: StudyPlanGraphState,
+        runtime: Runtime[StudyPlanGraphContext],
+    ) -> dict[str, Any]:
+        try:
+            external = runtime.context.lookup_youtube(
+                {"query": state["goal"], "limit": 5}
+            )
+            if not usable_youtube_result(external):
+                return failed_search_update(state)
+            return {"external": external, "search_failed": False}
+        except Exception:  # pragma: no cover - provider behavior varies by runtime
+            return failed_search_update(state)
+
+    def create_playlist_draft(
+        state: StudyPlanGraphState,
+        runtime: Runtime[StudyPlanGraphContext],
+    ) -> dict[str, Any]:
+        return {
+            "recommendations": runtime.context.create_recommendations(
+                cast(dict[str, Any], state)
+            )
+        }
+
+    def route_decision(
+        state: StudyPlanGraphState,
+    ) -> Literal["search_video", "create_playlist_draft"]:
+        tool_name = state["next_tool"]
+        if tool_name is None:
+            raise RuntimeError("study plan graph has no next tool")
+        return tool_name
+
+    def route_after_search(
+        state: StudyPlanGraphState,
+    ) -> Literal["decide", "create_playlist_draft", "stop"]:
+        if state["search_failed"]:
+            return (
+                "create_playlist_draft"
+                if state["external"] is not None
+                else "stop"
+            )
+        if len(state["trace"]) >= state["max_iterations"]:
+            return "create_playlist_draft"
+        return "decide"
+
+    workflow.add_node("decide", decide)
+    workflow.add_node("search_video", search_video)
+    workflow.add_node("create_playlist_draft", create_playlist_draft)
+    workflow.add_edge(START, "decide")
+    workflow.add_conditional_edges(
+        "decide",
+        route_decision,
+        {
+            "search_video": "search_video",
+            "create_playlist_draft": "create_playlist_draft",
+        },
+    )
+    workflow.add_conditional_edges(
+        "search_video",
+        route_after_search,
+        {
+            "decide": "decide",
+            "create_playlist_draft": "create_playlist_draft",
+            "stop": END,
+        },
+    )
+    workflow.add_edge("create_playlist_draft", END)
+    return workflow.compile(name="studytube-study-plan")
+
+
+STUDY_PLAN_GRAPH = create_study_plan_graph()
+
+
+def usable_youtube_result(value: Any) -> bool:
+    return (
+        isinstance(value, dict)
+        and value.get("provider") != "youtube-search-unavailable"
+        and isinstance(value.get("videos"), list)
+        and len(value["videos"]) > 0
+    )
+
+
+def failed_search_update(state: StudyPlanGraphState) -> dict[str, Any]:
+    trace = [dict(item) for item in state["trace"]]
+    trace[-1]["error"] = "video search unavailable"
+    return {"search_failed": True, "trace": trace}
+
+
+def run_study_plan_graph(
+    initial_state: StudyPlanGraphState,
+    *,
+    choose_tool: ToolChoice,
+    tool_reason: ToolReason,
+    lookup_youtube: YoutubeLookup,
+    create_recommendations: PlaylistBuilder,
+) -> StudyPlanGraphState:
+    return cast(
+        StudyPlanGraphState,
+        STUDY_PLAN_GRAPH.invoke(
+            initial_state,
+            context=StudyPlanGraphContext(
+                choose_tool=choose_tool,
+                tool_reason=tool_reason,
+                lookup_youtube=lookup_youtube,
+                create_recommendations=create_recommendations,
+            ),
+        ),
+    )

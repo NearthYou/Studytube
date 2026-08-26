@@ -47,7 +47,7 @@
   "dependencies": {
     "@aws-sdk/client-sesv2": "3.1097.0",
     "@nestjs/axios": "^4.0.1",
-    "@nestjs/common": "^11.0.1",
+    "@nestjs/common": "^11.2.1",
     "@nestjs/config": "^4.0.4",
     "@nestjs/core": "^11.0.1",
     "@nestjs/platform-express": "^11.1.28",

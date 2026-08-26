@@ -50,6 +50,13 @@ test("a single recommendation is never presented or saved as a course", () => {
   assert.match(source, /const title = generatedTitle/);
 });
 
+test("generated recommendations save through native Course snapshots", () => {
+  const source = readFileSync(coursePath, "utf8");
+
+  assert.match(source, /courseStepFromQueueVideo/);
+  assert.doesNotMatch(source, /createPost|ensurePostIdsForGeneratedVideos/);
+});
+
 test("course builder heading stays subordinate to the page title", () => {
   const css = readFileSync(courseCssPath, "utf8");
 

@@ -4117,9 +4117,10 @@ footer {
     gap: 6px;
     width: 100%;
     padding: 4px;
-    overflow-x: auto;
+    overflow-x: visible;
+    border: 1px solid var(--app-line);
     border-radius: 8px;
-    background: #f6f8fb;
+    background: var(--app-surface);
     scrollbar-width: none;
   }
 
@@ -4129,7 +4130,7 @@ footer {
 
   .site-nav nav a {
     display: inline-flex;
-    flex: 1 0 auto;
+    flex: 1 1 0;
     align-items: center;
     justify-content: center;
     min-height: 40px;
@@ -4140,9 +4141,9 @@ footer {
   }
 
   .site-nav nav a.active {
-    background: #fff;
-    color: var(--blue);
-    box-shadow: 0 6px 16px rgba(25, 31, 40, 0.08);
+    background: var(--app-elevated);
+    color: var(--app-accent);
+    box-shadow: none;
   }
 
   .hero-section,

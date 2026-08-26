@@ -8,7 +8,7 @@ export type ReserveProviderWorkCommand = Readonly<{
   canonicalVideoId: string;
   canonicalUrl: string;
   requestedAudioSeconds: number;
-  processingPurpose?: 'initial' | 'initial-gap-repair-v1';
+  processingPurpose?: 'initial' | 'initial-gap-repair-v1' | 'caption-retry-v1';
 }>;
 
 export type ProviderBudgetReservation = Readonly<{

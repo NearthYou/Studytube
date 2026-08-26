@@ -4,6 +4,7 @@ export type LearningIntakeInput = {
   videoUrl: string;
   requestedAudioSeconds: number;
   repairInitialGap?: boolean;
+  retryCaptions?: boolean;
 };
 
 export type LearningIntakeResult = {

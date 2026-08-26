@@ -93,6 +93,7 @@ test("YouTube loading and playback lifecycle stay behind one player interface", 
   assert.match(source, /export type LearningVideoPlayerHandle/);
   assert.match(source, /seek: \(seconds: number\) => void/);
   assert.match(source, /pause: \(\) => void/);
+  assert.match(source, /play: \(\) => void/);
   assert.match(source, /pauseVideo: \(\) => void/);
   assert.match(source, /onStateChange/);
   assert.match(source, /getDuration/);
@@ -316,8 +317,13 @@ test("a partial transcript that starts late repairs the opening automatically", 
   assert.match(workspace, /initialGapRepairStartedRef/);
   assert.match(workspace, /liveCaptions\.start\(0\)/);
   assert.match(workspace, /seek\(0\)/);
+  assert.match(workspace, /const started = await liveCaptions\.start\(0\)/);
+  assert.match(workspace, /playerRef\.current\?\.play\(\)/);
+  assert.match(workspace, /seek\(previousTime\)/);
   assert.match(panel, /앞부분 자막을 준비하고 있어요/);
   assert.match(panel, /처음부터 자막 시작/);
+  assert.match(panel, /한국어 다시 준비/);
+  assert.match(panel, /한국어 번역을 준비하지 못했어요/);
   assert.doesNotMatch(panel, /재생 위치를 옮기거나 전체 자막에서 문장을 골라 보세요/);
 });
 

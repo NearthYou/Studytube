@@ -28,6 +28,12 @@ describe('PostgresProviderBudgetRepository', () => {
         processingPurpose: 'initial-gap-repair-v1',
       }),
     ).toContain('initial-gap-repair-v1');
+    expect(
+      providerWorkKey({
+        ...command,
+        processingPurpose: 'caption-retry-v1',
+      }),
+    ).toContain('caption-retry-v1');
   });
 
   it('rejects a kill switch before opening a transaction', async () => {

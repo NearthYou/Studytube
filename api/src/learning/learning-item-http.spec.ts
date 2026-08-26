@@ -118,6 +118,34 @@ describe('LearningItemService intake boundary', () => {
     );
   });
 
+  it('reserves a separately keyed provider work for a caption retry', async () => {
+    const reserve = jest.fn().mockResolvedValue({
+      reservationId: '41',
+      workId: '8f8de73b-6f6a-42a4-a550-a515b4206cb1',
+      admission: 'created',
+      reservedAudioSeconds: 600,
+      subscriptionCreated: true,
+    });
+    const service = await createService(
+      { reserve, attachContext: jest.fn().mockResolvedValue(true) },
+      {
+        ensureContext: jest
+          .fn()
+          .mockResolvedValue({ studyContext: { id: '13' } }),
+      },
+    );
+
+    await service.start(7, {
+      videoUrl: 'https://youtu.be/dQw4w9WgXcQ',
+      requestedAudioSeconds: 600,
+      retryCaptions: true,
+    });
+
+    expect(reserve).toHaveBeenCalledWith(
+      expect.objectContaining({ processingPurpose: 'caption-retry-v1' }),
+    );
+  });
+
   it('does not create learning data when cost admission is unavailable', async () => {
     const reserve = jest
       .fn()

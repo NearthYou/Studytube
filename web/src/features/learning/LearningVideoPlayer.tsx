@@ -13,6 +13,7 @@ type YoutubePlayer = {
   getCurrentTime: () => number;
   getDuration: () => number;
   pauseVideo: () => void;
+  playVideo: () => void;
   seekTo: (seconds: number, allowSeekAhead: boolean) => void;
 };
 
@@ -38,6 +39,7 @@ type YoutubeWindow = Window & {
 
 export type LearningVideoPlayerHandle = {
   pause: () => void;
+  play: () => void;
   seek: (seconds: number) => void;
 };
 
@@ -82,6 +84,9 @@ export const LearningVideoPlayer = forwardRef<
     () => ({
       pause() {
         playerRef.current?.pauseVideo();
+      },
+      play() {
+        playerRef.current?.playVideo();
       },
       seek(seconds: number) {
         playerRef.current?.seekTo(seconds, true);

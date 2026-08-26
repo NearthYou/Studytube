@@ -23,6 +23,7 @@ import {
   EMPTY_CAPTION_STATE,
   mergeCaptionState,
   needsInitialCaptionRepair,
+  isTranslationUnavailable,
   quizPreparation,
   type ProgressiveCaptionState,
 } from "./captionState.ts";
@@ -348,23 +349,38 @@ function ActiveLearningWorkspace({
   }, [captionRefresh, contextId, update]);
 
   async function retryCaptions() {
+    const previous = captionsRef.current;
     setCaptionRetrying(true);
-    update({ captions: EMPTY_CAPTION_STATE });
+    update({
+      captions:
+        previous.sourceSegments.length > 0
+          ? {
+              ...previous,
+              phase:
+                isTranslationUnavailable(previous)
+                  ? "translation_pending"
+                  : "source_pending",
+              stale: true,
+              errorMessage: undefined,
+              errorCode: undefined,
+            }
+          : EMPTY_CAPTION_STATE,
+    });
     try {
       const result = await startLearningIntake({
         videoUrl: video.videoUrl,
         requestedAudioSeconds: REQUESTED_AUDIO_SECONDS,
+        retryCaptions: true,
       });
       update({
         contextId: result.context.studyContext.id,
         workId: result.workId,
-        captions: EMPTY_CAPTION_STATE,
       });
       setCaptionRefresh((value) => value + 1);
     } catch (error) {
       update({
         captions: {
-          ...EMPTY_CAPTION_STATE,
+          ...previous,
           phase: "failed",
           errorMessage:
             error instanceof Error
@@ -426,10 +442,13 @@ function ActiveLearningWorkspace({
     playerRef.current?.pause();
   }
 
-  function startOpeningLiveCaptions() {
+  async function startOpeningLiveCaptions() {
+    const previousTime = state.currentTime;
     pauseForStudy();
     seek(0);
-    void liveCaptions.start(0);
+    const started = await liveCaptions.start(0);
+    if (!started) seek(previousTime);
+    playerRef.current?.play();
   }
 
   function selectTab(tab: LearningTab) {
@@ -692,6 +711,8 @@ function ActiveLearningWorkspace({
               onPause={pauseForStudy}
               onSave={startNoteDraft}
               onStartCoverageCapture={startOpeningLiveCaptions}
+              onRetryCaptions={() => void retryCaptions()}
+              retryingCaptions={captionRetrying}
               segmentEnd={currentSegment?.end ?? state.currentTime}
               segmentStart={currentSegment?.start ?? state.currentTime}
               source={currentCaption.source}
@@ -702,6 +723,7 @@ function ActiveLearningWorkspace({
                   ? captionPhaseMessage(displayedCaptions)
                   : "영상을 학습 목록에 담고 있어요.")
               }
+              translationUnavailable={isTranslationUnavailable(state.captions)}
             />
           )}
           {state.selectedTab === "overview" && (

@@ -2,6 +2,7 @@ import type {
   AgentResponse,
   CourseStep,
   McpResponse,
+  NewCourseStep,
   RagResponse,
   StudyPost,
 } from './types.ts';
@@ -225,6 +226,17 @@ export function attachCourseSequence(
 
 export function canFormCourse(videos: QueueVideo[]) {
   return uniqueVideos(videos).length >= 2;
+}
+
+export function courseStepFromQueueVideo(video: QueueVideo): NewCourseStep {
+  return {
+    snapshot: {
+      title: video.title.trim() || 'YouTube 학습 영상',
+      videoUrl: video.videoUrl,
+      thumbnailUrl: video.thumbnailUrl,
+      channelName: video.channelName.trim() || video.source || 'YouTube',
+    },
+  };
 }
 
 export function uniqueVideos(videos: QueueVideo[]) {

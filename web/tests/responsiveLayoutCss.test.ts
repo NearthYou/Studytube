@@ -56,9 +56,18 @@ test('mobile navigation remains available as a tab row', () => {
 
   assert.match(navRule, /display:\s*flex;/);
   assert.doesNotMatch(navRule, /display:\s*none;/);
+  assert.match(navRule, /background:\s*var\(--app-surface\);/);
+  assert.match(navRule, /border:\s*1px solid var\(--app-line\);/);
+  assert.match(navRule, /overflow-x:\s*visible;/);
 
   const navLinkRule = ruleBody(mobileCss, '.site-nav nav a');
   assert.match(navLinkRule, /min-height:\s*40px;/);
+  assert.match(navLinkRule, /flex:\s*1 1 0;/);
+
+  const activeRule = ruleBody(mobileCss, '.site-nav nav a.active');
+  assert.match(activeRule, /background:\s*var\(--app-elevated\);/);
+  assert.match(activeRule, /color:\s*var\(--app-accent\);/);
+  assert.match(activeRule, /box-shadow:\s*none;/);
 });
 
 test('compact remove actions remain finger-friendly on mobile', () => {

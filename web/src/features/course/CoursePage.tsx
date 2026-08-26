@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { Link, useNavigate } from "react-router";
-import { askAgent, askMcp, askRag, createPost, fetchPosts } from "../../api";
+import { askAgent, askMcp, askRag, fetchPosts } from "../../api";
 import { createCourse, fetchOwnerCourses, publishCourse } from "../../courseApi";
 import { createPersonalizedCoursePrompt, createPromptSuggestions, findMatchingCourses, hasLearningPreferences } from "../../courseDiscovery";
 import { addVideosToQueue } from "../../watchQueueStorage";
@@ -16,8 +16,7 @@ import {
 import {
   attachCourseSequence,
   canFormCourse,
-  findPostIdForQueueVideo,
-  postPayloadFromQueueVideo,
+  courseStepFromQueueVideo,
   queueVideoFromCourseStep,
   queueVideoFromMcpVideo,
   queueVideoFromRagPost,
@@ -219,8 +218,6 @@ export function CoursePage({ session }: { session: Session }) {
     setStatus("코스를 저장하고 있습니다.");
 
     try {
-      const postIds = await ensurePostIdsForGeneratedVideos(generatedVideos);
-
       const title = generatedTitle;
       const description =
         agentResult?.rationale ??
@@ -229,13 +226,13 @@ export function CoursePage({ session }: { session: Session }) {
         {
           title,
           description,
-          steps: postIds.map((sourcePostId) => ({ sourcePostId })),
+          steps: generatedVideos.map(courseStepFromQueueVideo),
         },
         generatedCourseIdempotencyKey(
           session.user.id,
           title,
           description,
-          postIds,
+          generatedVideos.map((video) => video.videoId),
         ),
       );
       const saved =
@@ -255,37 +252,6 @@ export function CoursePage({ session }: { session: Session }) {
     } finally {
       setIsSavingPlaylist(false);
     }
-  }
-
-  async function ensurePostIdsForGeneratedVideos(videos: QueueVideo[]) {
-    const nextPostIds: number[] = [];
-    const seenPostIds = new Set<number>();
-    let availablePosts = posts;
-
-    for (const video of videos) {
-      const existingPostId = findPostIdForQueueVideo(video, availablePosts);
-
-      if (existingPostId) {
-        if (!seenPostIds.has(existingPostId)) {
-          nextPostIds.push(existingPostId);
-          seenPostIds.add(existingPostId);
-        }
-
-        continue;
-      }
-
-      const savedPost = await createPost(postPayloadFromQueueVideo(video));
-      availablePosts = [savedPost, ...availablePosts];
-
-      if (!seenPostIds.has(savedPost.id)) {
-        nextPostIds.push(savedPost.id);
-        seenPostIds.add(savedPost.id);
-      }
-    }
-
-    setPosts(availablePosts);
-
-    return nextPostIds;
   }
 
   const existingVideos =
@@ -648,13 +614,13 @@ function generatedCourseIdempotencyKey(
   userId: number,
   title: string,
   description: string,
-  postIds: number[],
+  videoIds: string[],
 ) {
-  const value = `${title}\n${description}\n${postIds.join(",")}`;
+  const value = `${title}\n${description}\n${videoIds.join(",")}`;
   let hash = 2166136261;
   for (let index = 0; index < value.length; index += 1) {
     hash ^= value.charCodeAt(index);
     hash = Math.imul(hash, 16777619);
   }
-  return `generated-course:v1:u${userId}:p${(hash >>> 0).toString(36)}`;
+  return `generated-course:v2:u${userId}:p${(hash >>> 0).toString(36)}`;
 }

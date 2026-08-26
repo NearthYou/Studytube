@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { CourseStep, StudyPost } from '../src/types.ts';
+import * as watchQueue from '../src/watchQueue.ts';
 import {
   attachCourseSequence,
   canFormCourse,
@@ -237,6 +238,40 @@ test('rejects MCP videos without a usable video id', () => {
   });
 
   assert.equal(queueVideo, null);
+});
+
+test('builds a native Course snapshot without a legacy post write', () => {
+  const toCourseStep = (
+    watchQueue as unknown as {
+      courseStepFromQueueVideo?: (input: QueueVideo) => unknown;
+    }
+  ).courseStepFromQueueVideo;
+
+  assert.equal(
+    typeof toCourseStep,
+    'function',
+    'generated videos should be saved through the Course snapshot contract',
+  );
+  if (!toCourseStep) return;
+
+  assert.deepEqual(
+    toCourseStep(
+      video({
+        title: 'C++ 기초',
+        videoUrl: 'https://www.youtube.com/watch?v=SqcY0GlETPk',
+        thumbnailUrl: 'https://i.ytimg.com/vi/SqcY0GlETPk/hqdefault.jpg',
+        channelName: 'Study Channel',
+      }),
+    ),
+    {
+      snapshot: {
+        title: 'C++ 기초',
+        videoUrl: 'https://www.youtube.com/watch?v=SqcY0GlETPk',
+        thumbnailUrl: 'https://i.ytimg.com/vi/SqcY0GlETPk/hqdefault.jpg',
+        channelName: 'Study Channel',
+      },
+    },
+  );
 });
 
 test('rejects search pages and placeholder ids instead of treating them as videos', () => {

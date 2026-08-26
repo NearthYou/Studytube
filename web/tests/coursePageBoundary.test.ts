@@ -47,7 +47,7 @@ test("a single recommendation is never presented or saved as a course", () => {
   assert.match(source, /canFormCourse\(generatedVideos\)/);
   assert.match(source, /관련 영상 한 개를 찾았습니다/);
   assert.match(source, /코스로 묶으려면 영상이 두 개 이상 필요합니다/);
-  assert.match(source, /const title = generatedTitle/);
+  assert.match(source, /saveCourse\(\s*generatedVideos,\s*generatedTitle/);
 });
 
 test("generated recommendations save through native Course snapshots", () => {
@@ -72,4 +72,11 @@ test("course recommendations survive reloads before the user saves a course", ()
   assert.match(source, /readCourseRecommendation/);
   assert.match(source, /saveCourseRecommendation/);
   assert.match(source, /readLearningHistory/);
+});
+
+test("a prepared recommendation can be saved after the page reloads", () => {
+  const source = readFileSync(coursePath, "utf8");
+
+  assert.match(source, /savePreparedCourse/);
+  assert.match(source, /코스로 저장/);
 });

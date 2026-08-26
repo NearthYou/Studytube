@@ -207,7 +207,29 @@ export function CoursePage({ session }: { session: Session }) {
   }
 
   async function saveGeneratedCourse() {
-    if (!canFormCourse(generatedVideos)) {
+    await saveCourse(
+      generatedVideos,
+      generatedTitle,
+      generatedCourseDescription(recommendation?.goal ?? query),
+    );
+  }
+
+  async function savePreparedCourse() {
+    if (!recommendation) return;
+
+    await saveCourse(
+      preparedVideos,
+      recommendation.title,
+      generatedCourseDescription(recommendation.goal),
+    );
+  }
+
+  async function saveCourse(
+    videos: QueueVideo[],
+    title: string,
+    description: string,
+  ) {
+    if (!canFormCourse(videos)) {
       setStatus(
         "코스로 묶으려면 재생할 수 있는 영상이 두 개 이상 필요합니다.",
       );
@@ -218,21 +240,17 @@ export function CoursePage({ session }: { session: Session }) {
     setStatus("코스를 저장하고 있습니다.");
 
     try {
-      const title = generatedTitle;
-      const description =
-        agentResult?.rationale ??
-        "내 취향과 검색 결과를 바탕으로 만든 학습 코스입니다.";
       const created = await createCourse(
         {
           title,
           description,
-          steps: generatedVideos.map(courseStepFromQueueVideo),
+          steps: videos.map(courseStepFromQueueVideo),
         },
         generatedCourseIdempotencyKey(
           session.user.id,
           title,
           description,
-          generatedVideos.map((video) => video.videoId),
+          videos.map((video) => video.videoId),
         ),
       );
       const saved =
@@ -315,17 +333,27 @@ export function CoursePage({ session }: { session: Session }) {
               <small>{recommendation.title}</small>
             </div>
             {canFormCourse(preparedVideos) ? (
-              <button
-                type="button"
-                onClick={() =>
-                  addCourseAndWatch(preparedVideos[0], preparedVideos, {
-                    id: `recent-recommendation-${recommendation.updatedAt}`,
-                    title: recommendation.title,
-                  })
-                }
-              >
-                이어서 시작
-              </button>
+              <div className="prepared-course-actions">
+                <button
+                  className="secondary-action"
+                  type="button"
+                  onClick={() =>
+                    addCourseAndWatch(preparedVideos[0], preparedVideos, {
+                      id: `recent-recommendation-${recommendation.updatedAt}`,
+                      title: recommendation.title,
+                    })
+                  }
+                >
+                  이어서 시작
+                </button>
+                <button
+                  type="button"
+                  disabled={isSavingPlaylist}
+                  onClick={() => void savePreparedCourse()}
+                >
+                  {isSavingPlaylist ? "저장 중" : "코스로 저장"}
+                </button>
+              </div>
             ) : (
               <button type="button" onClick={() => setQuery(recommendation.goal)}>
                 이 주제로 더 찾기
@@ -623,4 +651,12 @@ function generatedCourseIdempotencyKey(
     hash = Math.imul(hash, 16777619);
   }
   return `generated-course:v2:u${userId}:p${(hash >>> 0).toString(36)}`;
+}
+
+function generatedCourseDescription(goal: string) {
+  const normalizedGoal = goal.trim();
+
+  return normalizedGoal
+    ? `학습 목표: ${normalizedGoal}`
+    : "관심사와 검색 결과를 바탕으로 만든 학습 코스입니다.";
 }

@@ -24,6 +24,10 @@ export class StartLearningItemDto {
   @IsOptional()
   @IsBoolean()
   repairInitialGap?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  retryCaptions?: boolean;
 }
 
 export class LearningContextParamDto {

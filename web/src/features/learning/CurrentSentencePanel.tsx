@@ -24,6 +24,9 @@ type Props = {
   onPause: () => void;
   onSave: () => void;
   onStartCoverageCapture: () => void;
+  onRetryCaptions: () => void;
+  retryingCaptions: boolean;
+  translationUnavailable: boolean;
 };
 
 export function CurrentSentencePanel({
@@ -45,6 +48,9 @@ export function CurrentSentencePanel({
   onPause,
   onSave,
   onStartCoverageCapture,
+  onRetryCaptions,
+  retryingCaptions,
+  translationUnavailable,
 }: Props) {
   const [explanation, setExplanation] =
     useState<SegmentExplanationResponse | null>(null);
@@ -101,12 +107,27 @@ export function CurrentSentencePanel({
               </div>
               <div className="sentence-copy translated">
                 <small>한국어</small>
-                <p lang="ko">{korean || "번역을 준비하고 있어요."}</p>
+                <p lang="ko">
+                  {korean ||
+                    (translationUnavailable
+                      ? "한국어 번역을 준비하지 못했어요."
+                      : "번역을 준비하고 있어요.")}
+                </p>
               </div>
 
               <p className="sentence-status" aria-live="polite">
                 {status}
               </p>
+              {translationUnavailable && (
+                <button
+                  className="quiet-action"
+                  disabled={retryingCaptions}
+                  type="button"
+                  onClick={onRetryCaptions}
+                >
+                  {retryingCaptions ? "한국어 준비 중" : "한국어 다시 준비"}
+                </button>
+              )}
               <div className="sentence-actions">
                 <button type="button" onClick={onSave}>
                   이 문장 저장

@@ -112,6 +112,10 @@ export function needsInitialCaptionRepair(state: ProgressiveCaptionState) {
   return Math.min(...state.sourceSegments.map((segment) => segment.start)) > 5;
 }
 
+export function isTranslationUnavailable(state: ProgressiveCaptionState) {
+  return state.errorCode === "TRANSLATION_PROVIDER_UNAVAILABLE";
+}
+
 export function canRetryCaptions(errorCode?: string) {
   return ![
     "CAPTION_PROVIDER_UNAVAILABLE",

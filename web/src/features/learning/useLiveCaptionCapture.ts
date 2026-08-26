@@ -225,7 +225,7 @@ export function useLiveCaptionCapture(input: {
   }, [recordNext]);
 
   const start = useCallback(async (startAtSeconds?: number) => {
-    if (!contextId || runtimeRef.current) return;
+    if (!contextId || runtimeRef.current) return false;
     if (
       typeof startAtSeconds === "number" &&
       Number.isFinite(startAtSeconds) &&
@@ -235,11 +235,11 @@ export function useLiveCaptionCapture(input: {
     }
     if (currentTimeRef.current >= MAX_VIDEO_SECONDS) {
       transition("failed", "자막은 영상 앞부분 10분까지 만들 수 있습니다.");
-      return;
+      return false;
     }
     if (!navigator.mediaDevices?.getDisplayMedia || !window.MediaRecorder) {
       transition("failed", "Chrome 데스크톱에서 자막을 시작해주세요.");
-      return;
+      return false;
     }
     transition("requesting", "현재 탭과 탭 오디오를 선택해주세요.");
     try {
@@ -277,8 +277,10 @@ export function useLiveCaptionCapture(input: {
       setChunks([]);
       transition("listening", "재생 중인 영상의 자막을 만들고 있어요.");
       recordNext();
+      return true;
     } catch (error) {
       transition("failed", captureErrorMessage(error));
+      return false;
     }
   }, [contextId, finalize, recordNext, transition]);
 

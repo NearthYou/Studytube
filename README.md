@@ -1,178 +1,241 @@
 # StudyTube
 
-StudyTube는 외국어 YouTube 영상을 자막, 메모, 퀴즈, 다음 학습 순서까지 이어서 공부하는 웹 서비스입니다.
+StudyTube는 외국어 YouTube 영상을 보면서 현재 문장을 확인하고, 메모와 퀴즈를 남기고, 다음에 공부할 영상까지 이어 주는 학습 서비스입니다.
 
-- 서비스: [studytube.page](https://studytube.page)
-- 저장소: [github.com/NearthYou/studytube](https://github.com/NearthYou/studytube)
-- API 계약: [api/openapi/current.json](api/openapi/current.json)
+[서비스 바로가기](https://studytube.page) | [API 문서](api/openapi/current.json) | [전체 문서](docs/README.md)
 
-## 핵심 기능 화면
+[![CI/CD](https://github.com/NearthYou/studytube/actions/workflows/ci-cd.yml/badge.svg?branch=main)](https://github.com/NearthYou/studytube/actions/workflows/ci-cd.yml)
 
-![영상과 학습 도구를 함께 사용하는 StudyTube](docs/demo/studytube-learning-workspace.jpg)
+## 실제 서비스 화면
 
-영상을 보면서 같은 화면에서 문장 해설, 전체 자막, 저장 문장과 퀴즈를 오갈 수 있습니다. 재생 시점이 붙은 메모도 여기에서 바로 남깁니다.
+![영상과 학습 도구를 함께 사용하는 화면](docs/demo/studytube-learning-current.png)
 
-| YouTube 링크로 학습 시작 | 최근 학습 이어 보기 |
-| --- | --- |
-| ![YouTube 링크를 입력해 학습을 시작하는 화면](docs/demo/studytube-start-learning.jpg) | ![최근에 학습한 영상을 이어서 보는 화면](docs/demo/studytube-continue-learning.jpg) |
+영상 옆에서 지금 문장, 내용 정리, 메모, 퀴즈를 전환합니다. 메모는 작성한 시점과 함께 저장되며, 퀴즈는 0초부터 현재 재생 위치까지 준비된 자막을 기준으로 만들어집니다.
 
-영상 등록부터 학습 재개, 영상별 학습 도구까지 이어지는 실제 서비스 화면입니다.
+![학습 순서와 Course를 관리하는 화면](docs/demo/studytube-course-current.png)
 
-## 풀고 싶었던 문제
+학습 목표로 새 Course를 만들고, 저장한 Course를 같은 화면에서 다시 선택합니다.
 
-YouTube에서 외국어 영상을 공부하면 재생 화면, 번역, 메모, 복습 자료가 서로 떨어집니다. 무엇을 어디까지 봤는지 기억하기 어렵고, 다음 영상은 검색부터 다시 해야 합니다. StudyTube는 이 흐름을 한 화면과 하나의 학습 기록으로 묶기 위해 시작했습니다.
+## 시작한 이유
 
-로그인한 사용자가 영상 주소를 넣으면 원문과 한국어 자막을 준비합니다. 현재 자막을 보며 시점이 붙은 메모를 남기고, 실제로 본 구간에서 퀴즈를 풉니다. 답을 확인한 뒤에는 근거 구간으로 돌아가 복습하거나 다음 영상을 제안받습니다. 제안은 사용자가 기존 Course 또는 새 비공개 Course를 선택해 승인해야 반영됩니다.
+YouTube에는 외국어 학습 자료가 많지만 실제 공부 과정은 여러 곳으로 나뉩니다. 영상은 YouTube에서 보고, 모르는 표현은 다른 창에서 찾고, 메모는 별도 앱에 적습니다. 며칠 뒤 다시 돌아오면 어디까지 봤는지와 다음에 무엇을 볼지부터 다시 정해야 합니다.
+
+StudyTube는 이 과정을 영상 하나를 소비하는 일이 아니라 이어지는 학습 기록으로 만들기 위해 시작했습니다. 재생 위치를 기준으로 자막, 메모, 퀴즈를 묶고, 사용자의 목표와 학습 기록을 바탕으로 다음 영상 순서를 제안합니다.
 
 ## 학습 흐름
 
-1. 로그인 후 YouTube 영상 주소를 등록합니다.
-2. YouTube 자막을 먼저 사용하고, 자막이 없을 때만 승인된 STT 경로를 검토합니다.
-3. 원문과 한국어 자막을 보며 시점이 붙은 메모를 남깁니다.
-4. 시청한 구간과 현재 자막 버전을 고정해 퀴즈를 만듭니다.
-5. 오답은 출처 시점으로 돌아가 확인합니다.
-6. 학습 기록에 근거한 다음 영상을 확인하고 Course 반영 여부를 직접 결정합니다.
+1. YouTube 영상 주소를 입력합니다.
+2. YouTube가 제공하는 자막을 먼저 가져오고 준비된 문장부터 보여 줍니다.
+3. 영상 재생 위치에 맞춰 원문을 먼저 보고, 한국어 번역이 준비되면 함께 확인합니다.
+4. 기억할 내용을 해당 시점에 메모합니다.
+5. 0초부터 현재 재생 위치까지 준비된 자막으로 퀴즈를 풀고 오답의 근거 시점으로 돌아갑니다.
+6. 학습 목표로 만든 Course 초안을 확인하고 제안된 영상 순서를 직접 저장합니다.
+7. 퀴즈를 평가한 뒤에는 기존 Course 또는 새 비공개 Course를 선택해 첫 후보 추가를 승인합니다.
+8. 같은 브라우저에서는 최근 영상을 이어 보고, 저장한 Course는 다른 기기에서도 다시 선택합니다.
 
-## Agent, MCP, RAG를 사용한 이유
+## 전체 구조
 
-세 기술을 화면 장식이 아니라 학습 흐름의 책임 경계로 사용했습니다.
+```mermaid
+flowchart LR
+  Browser["React Web"] -->|"HTTPS"| Caddy["Caddy"]
+  Caddy --> API["NestJS API"]
+  API --> DB["PostgreSQL + pgvector"]
+  API --> AI["FastAPI AI service"]
+  Relay["OutboxRelayService"] -->|"outbox claim"| DB
+  Relay --> Queue["Valkey + BullMQ"]
+  Queue --> Worker["Background worker"]
+  Worker --> DB
+  Worker --> AI
+```
 
-- RAG는 현재 사용자의 자막, 메모, 퀴즈 근거 중 시청 범위와 자료 버전이 맞는 항목만 찾고 시점을 함께 반환합니다.
-- MCP는 검색, 학습 상태 읽기, 퀴즈 요청, 다음 학습 제안을 허용된 도구로 제한합니다. 실행 기록에는 원문 대신 허용된 필드 이름과 개수만 남깁니다.
-- Agent는 정해진 실행 시간, 도구 호출 수, token, 예상 비용 안에서 제안을 만듭니다. Course 변경과 영상 재생은 직접 수행하지 않습니다.
+브라우저는 화면 상태를 다루고, 사용자별 최근 학습 목록과 standalone 영상의 재생 위치 및 완료 여부는 localStorage에 저장합니다. 저장한 Course, 메모, 자막과 퀴즈는 API와 PostgreSQL이 소유하며 사용자 권한을 확인합니다. 오래 걸리는 자막, 번역, 임베딩, 퀴즈 작업은 요청 처리와 분리해 worker에서 실행합니다. AI 서비스는 자막 처리와 학습 자료 생성을 담당하지만 Course 저장과 같은 최종 변경은 API와 사용자의 승인을 거칩니다.
 
-추천 결과가 틀렸을 때 근거를 확인할 수 있고, 자동 제안이 사용자 데이터를 바로 변경하는 상황을 막는 것이 핵심입니다.
+| 영역 | 사용 기술 | 역할 |
+| --- | --- | --- |
+| Web | React, TypeScript, Vite | 영상 재생, 자막, 메모, 퀴즈, Course 화면 |
+| API | NestJS, TypeScript | 인증, 소유권, 학습 기록, 작업 예약 |
+| AI | FastAPI, Python, LangGraph | 자막 처리, 번역, 임베딩, 학습 순서 생성 |
+| Data | PostgreSQL, pgvector, Valkey, BullMQ | 영속 데이터, 검색, 작업 전달 |
+| Infra | Caddy, Docker Compose, GitHub Actions, AWS | HTTPS, 실행 환경, 검증과 배포 |
+
+## 주요 코드 관계
+
+```mermaid
+classDiagram
+  class LearningWorkspace
+  class LearningItemController
+  class LearningItemService
+  class LearningItemRepository
+  class ProviderBudgetRepository
+  class LearningController
+  class LearningService
+  class RetrievalRepository
+  class LearningProposalRepository
+  class OutboxRelayService
+  class WorkRepository
+  class WorkQueuePublisher
+  class BullMqVideoAssetWorker
+  class DurableWorkRouter
+  class VideoAssetJobHandler
+  class RetrievalEmbeddingJobHandler
+  class QuizGenerationJobHandler
+  class LearningSummaryJobHandler
+  class DurableJobExecutor
+  class JobExecutionStore
+
+  LearningWorkspace --> LearningItemController : 영상과 메모
+  LearningWorkspace --> LearningController : 퀴즈와 다음 학습
+  LearningItemController --> LearningItemService
+  LearningItemService --> LearningItemRepository : 학습 맥락
+  LearningItemService --> ProviderBudgetRepository : 비용과 작업 예약
+  LearningController --> LearningService
+  LearningService --> RetrievalRepository
+  LearningService --> LearningProposalRepository
+  OutboxRelayService --> WorkRepository : outbox claim
+  OutboxRelayService --> WorkQueuePublisher : queue 전달
+  BullMqVideoAssetWorker --> DurableWorkRouter : job 전달
+  DurableWorkRouter --> VideoAssetJobHandler : 유형별 분기
+  DurableWorkRouter --> RetrievalEmbeddingJobHandler : 유형별 분기
+  DurableWorkRouter --> QuizGenerationJobHandler : 유형별 분기
+  DurableWorkRouter --> LearningSummaryJobHandler : 유형별 분기
+  VideoAssetJobHandler --> DurableJobExecutor
+  RetrievalEmbeddingJobHandler --> DurableJobExecutor
+  QuizGenerationJobHandler --> DurableJobExecutor
+  LearningSummaryJobHandler --> DurableJobExecutor
+  DurableJobExecutor --> JobExecutionStore : lease와 결과
+```
+
+LearningWorkspace는 영상과 네 가지 학습 도구를 조합합니다. 화면에서 시작한 요청은 controller, service, repository 순서로 내려가며 SQL과 외부 처리 세부사항이 화면까지 새어 나오지 않도록 나눴습니다.
+
+상세 흐름은 [아키텍처 문서](docs/architecture.md)에 정리했습니다.
 
 ## 문제 해결 과정
 
-### 학습 자료와 학습 맥락 분리
+### 번역이 끝날 때까지 학습 화면이 비어 있던 문제
 
-같은 영상도 혼자 볼 때와 Course 안에서 볼 때 메모, 진도, 퀴즈 근거가 다릅니다. 공유 가능한 영상 원본, 사용자 소유 학습 자료, Course 위치별 학습 맥락을 나눴습니다.
+초기에는 원문 자막, 한국어 번역, 검색용 데이터가 모두 준비돼야 학습 화면이 열렸습니다. 영상이 길수록 사용자는 처리 완료까지 아무것도 할 수 없었습니다.
 
-### 단계적 자막 공개
+자막 상태를 원문 확인, 음성 인식, 번역, 검색 준비, 부분 완료, 완료로 나눴습니다. 같은 처리 회차의 자막 조각은 기존 결과와 합치고, 준비된 원문부터 화면에 표시했습니다. 번역과 검색이 진행 중이어도 먼저 영상을 보며 메모를 남길 수 있게 됐습니다.
 
-처음에는 원문 자막을 받은 뒤 번역과 검색 준비가 모두 끝날 때까지 학습 화면이 비어 있었습니다. 긴 영상일수록 번역 종료가 학습 시작을 막는 증상이 생겼습니다.
+### 자막은 있는데 현재 재생 구간이 비어 있던 문제
 
-원문, 번역, index artifact는 pending, partial, ready, failed 상태로 저장합니다. API는 이 상태와 retrieval-ready boolean으로 caption phase를 만들어 화면에 보내고 준비된 segment부터 보여줍니다.
+영상 전체에 자막 데이터가 있다는 사실만 확인하면 앞부분이나 현재 재생 위치가 비어 있는 경우를 놓쳤습니다. 저장된 첫 문장이 5초 이후에 시작하면 앞부분 보강 작업을 다시 요청하고, 현재 구간과 겹치는 문장이 없으면 YouTube 기본 자막을 우선 사용하도록 바꿨습니다.
 
-### 비용 작업의 사전 예약
+자동 보강이 늦을 때는 사용자가 재생 중인 탭 소리로 처음부터 자막을 시작할 수 있습니다. 자막 유무가 아니라 현재 시점에서 학습 가능한지를 기준으로 화면을 결정합니다.
 
-같은 영상 요청은 기존 작업에 합류하고, 사용자별 및 전체 한도를 통과한 요청만 외부 처리를 시작합니다. STT는 provider flag 하나만으로 켤 수 없습니다. 승인 기록, 고정 model, production 환경, 최대 금액, 만료 시각, 승인 ID가 모두 유효해야 배포가 진행됩니다.
+### 작업이 사라지거나 두 번 실행될 수 있던 문제
 
-### at-least-once 작업 전달
+학습 데이터를 저장한 뒤 별도로 queue에 작업을 보내면 두 동작 사이에서 서버가 중단될 수 있습니다. 반대로 queue가 작업을 다시 전달하면 같은 외부 처리가 중복 실행될 수 있습니다.
 
-API가 학습 데이터를 commit한 뒤 외부 작업을 바로 호출하면, 그 사이 프로세스가 중단돼 작업이 사라질 수 있습니다. 반대로 queue가 다시 전달하면 같은 작업이 두 번 실행될 수 있었습니다.
+provider 작업 예약과 outbox event를 하나의 PostgreSQL transaction에 기록합니다. 이어 별도 transaction에서 learning item과 study context를 만들고 subscription을 context에 연결합니다. context 생성이나 연결에 실패하면 새로 만든 subscription reservation을 release합니다. OutboxRelayService가 event를 Valkey queue로 옮기고 DurableJobExecutor가 lease, heartbeat, 실행 결과를 관리합니다. 같은 작업이 다시 도착하면 저장한 결과를 돌려주고, lease를 잃은 worker는 외부 작업을 중단합니다.
 
-학습 변경과 outbox event를 PostgreSQL transaction에 함께 기록하고, OutboxRelayService가 Valkey queue로 전달합니다. DurableJobExecutor는 lease와 결과를 기록해 재전달을 수렴시킵니다.
+### 일부 자막으로는 퀴즈를 시작할 수 없던 문제
 
-terminal failure와 dead letter를 함께 완료하며 작업 전달 계약은 at-least-once로 유지합니다.
+퀴즈가 완성된 전체 자막만 요구하면 긴 영상에서는 현재 재생 위치까지 문장이 충분해도 기다려야 했습니다. 퀴즈 요청 시 0초부터 현재 재생 위치까지를 범위로 저장하고, 그 안에 준비된 자막 문장과 자막 버전을 근거로 고정했습니다.
 
-### 배포 비용과 가용성 절충
+화면에 원문 문장 5개가 준비되면 번역이나 검색 처리가 진행 중인 상태에서도 퀴즈를 요청할 수 있습니다. API는 ready caption artifact의 버전을 고정하고, 검색용 근거가 부족하면 같은 artifact의 자막 문장을 사용합니다. 답을 확인할 때는 사용한 문장과 시점으로 다시 이동할 수 있습니다.
 
-개인 프로젝트 비용을 낮추기 위해 EC2 한 대에서 API, AI service, worker, PostgreSQL, Valkey를 함께 운영합니다.
+## AI가 맡는 범위
 
-## 구조
+Course 화면에서는 AI가 사용자의 목표를 검색어로 바꾸고 관련 영상 후보를 정리합니다. 브라우저는 이 후보를 학습 순서 초안으로 구성하며, 사용자가 저장을 눌러야 Course로 확정됩니다. 검색 결과는 관련도, 자막 가능성, 이미 본 영상과의 중복을 기준으로 정리합니다.
 
-```mermaid
-flowchart LR
-  Browser[React Web] -->|HTTPS| Caddy
-  Caddy --> API[NestJS API]
-  API --> PostgreSQL[PostgreSQL and pgvector]
-  API --> Valkey
-  Valkey --> Worker[Background worker]
-  Worker --> MCP[MCP learning tools]
-  MCP --> Retrieval[Grounded retrieval]
-  API --> AI[FastAPI AI service]
-```
+퀴즈를 평가한 뒤에는 다음 학습 실행 결과의 첫 후보 하나를 제안합니다. 사용자가 기존 Course 또는 새 비공개 Course를 선택해 후보 추가를 승인해야 반영됩니다. 실행 시간, 도구 호출 수, 토큰과 예상 비용에도 상한을 두어 한 번의 요청이 계속 확장되지 않도록 했습니다.
 
-| 영역 | 책임 |
-| --- | --- |
-| `web` | 로그인, 영상 등록, 자막, 메모, 퀴즈, Course 승인 |
-| `api` | 소유권, 비용 예약, 학습 상태, durable work, MCP 경계 |
-| `ai` | 자막 처리, 번역, 임베딩, 퀴즈 생성 |
-| `operations` | 복원, 장애, 부하, Prometheus 규칙 검증 |
-| `infra`, `scripts` | Caddy, production runtime, immutable EC2 배포 |
+## 팀 작업과 개인 구현
 
-상세 class와 service 관계, durable work 흐름은 [아키텍처 문서](docs/architecture.md)에 있습니다.
+StudyTube는 여러 contributor가 게시판, 영상, 자막, 검색 흐름을 함께 만들며 시작했습니다. 이후 이시원은 서비스를 영상 학습 중심으로 재구성하고 다음 영역을 확장했습니다.
 
-## 구현 관계
+- 현재 문장 중심의 학습 화면과 Course 이어보기
+- 서버 세션, 이메일 인증과 사용자 프로필
+- Course 버전 관리와 동시 수정 처리
+- 자막 단계 공개, 근거 자막 퀴즈와 다음 학습 제안
+- PostgreSQL outbox와 재시도 가능한 worker
+- LangGraph 기반 학습 순서 생성
+- GitHub Actions에서 AWS까지 이어지는 배포 구조
+
+구현 범위와 시작 코드는 [팀 작업과 구현 범위](docs/contributions.md)에서 확인할 수 있습니다.
+
+## CI/CD와 배포
 
 ```mermaid
 flowchart LR
-  LearningPage --> LearningWorkspace
-  LearningWorkspace --> Session[useLearningSession]
-  LearningWorkspace --> Quiz[useAdaptiveQuiz]
-  LearningWorkspace --> Proposal[useNextLearningProposal]
-  LearningWorkspace --> ApiClient[web api client]
-  ApiClient --> ItemController[LearningItemController]
-  ApiClient --> LearningController
-  ItemController --> ItemService[LearningItemService]
-  LearningController --> LearningService
-  ItemService --> PostgreSQL
-  LearningService --> PostgreSQL
-  LearningService --> Retrieval[RetrievalRepository]
-  PostgreSQL --> Outbox[OutboxRelayService]
-  Outbox --> Valkey
-  Valkey --> Worker[durable workers]
-  Worker --> MCP[MCP learning boundary]
-  MCP --> AI[FastAPI AI service]
+  Main["main push"] --> Checks["Security, Web, API, AI, Integration"]
+  Checks --> Release["고정된 release artifact"]
+  Release --> OIDC["GitHub OIDC"]
+  OIDC --> S3["S3"]
+  S3 --> SSM["AWS SSM"]
+  SSM --> EC2["EC2"]
+  EC2 --> Health["Web, API, AI, worker 확인"]
 ```
 
-Web hook은 화면 상태와 polling을 맡고 mutation 규칙은 API service에 남깁니다. PostgreSQL transaction에서 학습 변경과 outbox event를 함께 기록하고, worker는 Valkey queue의 중복 delivery를 `DurableJobExecutor` 경계에서 수렴시킵니다.
+main에 반영된 소스 그대로 Web, API, AI와 PostgreSQL 및 Valkey 통합 검사를 실행합니다. 검사를 통과한 소스만 release 파일과 SHA-256으로 묶습니다. GitHub Actions는 장기 AWS access key 대신 OIDC 임시 권한을 받아 S3에 release를 올리고 SSM으로 EC2에 배포합니다.
 
-## 팀 결과와 개인 기여
-
-StudyTube의 초기 게시판, 영상과 자막 흐름은 여러 contributor가 함께 만들었습니다. 이시원은 guided learning, backend hardening과 배포 구조를 확장했습니다.
-
-세부 구현 역할은 [기여 문서](docs/contributions.md)에 정리했습니다.
-
-## 검증 결과
-
-Web 216개, API 720개, AI 126개 test가 통과했습니다. Operations contract는 57개 assertion을 통과했고 Web과 API production dependency audit은 취약점 0건이었습니다.
+외부에는 Caddy의 80번과 443번 포트만 열고 API, AI, PostgreSQL, Valkey는 내부 경계에 둡니다. 자세한 배포 흐름은 [CI/CD 문서](docs/ci-cd.md)에 있습니다.
 
 ## 로컬 실행
 
-Node.js 24.8 이상, Python 3.12, Docker Compose v2가 필요합니다.
+Node.js 24.8 이상, Python 3.12, Docker Compose v2가 필요합니다. Web, API와 database는 PowerShell에서 실행할 수 있으며, AI lockfile 설치와 AI 서비스 실행은 Linux 또는 WSL에서 진행합니다.
 
 ```powershell
 Copy-Item .env.example .env
-npm --prefix api ci
+
 npm --prefix web ci
-python -m venv ai/.venv
-ai/.venv/Scripts/python.exe -m pip install --require-hashes -r ai/requirements.txt
+npm --prefix api ci
+
 npm run db:up
 npm run db:migrate:up
-npm run all
 ```
 
-- Web: `http://localhost:5173`
-- API: `http://localhost:3000`
-- AI service: `http://localhost:8000`
-
-## 재현 가능한 검증
+Web과 API는 각각 별도 PowerShell 터미널에서 실행합니다.
 
 ```powershell
-Push-Location web
-node --test tests/*.test.ts
-npm run lint
-npm run build
-Pop-Location
+npm run dev:web
+npm run dev:api
+```
 
-Push-Location api
-npm test -- --runInBand
-npm run lint
-npm run build
-npm run openapi:export
-npm run openapi:verify
-Pop-Location
+AI 서비스는 Linux 또는 WSL 터미널에서 실행합니다.
 
-Push-Location ai
-.venv/Scripts/python.exe -m unittest discover -s .
-Pop-Location
+```bash
+python3 -m venv ai/.venv
+ai/.venv/bin/python -m pip install --require-hashes -r ai/requirements.txt
+ai/.venv/bin/python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000 --app-dir ai
+```
+
+- Web: http://localhost:5173
+- API: http://localhost:3000
+- AI service: http://localhost:8000
+
+Worker는 API를 빌드한 뒤 별도 터미널에서 실행합니다.
+
+```powershell
+npm --prefix api run build
+npm --prefix api run start:worker
+```
+
+외부 모델을 사용하는 기능에는 OPENAI_API_KEY가 필요합니다.
+
+## 검증
+
+```powershell
+npm --prefix web run lint
+npm --prefix web run build
+
+npm --prefix api run lint
+npm --prefix api test -- --runInBand
+npm --prefix api run build
 
 pwsh ./operations/tests/Invoke-OperationsContractTests.ps1
 ```
 
-PostgreSQL E2E는 migration과 fixture를 바꾸므로 공유 database가 아닌 격리된 test database에서 실행해야 합니다. 실행 방법은 [api/README.md](api/README.md), 운영 드릴은 [operations/README.md](operations/README.md)에 정리했습니다.
+AI lockfile 설치와 test는 Linux 또는 WSL에서 실행합니다.
 
-전체 문서 안내와 최신 재검증 결과는 [docs/README.md](docs/README.md)에서 확인할 수 있습니다.
+```bash
+python3 -m venv ai/.venv
+ai/.venv/bin/python -m pip install --require-hashes -r ai/requirements.txt
+(
+  cd ai
+  .venv/bin/python -m unittest discover -s .
+)
+```
+
+최신 main의 검사와 실제 배포 결과는 [GitHub Actions](https://github.com/NearthYou/studytube/actions/workflows/ci-cd.yml)에서 확인할 수 있습니다. 문서에 사용한 검증 기준은 [verification.md](docs/verification.md)에 정리했습니다.

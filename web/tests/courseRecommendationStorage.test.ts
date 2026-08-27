@@ -4,6 +4,7 @@ import {
   readCourseRecommendation,
   saveCourseRecommendation,
 } from "../src/features/course/courseRecommendationStorage.ts";
+import * as recommendationStorage from "../src/features/course/courseRecommendationStorage.ts";
 import type { QueueVideo } from "../src/watchQueue.ts";
 
 function storage(): Storage {
@@ -44,4 +45,25 @@ test("keeps the latest recommendation so the course survives a reload", () => {
   const saved = readCourseRecommendation(memory);
   assert.equal(saved?.goal, "C++");
   assert.deepEqual(saved?.videos.map((item) => item.videoId), ["cpp-1", "cpp-2"]);
+});
+
+test("clears a prepared recommendation after its Course is saved", () => {
+  const memory = storage();
+  saveCourseRecommendation(
+    {
+      goal: "C++",
+      title: "C++ 기초 코스",
+      videos: [video("cpp-1"), video("cpp-2")],
+    },
+    memory,
+  );
+  const clear = (
+    recommendationStorage as unknown as {
+      clearCourseRecommendation?: (storage: Storage) => void;
+    }
+  ).clearCourseRecommendation;
+
+  assert.equal(typeof clear, "function");
+  clear?.(memory);
+  assert.equal(readCourseRecommendation(memory), null);
 });

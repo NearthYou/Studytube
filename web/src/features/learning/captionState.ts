@@ -91,13 +91,39 @@ export function quizPreparation(
   state: ProgressiveCaptionState,
   currentTime = Number.POSITIVE_INFINITY,
 ) {
+  const requiredSentences = 5;
   const watchedSentences = state.sourceSegments.filter(
     (segment) => segment.end <= currentTime,
   ).length;
-  const captionsUsable = ["index_pending", "complete"].includes(state.phase);
-  return captionsUsable && watchedSentences >= 5
-    ? { ready: true, message: "퀴즈를 시작할 수 있습니다." }
-    : { ready: false, message: "자막 문장 5개를 본 뒤 퀴즈가 열려요." };
+  const captionsUsable = [
+    "translation_pending",
+    "index_pending",
+    "partial",
+    "complete",
+  ].includes(state.phase);
+
+  if (state.sourceSegments.length === 0) {
+    return {
+      ready: false,
+      needsCaptions: true,
+      message: "학습 자막을 먼저 준비해주세요.",
+    };
+  }
+
+  if (captionsUsable && watchedSentences >= requiredSentences) {
+    return {
+      ready: true,
+      needsCaptions: false,
+      message: "퀴즈를 시작할 수 있습니다.",
+    };
+  }
+
+  const remaining = Math.max(0, requiredSentences - watchedSentences);
+  return {
+    ready: false,
+    needsCaptions: false,
+    message: `지금 ${Math.min(watchedSentences, requiredSentences)}/${requiredSentences}문장을 봤어요. ${remaining}문장 더 보면 퀴즈가 열려요.`,
+  };
 }
 
 export function needsInitialCaptionRepair(state: ProgressiveCaptionState) {

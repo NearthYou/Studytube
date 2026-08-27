@@ -21,56 +21,53 @@ export function CourseNavigator({
   );
   const currentIndex = foundIndex >= 0 ? foundIndex : 0;
   const current = orderedVideos[currentIndex];
+  const previous = orderedVideos[currentIndex - 1];
   const next = orderedVideos[currentIndex + 1];
 
   return createElement(
     "nav",
     { className: "course-navigator", "aria-label": "현재 코스 순서" },
     createElement(
-      "header",
-      null,
+      "div",
+      { className: "course-navigator-summary" },
       createElement(
         "div",
         null,
-        createElement("small", null, "학습 코스"),
         createElement("strong", null, current.course?.title ?? "이어 보는 영상"),
+        createElement(
+          "span",
+          null,
+          `${currentIndex + 1} / ${orderedVideos.length}`,
+        ),
       ),
-      createElement("span", null, `${currentIndex + 1} / ${orderedVideos.length}`),
     ),
     createElement(
-      "ol",
-      null,
-      ...orderedVideos.map((video, index) => {
-        const active = video.videoId === currentVideoId;
-        return createElement(
-          "li",
-          { key: `${video.course?.id ?? "course"}-${video.videoId}` },
-          createElement(
-            "button",
-            {
-              "aria-current": active ? "step" : undefined,
-              className: active ? "active" : "",
-              onClick: () => onSelect(video),
-              type: "button",
-            },
-            createElement("span", null, String(index + 1)),
-            createElement("strong", null, video.title),
-            createElement("small", null, active ? "지금 학습 중" : "이동"),
-          ),
-        );
-      }),
-    ),
-    next
-      ? createElement(
+      "div",
+      { className: "course-navigator-actions" },
+      previous
+        ? createElement(
           "button",
           {
-            className: "course-next-action",
+            "aria-label": `이전 영상: ${previous.title}`,
+            className: "secondary-action",
+            onClick: () => onSelect(previous),
+            type: "button",
+          },
+          "이전",
+        )
+        : null,
+      next
+        ? createElement(
+          "button",
+          {
+            "aria-label": `다음 영상: ${next.title}`,
             onClick: () => onSelect(next),
             type: "button",
           },
-          createElement("span", null, "다음으로"),
-          createElement("strong", null, next.title),
+          "다음",
         )
-      : null,
+        : null,
+      createElement("a", { href: "/courses" }, "코스 목록"),
+    ),
   );
 }

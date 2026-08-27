@@ -10,6 +10,7 @@ import { LearningPanelState } from "./LearningPanelState.tsx";
 
 export function AdaptiveQuizPanel({
   answers,
+  canPrepareCaptions,
   loop,
   onAnswer,
   onPrepareCaptions,
@@ -21,6 +22,7 @@ export function AdaptiveQuizPanel({
   submission,
 }: {
   answers: Record<string, number>;
+  canPrepareCaptions: boolean;
   loop: AdaptiveQuizLoop | null;
   onAnswer: (questionId: string, choiceIndex: number) => void;
   onPrepareCaptions: () => void;
@@ -32,9 +34,9 @@ export function AdaptiveQuizPanel({
   submission: AdaptiveQuizSubmission | null;
 }) {
   if (["request", "generating", "failed", "stale"].includes(state.phase)) {
-    const presentation = quizPanelPresentation(state);
+    const presentation = quizPanelPresentation(state, canPrepareCaptions);
     const action =
-      state.phase === "request" && !state.evidenceReady
+      state.phase === "request" && !state.evidenceReady && canPrepareCaptions
         ? onPrepareCaptions
         : onRequest;
     return (

@@ -51,7 +51,8 @@ test("ignores a stale caption generation", () => {
 test("opens a quiz after five watched caption sentences even while indexing", () => {
   assert.deepEqual(quizPreparation(pending), {
     ready: false,
-    message: "자막 문장 5개를 본 뒤 퀴즈가 열려요.",
+    needsCaptions: false,
+    message: "지금 1/5문장을 봤어요. 4문장 더 보면 퀴즈가 열려요.",
   });
   const fiveSegments = Array.from({ length: 5 }, (_, index) => ({
     start: index * 10,
@@ -65,16 +66,54 @@ test("opens a quiz after five watched caption sentences even while indexing", ()
   };
   assert.deepEqual(quizPreparation(indexing, 35), {
     ready: false,
-    message: "자막 문장 5개를 본 뒤 퀴즈가 열려요.",
+    needsCaptions: false,
+    message: "지금 4/5문장을 봤어요. 1문장 더 보면 퀴즈가 열려요.",
   });
   assert.deepEqual(quizPreparation(indexing, 50), {
     ready: true,
+    needsCaptions: false,
     message: "퀴즈를 시작할 수 있습니다.",
   });
   assert.deepEqual(quizPreparation({ ...indexing, phase: "complete" }, 50), {
     ready: true,
+    needsCaptions: false,
     message: "퀴즈를 시작할 수 있습니다.",
   });
+});
+
+test("live partial captions count toward quiz progress", () => {
+  const segments = Array.from({ length: 5 }, (_, index) => ({
+    start: index * 4,
+    end: index * 4 + 3,
+    text: `live sentence ${index + 1}`,
+  }));
+  const live = {
+    ...pending,
+    phase: "partial" as const,
+    sourceSegments: segments,
+  };
+
+  assert.deepEqual(quizPreparation(live, 10), {
+    ready: false,
+    needsCaptions: false,
+    message: "지금 2/5문장을 봤어요. 3문장 더 보면 퀴즈가 열려요.",
+  });
+  assert.deepEqual(quizPreparation(live, 20), {
+    ready: true,
+    needsCaptions: false,
+    message: "퀴즈를 시작할 수 있습니다.",
+  });
+});
+
+test("quiz preparation asks for captions only when no source sentence exists", () => {
+  assert.deepEqual(
+    quizPreparation({ ...pending, sourceSegments: [] }, 20),
+    {
+      ready: false,
+      needsCaptions: true,
+      message: "학습 자막을 먼저 준비해주세요.",
+    },
+  );
 });
 
 test("detects a missing opening range without retrying complete coverage", () => {

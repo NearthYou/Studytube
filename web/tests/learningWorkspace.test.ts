@@ -183,13 +183,13 @@ test("player captions move with controls and expose three readable sizes", () =>
   );
 });
 
-test("quiz polling keeps one bounded abortable loop for each quiz identity", () => {
+test("quiz polling waits for the bounded two-minute generation window", () => {
   const source = readFileSync(
     resolve(featureDirectory, "useAdaptiveQuiz.ts"),
     "utf8",
   );
 
-  assert.match(source, /const MAX_QUIZ_POLLS = 10/);
+  assert.match(source, /const MAX_QUIZ_POLLS = 80/);
   assert.match(source, /new AbortController\(\)/);
   assert.match(source, /fetchAdaptiveQuiz\(activeLoopId, \{ signal \}\)/);
   assert.match(source, /\[loopId, loopState\]/);

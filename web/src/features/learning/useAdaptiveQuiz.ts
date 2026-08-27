@@ -13,7 +13,7 @@ import {
   type QuizUiState,
 } from "./adaptiveQuizFlow.ts";
 
-const MAX_QUIZ_POLLS = 10;
+const MAX_QUIZ_POLLS = 80;
 
 export function useAdaptiveQuiz({
   active,

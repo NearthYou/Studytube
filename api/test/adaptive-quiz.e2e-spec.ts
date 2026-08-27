@@ -6,8 +6,8 @@ import { MemoryJobExecutionStore } from '../src/work/memory-job-execution.store'
 import { PostgresLearningRepository } from '../src/learning/postgres-learning.repository';
 import { LearningService } from '../src/learning/learning.service';
 import {
-  DeterministicGroundedQuizGenerator,
   QuizGenerationJobHandler,
+  type GroundedQuizGenerator,
 } from '../src/learning/quiz-generation.worker';
 
 const DATABASE_URL =
@@ -73,7 +73,7 @@ describe('adaptive quiz PostgreSQL checkpoint (e2e)', () => {
     };
     const handler = new QuizGenerationJobHandler(
       service,
-      new DeterministicGroundedQuizGenerator(),
+      contentQuizGenerator(),
       new DurableJobExecutor(new MemoryJobExecutionStore(), {
         leaseOwner: 'adaptive-quiz-e2e',
         leaseMs: 30_000,
@@ -168,7 +168,7 @@ describe('adaptive quiz PostgreSQL checkpoint (e2e)', () => {
     );
     const handler = new QuizGenerationJobHandler(
       service,
-      new DeterministicGroundedQuizGenerator(),
+      contentQuizGenerator(),
       new DurableJobExecutor(new MemoryJobExecutionStore(), {
         leaseOwner: 'adaptive-quiz-stale-e2e',
         leaseMs: 30_000,
@@ -308,3 +308,34 @@ describe('adaptive quiz PostgreSQL checkpoint (e2e)', () => {
     };
   }
 });
+
+function contentQuizGenerator(): GroundedQuizGenerator {
+  return {
+    generate(snapshot, signal) {
+      signal.throwIfAborted();
+      return Promise.resolve({
+        schemaVersion: 1,
+        generatorVersion: 'content-quiz-e2e-v1',
+        questions: snapshot.evidence.map((evidence, index) => ({
+          prompt: `영상에서 다룬 개념 ${index + 1}의 역할은 무엇인가요?`,
+          choices: [
+            `핵심 역할 ${index + 1}`,
+            `다른 역할 ${index + 1}`,
+            `반대 역할 ${index + 1}`,
+            `관련 없는 역할 ${index + 1}`,
+          ],
+          correctChoiceIndex: index % 4,
+          explanation: `개념 ${index + 1}이 필요한 이유를 설명한 내용입니다.`,
+          citation: {
+            resourceId: evidence.resourceId,
+            sourceUrl: evidence.sourceUrl,
+            startSeconds: evidence.startSeconds,
+            endSeconds: evidence.endSeconds,
+            artifactId: evidence.artifactId,
+            artifactGeneration: evidence.artifactGeneration,
+          },
+        })),
+      });
+    },
+  };
+}

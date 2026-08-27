@@ -634,7 +634,6 @@ function ActiveLearningWorkspace({
             onDurationChange={setDurationSeconds}
             onEnded={finishVideo}
             onTimeChange={trackPlayback}
-            preferNativeCaptions={!currentCaption.source}
             ref={playerRef}
             videoId={video.videoId}
           />
@@ -755,6 +754,7 @@ function ActiveLearningWorkspace({
             <AdaptiveQuizPanel
               answers={quiz.answers}
               canPrepareCaptions={quizState.needsCaptions}
+              key={quiz.loop?.id ?? "quiz"}
               loop={quiz.loop}
               onAnswer={quiz.chooseAnswer}
               onPrepareCaptions={prepareCaptionsForQuiz}

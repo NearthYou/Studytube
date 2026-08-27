@@ -104,6 +104,115 @@
   color: var(--app-accent);
 }
 
+.course-page .course-library {
+  gap: 18px;
+  padding: 24px;
+  border: 1px solid var(--app-line);
+  border-radius: 12px;
+}
+
+.course-page .course-library .section-title {
+  margin: 0;
+  padding: 0;
+}
+
+.course-library-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.course-library-card {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid var(--app-line);
+  border-radius: 12px;
+  background: #10151d;
+  color: var(--app-text);
+  box-shadow: none;
+  text-align: left;
+}
+
+.course-library-card:hover {
+  border-color: #52627a;
+  background: var(--app-elevated);
+}
+
+.course-card-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.course-card-heading > span:first-child,
+.course-video-preview-list {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.course-card-heading strong {
+  color: var(--app-text);
+  font-size: 18px;
+  line-height: 1.4;
+}
+
+.course-card-heading small,
+.course-video-preview small {
+  color: var(--app-muted);
+  font-size: 12px;
+}
+
+.course-open-label {
+  flex: 0 0 auto;
+  color: var(--app-accent);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.course-video-preview {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+  padding: 8px;
+  border-radius: 8px;
+  background: var(--app-surface);
+}
+
+.course-video-preview img {
+  width: 72px;
+  height: 44px;
+  border-radius: 6px;
+  object-fit: cover;
+}
+
+.course-video-preview > span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.course-video-preview b {
+  overflow: hidden;
+  color: var(--app-text);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.course-preview-more {
+  color: var(--app-muted);
+  font-size: 12px;
+  text-align: right;
+}
+
 @media (max-width: 720px) {
   .course-builder-heading,
   .preference-summary {
@@ -113,6 +222,14 @@
   .prepared-course .playlist-toolbar {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .course-library-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .course-page .course-library {
+    padding: 16px;
   }
 
   .playlist-toolbar .prepared-course-actions,

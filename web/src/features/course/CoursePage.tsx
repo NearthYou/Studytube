@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { Link, useNavigate } from "react-router";
 import { askAgent, askMcp, askRag } from "../../api";
@@ -22,7 +22,7 @@ import {
   uniqueVideos,
   type QueueVideo,
 } from "../../watchQueue";
-import type { AgentResponse, Course, McpResponse, Playlist, RagResponse, Session } from "../../types";
+import type { AgentResponse, Course, McpResponse, RagResponse, Session } from "../../types";
 import "./CoursePage.css";
 
 export function CoursePage({ session }: { session: Session }) {
@@ -38,13 +38,7 @@ export function CoursePage({ session }: { session: Session }) {
     readCourseRecommendation(),
   );
   const [courses, setCourses] = useState<Course[]>([]);
-  const playlists = useMemo(
-    () =>
-      courses
-        .filter((course) => course.status !== "archived")
-        .map(playlistViewFromCourse),
-    [courses],
-  );
+  const activeCourses = courses.filter((course) => course.status !== "archived");
   const [status, setStatus] = useState(
     hasProfile
       ? `${profile.interests[0]} 관심사와 학습 목표를 새 코스에 반영합니다.`
@@ -181,9 +175,8 @@ export function CoursePage({ session }: { session: Session }) {
     navigate(`/watch?videoId=${selected.videoId}`);
   }
 
-  function playSavedPlaylist(playlist: Playlist) {
-    const course = courses.find((candidate) => candidate.id === playlist.id);
-    const courseVideos = course?.steps.map(queueVideoFromCourseStep) ?? [];
+  function playSavedCourse(course: Course) {
+    const courseVideos = course.steps.map(queueVideoFromCourseStep);
 
     if (courseVideos.length === 0) {
       setStatus(
@@ -193,8 +186,8 @@ export function CoursePage({ session }: { session: Session }) {
     }
 
     addCourseAndWatch(courseVideos[0], courseVideos, {
-      id: `saved-course-${course?.id ?? playlist.id}`,
-      title: course?.title ?? playlist.title,
+      id: `saved-course-${course.id}`,
+      title: course.title,
     });
   }
 
@@ -512,52 +505,57 @@ export function CoursePage({ session }: { session: Session }) {
       <section className="course-library" aria-labelledby="my-course-title">
         <div className="section-title">
           <h2 id="my-course-title">저장한 코스</h2>
-          <span>{playlists.length}개</span>
+          <span>{activeCourses.length}개</span>
         </div>
-        {playlists.length === 0 ? (
+        {activeCourses.length === 0 ? (
           <div className="empty-product">
             <strong>저장한 코스가 없습니다</strong>
             <p>위에서 새 코스를 만들면 이곳에 보관됩니다.</p>
           </div>
         ) : (
-          playlists.map((playlist) => (
-            <button
-              key={playlist.id}
-              type="button"
-              onClick={() => playSavedPlaylist(playlist)}
-            >
-              <span>
-                <strong>{playlist.title}</strong>
-                <small>{playlist.postIds.length}개 영상</small>
-              </span>
-              코스 열기
-            </button>
-          ))
+          <div className="course-library-grid">
+            {activeCourses.map((course) => (
+              <button
+                className="course-library-card"
+                key={course.id}
+                type="button"
+                onClick={() => playSavedCourse(course)}
+              >
+                <span className="course-card-heading">
+                  <span>
+                    <strong>{course.title}</strong>
+                    <small>{course.steps.length}개 영상</small>
+                  </span>
+                  <span className="course-open-label">코스 열기</span>
+                </span>
+                <span className="course-video-preview-list">
+                  {course.steps.slice(0, 3).map((step, index) => (
+                    <span className="course-video-preview" key={step.id}>
+                      <img
+                        alt=""
+                        loading="lazy"
+                        src={step.snapshot.thumbnailUrl}
+                      />
+                      <span>
+                        <small>{index + 1}번째 영상</small>
+                        <b>{step.snapshot.title}</b>
+                      </span>
+                    </span>
+                  ))}
+                  {course.steps.length > 3 && (
+                    <span className="course-preview-more">
+                      영상 {course.steps.length - 3}개 더 보기
+                    </span>
+                  )}
+                </span>
+              </button>
+            ))}
+          </div>
         )}
       </section>
 
     </main>
   );
-}
-
-function playlistViewFromCourse(course: Course): Playlist {
-  return {
-    id: course.id,
-    ownerId: course.ownerId ?? 0,
-    title: course.title,
-    description: course.description,
-    postIds: course.steps.map((step) => courseStepViewId(course.id, step)),
-    feedback: course.feedback.map((feedback) => ({
-      ...feedback,
-      playlistId: course.id,
-      authorId: feedback.authorId ?? -1,
-    })),
-    createdAt: course.createdAt,
-  };
-}
-
-function courseStepViewId(courseId: number, step: Course["steps"][number]) {
-  return -(courseId * 1_000 + step.position);
 }
 
 function generatedCourseIdempotencyKey(

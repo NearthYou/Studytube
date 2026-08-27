@@ -48,3 +48,20 @@ test("account screen makes learning preferences and progress its primary job", (
   );
   assert.doesNotMatch(source, /보드 플레이리스트|등록 영상/);
 });
+
+test("profile verification keeps readable dark surfaces and controls", () => {
+  const css = readFileSync(resolve(root, "App.css"), "utf8");
+
+  assert.match(
+    css,
+    /\.profile-page \.profile-verification-form\s*\{[^}]*background:\s*var\(--app-surface\)/,
+  );
+  assert.match(
+    css,
+    /\.profile-page \.profile-verification-form \.identity-section\s*\{[^}]*background:\s*var\(--app-elevated\)/,
+  );
+  assert.match(
+    css,
+    /\.profile-page \.profile-verification-form input\s*\{[^}]*color:\s*var\(--app-text\)/,
+  );
+});

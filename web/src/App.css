@@ -287,6 +287,44 @@ input {
   margin-top: 24px;
 }
 
+.profile-page .profile-verification-form {
+  padding: 24px;
+  border: 1px solid var(--app-line);
+  background: var(--app-surface);
+  color: var(--app-text);
+  box-shadow: none;
+}
+
+.profile-page .profile-verification-form .identity-section {
+  border-color: var(--app-line);
+  background: var(--app-elevated);
+}
+
+.profile-page .profile-verification-form strong,
+.profile-page .profile-verification-form label {
+  color: var(--app-text);
+}
+
+.profile-page .profile-verification-form p,
+.profile-page .profile-verification-form .section-title span {
+  color: var(--app-muted);
+}
+
+.profile-page .profile-verification-form input {
+  border-color: var(--app-line);
+  background: #10151d;
+  color: var(--app-text);
+}
+
+.profile-page .profile-verification-form input::placeholder {
+  color: #7f8da1;
+}
+
+.profile-page .profile-verification-form button:disabled {
+  background: #26364f;
+  color: #aab5c4;
+}
+
 .compact-title {
   align-items: center;
   margin-bottom: 0;
@@ -4674,6 +4712,7 @@ footer {
 }
 
 .learning-player {
+  --learning-caption-size: clamp(14px, 1.55vw, 19px);
   position: relative;
   overflow: hidden;
   aspect-ratio: 16 / 9;
@@ -4692,7 +4731,7 @@ footer {
   pointer-events: none;
   position: absolute;
   right: clamp(12px, 4vw, 48px);
-  bottom: clamp(96px, 17%, 138px);
+  bottom: clamp(44px, 7%, 58px);
   left: clamp(12px, 4vw, 48px);
   z-index: 2;
   display: grid;
@@ -4701,6 +4740,19 @@ footer {
   color: #fff;
   text-align: center;
   text-shadow: 0 1px 4px #000;
+  transition: bottom 180ms ease;
+}
+
+.learning-player.controls-visible .learning-player-caption {
+  bottom: clamp(84px, 15%, 120px);
+}
+
+.learning-player.caption-size-small {
+  --learning-caption-size: clamp(12px, 1.25vw, 16px);
+}
+
+.learning-player.caption-size-large {
+  --learning-caption-size: clamp(17px, 1.9vw, 23px);
 }
 
 .learning-player-caption p {
@@ -4712,7 +4764,7 @@ footer {
   overflow: hidden;
   border-radius: 5px;
   background: rgba(0, 0, 0, 0.74);
-  font-size: clamp(14px, 1.55vw, 19px);
+  font-size: var(--learning-caption-size);
   font-weight: 650;
   line-height: 1.38;
   -webkit-box-orient: vertical;
@@ -4721,6 +4773,40 @@ footer {
 
 .learning-caption-korean {
   color: #e5e7eb;
+}
+
+.learning-caption-settings {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  min-height: 44px;
+  padding: 6px 10px;
+  border: 1px solid var(--app-line);
+  border-top: 0;
+  border-radius: 0 0 10px 10px;
+  background: var(--app-surface);
+}
+
+.learning-caption-settings span {
+  margin-right: 4px;
+  color: var(--app-muted);
+  font-size: 12px;
+}
+
+.learning-caption-settings button {
+  min-height: 44px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--app-muted);
+  font-size: 12px;
+}
+
+.learning-caption-settings button[aria-pressed="true"] {
+  border-color: var(--app-line);
+  background: var(--app-elevated);
+  color: var(--app-text);
 }
 
 .learning-player-error {

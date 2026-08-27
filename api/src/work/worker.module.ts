@@ -20,7 +20,7 @@ import { resolveValkeyUrl } from './work.module';
 import { LearningModule } from '../learning/learning.module';
 import { LearningService } from '../learning/learning.service';
 import {
-  DeterministicGroundedQuizGenerator,
+  AiGroundedQuizGenerator,
   QuizGenerationJobHandler,
 } from '../learning/quiz-generation.worker';
 import { AgentRunProcessor } from '../learning/agent-run.processor';
@@ -147,13 +147,17 @@ import {
     },
     {
       provide: QuizGenerationJobHandler,
-      useFactory: (learning: LearningService, executor: DurableJobExecutor) =>
+      useFactory: (
+        learning: LearningService,
+        aiProxy: AiProxyService,
+        executor: DurableJobExecutor,
+      ) =>
         new QuizGenerationJobHandler(
           learning,
-          new DeterministicGroundedQuizGenerator(),
+          new AiGroundedQuizGenerator(aiProxy),
           executor,
         ),
-      inject: [LearningService, DurableJobExecutor],
+      inject: [LearningService, AiProxyService, DurableJobExecutor],
     },
     {
       provide: LearningSummaryJobHandler,

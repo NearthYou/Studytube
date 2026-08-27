@@ -123,24 +123,81 @@ class AiServiceTest(unittest.TestCase):
         asyncio.run(enter_runtime_lifespan())
 
     def test_quiz_generation_uses_five_cited_caption_ranges(self):
-        original_loader = main.load_translated_captions
-        main.load_translated_captions = lambda _payload: {
-            "segments": [
-                {"start": index * 10, "end": index * 10 + 8, "text": f"근거 문장 {index}"}
-                for index in range(8)
-            ]
-        }
+        class FakeOpenAI:
+            def __init__(self):
+                self.chat = self.Chat()
+
+            class Chat:
+                def __init__(self):
+                    self.completions = self.Completions()
+
+                class Completions:
+                    @staticmethod
+                    def create(**_kwargs):
+                        if "검수자" in _kwargs["messages"][0]["content"]:
+                            verdicts = [
+                                {"questionPosition": index + 1, "grounded": True}
+                                for index in range(5)
+                            ]
+                            message = type(
+                                "Message",
+                                (),
+                                {"content": json.dumps({"verdicts": verdicts})},
+                            )()
+                            choice = type("Choice", (), {"message": message})()
+                            return type("Response", (), {"choices": [choice]})()
+                        questions = [
+                            {
+                                "prompt": f"영상에서 다룬 개념 {index + 1}의 역할은 무엇인가요?",
+                                "choices": [
+                                    f"핵심 역할 {index + 1}",
+                                    f"다른 역할 {index + 1}",
+                                    f"반대 역할 {index + 1}",
+                                    f"관련 없는 역할 {index + 1}",
+                                ],
+                                "correctChoiceIndex": 0,
+                                "explanation": f"개념 {index + 1}의 역할을 설명한 내용입니다.",
+                                "evidencePosition": index + 1,
+                                "supportingQuote": f"영상에서 다룬 개념 {index + 1}의 핵심 역할입니다.",
+                            }
+                            for index in range(5)
+                        ]
+                        message = type(
+                            "Message",
+                            (),
+                            {"content": json.dumps({"questions": questions})},
+                        )()
+                        choice = type("Choice", (), {"message": message})()
+                        return type("Response", (), {"choices": [choice]})()
+
+        original_runtime = main.quiz_generation_runtime()
+        main.configure_quiz_generation_runtime(
+            main.QuizGenerationRuntime(
+                caption_loader=original_runtime.caption_loader,
+                openai_client=FakeOpenAI,
+            )
+        )
         try:
             response = build_quiz_response(
                 {
-                    "title": "트랜잭션 격리 수준",
-                    "sourceUrl": "https://www.youtube.com/watch?v=example",
-                    "timestampSeconds": 10,
-                    "durationSeconds": 120,
+                    "studyContextId": "8",
+                    "watchedRange": {"start": 0, "end": 60},
+                    "evidence": [
+                        {
+                            "resourceId": f"caption-{index + 1}",
+                            "content": f"영상에서 다룬 개념 {index + 1}의 핵심 역할입니다.",
+                            "sourceUrl": "https://www.youtube.com/watch?v=example",
+                            "startSeconds": index * 10,
+                            "endSeconds": index * 10 + 8,
+                            "artifactId": "42",
+                            "artifactGeneration": 3,
+                        }
+                        for index in range(5)
+                    ],
                 }
             )
         finally:
-            main.load_translated_captions = original_loader
+            main.configure_quiz_generation_runtime(original_runtime)
 
         self.assertEqual(response["schemaVersion"], 1)
         self.assertEqual(len(response["questions"]), 5)
@@ -148,12 +205,10 @@ class AiServiceTest(unittest.TestCase):
             self.assertEqual(len(question["choices"]), 4)
             self.assertGreaterEqual(question["correctChoiceIndex"], 0)
             self.assertLess(question["correctChoiceIndex"], 4)
-            self.assertEqual(
-                question["sourceUrl"],
-                "https://www.youtube.com/watch?v=example",
-            )
+            self.assertEqual(question["citation"]["sourceUrl"], "https://www.youtube.com/watch?v=example")
             self.assertGreater(
-                question["sourceEndSeconds"], question["sourceStartSeconds"]
+                question["citation"]["endSeconds"],
+                question["citation"]["startSeconds"],
             )
 
     def test_quiz_generation_rejects_non_youtube_sources(self):

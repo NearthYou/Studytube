@@ -5,6 +5,8 @@ import {
   uniqueVideos,
   type QueueVideo,
 } from "../../watchQueue.ts";
+import type { Course } from "../../types.ts";
+import { extractYouTubeId } from "../../videoMetadata.ts";
 
 const RECOMMENDATION_STORAGE_KEY = "studytube.courseRecommendation";
 
@@ -69,4 +71,29 @@ export function clearCourseRecommendation(
   storage.removeItem(
     scopedStudyStorageKeyFromStorage(RECOMMENDATION_STORAGE_KEY, storage),
   );
+}
+
+export function isCourseRecommendationSaved(
+  recommendation: CourseRecommendationDraft,
+  courses: Course[],
+) {
+  const recommendationVideoIds = recommendation.videos.map(
+    (video) => video.videoId,
+  );
+
+  return courses.some((course) => {
+    if (
+      course.status === "archived" ||
+      course.title.trim() !== recommendation.title.trim() ||
+      course.steps.length !== recommendationVideoIds.length
+    ) {
+      return false;
+    }
+
+    return course.steps.every(
+      (step, index) =>
+        extractYouTubeId(step.snapshot.videoUrl) ===
+        recommendationVideoIds[index],
+    );
+  });
 }

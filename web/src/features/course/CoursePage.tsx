@@ -7,6 +7,7 @@ import { createPersonalizedCoursePrompt, createPromptSuggestions, hasLearningPre
 import { addVideosToQueue } from "../../watchQueueStorage";
 import {
   clearCourseRecommendation,
+  isCourseRecommendationSaved,
   readCourseRecommendation,
   saveCourseRecommendation,
 } from "./courseRecommendationStorage";
@@ -52,10 +53,18 @@ export function CoursePage({ session }: { session: Session }) {
   const isSearching = false;
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSavingPlaylist, setIsSavingPlaylist] = useState(false);
+  const recommendationAlreadySaved = Boolean(
+    recommendation && isCourseRecommendationSaved(recommendation, courses),
+  );
 
   useEffect(() => {
     void refreshCourseData();
   }, [session.user.id]);
+
+  useEffect(() => {
+    if (!recommendationAlreadySaved) return;
+    clearCourseRecommendation();
+  }, [recommendationAlreadySaved]);
 
   async function refreshCourseData() {
     try {
@@ -287,7 +296,9 @@ export function CoursePage({ session }: { session: Session }) {
       .slice(0, 120);
   const promptSuggestions = createPromptSuggestions(profile);
   const preparedVideos =
-    generatedVideos.length === 0 ? (recommendation?.videos ?? []) : [];
+    generatedVideos.length === 0 && !recommendationAlreadySaved
+      ? (recommendation?.videos ?? [])
+      : [];
 
   return (
     <main className="page-shell course-page">

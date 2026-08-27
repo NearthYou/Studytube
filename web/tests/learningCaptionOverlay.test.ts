@@ -19,8 +19,9 @@ test("learning captions show the source before Korean at the same size", () => {
   assert.ok(korean > source);
   assert.match(
     css,
-    /\.learning-player-caption\s+p\s*\{[^}]*font-size:\s*clamp\(14px,\s*1\.55vw,\s*19px\)/,
+    /\.learning-player-caption\s+p\s*\{[^}]*font-size:\s*var\(--learning-caption-size\)/,
   );
-  assert.match(css, /bottom:\s*clamp\(96px,\s*17%,\s*138px\)/);
+  assert.match(css, /bottom:\s*clamp\(44px,\s*7%,\s*58px\)/);
+  assert.match(css, /bottom:\s*clamp\(84px,\s*15%,\s*120px\)/);
   assert.match(css, /-webkit-line-clamp:\s*2/);
 });

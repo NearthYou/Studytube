@@ -4,6 +4,7 @@ import type { WorkQueueJob } from '../work/work.queue';
 import { WorkJobBusyError } from '../work/work.errors';
 import type { LearningService } from './learning.service';
 import {
+  AiGroundedQuizGenerator,
   QuizGenerationJobHandler,
   type GroundedQuizGenerator,
   type QuizGenerationSnapshot,
@@ -66,6 +67,121 @@ function groundedQuiz() {
 }
 
 describe('QuizGenerationJobHandler', () => {
+  it('rejects timestamp-memory prompts instead of publishing them', async () => {
+    const execution = jobExecution();
+    const quiz = groundedQuiz();
+    quiz.questions[0].prompt = '10초 근처에서 설명한 내용은 무엇인가요?';
+    const failAdaptiveQuizGeneration = jest.fn().mockResolvedValue(undefined);
+    const handler = handlerWith(
+      {
+        loadAdaptiveQuizGeneration: jest.fn().mockResolvedValue(snapshot()),
+        completeAdaptiveQuizGeneration: jest.fn().mockResolvedValue(true),
+        failAdaptiveQuizGeneration,
+      },
+      { generate: jest.fn().mockResolvedValue(quiz) },
+      execution.executor,
+    );
+
+    await expect(handler.handle(JOB)).rejects.toMatchObject({
+      code: 'INVALID_GROUNDED_QUIZ_RESPONSE',
+    });
+    expect(failAdaptiveQuizGeneration).toHaveBeenCalledWith(
+      LOOP_ID,
+      'INVALID_GROUNDED_QUIZ_RESPONSE',
+    );
+  });
+
+  it('turns malformed generated choices into a safe terminal failure', async () => {
+    const execution = jobExecution();
+    const quiz = groundedQuiz();
+    (quiz.questions[0].choices as unknown[]) = [
+      '정상 선택지',
+      { unexpected: 'object' },
+      '다른 선택지',
+      '마지막 선택지',
+    ];
+    const failAdaptiveQuizGeneration = jest.fn().mockResolvedValue(undefined);
+    const handler = handlerWith(
+      {
+        loadAdaptiveQuizGeneration: jest.fn().mockResolvedValue(snapshot()),
+        completeAdaptiveQuizGeneration: jest.fn().mockResolvedValue(true),
+        failAdaptiveQuizGeneration,
+      },
+      { generate: jest.fn().mockResolvedValue(quiz) },
+      execution.executor,
+    );
+
+    await expect(handler.handle(JOB)).rejects.toMatchObject({
+      code: 'INVALID_GROUNDED_QUIZ_RESPONSE',
+    });
+    expect(failAdaptiveQuizGeneration).toHaveBeenCalledWith(
+      LOOP_ID,
+      'INVALID_GROUNDED_QUIZ_RESPONSE',
+    );
+  });
+
+  it('turns a null provider response into a safe terminal failure', async () => {
+    const execution = jobExecution();
+    const failAdaptiveQuizGeneration = jest.fn().mockResolvedValue(undefined);
+    const handler = handlerWith(
+      {
+        loadAdaptiveQuizGeneration: jest.fn().mockResolvedValue(snapshot()),
+        completeAdaptiveQuizGeneration: jest.fn().mockResolvedValue(true),
+        failAdaptiveQuizGeneration,
+      },
+      { generate: jest.fn().mockResolvedValue(null) },
+      execution.executor,
+    );
+
+    await expect(handler.handle(JOB)).rejects.toMatchObject({
+      code: 'INVALID_GROUNDED_QUIZ_RESPONSE',
+    });
+    expect(failAdaptiveQuizGeneration).toHaveBeenCalledWith(
+      LOOP_ID,
+      'INVALID_GROUNDED_QUIZ_RESPONSE',
+    );
+  });
+
+  it('rejects timestamp recall language in explanations', async () => {
+    const execution = jobExecution();
+    const quiz = groundedQuiz();
+    quiz.questions[0].explanation = '10초 구간에 나온 문장이 정답입니다.';
+    const failAdaptiveQuizGeneration = jest.fn().mockResolvedValue(undefined);
+    const handler = handlerWith(
+      {
+        loadAdaptiveQuizGeneration: jest.fn().mockResolvedValue(snapshot()),
+        failAdaptiveQuizGeneration,
+      },
+      { generate: jest.fn().mockResolvedValue(quiz) },
+      execution.executor,
+    );
+
+    await expect(handler.handle(JOB)).rejects.toMatchObject({
+      code: 'INVALID_GROUNDED_QUIZ_RESPONSE',
+    });
+  });
+
+  it('allows a lesson concept that legitimately includes a duration', async () => {
+    const execution = jobExecution();
+    const quiz = groundedQuiz();
+    quiz.questions[0].prompt = '반죽을 10분 동안 쉬게 하는 이유는 무엇인가요?';
+    quiz.questions[0].explanation =
+      '10분 동안 기다리면 반죽의 수분이 고르게 퍼지기 때문입니다.';
+    const handler = handlerWith(
+      {
+        loadAdaptiveQuizGeneration: jest.fn().mockResolvedValue(snapshot()),
+        completeAdaptiveQuizGeneration: jest.fn().mockResolvedValue(true),
+        failAdaptiveQuizGeneration: jest.fn().mockResolvedValue(undefined),
+      },
+      { generate: jest.fn().mockResolvedValue(quiz) },
+      execution.executor,
+    );
+
+    await expect(handler.handle(JOB)).resolves.toMatchObject({
+      state: 'ready',
+    });
+  });
+
   it('uses only the pinned MCP evidence contract and checkpoints a ready quiz', async () => {
     const execution = jobExecution();
     const generation = snapshot();
@@ -202,6 +318,27 @@ describe('QuizGenerationJobHandler', () => {
         deadLetter: execution.store.findDeadLetter(JOB),
       }),
     ).not.toContain('quiz-secret-canary');
+  });
+});
+
+describe('AiGroundedQuizGenerator', () => {
+  it('sends pinned caption evidence to the AI quiz boundary', async () => {
+    const response = groundedQuiz();
+    const generateQuiz = jest.fn().mockResolvedValue(response);
+    const generator = new AiGroundedQuizGenerator({ generateQuiz });
+    const controller = new AbortController();
+
+    await expect(
+      generator.generate(snapshot(), controller.signal),
+    ).resolves.toEqual(response);
+    expect(generateQuiz).toHaveBeenCalledWith(
+      {
+        studyContextId: '8',
+        watchedRange: { start: 10, end: 90 },
+        evidence: snapshot().evidence,
+      },
+      controller.signal,
+    );
   });
 });
 

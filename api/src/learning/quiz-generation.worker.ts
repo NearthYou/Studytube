@@ -2,6 +2,7 @@ import { DurableJobExecutor } from '../work/durable-job.executor';
 import { deterministicWorkUuid } from '../work/deterministic-work-id';
 import type { WorkAttemptContext, WorkQueueJob } from '../work/work.queue';
 import { WorkJobTerminalError } from '../work/work.errors';
+import { AiProxyService } from '../ai-proxy.service';
 import type { AdaptiveQuizGeneration } from './learning.repository';
 import type { LearningService } from './learning.service';
 
@@ -30,43 +31,25 @@ export interface GroundedQuizGenerator {
   generate(
     snapshot: QuizGenerationSnapshot,
     signal: AbortSignal,
-  ): Promise<GroundedQuizResponse>;
+  ): Promise<unknown>;
 }
 
-export class DeterministicGroundedQuizGenerator implements GroundedQuizGenerator {
-  generate(
+export class AiGroundedQuizGenerator implements GroundedQuizGenerator {
+  constructor(private readonly ai: Pick<AiProxyService, 'generateQuiz'>) {}
+
+  async generate(
     snapshot: QuizGenerationSnapshot,
     signal: AbortSignal,
-  ): Promise<GroundedQuizResponse> {
+  ): Promise<unknown> {
     signal.throwIfAborted();
-    const questions = snapshot.evidence.map((evidence, index) => {
-      const distractors = snapshot.evidence
-        .filter((_, candidateIndex) => candidateIndex !== index)
-        .slice(0, 3)
-        .map((candidate) => candidate.content.slice(0, 220));
-      const correctChoiceIndex = index % 4;
-      const choices = [...distractors];
-      choices.splice(correctChoiceIndex, 0, evidence.content.slice(0, 220));
-      return {
-        prompt: `${evidence.startSeconds}초 근처에서 설명한 내용은 무엇인가요?`,
-        choices,
-        correctChoiceIndex,
-        explanation: `${evidence.startSeconds}초부터 ${evidence.endSeconds}초까지의 자막을 근거로 확인할 수 있습니다.`,
-        citation: {
-          resourceId: evidence.resourceId,
-          sourceUrl: evidence.sourceUrl,
-          startSeconds: evidence.startSeconds,
-          endSeconds: evidence.endSeconds,
-          artifactId: evidence.artifactId,
-          artifactGeneration: evidence.artifactGeneration,
-        },
-      };
-    });
-    return Promise.resolve({
-      schemaVersion: 1,
-      generatorVersion: 'evidence-grounded-quiz-v1',
-      questions,
-    });
+    return this.ai.generateQuiz(
+      {
+        studyContextId: snapshot.studyContextId,
+        watchedRange: snapshot.watchedRange,
+        evidence: snapshot.evidence,
+      },
+      signal,
+    );
   }
 }
 
@@ -177,7 +160,7 @@ function quizLoopId(job: WorkQueueJob): string | null {
 }
 
 function validateGroundedQuiz(
-  value: GroundedQuizResponse,
+  value: unknown,
   snapshot: QuizGenerationSnapshot,
 ): {
   generatorVersion: string;
@@ -187,46 +170,105 @@ function validateGroundedQuiz(
     }
   >;
 } | null {
+  if (!value || typeof value !== 'object') return null;
+  const root = value as Record<string, unknown>;
   if (
-    value.schemaVersion !== 1 ||
-    !value.generatorVersion.trim() ||
-    value.generatorVersion.length > 128 ||
-    value.questions.length !== 5 ||
+    root.schemaVersion !== 1 ||
+    typeof root.generatorVersion !== 'string' ||
+    !root.generatorVersion.trim() ||
+    root.generatorVersion.length > 128 ||
+    !Array.isArray(root.questions) ||
+    root.questions.length !== 5 ||
     snapshot.evidence.length !== 5
   ) {
     return null;
   }
-  const questions = [];
-  for (const question of value.questions) {
-    const evidenceIndex = snapshot.evidence.findIndex(
-      (evidence) =>
-        evidence.resourceId === question.citation.resourceId &&
-        evidence.sourceUrl === question.citation.sourceUrl &&
-        evidence.startSeconds === question.citation.startSeconds &&
-        evidence.endSeconds === question.citation.endSeconds &&
-        evidence.artifactId === question.citation.artifactId &&
-        evidence.artifactGeneration === question.citation.artifactGeneration,
-    );
+  const questions: Array<
+    GroundedQuizResponse['questions'][number] & { evidencePosition: number }
+  > = [];
+  for (const rawQuestion of root.questions) {
+    if (!rawQuestion || typeof rawQuestion !== 'object') return null;
+    const question = rawQuestion as Record<string, unknown>;
+    const rawCitation = question.citation;
     if (
-      evidenceIndex < 0 ||
-      question.citation.startSeconds < snapshot.watchedRange.start ||
-      question.citation.endSeconds > snapshot.watchedRange.end ||
-      !question.prompt.trim() ||
-      question.prompt.length > 1_000 ||
-      question.choices.length < 2 ||
-      question.choices.length > 8 ||
-      question.choices.some((choice) => !choice.trim()) ||
-      !Number.isInteger(question.correctChoiceIndex) ||
-      question.correctChoiceIndex < 0 ||
-      question.correctChoiceIndex >= question.choices.length ||
-      !question.explanation.trim() ||
-      question.explanation.length > 2_000
+      typeof question.prompt !== 'string' ||
+      !Array.isArray(question.choices) ||
+      question.choices.some((choice) => typeof choice !== 'string') ||
+      typeof question.explanation !== 'string' ||
+      typeof question.correctChoiceIndex !== 'number' ||
+      !rawCitation ||
+      typeof rawCitation !== 'object'
     ) {
       return null;
     }
-    questions.push({ ...question, evidencePosition: evidenceIndex + 1 });
+    const citation = rawCitation as Record<string, unknown>;
+    if (
+      typeof citation.resourceId !== 'string' ||
+      typeof citation.sourceUrl !== 'string' ||
+      typeof citation.startSeconds !== 'number' ||
+      !Number.isFinite(citation.startSeconds) ||
+      typeof citation.endSeconds !== 'number' ||
+      !Number.isFinite(citation.endSeconds) ||
+      typeof citation.artifactId !== 'string' ||
+      typeof citation.artifactGeneration !== 'number' ||
+      !Number.isInteger(citation.artifactGeneration)
+    ) {
+      return null;
+    }
+    const prompt = question.prompt;
+    const choices = question.choices as string[];
+    const explanation = question.explanation;
+    const correctChoiceIndex = question.correctChoiceIndex;
+    const evidenceIndex = snapshot.evidence.findIndex(
+      (evidence) =>
+        evidence.resourceId === citation.resourceId &&
+        evidence.sourceUrl === citation.sourceUrl &&
+        evidence.startSeconds === citation.startSeconds &&
+        evidence.endSeconds === citation.endSeconds &&
+        evidence.artifactId === citation.artifactId &&
+        evidence.artifactGeneration === citation.artifactGeneration,
+    );
+    if (
+      evidenceIndex < 0 ||
+      citation.startSeconds < snapshot.watchedRange.start ||
+      citation.endSeconds > snapshot.watchedRange.end ||
+      !prompt.trim() ||
+      prompt.length > 1_000 ||
+      choices.length < 2 ||
+      choices.length > 8 ||
+      choices.some((choice) => !choice.trim()) ||
+      [prompt, ...choices, explanation].some(isTemporalRecallText) ||
+      !Number.isInteger(correctChoiceIndex) ||
+      correctChoiceIndex < 0 ||
+      correctChoiceIndex >= choices.length ||
+      !explanation.trim() ||
+      explanation.length > 2_000
+    ) {
+      return null;
+    }
+    questions.push({
+      prompt,
+      choices,
+      correctChoiceIndex,
+      explanation,
+      citation: {
+        resourceId: citation.resourceId,
+        sourceUrl: citation.sourceUrl,
+        startSeconds: citation.startSeconds,
+        endSeconds: citation.endSeconds,
+        artifactId: citation.artifactId,
+        artifactGeneration: citation.artifactGeneration,
+      },
+      evidencePosition: evidenceIndex + 1,
+    });
   }
-  return { generatorVersion: value.generatorVersion.trim(), questions };
+  return { generatorVersion: root.generatorVersion.trim(), questions };
+}
+
+function isTemporalRecallText(text: string): boolean {
+  return /(?:\d{1,2}:\d{2}(?::\d{2})?|\d{1,3}\s*(?:초|분)\s*(?:근처|구간|대|지점|시점)\s*(?:에서|에)?|\d{1,3}\s*(?:초|분)\s*(?:에서|부터)\s*(?:나오|말하|설명|언급)|(?:몇\s*(?:초|분|번째)|언제|어느\s*(?:시점|구간)).{0,20}(?:나오|말하|설명|언급)|(?:처음|마지막)\s*(?:에|으로)?\s*(?:나오|말하|설명|언급)|(?:설명한|말한)\s*내용은\s*무엇)/iu.test(
+    text,
+  );
 }
 
 const UUID_PATTERN =

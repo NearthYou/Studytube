@@ -1,7 +1,4 @@
-export function youtubePlayerVars(
-  initialTime: number,
-  preferNativeCaptions: boolean,
-) {
+export function youtubePlayerVars(initialTime: number) {
   const start =
     Number.isFinite(initialTime) && initialTime > 0
       ? Math.floor(initialTime)
@@ -10,7 +7,7 @@ export function youtubePlayerVars(
     rel: 0,
     playsinline: 1,
     enablejsapi: 1,
-    cc_load_policy: preferNativeCaptions ? 1 : 0,
+    cc_load_policy: 0,
     start,
   };
 }

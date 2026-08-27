@@ -1,5 +1,6 @@
 import {
   forwardRef,
+  useCallback,
   useEffect,
   useImperativeHandle,
   useRef,
@@ -15,6 +16,7 @@ type YoutubePlayer = {
   pauseVideo: () => void;
   playVideo: () => void;
   seekTo: (seconds: number, allowSeekAhead: boolean) => void;
+  unloadModule?: (module: string) => void;
 };
 
 type YoutubeApi = {
@@ -51,7 +53,6 @@ export const LearningVideoPlayer = forwardRef<
     onDurationChange: (seconds: number) => void;
     onEnded: (positionSeconds: number, durationSeconds: number) => void;
     onTimeChange: (seconds: number) => void;
-    preferNativeCaptions: boolean;
     videoId: string;
   }
 >(function LearningVideoPlayer(
@@ -61,23 +62,37 @@ export const LearningVideoPlayer = forwardRef<
     onDurationChange,
     onEnded,
     onTimeChange,
-    preferNativeCaptions,
     videoId,
   },
   ref,
 ) {
   const playerRef = useRef<YoutubePlayer | null>(null);
   const initialTimeRef = useRef(initialTime);
-  const preferNativeCaptionsRef = useRef(preferNativeCaptions);
+  const controlsTimerRef = useRef(0);
+  const playingRef = useRef(false);
   const onTimeChangeRef = useRef(onTimeChange);
   const onDurationChangeRef = useRef(onDurationChange);
   const onEndedRef = useRef(onEnded);
   const errorRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState("");
+  const [controlsVisible, setControlsVisible] = useState(true);
+  const [captionSize, setCaptionSize] = useState<"small" | "medium" | "large">(
+    "medium",
+  );
   onTimeChangeRef.current = onTimeChange;
   onDurationChangeRef.current = onDurationChange;
   onEndedRef.current = onEnded;
-  preferNativeCaptionsRef.current = preferNativeCaptions;
+
+  const showControlsTemporarily = useCallback(() => {
+    setControlsVisible(true);
+    window.clearTimeout(controlsTimerRef.current);
+    if (playingRef.current) {
+      controlsTimerRef.current = window.setTimeout(
+        () => setControlsVisible(false),
+        2_800,
+      );
+    }
+  }, []);
 
   useImperativeHandle(
     ref,
@@ -98,6 +113,7 @@ export const LearningVideoPlayer = forwardRef<
   useEffect(() => {
     let cancelled = false;
     let interval = 0;
+    let nativeCaptionTicks = 0;
     async function mountPlayer() {
       try {
         const youtube = await loadYoutubeApi();
@@ -105,13 +121,11 @@ export const LearningVideoPlayer = forwardRef<
         playerRef.current?.destroy();
         playerRef.current = new youtube.Player("learning-youtube-player", {
           videoId,
-          playerVars: youtubePlayerVars(
-            initialTimeRef.current,
-            preferNativeCaptionsRef.current,
-          ),
+          playerVars: youtubePlayerVars(initialTimeRef.current),
           events: {
             onReady: ({ target }) => {
               playerRef.current = target;
+              target.unloadModule?.("captions");
               const duration = target.getDuration();
               if (Number.isFinite(duration) && duration > 0) {
                 onDurationChangeRef.current(duration);
@@ -124,13 +138,26 @@ export const LearningVideoPlayer = forwardRef<
               );
             },
             onStateChange: ({ data, target }) => {
-              if (data !== 0) return;
-              onEndedRef.current(target.getCurrentTime(), target.getDuration());
+              target.unloadModule?.("captions");
+              playingRef.current = data === 1;
+              if (data === 1) {
+                showControlsTemporarily();
+              } else {
+                window.clearTimeout(controlsTimerRef.current);
+                setControlsVisible(true);
+              }
+              if (data === 0) {
+                onEndedRef.current(target.getCurrentTime(), target.getDuration());
+              }
             },
           },
         });
         interval = window.setInterval(() => {
           try {
+            nativeCaptionTicks += 1;
+            if (nativeCaptionTicks % 4 === 0) {
+              playerRef.current?.unloadModule?.("captions");
+            }
             const seconds = playerRef.current?.getCurrentTime();
             if (typeof seconds === "number" && Number.isFinite(seconds)) {
               onTimeChangeRef.current(seconds);
@@ -151,6 +178,7 @@ export const LearningVideoPlayer = forwardRef<
     return () => {
       cancelled = true;
       window.clearInterval(interval);
+      window.clearTimeout(controlsTimerRef.current);
       try {
         const currentTime = playerRef.current?.getCurrentTime();
         if (typeof currentTime === "number" && Number.isFinite(currentTime)) {
@@ -162,38 +190,60 @@ export const LearningVideoPlayer = forwardRef<
       playerRef.current?.destroy();
       playerRef.current = null;
     };
-  }, [videoId]);
+  }, [showControlsTemporarily, videoId]);
 
   useEffect(() => {
     if (error) errorRef.current?.focus();
   }, [error]);
 
   return (
-    <section className="learning-player" aria-label="YouTube 영상 플레이어">
-      <div id="learning-youtube-player" />
-      {(caption.korean || caption.source) && (
-        <div className="learning-player-caption" aria-live="polite">
-          {caption.source && (
-            <p className="learning-caption-source">{caption.source}</p>
-          )}
-          {caption.korean && (
-            <p className="learning-caption-korean">{caption.korean}</p>
-          )}
-        </div>
-      )}
-      {error && (
-        <div
-          className="learning-player-error"
-          ref={errorRef}
-          role="alert"
-          tabIndex={-1}
-        >
-          <strong>영상을 열 수 없습니다</strong>
-          <p>{error}</p>
-          <Link to="/">다른 영상 선택</Link>
-        </div>
-      )}
-    </section>
+    <>
+      <section
+        className={`learning-player caption-size-${captionSize}${controlsVisible ? " controls-visible" : ""}`}
+        aria-label="YouTube 영상 플레이어"
+        onPointerEnter={showControlsTemporarily}
+        onPointerDown={showControlsTemporarily}
+        onPointerMove={showControlsTemporarily}
+        onTouchStart={showControlsTemporarily}
+      >
+        <div id="learning-youtube-player" />
+        {(caption.korean || caption.source) && (
+          <div className="learning-player-caption" aria-live="polite">
+            {caption.source && (
+              <p className="learning-caption-source">{caption.source}</p>
+            )}
+            {caption.korean && (
+              <p className="learning-caption-korean">{caption.korean}</p>
+            )}
+          </div>
+        )}
+        {error && (
+          <div
+            className="learning-player-error"
+            ref={errorRef}
+            role="alert"
+            tabIndex={-1}
+          >
+            <strong>영상을 열 수 없습니다</strong>
+            <p>{error}</p>
+            <Link to="/">다른 영상 선택</Link>
+          </div>
+        )}
+      </section>
+      <div className="learning-caption-settings" role="group" aria-label="자막 크기">
+        <span>자막 크기</span>
+        {(["small", "medium", "large"] as const).map((size) => (
+          <button
+            aria-pressed={captionSize === size}
+            key={size}
+            type="button"
+            onClick={() => setCaptionSize(size)}
+          >
+            {{ small: "작게", medium: "보통", large: "크게" }[size]}
+          </button>
+        ))}
+      </div>
+    </>
   );
 });
 

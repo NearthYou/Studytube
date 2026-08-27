@@ -200,7 +200,12 @@ configure_video_summary_runtime(
 
 configure_quiz_generation_runtime(
     QuizGenerationRuntime(
-        caption_loader=lambda payload: load_translated_captions(payload)
+        caption_loader=lambda payload: load_translated_captions(payload),
+        openai_client=lambda: (
+            OpenAI(timeout=60.0, max_retries=1)
+            if OpenAI is not None and os.getenv("OPENAI_API_KEY")
+            else None
+        ),
     )
 )
 

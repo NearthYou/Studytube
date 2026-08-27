@@ -100,7 +100,7 @@ test("YouTube loading and playback lifecycle stay behind one player interface", 
   assert.match(source, /youtubeApiPromise = null/);
   assert.match(source, /playerRef\.current\?\.destroy\(\)/);
   assert.match(source, /플레이어 스크립트를 불러오지 못했습니다/);
-  assert.match(source, /\}, \[videoId\]\);/);
+  assert.match(source, /\[showControlsTemporarily, videoId\]/);
   assert.doesNotMatch(source, /key=\{preferNativeCaptions/);
 });
 
@@ -132,7 +132,7 @@ test("unfinished learning tools are presented as preparation states", () => {
   );
 });
 
-test("native YouTube captions stay visible until prepared captions arrive", () => {
+test("native YouTube captions stay off while StudyTube captions are prepared", () => {
   const workspaceSource = readFileSync(
     resolve(featureDirectory, "LearningWorkspace.tsx"),
     "utf8",
@@ -146,14 +146,41 @@ test("native YouTube captions stay visible until prepared captions arrive", () =
     "utf8",
   );
 
-  assert.match(
-    workspaceSource,
-    /preferNativeCaptions=\{!currentCaption\.source\}/,
-  );
+  assert.doesNotMatch(workspaceSource, /preferNativeCaptions/);
   assert.match(workspaceSource, /caption=\{currentCaption\}/);
-  assert.match(playerSource, /preferNativeCaptions: boolean/);
+  assert.doesNotMatch(playerSource, /preferNativeCaptions/);
+  assert.match(playerSource, /unloadModule\?\.\("captions"\)/);
+  assert.match(playerSource, /nativeCaptionTicks/);
   assert.match(playerSource, /className="learning-player-caption"/);
-  assert.match(optionsSource, /cc_load_policy: preferNativeCaptions \? 1 : 0/);
+  assert.match(optionsSource, /cc_load_policy:\s*0/);
+});
+
+test("player captions move with controls and expose three readable sizes", () => {
+  const playerSource = readFileSync(
+    resolve(featureDirectory, "LearningVideoPlayer.tsx"),
+    "utf8",
+  );
+  const css = readFileSync(resolve(testDirectory, "../src/App.css"), "utf8");
+
+  assert.match(playerSource, /controls-visible/);
+  assert.match(playerSource, /자막 크기/);
+  assert.match(playerSource, /small: "작게"/);
+  assert.match(playerSource, /medium: "보통"/);
+  assert.match(playerSource, /large: "크게"/);
+  assert.match(
+    css,
+    /\.learning-player-caption\s*\{[^}]*bottom:\s*clamp\(44px,\s*7%,\s*58px\)/,
+  );
+  assert.match(
+    css,
+    /\.learning-player\.controls-visible\s+\.learning-player-caption\s*\{[^}]*bottom:\s*clamp\(84px,\s*15%,\s*120px\)/,
+  );
+  assert.match(css, /\.caption-size-small/);
+  assert.match(css, /\.caption-size-large/);
+  assert.match(
+    css,
+    /\.learning-caption-settings button\s*\{[^}]*min-height:\s*44px/,
+  );
 });
 
 test("quiz polling keeps one bounded abortable loop for each quiz identity", () => {
@@ -213,6 +240,24 @@ test("quiz readiness follows the captions currently shown to the learner", () =>
   );
   assert.match(source, /evidenceMessage:\s*quizState\.message/);
   assert.match(source, /canPrepareCaptions=\{quizState\.needsCaptions\}/);
+});
+
+test("quiz presents one content question at a time with custom choice cards", () => {
+  const source = readFileSync(
+    resolve(featureDirectory, "AdaptiveQuizPanel.tsx"),
+    "utf8",
+  );
+  const css = readFileSync(
+    resolve(featureDirectory, "LearningWorkspace.css"),
+    "utf8",
+  );
+
+  assert.match(source, /quizPage\(loop\?\.questions/);
+  assert.match(source, /className="quiz-progress"/);
+  assert.match(source, /"quiz-choice"/);
+  assert.doesNotMatch(source, /loop\?\.questions\.map/);
+  assert.match(css, /\.quiz-choice-input\s*\{[^}]*opacity:\s*0/);
+  assert.match(css, /\.quiz-choice\s*\{[^}]*min-height:\s*44px/);
 });
 
 test("learning playback records history and shows a clear completion action", () => {

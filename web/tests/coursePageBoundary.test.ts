@@ -85,3 +85,17 @@ test("a prepared recommendation can be saved after the page reloads", () => {
   assert.match(source, /savePreparedCourse/);
   assert.match(source, /코스로 저장/);
 });
+
+test("saved courses use preview cards with a compact video list", () => {
+  const source = readFileSync(coursePath, "utf8");
+  const css = readFileSync(courseCssPath, "utf8");
+
+  assert.match(source, /className="course-library-grid"/);
+  assert.match(source, /className="course-library-card"/);
+  assert.match(source, /course\.steps\.slice\(0, 3\)/);
+  assert.match(source, /className="course-video-preview"/);
+  assert.match(source, /step\.snapshot\.thumbnailUrl/);
+  assert.match(css, /\.course-library-grid\s*\{[^}]*grid-template-columns:/);
+  assert.match(css, /\.course-library-card\s*\{[^}]*padding:\s*18px/);
+  assert.match(css, /\.course-video-preview img\s*\{[^}]*width:\s*72px/);
+});

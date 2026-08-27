@@ -94,6 +94,12 @@
   border-bottom-color: var(--app-line);
 }
 
+.playlist-toolbar .prepared-course-actions {
+  display: flex;
+  gap: 8px;
+  min-width: auto;
+}
+
 .course-page .video-result em {
   color: var(--app-accent);
 }
@@ -102,5 +108,15 @@
   .course-builder-heading,
   .preference-summary {
     grid-template-columns: 1fr;
+  }
+
+  .prepared-course .playlist-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .playlist-toolbar .prepared-course-actions,
+  .playlist-toolbar .prepared-course-actions button {
+    width: 100%;
   }
 }

@@ -340,6 +340,25 @@ describe('AiGroundedQuizGenerator', () => {
       controller.signal,
     );
   });
+
+  it('falls back to content questions when the AI service is unavailable', async () => {
+    const generator = new AiGroundedQuizGenerator({
+      generateQuiz: jest.fn().mockRejectedValue(new Error('provider timeout')),
+    });
+
+    const response = (await generator.generate(
+      snapshot(),
+      new AbortController().signal,
+    )) as ReturnType<typeof groundedQuiz>;
+
+    expect(response.generatorVersion).toBe('content-fallback-v1');
+    expect(response.questions).toHaveLength(5);
+    for (const question of response.questions) {
+      expect(question.prompt).not.toMatch(/\d+\s*초|근처|언제/iu);
+      expect(question.choices).toHaveLength(4);
+      expect(question.explanation).not.toMatch(/\d+\s*초|근처/iu);
+    }
+  });
 });
 
 function handlerWith(

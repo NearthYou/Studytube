@@ -26,19 +26,24 @@ test("course creation has one clear primary action and visible progress", () => 
   assert.doesNotMatch(source, /기존 코스 먼저 찾기|새로 만들어줘/);
 });
 
-test("saved course continuation appears before optional course discovery", () => {
+test("Course screen contains creation and saved courses without the home feed", () => {
   const source = readFileSync(coursePath, "utf8");
-  const continuation = source.indexOf("이어갈 코스");
   const builder = source.indexOf('className="course-builder"');
+  const library = source.indexOf('id="my-course-title">저장한 코스');
 
-  assert.ok(continuation >= 0);
-  assert.ok(builder > continuation);
+  assert.ok(builder >= 0);
+  assert.ok(library > builder);
   assert.doesNotMatch(source, /<details className="course-builder">/);
   assert.match(source, /이번 코스에 적용되는 학습 설정/);
   assert.match(source, /학습 설정 바꾸기/);
-  assert.match(source, /최근 학습/);
-  assert.match(source, /준비된 학습 순서/);
+  assert.doesNotMatch(source, /readLearningHistory|learningHistoryProgress/);
+  assert.doesNotMatch(source, /이어갈 코스|최근 학습|준비된 학습 순서/);
+  assert.match(source, /저장 전 코스/);
   assert.match(source, /조회수 순이 아닙니다/);
+  assert.doesNotMatch(
+    source,
+    /findMatchingCourses|courseMatches|fetchPosts|postsFromCourse/,
+  );
 });
 
 test("a single recommendation is never presented or saved as a course", () => {
@@ -71,7 +76,7 @@ test("course recommendations survive reloads before the user saves a course", ()
 
   assert.match(source, /readCourseRecommendation/);
   assert.match(source, /saveCourseRecommendation/);
-  assert.match(source, /readLearningHistory/);
+  assert.match(source, /clearCourseRecommendation/);
 });
 
 test("a prepared recommendation can be saved after the page reloads", () => {

@@ -62,3 +62,11 @@ export function saveCourseRecommendation(
   );
   return recommendation;
 }
+
+export function clearCourseRecommendation(
+  storage: Storage = window.localStorage,
+) {
+  storage.removeItem(
+    scopedStudyStorageKeyFromStorage(RECOMMENDATION_STORAGE_KEY, storage),
+  );
+}

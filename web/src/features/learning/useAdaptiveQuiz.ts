@@ -19,11 +19,13 @@ export function useAdaptiveQuiz({
   active,
   contextId,
   currentTime,
+  evidenceMessage,
   evidenceReady,
 }: {
   active: boolean;
   contextId: string;
   currentTime: number;
+  evidenceMessage: string;
   evidenceReady: boolean;
 }) {
   const [loop, setLoop] = useState<AdaptiveQuizLoop | null>(null);
@@ -31,9 +33,10 @@ export function useAdaptiveQuiz({
   const [submission, setSubmission] = useState<AdaptiveQuizSubmission | null>(
     null,
   );
-  const [state, setState] = useState<QuizUiState>(() =>
-    quizStateFromApi(null, evidenceReady),
-  );
+  const [state, setState] = useState<QuizUiState>(() => {
+    const initial = quizStateFromApi(null, evidenceReady);
+    return evidenceReady ? initial : { ...initial, message: evidenceMessage };
+  });
   const statusRef = useRef<HTMLDivElement>(null);
   const evidenceReadyRef = useRef(evidenceReady);
   const currentTimeRef = useRef(currentTime);
@@ -76,8 +79,13 @@ export function useAdaptiveQuiz({
   }, [contextId]);
 
   useEffect(() => {
-    if (!loop) setState(quizStateFromApi(null, evidenceReady));
-  }, [evidenceReady, loop]);
+    if (!loop) {
+      const initial = quizStateFromApi(null, evidenceReady);
+      setState(
+        evidenceReady ? initial : { ...initial, message: evidenceMessage },
+      );
+    }
+  }, [evidenceMessage, evidenceReady, loop]);
 
   useEffect(() => {
     if (

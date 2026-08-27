@@ -49,13 +49,12 @@ test("quiz preparation uses one compact message and at most one action", () => {
     quizPanelPresentation({
       evidenceReady: false,
       loopId: "",
-      message: "퀴즈를 준비하고 있어요.",
+      message: "학습 자막을 먼저 준비해주세요.",
       phase: "request",
     }),
     {
       title: "퀴즈를 만들려면 학습 자막이 필요해요",
-      description:
-        "학습 자막 문장 5개를 본 뒤 이 탭을 열면 지금까지 본 내용으로 퀴즈를 자동으로 만들어요.",
+      description: "학습 자막을 먼저 준비해주세요.",
       actionLabel: "학습 자막 준비하기",
     },
   );
@@ -70,6 +69,25 @@ test("quiz preparation uses one compact message and at most one action", () => {
     {
       title: "지금까지 본 내용으로 퀴즈를 만들고 있어요",
       description: "준비되면 이 화면에 바로 보여드릴게요.",
+      actionLabel: "",
+    },
+  );
+});
+
+test("quiz progress does not ask to prepare captions that already exist", () => {
+  assert.deepEqual(
+    quizPanelPresentation(
+      {
+        evidenceReady: false,
+        loopId: "",
+        message: "지금 2/5문장을 봤어요. 3문장 더 보면 퀴즈가 열려요.",
+        phase: "request",
+      },
+      false,
+    ),
+    {
+      title: "영상 문장 5개를 보면 퀴즈가 열려요",
+      description: "지금 2/5문장을 봤어요. 3문장 더 보면 퀴즈가 열려요.",
       actionLabel: "",
     },
   );

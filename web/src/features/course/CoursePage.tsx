@@ -1,15 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { Link, useNavigate } from "react-router";
-import { askAgent, askMcp, askRag, fetchPosts } from "../../api";
+import { askAgent, askMcp, askRag } from "../../api";
 import { createCourse, fetchOwnerCourses, publishCourse } from "../../courseApi";
-import { createPersonalizedCoursePrompt, createPromptSuggestions, findMatchingCourses, hasLearningPreferences } from "../../courseDiscovery";
+import { createPersonalizedCoursePrompt, createPromptSuggestions, hasLearningPreferences } from "../../courseDiscovery";
 import { addVideosToQueue } from "../../watchQueueStorage";
 import {
-  learningHistoryProgress,
-  readLearningHistory,
-} from "../learning/learningHistory";
-import {
+  clearCourseRecommendation,
   readCourseRecommendation,
   saveCourseRecommendation,
 } from "./courseRecommendationStorage";
@@ -24,7 +21,7 @@ import {
   uniqueVideos,
   type QueueVideo,
 } from "../../watchQueue";
-import type { AgentResponse, Course, McpResponse, Playlist, RagResponse, Session, StudyPost } from "../../types";
+import type { AgentResponse, Course, McpResponse, Playlist, RagResponse, Session } from "../../types";
 import "./CoursePage.css";
 
 export function CoursePage({ session }: { session: Session }) {
@@ -34,13 +31,11 @@ export function CoursePage({ session }: { session: Session }) {
   const initialQuery = createPersonalizedCoursePrompt(profile);
   const [query, setQuery] = useState("");
   const [ragResult, setRagResult] = useState<RagResponse | null>(null);
-  const [courseMatches, setCourseMatches] = useState<Playlist[]>([]);
   const [agentResult, setAgentResult] = useState<AgentResponse | null>(null);
   const [mcpResult, setMcpResult] = useState<McpResponse | null>(null);
   const [recommendation, setRecommendation] = useState(() =>
     readCourseRecommendation(),
   );
-  const [learningHistory] = useState(() => readLearningHistory().slice(0, 6));
   const [courses, setCourses] = useState<Course[]>([]);
   const playlists = useMemo(
     () =>
@@ -49,7 +44,6 @@ export function CoursePage({ session }: { session: Session }) {
         .map(playlistViewFromCourse),
     [courses],
   );
-  const [posts, setPosts] = useState<StudyPost[]>([]);
   const [status, setStatus] = useState(
     hasProfile
       ? `${profile.interests[0]} 관심사와 학습 목표를 새 코스에 반영합니다.`
@@ -64,21 +58,11 @@ export function CoursePage({ session }: { session: Session }) {
   }, [session.user.id]);
 
   async function refreshCourseData() {
-    const [courseResult, postResult] = await Promise.allSettled([
-      fetchOwnerCourses(),
-      fetchOwnedPostsForLibrary(),
-    ]);
-    const nextCourses = courseResult.status === "fulfilled" ? courseResult.value : [];
-    const ownedPosts = postResult.status === "fulfilled" ? postResult.value : [];
-    if (courseResult.status === "fulfilled" || postResult.status === "fulfilled") {
-      setCourses(nextCourses);
-      setPosts([
-        ...nextCourses.flatMap((course) => postsFromCourse(course, ownedPosts)),
-        ...ownedPosts,
-      ]);
-      return;
+    try {
+      setCourses(await fetchOwnerCourses());
+    } catch {
+      setStatus("내 코스를 불러오지 못했어요. 잠시 후 다시 시도해주세요.");
     }
-    setStatus("내 코스를 불러오지 못했어요. 잠시 후 다시 시도해주세요.");
   }
 
   async function submit(event: FormEvent) {
@@ -115,7 +99,6 @@ export function CoursePage({ session }: { session: Session }) {
 
     if (ragResponse.status === "fulfilled") {
       setRagResult(ragResponse.value);
-      setCourseMatches(findMatchingCourses(playlists, posts, goal));
     }
 
     if (agentResponse.status === "fulfilled") {
@@ -258,6 +241,11 @@ export function CoursePage({ session }: { session: Session }) {
           ? await publishCourse(created.id, created.version)
           : created;
       await refreshCourseData();
+      clearCourseRecommendation();
+      setRecommendation(null);
+      setAgentResult(null);
+      setMcpResult(null);
+      setRagResult(null);
       setStatus(
         `"${saved.title}" 코스를 저장했어요. 학습 화면에서 바로 선택할 수 있습니다.`,
       );
@@ -300,133 +288,18 @@ export function CoursePage({ session }: { session: Session }) {
   const promptSuggestions = createPromptSuggestions(profile);
   const preparedVideos =
     generatedVideos.length === 0 ? (recommendation?.videos ?? []) : [];
-  const hasStartingPoint =
-    playlists.length > 0 || preparedVideos.length > 0 || learningHistory.length > 0;
 
   return (
     <main className="page-shell course-page">
       <section className="page-heading">
         <h1>내 코스</h1>
-        <p>다음에 볼 영상과 지금까지 이어온 학습을 확인하세요.</p>
+        <p>새 학습 코스를 만들거나 저장한 코스를 확인하세요.</p>
       </section>
-
-      {playlists.length > 0 && (
-        <section className="course-library" aria-labelledby="my-course-title">
-          <div className="section-title">
-            <h2 id="my-course-title">이어갈 코스</h2>
-            <span>{playlists.length}개</span>
-          </div>
-          {playlists.map((playlist) => (
-            <button key={playlist.id} type="button" onClick={() => playSavedPlaylist(playlist)}>
-              <span><strong>{playlist.title}</strong><small>{playlist.postIds.length}개 영상</small></span>
-              이어서 학습
-            </button>
-          ))}
-        </section>
-      )}
-
-      {preparedVideos.length > 0 && recommendation && (
-        <section className="course-results prepared-course">
-          <div className="playlist-toolbar">
-            <div>
-              <strong>준비된 학습 순서</strong>
-              <small>{recommendation.title}</small>
-            </div>
-            {canFormCourse(preparedVideos) ? (
-              <div className="prepared-course-actions">
-                <button
-                  className="secondary-action"
-                  type="button"
-                  onClick={() =>
-                    addCourseAndWatch(preparedVideos[0], preparedVideos, {
-                      id: `recent-recommendation-${recommendation.updatedAt}`,
-                      title: recommendation.title,
-                    })
-                  }
-                >
-                  이어서 시작
-                </button>
-                <button
-                  type="button"
-                  disabled={isSavingPlaylist}
-                  onClick={() => void savePreparedCourse()}
-                >
-                  {isSavingPlaylist ? "저장 중" : "코스로 저장"}
-                </button>
-              </div>
-            ) : (
-              <button type="button" onClick={() => setQuery(recommendation.goal)}>
-                이 주제로 더 찾기
-              </button>
-            )}
-          </div>
-          {preparedVideos.map((video, index) => (
-            <button
-              className="video-result"
-              key={video.videoId}
-              type="button"
-              onClick={() =>
-                canFormCourse(preparedVideos)
-                  ? addCourseAndWatch(video, preparedVideos, {
-                      id: `recent-recommendation-${recommendation.updatedAt}`,
-                      title: recommendation.title,
-                    })
-                  : addAndWatch(video, preparedVideos)
-              }
-            >
-              <img src={video.thumbnailUrl} alt="" />
-              <span>
-                <small>{index + 1}번째 영상</small>
-                <strong>{video.title}</strong>
-                <em>{index === 0 ? "이어서 학습" : "이 영상부터 시작"}</em>
-              </span>
-            </button>
-          ))}
-        </section>
-      )}
-
-      {learningHistory.length > 0 && (
-        <section className="course-results recent-learning">
-          <div className="section-title">
-            <h2>최근 학습</h2>
-            <span>{learningHistory.length}개</span>
-          </div>
-          {learningHistory.map((entry) => (
-            <button
-              className="video-result"
-              key={entry.video.videoId}
-              type="button"
-              onClick={() => addAndWatch(entry.video, [entry.video])}
-            >
-              <img src={entry.video.thumbnailUrl} alt="" />
-              <span>
-                <strong>{entry.video.title}</strong>
-                <small>
-                  {entry.completed
-                    ? "학습 완료"
-                    : `${learningHistoryProgress(entry)}% 학습`}
-                </small>
-                <em>{entry.completed ? "다시 보기" : "이어서 보기"}</em>
-              </span>
-            </button>
-          ))}
-        </section>
-      )}
-
-      {!hasStartingPoint && (
-        <section className="learning-empty-state">
-          <strong>이어갈 코스가 아직 없습니다</strong>
-          <p>영상을 먼저 학습하면 다음 순서를 제안해드립니다.</p>
-          <button type="button" onClick={() => navigate("/")}>
-            영상으로 시작하기
-          </button>
-        </section>
-      )}
 
       <section className="course-builder">
         <header className="course-builder-heading">
           <div>
-            <h2>{hasStartingPoint ? "새로 찾기" : "코스 찾기"}</h2>
+            <h2>새 코스 만들기</h2>
             <p>배우고 싶은 내용을 적으면 관련 영상을 2~4개 골라 순서대로 보여드립니다.</p>
           </div>
           <Link to="/me">학습 설정 바꾸기</Link>
@@ -475,27 +348,72 @@ export function CoursePage({ session }: { session: Session }) {
         </div>
       </section>
 
-      {(courseMatches.length > 0 || existingVideos.length > 0) && (
+      {preparedVideos.length > 0 && recommendation && (
+        <section className="course-results prepared-course">
+          <div className="playlist-toolbar">
+            <div>
+              <strong>저장 전 코스</strong>
+              <small>{recommendation.title}</small>
+            </div>
+            {canFormCourse(preparedVideos) ? (
+              <div className="prepared-course-actions">
+                <button
+                  className="secondary-action"
+                  type="button"
+                  onClick={() =>
+                    addCourseAndWatch(preparedVideos[0], preparedVideos, {
+                      id: `recent-recommendation-${recommendation.updatedAt}`,
+                      title: recommendation.title,
+                    })
+                  }
+                >
+                  첫 영상 보기
+                </button>
+                <button
+                  type="button"
+                  disabled={isSavingPlaylist}
+                  onClick={() => void savePreparedCourse()}
+                >
+                  {isSavingPlaylist ? "저장 중" : "코스로 저장"}
+                </button>
+              </div>
+            ) : (
+              <button type="button" onClick={() => setQuery(recommendation.goal)}>
+                이 주제로 더 찾기
+              </button>
+            )}
+          </div>
+          {preparedVideos.map((video, index) => (
+            <button
+              className="video-result"
+              key={video.videoId}
+              type="button"
+              onClick={() =>
+                canFormCourse(preparedVideos)
+                  ? addCourseAndWatch(video, preparedVideos, {
+                      id: `recent-recommendation-${recommendation.updatedAt}`,
+                      title: recommendation.title,
+                    })
+                  : addAndWatch(video, preparedVideos)
+              }
+            >
+              <img src={video.thumbnailUrl} alt="" />
+              <span>
+                <small>{index + 1}번째 영상</small>
+                <strong>{video.title}</strong>
+                <em>{index === 0 ? "첫 영상 보기" : "이 영상부터 보기"}</em>
+              </span>
+            </button>
+          ))}
+        </section>
+      )}
+
+      {existingVideos.length > 0 && (
         <section className="course-results">
           <div className="section-title">
             <h2>함께 참고한 학습 자료</h2>
-            <span>{courseMatches.length + existingVideos.length}개</span>
+            <span>{existingVideos.length}개</span>
           </div>
-          {courseMatches.map((playlist) => (
-            <article className="course-match" key={playlist.id}>
-              <div>
-                <strong>{playlist.title}</strong>
-                <p>{playlist.description || "이미 저장된 학습 코스입니다."}</p>
-                <div className="route-card-meta">
-                  <span>{playlist.postIds.length}개 영상</span>
-                  <span>댓글 {playlist.feedback.length}개</span>
-                </div>
-              </div>
-              <button type="button" onClick={() => playSavedPlaylist(playlist)}>
-                이 코스 보기
-              </button>
-            </article>
-          ))}
           {existingVideos.map((video) => (
             <button
               className="video-result"
@@ -580,20 +498,35 @@ export function CoursePage({ session }: { session: Session }) {
         </section>
       )}
 
+      <section className="course-library" aria-labelledby="my-course-title">
+        <div className="section-title">
+          <h2 id="my-course-title">저장한 코스</h2>
+          <span>{playlists.length}개</span>
+        </div>
+        {playlists.length === 0 ? (
+          <div className="empty-product">
+            <strong>저장한 코스가 없습니다</strong>
+            <p>위에서 새 코스를 만들면 이곳에 보관됩니다.</p>
+          </div>
+        ) : (
+          playlists.map((playlist) => (
+            <button
+              key={playlist.id}
+              type="button"
+              onClick={() => playSavedPlaylist(playlist)}
+            >
+              <span>
+                <strong>{playlist.title}</strong>
+                <small>{playlist.postIds.length}개 영상</small>
+              </span>
+              코스 열기
+            </button>
+          ))
+        )}
+      </section>
+
     </main>
   );
-}
-
-async function fetchOwnedPostsForLibrary() {
-  const pageSize = 24;
-  const firstPage = await fetchPosts("", 1, pageSize);
-  const posts = [...firstPage.items];
-  const totalPages = Math.ceil(firstPage.total / pageSize);
-  for (let page = 2; page <= totalPages; page += 1) {
-    const result = await fetchPosts("", page, pageSize);
-    posts.push(...result.items);
-  }
-  return posts;
 }
 
 function playlistViewFromCourse(course: Course): Playlist {
@@ -610,28 +543,6 @@ function playlistViewFromCourse(course: Course): Playlist {
     })),
     createdAt: course.createdAt,
   };
-}
-
-function postsFromCourse(course: Course, sourcePosts: StudyPost[] = []) {
-  const sourceById = new Map(sourcePosts.map((post) => [post.id, post]));
-  return course.steps.map((step) => {
-    const source = step.sourcePostId ? sourceById.get(step.sourcePostId) : null;
-    return {
-      id: courseStepViewId(course.id, step),
-      authorId: course.ownerId ?? source?.authorId ?? 0,
-      authorName: source?.authorName ?? "Course author",
-      title: step.snapshot.title,
-      videoUrl: step.snapshot.videoUrl,
-      thumbnailUrl: step.snapshot.thumbnailUrl,
-      channelName: step.snapshot.channelName,
-      summary: source?.summary ?? "",
-      translatedNotes: source?.translatedNotes ?? "",
-      tags: source?.tags ?? [],
-      comments: [],
-      createdAt: course.createdAt,
-      updatedAt: course.updatedAt,
-    } satisfies StudyPost;
-  });
 }
 
 function courseStepViewId(courseId: number, step: Course["steps"][number]) {

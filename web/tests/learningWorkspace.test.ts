@@ -118,7 +118,7 @@ test("unfinished learning tools are presented as preparation states", () => {
     resolve(featureDirectory, "learningPanelPresentation.ts"),
     "utf8",
   );
-  assert.match(stateSource, /자막 문장 5개를 본 뒤 퀴즈가 열려요/);
+  assert.match(stateSource, /문장 더 보면 퀴즈가 열려요/);
   assert.match(source, /const MAX_CAPTION_POLLS = 170/);
   assert.match(source, /startLearningIntake/);
   assert.match(presentationSource, /학습 자막 만들기/);
@@ -199,6 +199,20 @@ test("starting a note pins the current playback position automatically", () => {
   assert.match(current, />\s*이 문장 저장\s*</);
   assert.doesNotMatch(source, /현재 위치로 바꾸기/);
   assert.doesNotMatch(source, /positionSeconds: state\.currentTime/);
+});
+
+test("quiz readiness follows the captions currently shown to the learner", () => {
+  const source = readFileSync(
+    resolve(featureDirectory, "LearningWorkspace.tsx"),
+    "utf8",
+  );
+
+  assert.match(
+    source,
+    /quizPreparation\(displayedCaptions, state\.currentTime\)/,
+  );
+  assert.match(source, /evidenceMessage:\s*quizState\.message/);
+  assert.match(source, /canPrepareCaptions=\{quizState\.needsCaptions\}/);
 });
 
 test("learning playback records history and shows a clear completion action", () => {
@@ -300,6 +314,14 @@ test("learning workspace collapses safely at phone width", () => {
   assert.match(css, /\.learning-desk\s*\{[\s\S]*grid-template-columns:/);
   assert.match(css, /\.learning-tools\s*\{[\s\S]*overflow:/);
   assert.match(css, /\.learning-tablist button[\s\S]*min-width: 0/);
+  assert.match(
+    css,
+    /@media \(max-width: 520px\)[\s\S]*\.course-navigator\s*\{[^}]*flex-direction:\s*column/,
+  );
+  assert.match(
+    css,
+    /\.course-navigator-actions\s*\{[^}]*width:\s*100%/,
+  );
 });
 
 test("a partial transcript that starts late repairs the opening automatically", () => {

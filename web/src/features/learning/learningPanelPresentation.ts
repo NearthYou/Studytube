@@ -72,7 +72,10 @@ export function captionlessPanelPresentation({
   };
 }
 
-export function quizPanelPresentation(state: QuizUiState): PanelPresentation {
+export function quizPanelPresentation(
+  state: QuizUiState,
+  canPrepareCaptions = true,
+): PanelPresentation {
   if (state.phase === "generating") {
     return {
       title: "퀴즈를 만들고 있어요",
@@ -105,10 +108,17 @@ export function quizPanelPresentation(state: QuizUiState): PanelPresentation {
     };
   }
 
+  if (!canPrepareCaptions) {
+    return {
+      title: "영상 문장 5개를 보면 퀴즈가 열려요",
+      description: state.message,
+      actionLabel: "",
+    };
+  }
+
   return {
     title: "퀴즈를 만들려면 학습 자막이 필요해요",
-    description:
-      "학습 자막 문장 5개를 본 뒤 이 탭을 열면 지금까지 본 내용으로 퀴즈를 자동으로 만들어요.",
+    description: state.message,
     actionLabel: "학습 자막 준비하기",
   };
 }

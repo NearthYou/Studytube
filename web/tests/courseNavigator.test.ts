@@ -24,7 +24,7 @@ function video(position: number): QueueVideo {
   };
 }
 
-test("shows the current course position and the next video in the learning screen", async () => {
+test("keeps course navigation compact around the current video", async () => {
   let CourseNavigator:
     | ((props: {
         currentVideoId: string;
@@ -52,5 +52,17 @@ test("shows the current course position and the next video in the learning scree
   assert.match(html, /여행 회화 코스/);
   assert.match(html, /1 \/ 2/);
   assert.match(html, /다음 영상/);
-  assert.match(html, /다음으로/);
+  assert.match(html, />다음</);
+  assert.match(html, /코스 목록/);
+  assert.doesNotMatch(html, /<ol/);
+
+  const finalHtml = renderToStaticMarkup(
+    createElement(CourseNavigator, {
+      currentVideoId: "sHS1z9Pr4v8",
+      onSelect: () => undefined,
+      videos: [video(1), video(2)],
+    }),
+  );
+  assert.match(finalHtml, />이전</);
+  assert.doesNotMatch(finalHtml, />다음</);
 });

@@ -387,6 +387,14 @@ test("learning workspace collapses safely at phone width", () => {
   );
   assert.match(
     css,
+    /@media \(max-width: 520px\)[\s\S]*\.learning-workspace-heading\s*\{[^}]*flex-direction:\s*column/,
+  );
+  assert.match(
+    css,
+    /@media \(max-width: 520px\)[\s\S]*\.learning-workspace-heading a\s*\{[^}]*white-space:\s*normal/,
+  );
+  assert.match(
+    css,
     /\.course-navigator-actions\s*\{[^}]*width:\s*100%/,
   );
 });

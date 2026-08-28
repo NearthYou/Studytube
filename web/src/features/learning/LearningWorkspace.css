@@ -895,6 +895,16 @@
 }
 
 @media (max-width: 520px) {
+  .learning-workspace-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .learning-workspace-heading a {
+    white-space: normal;
+  }
+
   .course-navigator {
     align-items: stretch;
     flex-direction: column;

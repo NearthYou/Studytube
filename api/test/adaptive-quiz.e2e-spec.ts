@@ -231,6 +231,57 @@ describe('adaptive quiz PostgreSQL checkpoint (e2e)', () => {
     ).resolves.toMatchObject({ state: 'stale' });
   });
 
+  it('keeps a source-grounded quiz valid when its translation becomes ready', async () => {
+    const fixture = await createReadyContext('adaptive005');
+    users.push(fixture.userId);
+    const requested = await service.requestAdaptiveQuiz(
+      fixture.userId,
+      fixture.contextId,
+      `translation-ready-${randomUUID()}`,
+      { startSeconds: 0, endSeconds: 60 },
+    );
+    const event = await pool.query<{
+      id: string;
+      payload: Record<string, unknown>;
+    }>(
+      `SELECT id::text AS id, payload FROM work_outbox_events
+       WHERE aggregate_type = 'learning_quiz_loop' AND aggregate_id = $1`,
+      [requested.id],
+    );
+    const handler = new QuizGenerationJobHandler(
+      service,
+      contentQuizGenerator(),
+      new DurableJobExecutor(new MemoryJobExecutionStore(), {
+        leaseOwner: 'adaptive-quiz-translation-e2e',
+        leaseMs: 30_000,
+      }),
+    );
+    await handler.handle({
+      eventId: event.rows[0]!.id,
+      eventType: 'quiz_generation.requested',
+      handlerVersion: 'quiz-generation-v2',
+      payloadSchemaVersion: 2,
+      payload: event.rows[0]!.payload,
+    });
+    await attachReadyTranslation(fixture.contextId, fixture.artifactId);
+
+    const ready = await service.getAdaptiveQuiz(fixture.userId, requested.id);
+    expect(ready).toMatchObject({ state: 'ready' });
+
+    const submission = await service.submitAdaptiveQuiz(
+      fixture.userId,
+      requested.id,
+      `translation-submit-${randomUUID()}`,
+      {
+        answers: ready!.questions.map((question) => ({
+          questionId: question.id,
+          selectedChoiceIndex: 0,
+        })),
+      },
+    );
+    expect(typeof submission.attempt.score).toBe('number');
+  });
+
   async function createReadyContext(
     videoId: string,
     indexed: boolean | number = true,
@@ -335,7 +386,42 @@ describe('adaptive quiz PostgreSQL checkpoint (e2e)', () => {
     return {
       userId: user.rows[0]!.id,
       contextId: context.rows[0]!.id,
+      artifactId: artifact.rows[0]!.id,
     };
+  }
+
+  async function attachReadyTranslation(
+    contextId: string,
+    sourceArtifactId: string,
+  ) {
+    const translation = await pool.query<{ id: string }>(
+      `INSERT INTO caption_artifacts (
+         video_source_id, kind, parent_artifact_id, generation,
+         source_language, target_language, provider, work_event_id,
+         handler_version
+       ) SELECT video_source_id, 'translation', id, 1,
+                source_language, 'ko', 'e2e', $2, 'e2e'
+         FROM caption_artifacts WHERE id = $1::bigint
+       RETURNING id::text AS id`,
+      [sourceArtifactId, randomUUID()],
+    );
+    await pool.query(
+      `INSERT INTO caption_generation_states (artifact_id, status, last_ordinal)
+       VALUES ($1, 'ready', 0)`,
+      [translation.rows[0]!.id],
+    );
+    await pool.query(
+      `INSERT INTO caption_artifact_segments (
+         artifact_id, ordinal, start_seconds, end_seconds, text
+       ) VALUES ($1, 0, 0, 60, '번역 자막')`,
+      [translation.rows[0]!.id],
+    );
+    await pool.query(
+      `UPDATE study_contexts
+       SET current_translation_caption_artifact_id = $2::bigint
+       WHERE id = $1::bigint`,
+      [contextId, translation.rows[0]!.id],
+    );
   }
 });
 

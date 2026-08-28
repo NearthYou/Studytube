@@ -152,6 +152,17 @@ export function AdaptiveQuizPanel({
       </div>
 
       <div className="quiz-actions">
+        {state.message &&
+          ["answering", "submitting"].includes(state.phase) && (
+            <div
+              aria-live="polite"
+              className="quiz-submit-status"
+              ref={statusRef}
+              tabIndex={-1}
+            >
+              {state.message}
+            </div>
+          )}
         <button
           className="quiet-button"
           disabled={page.isFirst}

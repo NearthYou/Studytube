@@ -4763,7 +4763,7 @@ footer {
   padding: 3px 9px;
   overflow: hidden;
   border-radius: 5px;
-  background: rgba(0, 0, 0, 0.74);
+  background: rgb(0 0 0 / var(--learning-caption-opacity, 0.74));
   font-size: var(--learning-caption-size);
   font-weight: 650;
   line-height: 1.38;
@@ -4779,6 +4779,7 @@ footer {
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 6px;
   min-height: 44px;
   padding: 6px 10px;
@@ -4807,6 +4808,43 @@ footer {
   border-color: var(--app-line);
   background: var(--app-elevated);
   color: var(--app-text);
+}
+
+.caption-size-controls,
+.caption-opacity-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.caption-size-controls > span,
+.caption-opacity-control > span {
+  margin-right: 2px;
+}
+
+.caption-opacity-control {
+  min-height: 44px;
+  padding-left: 6px;
+}
+
+.caption-opacity-control input {
+  width: clamp(92px, 12vw, 150px);
+  margin: 0;
+  accent-color: var(--app-accent);
+}
+
+.caption-opacity-control output {
+  min-width: 38px;
+  color: var(--app-text);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.learning-caption-settings button:disabled,
+.caption-opacity-control input:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .learning-player-error {

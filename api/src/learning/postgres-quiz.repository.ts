@@ -672,10 +672,10 @@ export class PostgresQuizRepository {
   ): Promise<AdaptiveQuizLoopPublic | null> {
     return mutate(this.pool, async (client) => {
       const current = await client.query<{ stale: boolean }>(
-        `SELECT COALESCE(
-                  context.current_translation_caption_artifact_id,
+        `SELECT loop.caption_artifact_id IS DISTINCT FROM
                   context.current_source_caption_artifact_id
-                ) IS DISTINCT FROM loop.caption_artifact_id AS stale
+                AND loop.caption_artifact_id IS DISTINCT FROM
+                  context.current_translation_caption_artifact_id AS stale
          FROM adaptive_quiz_loops AS loop
          JOIN study_contexts AS context ON context.id = loop.study_context_id
          WHERE loop.id = $1 AND loop.owner_id = $2
@@ -810,13 +810,13 @@ export class PostgresQuizRepository {
     const result = await mutate(this.pool, async (client) => {
       const loop = await client.query<{
         state: AdaptiveQuizGeneration['state'];
-        captionArtifactId: string;
-        currentArtifactId: string | null;
+        stale: boolean;
       }>(
         `SELECT loop.state,
-                loop.caption_artifact_id::text AS "captionArtifactId",
-                COALESCE(context.current_translation_caption_artifact_id,
-                         context.current_source_caption_artifact_id)::text AS "currentArtifactId"
+                loop.caption_artifact_id IS DISTINCT FROM
+                  context.current_source_caption_artifact_id
+                AND loop.caption_artifact_id IS DISTINCT FROM
+                  context.current_translation_caption_artifact_id AS stale
          FROM adaptive_quiz_loops AS loop
          JOIN study_contexts AS context ON context.id = loop.study_context_id
          WHERE loop.id = $1 AND loop.owner_id = $2
@@ -825,7 +825,7 @@ export class PostgresQuizRepository {
       );
       const loopRow = loop.rows[0];
       if (!loopRow) throw new LearningNotFoundError();
-      if (loopRow.currentArtifactId !== loopRow.captionArtifactId) {
+      if (loopRow.stale) {
         await client.query(
           `UPDATE adaptive_quiz_loops SET state = 'stale', updated_at = statement_timestamp()
            WHERE id = $1`,

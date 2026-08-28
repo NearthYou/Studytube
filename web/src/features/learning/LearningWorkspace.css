@@ -481,6 +481,17 @@
   gap: 10px;
 }
 
+.quiz-submit-status {
+  grid-column: 1 / -1;
+  padding: 10px 12px;
+  border: 1px solid var(--app-line);
+  border-radius: 10px;
+  background: var(--app-elevated);
+  color: var(--app-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 .adaptive-quiz-panel {
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr) auto;
@@ -771,6 +782,65 @@
   border: 1px solid var(--app-line);
   border-radius: 10px;
   background: #10151d;
+}
+
+.learning-note-list .saved-note-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--app-line);
+  border-radius: 10px;
+  background: #10151d;
+}
+
+.saved-note-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.saved-note-card-actions,
+.learning-note-list .saved-note-edit-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.saved-note-card .note-time {
+  width: auto;
+  min-height: 44px;
+  padding: 0 10px;
+  border-color: var(--app-line);
+  background: transparent;
+  color: var(--app-accent);
+  font-size: 13px;
+}
+
+.saved-note-body {
+  margin: 0;
+  color: var(--app-text);
+  font-size: 15px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+
+.saved-note-card.is-edit textarea {
+  min-height: 104px;
+}
+
+.learning-note-list .saved-note-edit-actions > span {
+  margin-right: auto;
+  color: var(--app-muted);
+  font-size: 12px;
+}
+
+.saved-note-card .danger-button {
+  border-color: #5a3038;
+  background: transparent;
+  color: #f3a3ab;
 }
 
 .learning-note-list article > div,

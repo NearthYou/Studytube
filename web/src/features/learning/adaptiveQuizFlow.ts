@@ -33,7 +33,8 @@ export type QuizUiEvent =
   | { type: "requested" }
   | { type: "answer_changed" }
   | { type: "submit_started" }
-  | { type: "submit_succeeded"; result: { score: number } };
+  | { type: "submit_succeeded"; result: { score: number } }
+  | { type: "submit_failed"; message: string };
 
 export function quizStateFromApi(
   snapshot: QuizApiSnapshot | null,
@@ -71,7 +72,7 @@ export function transitionQuizState(
     event.type === "answer_changed" &&
     ["ready", "answering"].includes(state.phase)
   ) {
-    return { ...state, phase: "answering" };
+    return { ...state, phase: "answering", message: "" };
   }
   if (event.type === "submit_started" && state.phase === "answering") {
     return {
@@ -86,6 +87,13 @@ export function transitionQuizState(
       phase: "evaluated",
       result: event.result,
       message: messageFor("evaluated"),
+    };
+  }
+  if (event.type === "submit_failed" && state.phase === "submitting") {
+    return {
+      ...state,
+      phase: "answering",
+      message: event.message,
     };
   }
   return state;

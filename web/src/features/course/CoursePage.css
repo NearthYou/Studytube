@@ -144,6 +144,10 @@
   text-decoration: none;
 }
 
+.course-library-heading .primary-link {
+  color: #07101f;
+}
+
 .course-page .course-library {
   gap: 18px;
   padding: 24px;

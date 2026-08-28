@@ -138,6 +138,26 @@ test("quiz waits for caption coverage across the whole video", () => {
   });
 });
 
+test("translation failure does not block a quiz when source captions are complete", () => {
+  const completeSource = {
+    ...pending,
+    phase: "failed" as const,
+    sourceSegments: [
+      { start: 0, end: 5, text: "opening" },
+      { start: 25, end: 30, text: "first idea" },
+      { start: 55, end: 60, text: "middle" },
+      { start: 85, end: 90, text: "application" },
+      { start: 115, end: 120, text: "ending" },
+    ],
+  };
+
+  assert.deepEqual(quizPreparation(completeSource, 120), {
+    ready: true,
+    needsCaptions: false,
+    message: "영상 전체 내용으로 퀴즈를 시작할 수 있습니다.",
+  });
+});
+
 test("a long video still needs captions near its ending", () => {
   const missingEnding = {
     ...pending,

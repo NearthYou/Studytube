@@ -258,6 +258,8 @@ test("quiz presents one content question at a time with custom choice cards", ()
   assert.match(source, /"quiz-choice"/);
   assert.match(source, /role="radiogroup"/);
   assert.match(source, /className="quiz-question-title"/);
+  assert.match(source, /<div className="quiz-actions">/);
+  assert.doesNotMatch(source, /<footer className="quiz-actions">/);
   assert.doesNotMatch(source, /<fieldset|<legend/);
   assert.match(
     source,

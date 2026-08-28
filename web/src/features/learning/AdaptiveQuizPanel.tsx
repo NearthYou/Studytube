@@ -151,7 +151,7 @@ export function AdaptiveQuizPanel({
         )}
       </div>
 
-      <footer className="quiz-actions">
+      <div className="quiz-actions">
         <button
           className="quiet-button"
           disabled={page.isFirst}
@@ -178,7 +178,7 @@ export function AdaptiveQuizPanel({
             다음 문제
           </button>
         )}
-      </footer>
+      </div>
     </section>
   );
 }

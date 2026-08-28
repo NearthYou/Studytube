@@ -32,6 +32,70 @@ CLOZE_RECALL_QUESTION = re.compile(
     re.IGNORECASE,
 )
 
+QUIZ_QUESTIONS_RESPONSE_FORMAT = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "studytube_quiz_questions",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "properties": {
+                "questions": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "prompt": {"type": "string"},
+                            "choices": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                            },
+                            "correctChoiceIndex": {"type": "integer"},
+                            "explanation": {"type": "string"},
+                        },
+                        "required": [
+                            "prompt",
+                            "choices",
+                            "correctChoiceIndex",
+                            "explanation",
+                        ],
+                        "additionalProperties": False,
+                    },
+                }
+            },
+            "required": ["questions"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+QUIZ_GROUNDING_RESPONSE_FORMAT = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "studytube_quiz_grounding",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "properties": {
+                "verdicts": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "questionPosition": {"type": "integer"},
+                            "grounded": {"type": "boolean"},
+                        },
+                        "required": ["questionPosition", "grounded"],
+                        "additionalProperties": False,
+                    },
+                }
+            },
+            "required": ["verdicts"],
+            "additionalProperties": False,
+        },
+    },
+}
+
 
 @dataclass(frozen=True)
 class QuizGenerationRuntime:
@@ -225,7 +289,7 @@ def generate_quiz_draft(
     response = client.chat.completions.create(
         model=os.getenv("LLM_MODEL", "gpt-4o-mini"),
         temperature=0.2,
-        response_format={"type": "json_object"},
+        response_format=QUIZ_QUESTIONS_RESPONSE_FORMAT,
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": json.dumps(request, ensure_ascii=False)},
@@ -382,7 +446,7 @@ def verify_quiz_grounding(
     response = client.chat.completions.create(
         model=os.getenv("LLM_MODEL", "gpt-4o-mini"),
         temperature=0,
-        response_format={"type": "json_object"},
+        response_format=QUIZ_GROUNDING_RESPONSE_FORMAT,
         messages=[
             {
                 "role": "system",

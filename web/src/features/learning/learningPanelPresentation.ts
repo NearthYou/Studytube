@@ -102,7 +102,7 @@ export function quizPanelPresentation(
 
   if (state.evidenceReady) {
     return {
-      title: "지금까지 본 내용으로 퀴즈를 만들고 있어요",
+      title: "영상 전체 내용으로 퀴즈를 만들고 있어요",
       description: "준비되면 이 화면에 바로 보여드릴게요.",
       actionLabel: "",
     };
@@ -110,7 +110,7 @@ export function quizPanelPresentation(
 
   if (!canPrepareCaptions) {
     return {
-      title: "영상 문장 5개를 보면 퀴즈가 열려요",
+      title: "영상 전체 자막이 준비되면 퀴즈가 열려요",
       description: state.message,
       actionLabel: "",
     };

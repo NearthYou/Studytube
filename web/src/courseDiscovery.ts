@@ -1,4 +1,13 @@
-import type { LearningPreferences, Playlist, StudyPost } from './types.ts';
+import type { LearningHistoryEntry } from './features/learning/learningHistory.ts';
+import type { QueueVideo } from './watchQueue.ts';
+import type {
+  Course,
+  CourseRecommendationContext,
+  LearningPreferences,
+  Playlist,
+  StudyPost,
+} from './types.ts';
+import { extractYouTubeId } from './videoMetadata.ts';
 
 export function hasLearningPreferences(
   profile: LearningPreferences | null | undefined,
@@ -54,6 +63,45 @@ export function createPromptSuggestions(profile: LearningPreferences | null) {
     `${profile.goal}`,
     `${profile.pace} 따라갈 수 있는 취향 코스`,
   ];
+}
+
+export function createCourseRecommendationContext(
+  profile: LearningPreferences | null,
+  subject: string,
+  courses: Course[],
+  history: LearningHistoryEntry[],
+): CourseRecommendationContext {
+  const recentVideos = history.slice(0, 5).map((entry) => ({
+    videoId: entry.video.videoId,
+    title: entry.video.title,
+    channel: entry.video.channelName,
+    completed: entry.completed,
+  }));
+  const excludedVideoIds = new Set(
+    recentVideos.map((video) => video.videoId).filter(Boolean),
+  );
+  for (const course of courses) {
+    for (const step of course.steps) {
+      const videoId = extractYouTubeId(step.snapshot.videoUrl);
+      if (videoId) excludedVideoIds.add(videoId);
+    }
+  }
+  return {
+    subject: subject.trim(),
+    pace: profile?.pace.trim() ?? '',
+    learningGoal: profile?.goal.trim() ?? '',
+    interests: profile?.interests.map((item) => item.trim()).filter(Boolean) ?? [],
+    excludedVideoIds: [...excludedVideoIds],
+    recentVideos,
+  };
+}
+
+export function chooseCourseRecommendationVideos(
+  agentCompleted: boolean,
+  rankedVideos: QueueVideo[],
+  fallbackVideos: QueueVideo[],
+) {
+  return agentCompleted ? rankedVideos : fallbackVideos;
 }
 
 export function findMatchingCourses(

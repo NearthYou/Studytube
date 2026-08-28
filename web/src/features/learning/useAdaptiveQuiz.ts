@@ -18,13 +18,13 @@ const MAX_QUIZ_POLLS = 80;
 export function useAdaptiveQuiz({
   active,
   contextId,
-  currentTime,
+  durationSeconds,
   evidenceMessage,
   evidenceReady,
 }: {
   active: boolean;
   contextId: string;
-  currentTime: number;
+  durationSeconds: number;
   evidenceMessage: string;
   evidenceReady: boolean;
 }) {
@@ -39,7 +39,7 @@ export function useAdaptiveQuiz({
   });
   const statusRef = useRef<HTMLDivElement>(null);
   const evidenceReadyRef = useRef(evidenceReady);
-  const currentTimeRef = useRef(currentTime);
+  const durationSecondsRef = useRef(durationSeconds);
   const autoRequestedContextRef = useRef("");
   const loopId = loop?.id;
   const loopState = loop?.state;
@@ -49,8 +49,8 @@ export function useAdaptiveQuiz({
   }, [evidenceReady]);
 
   useEffect(() => {
-    currentTimeRef.current = currentTime;
-  }, [currentTime]);
+    durationSecondsRef.current = durationSeconds;
+  }, [durationSeconds]);
 
   const request = useCallback(async () => {
     if (!contextId || !evidenceReadyRef.current) return;
@@ -61,7 +61,7 @@ export function useAdaptiveQuiz({
       const next = await requestAdaptiveQuiz({
         contextId,
         startSeconds: 0,
-        endSeconds: Math.max(1, Math.floor(currentTimeRef.current)),
+        endSeconds: Math.max(1, Math.floor(durationSecondsRef.current)),
         idempotencyKey: crypto.randomUUID(),
       });
       setLoop(next);

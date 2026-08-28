@@ -156,6 +156,17 @@ class QuizGenerationGraphTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "content-based"):
             build_quiz_response(payload())
 
+    def test_rejects_a_blank_word_question_that_does_not_test_understanding(self):
+        questions = semantic_questions()
+        questions[0]["prompt"] = (
+            '다음 문장의 빈칸에 들어갈 표현으로 알맞은 것은 무엇인가요? '
+            '"한 시간 동안 ______ 강의예요."'
+        )
+        self.configure(FakeOpenAI(questions))
+
+        with self.assertRaisesRegex(ValueError, "content-based"):
+            build_quiz_response(payload())
+
     def test_rejects_non_text_choices_instead_of_stringifying_them(self):
         questions = semantic_questions()
         questions[0]["choices"][1] = {"unexpected": "object"}

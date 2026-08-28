@@ -42,103 +42,16 @@ export class AiGroundedQuizGenerator implements GroundedQuizGenerator {
     signal: AbortSignal,
   ): Promise<unknown> {
     signal.throwIfAborted();
-    try {
-      return await this.ai.generateQuiz(
-        {
-          studyContextId: snapshot.studyContextId,
-          watchedRange: snapshot.watchedRange,
-          evidence: snapshot.evidence,
-        },
-        signal,
-      );
-    } catch {
-      signal.throwIfAborted();
-      return contentFallbackQuiz(snapshot);
-    }
+    return this.ai.generateQuiz(
+      {
+        studyContextId: snapshot.studyContextId,
+        watchedRange: snapshot.watchedRange,
+        evidence: snapshot.evidence,
+      },
+      signal,
+    );
   }
 }
-
-function contentFallbackQuiz(
-  snapshot: QuizGenerationSnapshot,
-): GroundedQuizResponse {
-  const answers = snapshot.evidence.map((evidence) =>
-    fallbackAnswer(evidence.content),
-  );
-  const questions = snapshot.evidence.map((evidence, index) => {
-    const correctAnswer = answers[index];
-    const alternatives = answers.filter(
-      (answer, candidateIndex) =>
-        candidateIndex !== index && answer !== correctAnswer,
-    );
-    for (const candidate of FALLBACK_ALTERNATIVES) {
-      if (alternatives.length >= 3) break;
-      if (candidate !== correctAnswer && !alternatives.includes(candidate)) {
-        alternatives.push(candidate);
-      }
-    }
-    const correctChoiceIndex = index % 4;
-    const choices = alternatives.slice(0, 3);
-    choices.splice(correctChoiceIndex, 0, correctAnswer);
-    return {
-      prompt: `다음 문장의 빈칸에 들어갈 표현으로 알맞은 것은 무엇인가요? "${clozeSentence(
-        evidence.content,
-        correctAnswer,
-      )}"`,
-      choices,
-      correctChoiceIndex,
-      explanation: `영상에서는 "${evidence.content.slice(0, 220)}"라고 설명합니다.`,
-      citation: {
-        resourceId: evidence.resourceId,
-        sourceUrl: evidence.sourceUrl,
-        startSeconds: evidence.startSeconds,
-        endSeconds: evidence.endSeconds,
-        artifactId: evidence.artifactId,
-        artifactGeneration: evidence.artifactGeneration,
-      },
-    };
-  });
-  return {
-    schemaVersion: 1,
-    generatorVersion: 'content-fallback-v1',
-    questions,
-  };
-}
-
-function fallbackAnswer(content: string): string {
-  const candidates = content.match(/[A-Za-z][A-Za-z0-9+#.-]{2,}|[가-힣]{2,}/gu);
-  return (
-    candidates
-      ?.filter((candidate) => !FALLBACK_STOP_WORDS.has(candidate.toLowerCase()))
-      .sort((left, right) => right.length - left.length)[0] ||
-    content.trim().slice(0, 24) ||
-    '핵심 표현'
-  );
-}
-
-function clozeSentence(content: string, answer: string): string {
-  const clipped = content.trim().slice(0, 220);
-  return clipped.includes(answer)
-    ? clipped.replace(answer, '______')
-    : `${clipped} ______`;
-}
-
-const FALLBACK_STOP_WORDS = new Set([
-  'about',
-  'after',
-  'before',
-  'because',
-  'from',
-  'that',
-  'this',
-  'with',
-  '그리고',
-  '그러나',
-  '그래서',
-  '대한',
-  '위해',
-]);
-
-const FALLBACK_ALTERNATIVES = ['다른 개념', '반대 표현', '관련 없는 내용'];
 
 export class QuizGenerationJobHandler {
   constructor(
@@ -273,6 +186,7 @@ function validateGroundedQuiz(
   const questions: Array<
     GroundedQuizResponse['questions'][number] & { evidencePosition: number }
   > = [];
+  const evidencePositions = new Set<number>();
   for (const rawQuestion of root.questions) {
     if (!rawQuestion || typeof rawQuestion !== 'object') return null;
     const question = rawQuestion as Record<string, unknown>;
@@ -325,6 +239,7 @@ function validateGroundedQuiz(
       choices.length > 8 ||
       choices.some((choice) => !choice.trim()) ||
       [prompt, ...choices, explanation].some(isTemporalRecallText) ||
+      isClozeRecallText(prompt) ||
       !Number.isInteger(correctChoiceIndex) ||
       correctChoiceIndex < 0 ||
       correctChoiceIndex >= choices.length ||
@@ -348,8 +263,16 @@ function validateGroundedQuiz(
       },
       evidencePosition: evidenceIndex + 1,
     });
+    evidencePositions.add(evidenceIndex + 1);
   }
+  if (evidencePositions.size !== snapshot.evidence.length) return null;
   return { generatorVersion: root.generatorVersion.trim(), questions };
+}
+
+function isClozeRecallText(text: string): boolean {
+  return /(?:_{3,}|빈칸|(?:들어갈|알맞은)\s*(?:말|단어|표현)|문장(?:을|의)?\s*완성)/iu.test(
+    text,
+  );
 }
 
 function isTemporalRecallText(text: string): boolean {

@@ -88,6 +88,13 @@ export class LearningSummaryJobHandler {
     if (snapshot.status !== 'pending') {
       return this.terminal(job, 'LEARNING_SUMMARY_NOT_GENERATABLE');
     }
+    if (snapshot.coverage.scope !== 'full_video') {
+      await this.repository.failGeneration(
+        summaryId,
+        'LEARNING_SUMMARY_FULL_VIDEO_REQUIRED',
+      );
+      return this.terminal(job, 'LEARNING_SUMMARY_FULL_VIDEO_REQUIRED');
+    }
     const generated = await this.generator.generate(snapshot, signal);
     signal.throwIfAborted();
     const summary = validateLearningOverview(generated, snapshot);
@@ -153,7 +160,7 @@ export function validateLearningOverview(
   ) {
     return null;
   }
-  const chapters = [];
+  const chapters: LearningOverviewSummary['chapters'] = [];
   for (const rawChapter of summary.chapters) {
     if (!rawChapter || typeof rawChapter !== 'object') return null;
     const chapter = rawChapter as Record<string, unknown>;
@@ -176,6 +183,36 @@ export function validateLearningOverview(
       title: chapter.title.trim().slice(0, 120),
       body: chapter.body.trim().slice(0, 2_000),
     });
+  }
+  const coverageSpan =
+    snapshot.coverage.endSeconds - snapshot.coverage.startSeconds;
+  const edgeTolerance = Math.min(30, Math.max(5, coverageSpan * 0.05));
+  const firstChapter = chapters[0];
+  const lastChapter = chapters[chapters.length - 1];
+  const middleStart = snapshot.coverage.startSeconds + coverageSpan / 3;
+  const middleEnd = snapshot.coverage.startSeconds + (coverageSpan * 2) / 3;
+  const coversMiddle = chapters.some(
+    (chapter) =>
+      chapter.startSeconds <= middleEnd && chapter.endSeconds >= middleStart,
+  );
+  const ordered = chapters.every((chapter, index) => {
+    const previous = chapters[index - 1];
+    return (
+      !previous ||
+      (chapter.startSeconds >= previous.startSeconds &&
+        chapter.endSeconds >= previous.endSeconds)
+    );
+  });
+  if (
+    !firstChapter ||
+    !lastChapter ||
+    !ordered ||
+    !coversMiddle ||
+    firstChapter.startSeconds >
+      snapshot.coverage.startSeconds + edgeTolerance ||
+    lastChapter.endSeconds < snapshot.coverage.endSeconds - edgeTolerance
+  ) {
+    return null;
   }
   const takeaways: string[] = [];
   for (const item of summary.takeaways) {

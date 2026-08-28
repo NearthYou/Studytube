@@ -125,9 +125,9 @@ export function shouldAutoRequestQuiz({
 
 function messageFor(state: QuizApiState): string {
   const messages: Record<QuizApiState, string> = {
-    generating: "시청한 구간에서 문제를 만들고 있습니다.",
+    generating: "영상 전체 내용에서 문제를 만들고 있습니다.",
     ready: "문제가 준비되었습니다.",
-    evaluated: "답과 근거를 확인해보세요.",
+    evaluated: "정답과 해설을 확인해보세요.",
     failed: "문제를 만들지 못했습니다. 다시 시도해주세요.",
     stale: "자막이 바뀌었습니다. 새 퀴즈를 만들어주세요.",
   };

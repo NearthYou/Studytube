@@ -7,6 +7,7 @@ import type {
   LearningOverviewSummary,
   LearningSegmentContext,
 } from './learning-overview.repository';
+import { isFullVideoCaptionCoverage } from './caption-track-coverage';
 
 type CurrentArtifactRow = {
   contextId: string;
@@ -14,6 +15,9 @@ type CurrentArtifactRow = {
   generation: number | null;
   state: 'pending' | 'partial' | 'ready' | 'failed' | null;
   sourceKind: 'youtube_caption' | 'transcription' | null;
+  sourceState: 'pending' | 'partial' | 'ready' | 'failed' | null;
+  sourceStartSeconds: number | null;
+  sourceEndSeconds: number | null;
   startSeconds: number | null;
   endSeconds: number | null;
 };
@@ -49,8 +53,11 @@ export class PostgresLearningOverviewRepository implements LearningOverviewRepos
                  effective.generation,
                  generation_state.status AS state,
                  source.kind AS "sourceKind",
-                 bounds.start_seconds::float8 AS "startSeconds",
-                 bounds.end_seconds::float8 AS "endSeconds"
+                 source_generation_state.status AS "sourceState",
+                 source_bounds.start_seconds::float8 AS "sourceStartSeconds",
+                 source_bounds.end_seconds::float8 AS "sourceEndSeconds",
+                 effective_bounds.start_seconds::float8 AS "startSeconds",
+                 effective_bounds.end_seconds::float8 AS "endSeconds"
           FROM study_contexts AS context
           JOIN learning_items AS item ON item.id = context.learning_item_id
           LEFT JOIN caption_artifacts AS source
@@ -61,12 +68,20 @@ export class PostgresLearningOverviewRepository implements LearningOverviewRepos
             ON effective.id = COALESCE(translation.id, source.id)
           LEFT JOIN caption_generation_states AS generation_state
             ON generation_state.artifact_id = effective.id
+          LEFT JOIN caption_generation_states AS source_generation_state
+            ON source_generation_state.artifact_id = source.id
+          LEFT JOIN LATERAL (
+            SELECT MIN(segment.start_seconds) AS start_seconds,
+                   MAX(segment.end_seconds) AS end_seconds
+            FROM caption_artifact_segments AS segment
+            WHERE segment.artifact_id = source.id
+          ) AS source_bounds ON true
           LEFT JOIN LATERAL (
             SELECT MIN(segment.start_seconds) AS start_seconds,
                    MAX(segment.end_seconds) AS end_seconds
             FROM caption_artifact_segments AS segment
             WHERE segment.artifact_id = effective.id
-          ) AS bounds ON true
+          ) AS effective_bounds ON true
           WHERE context.id = $1::bigint AND context.user_id = $2
         `,
         [contextId, userId],
@@ -78,7 +93,18 @@ export class PostgresLearningOverviewRepository implements LearningOverviewRepos
       }
       const coverage = {
         scope:
-          artifact.sourceKind === 'youtube_caption'
+          artifact.sourceState === 'ready' &&
+          isFullVideoCaptionCoverage(
+            artifact.sourceKind,
+            {
+              startSeconds: artifact.sourceStartSeconds ?? 0,
+              endSeconds: artifact.sourceEndSeconds ?? 0,
+            },
+            {
+              startSeconds: artifact.startSeconds ?? 0,
+              endSeconds: artifact.endSeconds ?? 0,
+            },
+          )
             ? ('full_video' as const)
             : ('study_range' as const),
         startSeconds: artifact.startSeconds ?? 0,
@@ -92,6 +118,15 @@ export class PostgresLearningOverviewRepository implements LearningOverviewRepos
       ) {
         await client.query('COMMIT');
         return { contextId, status: 'pending', coverage };
+      }
+      if (coverage.scope !== 'full_video') {
+        await client.query('COMMIT');
+        return {
+          contextId,
+          status: 'failed',
+          coverage,
+          errorCode: 'FULL_VIDEO_CAPTIONS_REQUIRED',
+        };
       }
 
       const existing = await client.query<SummaryRow>(

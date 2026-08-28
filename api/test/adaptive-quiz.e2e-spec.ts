@@ -121,6 +121,15 @@ describe('adaptive quiz PostgreSQL checkpoint (e2e)', () => {
   it('uses ready caption segments while indexing and rejects stale generation submit', async () => {
     const fallback = await createReadyContext('adaptive002', 2);
     users.push(fallback.userId);
+    await expect(
+      service.requestAdaptiveQuiz(
+        fallback.userId,
+        fallback.contextId,
+        `opening-only-${randomUUID()}`,
+        { startSeconds: 0, endSeconds: 20 },
+      ),
+    ).rejects.toMatchObject({ code: 'LEARNING_EVIDENCE_NOT_READY' });
+
     const fallbackQuiz = await service.requestAdaptiveQuiz(
       fallback.userId,
       fallback.contextId,

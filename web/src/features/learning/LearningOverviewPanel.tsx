@@ -13,33 +13,42 @@ export function LearningOverviewPanel({
 }) {
   const overview = useLearningOverview(contextId, active);
 
-  if (!contextId || overview.status === "pending") {
+  if (
+    !contextId ||
+    overview.status === "pending" ||
+    (overview.status === "ready" && overview.coverage.scope !== "full_video")
+  ) {
     return (
       <LearningPanelState
-        description="학습 자막이 준비되면 영상의 흐름과 주요 구간을 보여드릴게요."
-        title="내용 정리를 준비하고 있어요"
+        description="영상 전체 자막이 준비되면 시작부터 끝까지 고르게 정리합니다."
+        title="영상 전체 내용을 준비하고 있어요"
       />
     );
   }
 
   if (overview.status === "failed" || !overview.summary) {
+    const fullVideoUnavailable =
+      overview.errorCode === "FULL_VIDEO_CAPTIONS_REQUIRED";
     return (
       <LearningPanelState
-        description="영상은 계속 볼 수 있어요. 학습 자막을 만든 뒤 다시 확인해 주세요."
-        title="내용을 정리하지 못했어요"
+        description={
+          fullVideoUnavailable
+            ? "영상 전체 자막을 확인할 수 없어 초반 내용만으로 정리하지 않았어요."
+            : "영상은 계속 볼 수 있어요. 학습 자막을 만든 뒤 다시 확인해 주세요."
+        }
+        title={
+          fullVideoUnavailable
+            ? "영상 전체를 정리할 수 없어요"
+            : "내용을 정리하지 못했어요"
+        }
       />
     );
   }
 
-  const scopeLabel =
-    overview.coverage.scope === "study_range"
-      ? `${formatTime(overview.coverage.startSeconds)}–${formatTime(overview.coverage.endSeconds)} 이번 학습 정리`
-      : "영상 전체 정리";
-
   return (
     <section className="learning-overview-panel">
       <header>
-        <span>{scopeLabel}</span>
+        <span>영상 전체 정리</span>
         <h2>내용 정리</h2>
       </header>
       <p className="overview-copy">{overview.summary.overview}</p>

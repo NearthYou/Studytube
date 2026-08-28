@@ -31,7 +31,7 @@ class VideoRecommendationTest(unittest.TestCase):
                 }
             ],
             {
-                "subject": "C++ 배우고 싶어",
+                "subject": "C++를 20분씩 기초부터 배우고 싶어",
                 "pace": "하루 20분",
                 "learningGoal": "기초부터",
             },

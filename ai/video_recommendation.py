@@ -210,6 +210,23 @@ def clean_subject_request(value: str) -> str:
         "",
         subject,
     ).strip()
+    subject = re.sub(
+        r"(?:퇴근\s*후\s*)?(?:(?:하루|매일)\s*)?"
+        r"\d{1,3}\s*(?:분|시간)(?:씩)?",
+        " ",
+        subject,
+    )
+    subject = re.sub(
+        r"(?:기초|입문|초보|처음)(?:부터)?",
+        " ",
+        subject,
+    )
+    subject = re.sub(
+        r"(?<=\S)(?:으로|로|을|를|은|는|이|가)(?=\s|$)",
+        "",
+        subject,
+    )
+    subject = " ".join(subject.split())
     return subject or value.strip()
 
 

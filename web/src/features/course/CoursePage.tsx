@@ -94,6 +94,9 @@ export function CourseBuilderPage({ session }: { session: Session }) {
     }
 
     setIsGenerating(true);
+    clearCourseRecommendation();
+    setRecommendation(null);
+    setRagResult(null);
     setAgentResult(null);
     setMcpResult(null);
     setStatus(

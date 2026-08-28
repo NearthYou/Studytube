@@ -122,52 +122,138 @@ def build_learning_overview(payload: dict[str, Any]) -> dict[str, Any]:
     if client is None or len(segments) < 3 or coverage is None:
         return {"status": "failed", "errorCode": "SUMMARY_UNAVAILABLE"}
 
-    try:  # pragma: no cover - live credentials are optional in local tests
-        response = client.chat.completions.create(
-            model=os.getenv("LLM_MODEL", "gpt-4o-mini"),
-            temperature=0.2,
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "주어진 자막 범위만 사용해 한국어 학습 정리를 만든다. "
-                        "홍보 문구, 채널 정보, 엔딩 인사를 핵심으로 고르지 않는다. "
-                        "영상의 시작, 중간, 후반을 모두 반영하고 초반 내용만 정리하지 않는다. "
-                        "JSON만 반환하고 overview, chapters, takeaways 키를 사용한다. "
-                        "chapters는 시간 순서대로 3개에서 5개이며 각 항목은 "
-                        "startSeconds, endSeconds, title, body를 가진다. "
-                        "첫 chapter는 coverage 시작 부근, 마지막 chapter는 coverage 끝 부근까지 다룬다. "
-                        "takeaways는 최대 3개다."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": json.dumps(
-                        {
-                            "coverage": coverage,
-                            "transcript": segments,
-                            "writing": (
-                                "개요는 2~3문장으로 쓰고, 자막에 없는 내용을 만들지 마세요. "
-                                "제목과 본문은 짧고 자연스러운 한국어로 작성하세요."
-                            ),
-                        },
-                        ensure_ascii=False,
-                    ),
-                },
-            ],
-        )
-        content = getattr(response.choices[0].message, "content", "") or ""
-        parsed = parse_learning_overview(content, coverage)
-        if parsed:
-            return {
-                "status": "ready",
-                "provider": "openai-transcript-summary",
-                "summary": parsed,
+    transcript_windows = learning_overview_transcript_windows(segments, coverage)
+    if len(transcript_windows) < 3:
+        return {"status": "failed", "errorCode": "SUMMARY_UNAVAILABLE"}
+
+    for attempt in range(2):
+        try:  # pragma: no cover - live credentials are optional in local tests
+            request = {
+                "coverage": coverage,
+                "transcriptWindows": transcript_windows,
+                "writing": (
+                    "개요는 2~3문장으로 쓰고, 자막에 없는 내용을 만들지 마세요. "
+                    "제목과 본문은 짧고 자연스러운 한국어로 작성하세요."
+                ),
             }
-    except Exception:
-        pass
+            if attempt:
+                request["rewriteReason"] = (
+                    "이전 응답의 형식이나 시간 범위가 올바르지 않았습니다. "
+                    "전체 범위를 반영해 다시 작성하세요."
+                )
+            response = client.chat.completions.create(
+                model=os.getenv("LLM_MODEL", "gpt-4o-mini"),
+                temperature=0.2,
+                response_format={"type": "json_object"},
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "주어진 자막 범위만 사용해 한국어 학습 정리를 만든다. "
+                            "홍보 문구, 채널 정보, 엔딩 인사를 핵심으로 고르지 않는다. "
+                            "영상의 시작, 중간, 후반을 모두 반영하고 초반 내용만 정리하지 않는다. "
+                            "JSON만 반환하고 overview, chapters, takeaways 키를 사용한다. "
+                            "chapters는 시간 순서대로 3개에서 5개이며 각 항목은 "
+                            "startSeconds, endSeconds, title, body를 가진다. "
+                            "첫 chapter는 coverage 시작 부근, 마지막 chapter는 coverage 끝 부근까지 다룬다. "
+                            "takeaways는 최대 3개다."
+                        ),
+                    },
+                    {
+                        "role": "user",
+                        "content": json.dumps(request, ensure_ascii=False),
+                    },
+                ],
+            )
+            content = getattr(response.choices[0].message, "content", "") or ""
+            parsed = parse_learning_overview(content, coverage)
+            if parsed:
+                parsed = normalize_learning_overview_timeline(parsed, coverage)
+                return {
+                    "status": "ready",
+                    "provider": "openai-transcript-summary",
+                    "summary": parsed,
+                }
+        except Exception:
+            continue
 
     return {"status": "failed", "errorCode": "SUMMARY_UNAVAILABLE"}
+
+
+def learning_overview_transcript_windows(
+    segments: list[dict[str, Any]],
+    coverage: dict[str, Any],
+    count: int = 5,
+    max_characters: int = 5000,
+) -> list[dict[str, Any]]:
+    ordered = sorted(segments, key=lambda segment: (segment["start"], segment["end"]))
+    window_count = min(count, len(ordered))
+    windows: list[dict[str, Any]] = []
+    for index in range(window_count):
+        bucket_start = (index * len(ordered)) // window_count
+        bucket_end = ((index + 1) * len(ordered)) // window_count
+        bucket = ordered[bucket_start:bucket_end]
+        text = " ".join(
+            clean_text(str(segment.get("text") or "")).strip()
+            for segment in bucket
+            if clean_text(str(segment.get("text") or "")).strip()
+        )[:max_characters].strip()
+        if not bucket or not text:
+            continue
+        windows.append(
+            {
+                "startSeconds": (
+                    coverage["startSeconds"] if index == 0 else bucket[0]["start"]
+                ),
+                "endSeconds": (
+                    coverage["endSeconds"]
+                    if index == window_count - 1
+                    else bucket[-1]["end"]
+                ),
+                "text": text,
+            }
+        )
+    return windows
+
+
+def normalize_learning_overview_timeline(
+    summary: dict[str, Any],
+    coverage: dict[str, Any],
+) -> dict[str, Any]:
+    chapters = sorted(
+        summary["chapters"],
+        key=lambda chapter: (chapter["startSeconds"], chapter["endSeconds"]),
+    )
+    if not chapters:
+        return summary
+    coverage_start = coverage["startSeconds"]
+    coverage_end = coverage["endSeconds"]
+    minimum_gap = min(1.0, (coverage_end - coverage_start) / len(chapters))
+    starts = [coverage_start]
+    for index, chapter in enumerate(chapters[1:], start=1):
+        remaining_chapters = len(chapters) - index
+        earliest_start = starts[-1] + minimum_gap
+        latest_start = coverage_end - remaining_chapters * minimum_gap
+        starts.append(
+            min(
+                latest_start,
+                max(earliest_start, chapter["startSeconds"]),
+            )
+        )
+    normalized_chapters = []
+    for index, chapter in enumerate(chapters):
+        normalized_chapters.append(
+            {
+                **chapter,
+                "startSeconds": starts[index],
+                "endSeconds": (
+                    starts[index + 1]
+                    if index + 1 < len(starts)
+                    else coverage_end
+                ),
+            }
+        )
+    return {**summary, "chapters": normalized_chapters}
 
 
 def build_segment_explanation(payload: dict[str, Any]) -> dict[str, Any]:

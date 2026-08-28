@@ -134,10 +134,16 @@ describe('adaptive quiz PostgreSQL checkpoint (e2e)', () => {
       fallback.userId,
       fallback.contextId,
       `caption-fallback-${randomUUID()}`,
-      { startSeconds: 0, endSeconds: 60 },
+      { startSeconds: 0, endSeconds: 100 },
     );
-    const fallbackEvidence = await pool.query<{ resourceId: string }>(
-      `SELECT resource_id AS "resourceId"
+    const fallbackEvidence = await pool.query<{
+      resourceId: string;
+      content: string;
+      startSeconds: number;
+      endSeconds: number;
+    }>(
+      `SELECT resource_id AS "resourceId", content,
+              start_seconds AS "startSeconds", end_seconds AS "endSeconds"
        FROM adaptive_quiz_evidence WHERE loop_id = $1 ORDER BY position`,
       [fallbackQuiz.id],
     );
@@ -147,6 +153,16 @@ describe('adaptive quiz PostgreSQL checkpoint (e2e)', () => {
         row.resourceId.startsWith('caption-segment:'),
       ),
     ).toBe(true);
+    expect(fallbackEvidence.rows[0]).toMatchObject({
+      content: 'Grounded caption 1 Grounded caption 2',
+      startSeconds: 0,
+      endSeconds: 15,
+    });
+    expect(fallbackEvidence.rows[4]).toMatchObject({
+      content: 'Grounded caption 9 Grounded caption 10',
+      startSeconds: 80,
+      endSeconds: 95,
+    });
 
     const pending = await createReadyContext('adaptive004', false, false);
     users.push(pending.userId);
@@ -253,17 +269,22 @@ describe('adaptive quiz PostgreSQL checkpoint (e2e)', () => {
        RETURNING id::text AS id`,
       [source.rows[0]!.id, randomUUID()],
     );
+    const segmentCount = videoId === 'adaptive002' ? 10 : 5;
     await pool.query(
       `INSERT INTO caption_generation_states (artifact_id, status, last_ordinal)
-       VALUES ($1, $2, 4)`,
-      [artifact.rows[0]!.id, artifactReady ? 'ready' : 'pending'],
+       VALUES ($1, $2, $3)`,
+      [
+        artifact.rows[0]!.id,
+        artifactReady ? 'ready' : 'pending',
+        segmentCount - 1,
+      ],
     );
     await pool.query(
       `UPDATE study_contexts SET current_source_caption_artifact_id = $2
        WHERE id = $1`,
       [context.rows[0]!.id, artifact.rows[0]!.id],
     );
-    for (let index = 0; index < 5; index += 1) {
+    for (let index = 0; index < segmentCount; index += 1) {
       const fractional = videoId === 'adaptive002';
       const startSeconds = index * 10 + (fractional ? 0.25 : 0);
       const endSeconds = index * 10 + (fractional ? 4.75 : 5);

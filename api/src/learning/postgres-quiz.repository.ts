@@ -32,7 +32,7 @@ import {
   translatePostgresError,
 } from './postgres-learning.persistence';
 import { PostgresLearningProgressRepository } from './postgres-learning-progress.repository';
-import { evenlySampleQuizEvidence } from './quiz-evidence-sampling';
+import { buildQuizEvidencePassages } from './quiz-evidence-sampling';
 import { isFullVideoCaptionCoverage } from './caption-track-coverage';
 
 function sameQuizQuestions(
@@ -602,7 +602,7 @@ export class PostgresQuizRepository {
             endSeconds: Math.max(...rows.map((row) => row.endSeconds)),
           }),
       );
-      const sampledEvidence = evenlySampleQuizEvidence(
+      const sampledEvidence = buildQuizEvidencePassages(
         completeEvidence ?? [],
         5,
       );

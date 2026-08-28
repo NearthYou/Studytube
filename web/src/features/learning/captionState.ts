@@ -89,12 +89,9 @@ export function captionPhaseMessage(state: ProgressiveCaptionState) {
 
 export function quizPreparation(
   state: ProgressiveCaptionState,
-  currentTime = Number.POSITIVE_INFINITY,
+  durationSeconds = 0,
 ) {
   const requiredSentences = 5;
-  const watchedSentences = state.sourceSegments.filter(
-    (segment) => segment.end <= currentTime,
-  ).length;
   const captionsUsable = [
     "translation_pending",
     "index_pending",
@@ -110,19 +107,53 @@ export function quizPreparation(
     };
   }
 
-  if (captionsUsable && watchedSentences >= requiredSentences) {
+  if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
     return {
-      ready: true,
+      ready: false,
       needsCaptions: false,
-      message: "퀴즈를 시작할 수 있습니다.",
+      message: "영상 길이를 확인하고 있어요.",
     };
   }
 
-  const remaining = Math.max(0, requiredSentences - watchedSentences);
+  const coverageStart = Math.min(
+    ...state.sourceSegments.map((segment) => segment.start),
+  );
+  const coverageEnd = Math.max(
+    ...state.sourceSegments.map((segment) => segment.end),
+  );
+  const endingTolerance = Math.min(
+    30,
+    Math.max(5, durationSeconds * 0.05),
+  );
+  const requiredCoverageEnd = Math.max(1, durationSeconds - endingTolerance);
+  const coversWholeVideo =
+    coverageStart <= 5 && coverageEnd >= requiredCoverageEnd;
+
+  if (
+    captionsUsable &&
+    state.sourceSegments.length >= requiredSentences &&
+    coversWholeVideo
+  ) {
+    return {
+      ready: true,
+      needsCaptions: false,
+      message: "영상 전체 내용으로 퀴즈를 시작할 수 있습니다.",
+    };
+  }
+
+  if (state.phase === "complete" && !coversWholeVideo) {
+    return {
+      ready: false,
+      needsCaptions: false,
+      message: "영상 전체 자막을 확인할 수 없어 퀴즈를 만들지 않았어요.",
+    };
+  }
+
   return {
     ready: false,
     needsCaptions: false,
-    message: `지금 ${Math.min(watchedSentences, requiredSentences)}/${requiredSentences}문장을 봤어요. ${remaining}문장 더 보면 퀴즈가 열려요.`,
+    message:
+      "영상 전체 자막을 준비하고 있어요. 퀴즈는 전체 내용에서 출제합니다.",
   };
 }
 

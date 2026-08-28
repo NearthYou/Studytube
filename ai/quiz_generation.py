@@ -25,6 +25,11 @@ TIMESTAMP_QUESTION = re.compile(
 GENERIC_RECALL_QUESTION = re.compile(
     r"(?:설명한|말한)\s*내용은\s*무엇", re.IGNORECASE
 )
+CLOZE_RECALL_QUESTION = re.compile(
+    r"(?:_{3,}|빈칸|(?:들어갈|알맞은)\s*(?:말|단어|표현)|"
+    r"문장(?:을|의)?\s*완성)",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -187,6 +192,8 @@ def generate_quiz_draft(
         "당신은 외국어 영상 학습 퀴즈를 만드는 편집자입니다. "
         "제공된 다섯 자막 구간에서만 질문을 만드세요. "
         "시각, 순서, 몇 초에 나온 문장인지 묻지 마세요. "
+        "빈칸 채우기, 단어 맞히기, 조사나 표현 암기 문제를 만들지 마세요. "
+        "자막 문장을 그대로 복원하게 하지 마세요. "
         "개념의 뜻, 이유, 차이, 적용 방법을 이해했는지 물으세요. "
         "질문과 해설은 자연스러운 한국어로 쓰고 내부 기술 용어를 노출하지 마세요. "
         "정확히 다섯 문제를 만들고 각 문제에는 서로 겹치지 않는 선택지 네 개, "
@@ -259,6 +266,7 @@ def quiz_validation_error(
             len(prompt) < 10
             or len(prompt) > 300
             or GENERIC_RECALL_QUESTION.search(prompt)
+            or CLOZE_RECALL_QUESTION.search(prompt)
         ):
             return "시간이나 문장 위치가 아닌 내용 이해를 물어야 합니다."
         if prompt in prompts:

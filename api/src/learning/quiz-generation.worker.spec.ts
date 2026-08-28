@@ -91,6 +91,58 @@ describe('QuizGenerationJobHandler', () => {
     );
   });
 
+  it('rejects cloze prompts that only test a missing word', async () => {
+    const execution = jobExecution();
+    const quiz = groundedQuiz();
+    quiz.questions[0].prompt =
+      '다음 문장의 빈칸에 들어갈 표현으로 알맞은 것은 무엇인가요? "한 시간 동안 ______ 강의예요."';
+    const failAdaptiveQuizGeneration = jest.fn().mockResolvedValue(undefined);
+    const handler = handlerWith(
+      {
+        loadAdaptiveQuizGeneration: jest.fn().mockResolvedValue(snapshot()),
+        completeAdaptiveQuizGeneration: jest.fn().mockResolvedValue(true),
+        failAdaptiveQuizGeneration,
+      },
+      { generate: jest.fn().mockResolvedValue(quiz) },
+      execution.executor,
+    );
+
+    await expect(handler.handle(JOB)).rejects.toMatchObject({
+      code: 'INVALID_GROUNDED_QUIZ_RESPONSE',
+    });
+    expect(failAdaptiveQuizGeneration).toHaveBeenCalledWith(
+      LOOP_ID,
+      'INVALID_GROUNDED_QUIZ_RESPONSE',
+    );
+  });
+
+  it('rejects five questions that all use the opening evidence', async () => {
+    const execution = jobExecution();
+    const quiz = groundedQuiz();
+    const openingCitation = quiz.questions[0].citation;
+    for (const question of quiz.questions) {
+      question.citation = { ...openingCitation };
+    }
+    const failAdaptiveQuizGeneration = jest.fn().mockResolvedValue(undefined);
+    const handler = handlerWith(
+      {
+        loadAdaptiveQuizGeneration: jest.fn().mockResolvedValue(snapshot()),
+        completeAdaptiveQuizGeneration: jest.fn().mockResolvedValue(true),
+        failAdaptiveQuizGeneration,
+      },
+      { generate: jest.fn().mockResolvedValue(quiz) },
+      execution.executor,
+    );
+
+    await expect(handler.handle(JOB)).rejects.toMatchObject({
+      code: 'INVALID_GROUNDED_QUIZ_RESPONSE',
+    });
+    expect(failAdaptiveQuizGeneration).toHaveBeenCalledWith(
+      LOOP_ID,
+      'INVALID_GROUNDED_QUIZ_RESPONSE',
+    );
+  });
+
   it('turns malformed generated choices into a safe terminal failure', async () => {
     const execution = jobExecution();
     const quiz = groundedQuiz();
@@ -341,23 +393,14 @@ describe('AiGroundedQuizGenerator', () => {
     );
   });
 
-  it('falls back to content questions when the AI service is unavailable', async () => {
+  it('propagates provider failures so durable delivery can retry', async () => {
     const generator = new AiGroundedQuizGenerator({
       generateQuiz: jest.fn().mockRejectedValue(new Error('provider timeout')),
     });
 
-    const response = (await generator.generate(
-      snapshot(),
-      new AbortController().signal,
-    )) as ReturnType<typeof groundedQuiz>;
-
-    expect(response.generatorVersion).toBe('content-fallback-v1');
-    expect(response.questions).toHaveLength(5);
-    for (const question of response.questions) {
-      expect(question.prompt).not.toMatch(/\d+\s*초|근처|언제/iu);
-      expect(question.choices).toHaveLength(4);
-      expect(question.explanation).not.toMatch(/\d+\s*초|근처/iu);
-    }
+    await expect(
+      generator.generate(snapshot(), new AbortController().signal),
+    ).rejects.toThrow('provider timeout');
   });
 });
 

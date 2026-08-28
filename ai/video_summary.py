@@ -132,9 +132,11 @@ def build_learning_overview(payload: dict[str, Any]) -> dict[str, Any]:
                     "content": (
                         "주어진 자막 범위만 사용해 한국어 학습 정리를 만든다. "
                         "홍보 문구, 채널 정보, 엔딩 인사를 핵심으로 고르지 않는다. "
+                        "영상의 시작, 중간, 후반을 모두 반영하고 초반 내용만 정리하지 않는다. "
                         "JSON만 반환하고 overview, chapters, takeaways 키를 사용한다. "
                         "chapters는 시간 순서대로 3개에서 5개이며 각 항목은 "
                         "startSeconds, endSeconds, title, body를 가진다. "
+                        "첫 chapter는 coverage 시작 부근, 마지막 chapter는 coverage 끝 부근까지 다룬다. "
                         "takeaways는 최대 3개다."
                     ),
                 },

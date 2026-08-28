@@ -26,7 +26,7 @@ function generation(): LearningOverviewGeneration {
     videoId: 'abcdefghijk',
     captionArtifactId: '42',
     captionGeneration: 3,
-    coverage: { scope: 'study_range', startSeconds: 0, endSeconds: 60 },
+    coverage: { scope: 'full_video', startSeconds: 0, endSeconds: 60 },
     segments: [
       { start: 0, end: 20, text: 'First chapter' },
       { start: 20, end: 40, text: 'Second chapter' },
@@ -67,6 +67,35 @@ function generatedSummary() {
 }
 
 describe('LearningSummaryJobHandler', () => {
+  it('does not summarize only the opening study range', async () => {
+    const partial = generation();
+    partial.coverage = {
+      scope: 'study_range',
+      startSeconds: 0,
+      endSeconds: 60,
+    };
+    const failGeneration = jest.fn().mockResolvedValue(true);
+    const generate = jest.fn();
+    const execution = jobExecution();
+    const handler = handlerWith(
+      {
+        loadGeneration: jest.fn().mockResolvedValue(partial),
+        failGeneration,
+      },
+      { generate },
+      execution.executor,
+    );
+
+    await expect(handler.handle(JOB)).rejects.toMatchObject({
+      code: 'LEARNING_SUMMARY_FULL_VIDEO_REQUIRED',
+    });
+    expect(generate).not.toHaveBeenCalled();
+    expect(failGeneration).toHaveBeenCalledWith(
+      '9',
+      'LEARNING_SUMMARY_FULL_VIDEO_REQUIRED',
+    );
+  });
+
   it('stores a validated overview for the pinned caption range', async () => {
     const loadGeneration = jest.fn().mockResolvedValue(generation());
     const completeGeneration = jest.fn().mockResolvedValue(true);
@@ -104,6 +133,69 @@ describe('LearningSummaryJobHandler', () => {
         failGeneration,
       },
       { generate: jest.fn().mockResolvedValue(invalid) },
+      execution.executor,
+    );
+
+    await expect(handler.handle(JOB)).rejects.toMatchObject({
+      code: 'INVALID_LEARNING_SUMMARY_RESPONSE',
+    });
+    expect(failGeneration).toHaveBeenCalledWith(
+      '9',
+      'INVALID_LEARNING_SUMMARY_RESPONSE',
+    );
+  });
+
+  it('rejects an overview whose chapters cover only the opening', async () => {
+    const openingOnly = generatedSummary();
+    openingOnly.summary.chapters = [
+      { startSeconds: 0, endSeconds: 10, title: '시작', body: '시작 내용' },
+      { startSeconds: 10, endSeconds: 20, title: '초반', body: '초반 내용' },
+      { startSeconds: 20, endSeconds: 30, title: '도입', body: '도입 내용' },
+    ];
+    const failGeneration = jest.fn().mockResolvedValue(true);
+    const completeGeneration = jest.fn().mockResolvedValue(true);
+    const execution = jobExecution();
+    const handler = handlerWith(
+      {
+        loadGeneration: jest.fn().mockResolvedValue(generation()),
+        failGeneration,
+        completeGeneration,
+      },
+      { generate: jest.fn().mockResolvedValue(openingOnly) },
+      execution.executor,
+    );
+
+    await expect(handler.handle(JOB)).rejects.toMatchObject({
+      code: 'INVALID_LEARNING_SUMMARY_RESPONSE',
+    });
+    expect(failGeneration).toHaveBeenCalledWith(
+      '9',
+      'INVALID_LEARNING_SUMMARY_RESPONSE',
+    );
+  });
+
+  it('rejects an overview that skips the middle of the video', async () => {
+    const missingMiddle = generatedSummary();
+    missingMiddle.summary.chapters = [
+      { startSeconds: 0, endSeconds: 5, title: '시작', body: '시작 내용' },
+      { startSeconds: 5, endSeconds: 10, title: '도입', body: '도입 내용' },
+      {
+        startSeconds: 55,
+        endSeconds: 60,
+        title: '마무리',
+        body: '마무리 내용',
+      },
+    ];
+    const failGeneration = jest.fn().mockResolvedValue(true);
+    const completeGeneration = jest.fn().mockResolvedValue(true);
+    const execution = jobExecution();
+    const handler = handlerWith(
+      {
+        loadGeneration: jest.fn().mockResolvedValue(generation()),
+        failGeneration,
+        completeGeneration,
+      },
+      { generate: jest.fn().mockResolvedValue(missingMiddle) },
       execution.executor,
     );
 

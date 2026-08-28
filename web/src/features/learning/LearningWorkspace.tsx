@@ -202,11 +202,11 @@ function ActiveLearningWorkspace({
       (segment) =>
         state.currentTime >= segment.start && state.currentTime < segment.end,
     ) ?? displayedCaptions.sourceSegments[0];
-  const quizState = quizPreparation(displayedCaptions, state.currentTime);
+  const quizState = quizPreparation(displayedCaptions, durationSeconds);
   const quiz = useAdaptiveQuiz({
     active: state.selectedTab === "quiz",
     contextId,
-    currentTime: state.currentTime,
+    durationSeconds,
     evidenceMessage: quizState.message,
     evidenceReady: quizState.ready,
   });

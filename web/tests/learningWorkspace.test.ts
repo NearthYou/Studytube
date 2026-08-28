@@ -59,8 +59,9 @@ test("learning workspace never samples arbitrary captions as a summary", () => {
 
   assert.doesNotMatch(source, /highlightIndexes|Math\.floor\(\(segments\.length/);
   assert.doesNotMatch(source, /video\.summary/);
-  assert.match(overview, /내용 정리를 준비하고 있어요/);
-  assert.match(overview, /이번 학습 정리/);
+  assert.match(overview, /영상 전체 내용을 준비하고 있어요/);
+  assert.match(overview, /초반 내용만으로 정리하지 않았어요/);
+  assert.doesNotMatch(overview, /이번 학습 정리/);
   assert.doesNotMatch(`${source}\n${overview}`, /AI 요약|자막 근거|문제 근거/);
 });
 
@@ -118,7 +119,7 @@ test("unfinished learning tools are presented as preparation states", () => {
     resolve(featureDirectory, "learningPanelPresentation.ts"),
     "utf8",
   );
-  assert.match(stateSource, /문장 더 보면 퀴즈가 열려요/);
+  assert.match(stateSource, /퀴즈는 전체 내용에서 출제합니다/);
   assert.match(source, /const MAX_CAPTION_POLLS = 170/);
   assert.match(source, /startLearningIntake/);
   assert.match(presentationSource, /학습 자막 만들기/);
@@ -237,8 +238,9 @@ test("quiz readiness follows the captions currently shown to the learner", () =>
 
   assert.match(
     source,
-    /quizPreparation\(displayedCaptions, state\.currentTime\)/,
+    /quizPreparation\(displayedCaptions, durationSeconds\)/,
   );
+  assert.match(source, /durationSeconds,\s*evidenceMessage:/);
   assert.match(source, /evidenceMessage:\s*quizState\.message/);
   assert.match(source, /canPrepareCaptions=\{quizState\.needsCaptions\}/);
 });

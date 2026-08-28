@@ -48,11 +48,11 @@ test("ignores a stale caption generation", () => {
   assert.deepEqual(next, pending);
 });
 
-test("opens a quiz after five watched caption sentences even while indexing", () => {
+test("opens a quiz only after duration and full coverage are known", () => {
   assert.deepEqual(quizPreparation(pending), {
     ready: false,
     needsCaptions: false,
-    message: "지금 1/5문장을 봤어요. 4문장 더 보면 퀴즈가 열려요.",
+    message: "영상 길이를 확인하고 있어요.",
   });
   const fiveSegments = Array.from({ length: 5 }, (_, index) => ({
     start: index * 10,
@@ -64,24 +64,24 @@ test("opens a quiz after five watched caption sentences even while indexing", ()
     phase: "index_pending" as const,
     sourceSegments: fiveSegments,
   };
-  assert.deepEqual(quizPreparation(indexing, 35), {
+  assert.deepEqual(quizPreparation(indexing, 120), {
     ready: false,
     needsCaptions: false,
-    message: "지금 4/5문장을 봤어요. 1문장 더 보면 퀴즈가 열려요.",
+    message: "영상 전체 자막을 준비하고 있어요. 퀴즈는 전체 내용에서 출제합니다.",
   });
   assert.deepEqual(quizPreparation(indexing, 50), {
     ready: true,
     needsCaptions: false,
-    message: "퀴즈를 시작할 수 있습니다.",
+    message: "영상 전체 내용으로 퀴즈를 시작할 수 있습니다.",
   });
   assert.deepEqual(quizPreparation({ ...indexing, phase: "complete" }, 50), {
     ready: true,
     needsCaptions: false,
-    message: "퀴즈를 시작할 수 있습니다.",
+    message: "영상 전체 내용으로 퀴즈를 시작할 수 있습니다.",
   });
 });
 
-test("live partial captions count toward quiz progress", () => {
+test("live captions must span the full video before quiz generation", () => {
   const segments = Array.from({ length: 5 }, (_, index) => ({
     start: index * 4,
     end: index * 4 + 3,
@@ -93,15 +93,68 @@ test("live partial captions count toward quiz progress", () => {
     sourceSegments: segments,
   };
 
-  assert.deepEqual(quizPreparation(live, 10), {
+  assert.deepEqual(quizPreparation(live, 60), {
     ready: false,
     needsCaptions: false,
-    message: "지금 2/5문장을 봤어요. 3문장 더 보면 퀴즈가 열려요.",
+    message: "영상 전체 자막을 준비하고 있어요. 퀴즈는 전체 내용에서 출제합니다.",
   });
   assert.deepEqual(quizPreparation(live, 20), {
     ready: true,
     needsCaptions: false,
-    message: "퀴즈를 시작할 수 있습니다.",
+    message: "영상 전체 내용으로 퀴즈를 시작할 수 있습니다.",
+  });
+});
+
+test("quiz waits for caption coverage across the whole video", () => {
+  const openingOnly = {
+    ...pending,
+    phase: "complete" as const,
+    sourceSegments: Array.from({ length: 5 }, (_, index) => ({
+      start: index * 10,
+      end: index * 10 + 5,
+      text: `opening ${index + 1}`,
+    })),
+  };
+  assert.deepEqual(quizPreparation(openingOnly, 120), {
+    ready: false,
+    needsCaptions: false,
+    message: "영상 전체 자막을 확인할 수 없어 퀴즈를 만들지 않았어요.",
+  });
+
+  const fullVideo = {
+    ...openingOnly,
+    sourceSegments: [
+      { start: 0, end: 5, text: "opening" },
+      { start: 25, end: 30, text: "first point" },
+      { start: 55, end: 60, text: "middle" },
+      { start: 85, end: 90, text: "application" },
+      { start: 115, end: 120, text: "ending" },
+    ],
+  };
+  assert.deepEqual(quizPreparation(fullVideo, 120), {
+    ready: true,
+    needsCaptions: false,
+    message: "영상 전체 내용으로 퀴즈를 시작할 수 있습니다.",
+  });
+});
+
+test("a long video still needs captions near its ending", () => {
+  const missingEnding = {
+    ...pending,
+    phase: "complete" as const,
+    sourceSegments: [
+      { start: 0, end: 5, text: "opening" },
+      { start: 200, end: 205, text: "first idea" },
+      { start: 450, end: 455, text: "middle" },
+      { start: 700, end: 705, text: "application" },
+      { start: 945, end: 950, text: "too early" },
+    ],
+  };
+
+  assert.deepEqual(quizPreparation(missingEnding, 1_000), {
+    ready: false,
+    needsCaptions: false,
+    message: "영상 전체 자막을 확인할 수 없어 퀴즈를 만들지 않았어요.",
   });
 });
 

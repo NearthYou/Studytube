@@ -32,6 +32,8 @@ import {
   translatePostgresError,
 } from './postgres-learning.persistence';
 import { PostgresLearningProgressRepository } from './postgres-learning-progress.repository';
+import { evenlySampleQuizEvidence } from './quiz-evidence-sampling';
+import { isFullVideoCaptionCoverage } from './caption-track-coverage';
 
 function sameQuizQuestions(
   persisted: QuizQuestionInput[],
@@ -437,13 +439,23 @@ export class PostgresQuizRepository {
         captionArtifactId: string;
         captionGeneration: number;
         retrievalVersion: string;
+        sourceKind: 'youtube_caption' | 'transcription';
+        sourceStartSeconds: number;
+        sourceEndSeconds: number;
+        effectiveStartSeconds: number;
+        effectiveEndSeconds: number;
       }>(
         `
           SELECT context.learning_item_id::text AS "learningItemId",
                  item.video_source_id::text AS "videoSourceId",
                  artifact.id::text AS "captionArtifactId",
                  artifact.generation AS "captionGeneration",
-                 context.retrieval_version::text AS "retrievalVersion"
+                 context.retrieval_version::text AS "retrievalVersion",
+                 source_artifact.kind AS "sourceKind",
+                 source_bounds.start_seconds::float8 AS "sourceStartSeconds",
+                 source_bounds.end_seconds::float8 AS "sourceEndSeconds",
+                 effective_bounds.start_seconds::float8 AS "effectiveStartSeconds",
+                 effective_bounds.end_seconds::float8 AS "effectiveEndSeconds"
           FROM study_contexts AS context
           JOIN learning_items AS item ON item.id = context.learning_item_id
             AND item.user_id = context.user_id
@@ -453,6 +465,23 @@ export class PostgresQuizRepository {
           ) AND artifact.video_source_id = item.video_source_id
           JOIN caption_generation_states AS state ON state.artifact_id = artifact.id
             AND state.status = 'ready'
+          JOIN caption_artifacts AS source_artifact
+            ON source_artifact.id = context.current_source_caption_artifact_id
+          JOIN caption_generation_states AS source_state
+            ON source_state.artifact_id = source_artifact.id
+            AND source_state.status = 'ready'
+          JOIN LATERAL (
+            SELECT MIN(segment.start_seconds) AS start_seconds,
+                   MAX(segment.end_seconds) AS end_seconds
+            FROM caption_artifact_segments AS segment
+            WHERE segment.artifact_id = source_artifact.id
+          ) AS source_bounds ON true
+          JOIN LATERAL (
+            SELECT MIN(segment.start_seconds) AS start_seconds,
+                   MAX(segment.end_seconds) AS end_seconds
+            FROM caption_artifact_segments AS segment
+            WHERE segment.artifact_id = artifact.id
+          ) AS effective_bounds ON true
           WHERE context.id = $1::bigint AND context.user_id = $2
           FOR UPDATE OF context
         `,
@@ -460,6 +489,22 @@ export class PostgresQuizRepository {
       );
       const pinned = context.rows[0];
       if (!pinned) throw new LearningEvidenceNotReadyError();
+      const sourceBounds = {
+        startSeconds: pinned.sourceStartSeconds,
+        endSeconds: pinned.sourceEndSeconds,
+      };
+      if (
+        !isFullVideoCaptionCoverage(pinned.sourceKind, sourceBounds, {
+          startSeconds: pinned.effectiveStartSeconds,
+          endSeconds: pinned.effectiveEndSeconds,
+        }) ||
+        !isFullVideoCaptionCoverage(pinned.sourceKind, sourceBounds, {
+          startSeconds: command.watchedRange.start,
+          endSeconds: command.watchedRange.end,
+        })
+      ) {
+        throw new LearningEvidenceNotReadyError();
+      }
 
       const duplicate = await client.query<{
         id: string;
@@ -487,6 +532,7 @@ export class PostgresQuizRepository {
       }
 
       const evidence = await client.query<{
+        evidenceSource: 'retrieval' | 'caption';
         resourceId: string;
         content: string;
         sourceUrl: string;
@@ -495,7 +541,8 @@ export class PostgresQuizRepository {
       }>(
         `
           WITH retrieval_evidence AS (
-            SELECT resource_id AS "resourceId", content,
+            SELECT 'retrieval'::text AS "evidenceSource",
+                   resource_id AS "resourceId", content,
                    source_url AS "sourceUrl",
                    start_seconds AS "startSeconds",
                    end_seconds AS "endSeconds"
@@ -509,9 +556,9 @@ export class PostgresQuizRepository {
               AND source_version = $5::bigint
               AND start_seconds >= $6 AND end_seconds <= $7
             ORDER BY start_seconds, chunk_index
-            LIMIT 5
           ), caption_evidence AS (
-            SELECT 'caption-segment:' || segment.id::text AS "resourceId",
+            SELECT 'caption'::text AS "evidenceSource",
+                   'caption-segment:' || segment.id::text AS "resourceId",
                    segment.text AS content,
                    source.canonical_url AS "sourceUrl",
                    floor(segment.start_seconds)::integer AS "startSeconds",
@@ -525,15 +572,11 @@ export class PostgresQuizRepository {
             WHERE segment.artifact_id = $3::bigint
               AND segment.start_seconds >= $6 AND segment.end_seconds <= $7
             ORDER BY segment.start_seconds, segment.ordinal
-            LIMIT 5
           )
           SELECT * FROM retrieval_evidence
-          WHERE (SELECT count(*) FROM retrieval_evidence) = 5
           UNION ALL
           SELECT * FROM caption_evidence
-          WHERE (SELECT count(*) FROM retrieval_evidence) < 5
-          ORDER BY "startSeconds"
-          LIMIT 5
+          ORDER BY "evidenceSource" DESC, "startSeconds"
         `,
         [
           command.studyContextId,
@@ -545,7 +588,25 @@ export class PostgresQuizRepository {
           command.watchedRange.end,
         ],
       );
-      if (evidence.rows.length !== 5) {
+      const retrievalEvidence = evidence.rows.filter(
+        (row) => row.evidenceSource === 'retrieval',
+      );
+      const captionEvidence = evidence.rows.filter(
+        (row) => row.evidenceSource === 'caption',
+      );
+      const completeEvidence = [retrievalEvidence, captionEvidence].find(
+        (rows) =>
+          rows.length >= 5 &&
+          isFullVideoCaptionCoverage(pinned.sourceKind, sourceBounds, {
+            startSeconds: Math.min(...rows.map((row) => row.startSeconds)),
+            endSeconds: Math.max(...rows.map((row) => row.endSeconds)),
+          }),
+      );
+      const sampledEvidence = evenlySampleQuizEvidence(
+        completeEvidence ?? [],
+        5,
+      );
+      if (sampledEvidence.length !== 5) {
         throw new LearningEvidenceNotReadyError();
       }
 
@@ -574,7 +635,7 @@ export class PostgresQuizRepository {
           eventId,
         ],
       );
-      for (const [index, row] of evidence.rows.entries()) {
+      for (const [index, row] of sampledEvidence.entries()) {
         await client.query(
           `INSERT INTO adaptive_quiz_evidence (
              loop_id, position, resource_id, content, source_url,

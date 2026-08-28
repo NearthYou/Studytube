@@ -23,6 +23,7 @@ class FakeOpenAI:
         self.grounded = grounded
         self.question_batches = question_batches or [questions]
         self.generation_calls = 0
+        self.response_formats: list[dict] = []
         self.chat = self.Chat(self)
 
     class Chat:
@@ -34,6 +35,7 @@ class FakeOpenAI:
                 self.owner = owner
 
             def create(self, **kwargs):
+                self.owner.response_formats.append(kwargs["response_format"])
                 system = kwargs["messages"][0]["content"]
                 if "검수자" in system:
                     payload = {
@@ -135,7 +137,8 @@ class QuizGenerationGraphTest(unittest.TestCase):
         )
 
     def test_generates_content_questions_and_keeps_time_only_in_citations(self):
-        self.configure(FakeOpenAI(semantic_questions()))
+        client = FakeOpenAI(semantic_questions())
+        self.configure(client)
 
         response = build_quiz_response(payload())
 
@@ -147,6 +150,13 @@ class QuizGenerationGraphTest(unittest.TestCase):
             self.assertNotIn("근처", question["prompt"])
             self.assertEqual(question["citation"]["resourceId"], f"caption-{index + 1}")
             self.assertEqual(question["citation"]["startSeconds"], index * 10)
+        self.assertEqual(
+            [item["type"] for item in client.response_formats],
+            ["json_schema", "json_schema"],
+        )
+        self.assertTrue(all(
+            item["json_schema"]["strict"] for item in client.response_formats
+        ))
 
     def test_server_pins_generated_questions_to_their_passage_order(self):
         questions = semantic_questions()

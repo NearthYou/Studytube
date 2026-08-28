@@ -41,7 +41,7 @@ import { LearningOverviewPanel } from "./LearningOverviewPanel.tsx";
 import { TranscriptDrawer } from "./TranscriptDrawer.tsx";
 import { LearningNotesPanel } from "./LearningNotesPanel.tsx";
 import { AdaptiveQuizPanel } from "./AdaptiveQuizPanel.tsx";
-import { CourseNavigator } from "./CourseNavigator.ts";
+import { CourseNavigator } from "./CourseNavigator.tsx";
 import { captionlessPanelPresentation } from "./learningPanelPresentation.ts";
 import {
   readLearningHistory,

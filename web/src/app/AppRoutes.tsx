@@ -4,7 +4,8 @@ import { MyPage } from "../features/account/MyPage";
 import { AuthPage } from "../features/auth/AuthPage";
 import { RegistrationCompletionPage } from "../features/auth/RegistrationCompletionPage";
 import { VerificationPage } from "../features/auth/VerificationPage";
-import { CoursePage } from "../features/course/CoursePage";
+import { CourseBuilderPage } from "../features/course/CoursePage";
+import { CourseLibraryPage } from "../features/course/CourseLibraryPage";
 import { LearningPage } from "../features/learning/LearningPage";
 import { LearningWorkspace } from "../features/learning/LearningWorkspace";
 import { TutorialPage } from "../features/onboarding/TutorialPage";
@@ -60,7 +61,15 @@ export function AppRoutes({
         path="/courses"
         element={
           <ProtectedRoute session={session}>
-            <CoursePage session={session!} />
+            <CourseLibraryPage session={session!} />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/courses/new"
+        element={
+          <ProtectedRoute session={session}>
+            <CourseBuilderPage session={session!} />
           </ProtectedRoute>
         }
       />

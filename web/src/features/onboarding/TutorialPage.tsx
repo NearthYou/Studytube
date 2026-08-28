@@ -147,7 +147,7 @@ export function TutorialPage({
             <button type="button" onClick={() => finishTutorial("/")}>
               첫 영상 등록
             </button>
-            <button type="button" onClick={() => finishTutorial("/courses")}>
+            <button type="button" onClick={() => finishTutorial("/courses/new")}>
               추천 영상 보기
             </button>
             <button

@@ -100,7 +100,7 @@ test("YouTube loading and playback lifecycle stay behind one player interface", 
   assert.match(source, /youtubeApiPromise = null/);
   assert.match(source, /playerRef\.current\?\.destroy\(\)/);
   assert.match(source, /플레이어 스크립트를 불러오지 못했습니다/);
-  assert.match(source, /\[showControlsTemporarily, videoId\]/);
+  assert.match(source, /\[scheduleControlsHide, videoId\]/);
   assert.doesNotMatch(source, /key=\{preferNativeCaptions/);
 });
 
@@ -163,6 +163,7 @@ test("player captions move with controls and expose three readable sizes", () =>
   const css = readFileSync(resolve(testDirectory, "../src/App.css"), "utf8");
 
   assert.match(playerSource, /controls-visible/);
+  assert.match(playerSource, /const CONTROLS_HIDE_DELAY_MS = 4_200/);
   assert.match(playerSource, /자막 크기/);
   assert.match(playerSource, /small: "작게"/);
   assert.match(playerSource, /medium: "보통"/);
@@ -255,9 +256,24 @@ test("quiz presents one content question at a time with custom choice cards", ()
   assert.match(source, /quizPage\(loop\?\.questions/);
   assert.match(source, /className="quiz-progress"/);
   assert.match(source, /"quiz-choice"/);
+  assert.match(source, /role="radiogroup"/);
+  assert.match(source, /className="quiz-question-title"/);
+  assert.doesNotMatch(source, /<fieldset|<legend/);
+  assert.match(
+    source,
+    /<header className="quiz-header">[\s\S]*className="quiz-score"[\s\S]*<\/header>/,
+  );
   assert.doesNotMatch(source, /loop\?\.questions\.map/);
   assert.match(css, /\.quiz-choice-input\s*\{[^}]*opacity:\s*0/);
   assert.match(css, /\.quiz-choice\s*\{[^}]*min-height:\s*44px/);
+  assert.match(
+    css,
+    /\.quiz-question-title\s*\{[^}]*overflow-wrap:\s*anywhere/,
+  );
+  assert.match(
+    css,
+    /\.adaptive-quiz-panel\s*\{[^}]*grid-template-rows:\s*auto minmax\(0, 1fr\) auto/,
+  );
 });
 
 test("learning playback records history and shows a clear completion action", () => {

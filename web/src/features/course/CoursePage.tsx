@@ -15,7 +15,6 @@ import {
   attachCourseSequence,
   canFormCourse,
   courseStepFromQueueVideo,
-  queueVideoFromCourseStep,
   queueVideoFromMcpVideo,
   queueVideoFromRagPost,
   queueVideoFromRecommendation,
@@ -25,7 +24,7 @@ import {
 import type { AgentResponse, Course, McpResponse, RagResponse, Session } from "../../types";
 import "./CoursePage.css";
 
-export function CoursePage({ session }: { session: Session }) {
+export function CourseBuilderPage({ session }: { session: Session }) {
   const navigate = useNavigate();
   const profile = session.user.preferences;
   const hasProfile = hasLearningPreferences(profile);
@@ -38,7 +37,6 @@ export function CoursePage({ session }: { session: Session }) {
     readCourseRecommendation(),
   );
   const [courses, setCourses] = useState<Course[]>([]);
-  const activeCourses = courses.filter((course) => course.status !== "archived");
   const [status, setStatus] = useState(
     hasProfile
       ? `${profile.interests[0]} 관심사와 학습 목표를 새 코스에 반영합니다.`
@@ -175,22 +173,6 @@ export function CoursePage({ session }: { session: Session }) {
     navigate(`/watch?videoId=${selected.videoId}`);
   }
 
-  function playSavedCourse(course: Course) {
-    const courseVideos = course.steps.map(queueVideoFromCourseStep);
-
-    if (courseVideos.length === 0) {
-      setStatus(
-        "이 코스의 영상을 불러오지 못했어요. 코스를 다시 확인해주세요.",
-      );
-      return;
-    }
-
-    addCourseAndWatch(courseVideos[0], courseVideos, {
-      id: `saved-course-${course.id}`,
-      title: course.title,
-    });
-  }
-
   async function saveGeneratedCourse() {
     await saveCourse(
       generatedVideos,
@@ -251,6 +233,7 @@ export function CoursePage({ session }: { session: Session }) {
       setStatus(
         `"${saved.title}" 코스를 저장했어요. 학습 화면에서 바로 선택할 수 있습니다.`,
       );
+      navigate("/courses");
     } catch (error) {
       setStatus(
         error instanceof Error
@@ -295,15 +278,18 @@ export function CoursePage({ session }: { session: Session }) {
 
   return (
     <main className="page-shell course-page">
-      <section className="page-heading">
-        <h1>내 코스</h1>
-        <p>새 학습 코스를 만들거나 저장한 코스를 확인하세요.</p>
-      </section>
+      <header className="course-builder-page-heading">
+        <div>
+          <h1>새 코스 만들기</h1>
+          <p>배우고 싶은 내용을 적으면 관련 영상을 학습 순서로 정리합니다.</p>
+        </div>
+        <Link to="/courses">저장 코스 보기</Link>
+      </header>
 
       <section className="course-builder">
         <header className="course-builder-heading">
           <div>
-            <h2>새 코스 만들기</h2>
+            <h2>배울 내용 정하기</h2>
             <p>배우고 싶은 내용을 적으면 관련 영상을 2~4개 골라 순서대로 보여드립니다.</p>
           </div>
           <Link to="/me">학습 설정 바꾸기</Link>
@@ -501,58 +487,6 @@ export function CoursePage({ session }: { session: Session }) {
           </button>
         </section>
       )}
-
-      <section className="course-library" aria-labelledby="my-course-title">
-        <div className="section-title">
-          <h2 id="my-course-title">저장한 코스</h2>
-          <span>{activeCourses.length}개</span>
-        </div>
-        {activeCourses.length === 0 ? (
-          <div className="empty-product">
-            <strong>저장한 코스가 없습니다</strong>
-            <p>위에서 새 코스를 만들면 이곳에 보관됩니다.</p>
-          </div>
-        ) : (
-          <div className="course-library-grid">
-            {activeCourses.map((course) => (
-              <button
-                className="course-library-card"
-                key={course.id}
-                type="button"
-                onClick={() => playSavedCourse(course)}
-              >
-                <span className="course-card-heading">
-                  <span>
-                    <strong>{course.title}</strong>
-                    <small>{course.steps.length}개 영상</small>
-                  </span>
-                  <span className="course-open-label">코스 열기</span>
-                </span>
-                <span className="course-video-preview-list">
-                  {course.steps.slice(0, 3).map((step, index) => (
-                    <span className="course-video-preview" key={step.id}>
-                      <img
-                        alt=""
-                        loading="lazy"
-                        src={step.snapshot.thumbnailUrl}
-                      />
-                      <span>
-                        <small>{index + 1}번째 영상</small>
-                        <b>{step.snapshot.title}</b>
-                      </span>
-                    </span>
-                  ))}
-                  {course.steps.length > 3 && (
-                    <span className="course-preview-more">
-                      영상 {course.steps.length - 3}개 더 보기
-                    </span>
-                  )}
-                </span>
-              </button>
-            ))}
-          </div>
-        )}
-      </section>
 
     </main>
   );

@@ -9,12 +9,23 @@ export async function runLearningOverviewPolling(input: {
   ) => Promise<LearningOverviewResponse>;
   wait: (signal: AbortSignal) => Promise<void>;
   onUpdate: (overview: LearningOverviewResponse) => void;
+  maxPolls?: number;
 }) {
-  while (!input.signal.aborted) {
+  const maxPolls = Math.max(1, Math.trunc(input.maxPolls ?? 40));
+  for (let poll = 0; poll < maxPolls && !input.signal.aborted; poll += 1) {
     const overview = await input.fetchOverview(input.contextId, input.signal);
     if (input.signal.aborted) return;
     input.onUpdate(overview);
     if (overview.status !== "pending") return;
+    if (poll + 1 >= maxPolls) {
+      input.onUpdate({
+        contextId: input.contextId,
+        status: "failed",
+        coverage: overview.coverage,
+        errorCode: "OVERVIEW_TIMEOUT",
+      });
+      return;
+    }
     await input.wait(input.signal);
   }
 }

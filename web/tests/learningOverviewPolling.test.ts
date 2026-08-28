@@ -33,6 +33,31 @@ test("pending overview polls until the ready response", async () => {
   assert.equal(waits, 1);
 });
 
+test("overview polling ends with a safe timeout instead of waiting forever", async () => {
+  const updates: LearningOverviewResponse[] = [];
+  let fetches = 0;
+
+  await runLearningOverviewPolling({
+    contextId: "11",
+    signal: new AbortController().signal,
+    maxPolls: 2,
+    fetchOverview: async () => {
+      fetches += 1;
+      return pending;
+    },
+    wait: async () => undefined,
+    onUpdate: (overview) => updates.push(overview),
+  });
+
+  assert.equal(fetches, 2);
+  assert.deepEqual(updates.at(-1), {
+    contextId: "11",
+    status: "failed",
+    coverage: pending.coverage,
+    errorCode: "OVERVIEW_TIMEOUT",
+  });
+});
+
 test("an aborted context ignores its late response", async () => {
   const controller = new AbortController();
   const updates: LearningOverviewResponse[] = [];

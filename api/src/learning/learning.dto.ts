@@ -168,7 +168,7 @@ export class RecordProgressDto {
 }
 
 export class QuizAnswerDto {
-  @IsUUID('4')
+  @IsUUID()
   questionId!: string;
 
   @IsInt()

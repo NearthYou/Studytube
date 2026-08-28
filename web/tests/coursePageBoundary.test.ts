@@ -113,3 +113,12 @@ test("saved courses use searchable preview cards with a compact video list", () 
   assert.match(css, /\.course-library-card\s*\{[^}]*padding:\s*18px/);
   assert.match(css, /\.course-video-preview img\s*\{[^}]*width:\s*72px/);
 });
+
+test("the new Course button keeps readable text on its accent background", () => {
+  const css = readFileSync(courseCssPath, "utf8");
+
+  assert.match(
+    css,
+    /\.course-library-heading \.primary-link\s*\{[^}]*color:\s*#07101f/,
+  );
+});

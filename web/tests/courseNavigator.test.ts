@@ -57,10 +57,13 @@ test("Course navigator renders a thumbnail picker for direct selection", () => {
     "utf8",
   );
 
-  assert.match(source, /<details className="course-video-picker">/);
+  assert.match(source, /className="course-video-picker-toggle"/);
+  assert.match(source, /aria-expanded=\{pickerOpen\}/);
+  assert.match(source, /\{pickerOpen && \(/);
   assert.match(source, /className="course-video-picker-list"/);
   assert.match(source, /video\.thumbnailUrl/);
   assert.match(source, /aria-current=/);
   assert.match(source, /영상 선택/);
   assert.match(source, /코스 목록/);
+  assert.doesNotMatch(source, /<details/);
 });

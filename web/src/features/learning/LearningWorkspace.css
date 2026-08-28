@@ -148,7 +148,8 @@
 
 .course-navigator {
   position: relative;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
@@ -179,7 +180,7 @@
 }
 
 .course-navigator-actions > button,
-.course-video-picker summary {
+.course-video-picker-toggle {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -192,38 +193,29 @@
   font-size: 13px;
   font-weight: 700;
   cursor: pointer;
-  list-style: none;
   white-space: nowrap;
 }
 
-.course-video-picker summary::-webkit-details-marker {
-  display: none;
-}
-
-.course-video-picker[open] summary {
+.course-video-picker-toggle[aria-expanded="true"] {
   border-color: var(--app-accent);
 }
 
 .course-video-picker-list {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  z-index: 20;
+  grid-column: 1 / -1;
   display: grid;
-  width: min(460px, calc(100vw - 40px));
-  max-height: min(56vh, 520px);
-  margin: 0;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 8px;
+  width: 100%;
+  margin: 4px 0 0;
   padding: 8px;
-  overflow: auto;
   border: 1px solid var(--app-line);
   border-radius: 12px;
-  background: var(--app-surface);
-  box-shadow: 0 18px 40px rgb(0 0 0 / 28%);
+  background: #10151d;
   list-style: none;
 }
 
 .course-video-picker-list li + li {
-  border-top: 1px solid var(--app-line);
+  border-top: 0;
 }
 
 .course-video-picker-list button {
@@ -234,6 +226,7 @@
   width: 100%;
   min-height: 64px;
   padding: 8px;
+  border: 1px solid transparent;
   border-radius: 8px;
   background: transparent;
   color: var(--app-text);
@@ -243,6 +236,7 @@
 
 .course-video-picker-list button:hover,
 .course-video-picker-list button[aria-current="true"] {
+  border-color: var(--app-line);
   background: var(--app-elevated);
 }
 
@@ -915,21 +909,15 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .course-video-picker {
-    position: static;
+  .course-video-picker-toggle {
     grid-column: 1 / -1;
     grid-row: 1;
   }
 
-  .course-video-picker summary {
-    width: 100%;
-  }
-
   .course-video-picker-list {
-    top: calc(100% + 6px);
-    right: 0;
-    left: 0;
-    width: auto;
+    grid-template-columns: 1fr;
+    max-height: 50vh;
+    overflow: auto;
   }
 
   .course-navigator-actions button,

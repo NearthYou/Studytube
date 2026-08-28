@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link } from "react-router";
 import type { QueueVideo } from "../../watchQueue.ts";
 import { courseNavigatorModel } from "./courseNavigatorModel.ts";
@@ -11,6 +12,8 @@ export function CourseNavigator({
   onSelect: (video: QueueVideo) => void;
   videos: QueueVideo[];
 }) {
+  const [pickerOpen, setPickerOpen] = useState(false);
+
   if (videos.length < 2) return null;
 
   const { current, currentIndex, next, orderedVideos, previous } =
@@ -32,36 +35,15 @@ export function CourseNavigator({
             이전
           </button>
         )}
-        <details className="course-video-picker">
-          <summary>
-            {currentIndex + 1} / {orderedVideos.length} 영상 선택
-          </summary>
-          <ol className="course-video-picker-list">
-            {orderedVideos.map((video, index) => {
-              const selected = video.videoId === current.videoId;
-              return (
-                <li key={`${video.videoId}-${index}`}>
-                  <button
-                    aria-current={selected ? "true" : undefined}
-                    onClick={() => onSelect(video)}
-                    type="button"
-                  >
-                    {video.thumbnailUrl ? (
-                      <img alt="" loading="lazy" src={video.thumbnailUrl} />
-                    ) : (
-                      <span className="course-video-picker-placeholder" />
-                    )}
-                    <span>
-                      <small>{index + 1}번째 영상</small>
-                      <strong>{video.title}</strong>
-                    </span>
-                    {selected && <em>현재 학습 중</em>}
-                  </button>
-                </li>
-              );
-            })}
-          </ol>
-        </details>
+        <button
+          aria-controls="course-video-picker-list"
+          aria-expanded={pickerOpen}
+          className="course-video-picker-toggle"
+          onClick={() => setPickerOpen((open) => !open)}
+          type="button"
+        >
+          {currentIndex + 1} / {orderedVideos.length} 영상 선택
+        </button>
         {next && (
           <button
             aria-label={`다음 영상: ${next.title}`}
@@ -73,6 +55,36 @@ export function CourseNavigator({
         )}
         <Link to="/courses">코스 목록</Link>
       </div>
+      {pickerOpen && (
+        <ol className="course-video-picker-list" id="course-video-picker-list">
+          {orderedVideos.map((video, index) => {
+            const selected = video.videoId === current.videoId;
+            return (
+              <li key={`${video.videoId}-${index}`}>
+                <button
+                  aria-current={selected ? "true" : undefined}
+                  onClick={() => {
+                    setPickerOpen(false);
+                    onSelect(video);
+                  }}
+                  type="button"
+                >
+                  {video.thumbnailUrl ? (
+                    <img alt="" loading="lazy" src={video.thumbnailUrl} />
+                  ) : (
+                    <span className="course-video-picker-placeholder" />
+                  )}
+                  <span>
+                    <small>{index + 1}번째 영상</small>
+                    <strong>{video.title}</strong>
+                  </span>
+                  {selected && <em>현재 학습 중</em>}
+                </button>
+              </li>
+            );
+          })}
+        </ol>
+      )}
     </nav>
   );
 }

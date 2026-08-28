@@ -97,6 +97,7 @@ export function quizPreparation(
     "index_pending",
     "partial",
     "complete",
+    "failed",
   ].includes(state.phase);
 
   if (state.sourceSegments.length === 0) {

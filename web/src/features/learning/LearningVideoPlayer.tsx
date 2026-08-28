@@ -8,6 +8,7 @@ import {
 } from "react";
 import { Link } from "react-router";
 import { youtubePlayerVars } from "./youtubePlayerOptions.ts";
+import { shouldScheduleCaptionLowering } from "./captionControlVisibility.ts";
 
 type YoutubePlayer = {
   destroy: () => void;
@@ -45,6 +46,8 @@ export type LearningVideoPlayerHandle = {
   seek: (seconds: number) => void;
 };
 
+const CONTROLS_HIDE_DELAY_MS = 4_200;
+
 export const LearningVideoPlayer = forwardRef<
   LearningVideoPlayerHandle,
   {
@@ -70,6 +73,7 @@ export const LearningVideoPlayer = forwardRef<
   const initialTimeRef = useRef(initialTime);
   const controlsTimerRef = useRef(0);
   const playingRef = useRef(false);
+  const pointerInsideRef = useRef(false);
   const onTimeChangeRef = useRef(onTimeChange);
   const onDurationChangeRef = useRef(onDurationChange);
   const onEndedRef = useRef(onEnded);
@@ -83,16 +87,37 @@ export const LearningVideoPlayer = forwardRef<
   onDurationChangeRef.current = onDurationChange;
   onEndedRef.current = onEnded;
 
-  const showControlsTemporarily = useCallback(() => {
+  const scheduleControlsHide = useCallback(() => {
     setControlsVisible(true);
     window.clearTimeout(controlsTimerRef.current);
-    if (playingRef.current) {
+    if (
+      shouldScheduleCaptionLowering({
+        playing: playingRef.current,
+        pointerInside: pointerInsideRef.current,
+      })
+    ) {
       controlsTimerRef.current = window.setTimeout(
         () => setControlsVisible(false),
-        2_800,
+        CONTROLS_HIDE_DELAY_MS,
       );
     }
   }, []);
+
+  const keepControlsVisible = useCallback(() => {
+    pointerInsideRef.current = true;
+    window.clearTimeout(controlsTimerRef.current);
+    setControlsVisible(true);
+  }, []);
+
+  const handlePointerLeave = useCallback(() => {
+    pointerInsideRef.current = false;
+    scheduleControlsHide();
+  }, [scheduleControlsHide]);
+
+  const handleTouchStart = useCallback(() => {
+    pointerInsideRef.current = false;
+    scheduleControlsHide();
+  }, [scheduleControlsHide]);
 
   useImperativeHandle(
     ref,
@@ -141,7 +166,7 @@ export const LearningVideoPlayer = forwardRef<
               target.unloadModule?.("captions");
               playingRef.current = data === 1;
               if (data === 1) {
-                showControlsTemporarily();
+                scheduleControlsHide();
               } else {
                 window.clearTimeout(controlsTimerRef.current);
                 setControlsVisible(true);
@@ -190,7 +215,7 @@ export const LearningVideoPlayer = forwardRef<
       playerRef.current?.destroy();
       playerRef.current = null;
     };
-  }, [showControlsTemporarily, videoId]);
+  }, [scheduleControlsHide, videoId]);
 
   useEffect(() => {
     if (error) errorRef.current?.focus();
@@ -201,10 +226,11 @@ export const LearningVideoPlayer = forwardRef<
       <section
         className={`learning-player caption-size-${captionSize}${controlsVisible ? " controls-visible" : ""}`}
         aria-label="YouTube 영상 플레이어"
-        onPointerEnter={showControlsTemporarily}
-        onPointerDown={showControlsTemporarily}
-        onPointerMove={showControlsTemporarily}
-        onTouchStart={showControlsTemporarily}
+        onPointerEnter={keepControlsVisible}
+        onPointerDown={keepControlsVisible}
+        onPointerLeave={handlePointerLeave}
+        onPointerMove={keepControlsVisible}
+        onTouchStart={handleTouchStart}
       >
         <div id="learning-youtube-player" />
         {(caption.korean || caption.source) && (

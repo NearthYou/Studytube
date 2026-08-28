@@ -7,14 +7,26 @@ import { fileURLToPath } from "node:url";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../src");
 const appSource = readFileSync(resolve(root, "App.tsx"), "utf8");
 const coursePath = resolve(root, "features/course/CoursePage.tsx");
+const courseLibraryPath = resolve(root, "features/course/CourseLibraryPage.tsx");
 const courseCssPath = resolve(root, "features/course/CoursePage.css");
+const routesPath = resolve(root, "app/AppRoutes.tsx");
 
-test("the active Course screen owns its feature module", () => {
+test("Course creation and saved Course browsing have separate routes", () => {
   assert.equal(existsSync(coursePath), true);
+  assert.equal(existsSync(courseLibraryPath), true);
   if (!existsSync(coursePath)) return;
-  const courseSource = readFileSync(coursePath, "utf8");
-  assert.match(courseSource, /export function CoursePage/);
-  assert.match(courseSource, /generatedCourseIdempotencyKey/);
+  const builder = readFileSync(coursePath, "utf8");
+  const library = readFileSync(courseLibraryPath, "utf8");
+  const routes = readFileSync(routesPath, "utf8");
+
+  assert.match(builder, /export function CourseBuilderPage/);
+  assert.match(builder, /generatedCourseIdempotencyKey/);
+  assert.doesNotMatch(builder, /course-library-grid/);
+  assert.match(library, /export function CourseLibraryPage/);
+  assert.match(library, /course-library-grid/);
+  assert.doesNotMatch(library, /className="course-builder"/);
+  assert.match(routes, /path="\/courses"[\s\S]*CourseLibraryPage/);
+  assert.match(routes, /path="\/courses\/new"[\s\S]*CourseBuilderPage/);
   assert.doesNotMatch(appSource, /function CoursePage/);
 });
 
@@ -22,17 +34,15 @@ test("course creation has one clear primary action and visible progress", () => 
   const source = readFileSync(coursePath, "utf8");
   assert.match(source, /코스 만들기/);
   assert.match(source, /aria-busy=\{isGenerating\}/);
-  assert.match(source, /내 코스/);
+  assert.match(source, /저장 코스 보기/);
   assert.doesNotMatch(source, /기존 코스 먼저 찾기|새로 만들어줘/);
 });
 
-test("Course screen contains creation and saved courses without the home feed", () => {
+test("Course builder contains creation without the saved Course library", () => {
   const source = readFileSync(coursePath, "utf8");
-  const builder = source.indexOf('className="course-builder"');
-  const library = source.indexOf('id="my-course-title">저장한 코스');
 
-  assert.ok(builder >= 0);
-  assert.ok(library > builder);
+  assert.match(source, /className="course-builder"/);
+  assert.doesNotMatch(source, /id="my-course-title">저장한 코스/);
   assert.doesNotMatch(source, /<details className="course-builder">/);
   assert.match(source, /이번 코스에 적용되는 학습 설정/);
   assert.match(source, /학습 설정 바꾸기/);
@@ -86,8 +96,8 @@ test("a prepared recommendation can be saved after the page reloads", () => {
   assert.match(source, /코스로 저장/);
 });
 
-test("saved courses use preview cards with a compact video list", () => {
-  const source = readFileSync(coursePath, "utf8");
+test("saved courses use searchable preview cards with a compact video list", () => {
+  const source = readFileSync(courseLibraryPath, "utf8");
   const css = readFileSync(courseCssPath, "utf8");
 
   assert.match(source, /className="course-library-grid"/);
@@ -95,6 +105,10 @@ test("saved courses use preview cards with a compact video list", () => {
   assert.match(source, /course\.steps\.slice\(0, 3\)/);
   assert.match(source, /className="course-video-preview"/);
   assert.match(source, /step\.snapshot\.thumbnailUrl/);
+  assert.match(source, /placeholder="코스나 영상 검색"/);
+  assert.match(source, /2~3개/);
+  assert.match(source, /4개 이상/);
+  assert.match(source, /최근 저장순/);
   assert.match(css, /\.course-library-grid\s*\{[^}]*grid-template-columns:/);
   assert.match(css, /\.course-library-card\s*\{[^}]*padding:\s*18px/);
   assert.match(css, /\.course-video-preview img\s*\{[^}]*width:\s*72px/);

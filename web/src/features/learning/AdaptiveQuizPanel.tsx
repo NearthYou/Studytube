@@ -72,6 +72,7 @@ export function AdaptiveQuizPanel({
   );
   const selectedChoice = answers[question.id];
   const locked = state.phase === "submitting" || state.phase === "evaluated";
+  const questionTitleId = `quiz-question-${question.id}`;
 
   function moveNext() {
     if (page.isLast) {
@@ -84,24 +85,28 @@ export function AdaptiveQuizPanel({
   return (
     <section className="adaptive-quiz-panel">
       <header className="quiz-header">
-        <div>
-          <span>이번 학습 확인</span>
-          <h2>내용을 얼마나 이해했나요?</h2>
+        <strong>퀴즈</strong>
+        <div className="quiz-header-status">
+          {state.phase === "evaluated" && submission && (
+            <div className="quiz-score" ref={statusRef} tabIndex={-1}>
+              <span>결과</span>
+              <strong>{submission.attempt.score}점</strong>
+            </div>
+          )}
+          <span className="quiz-progress" aria-label={`${page.total}문제 중 ${page.position}번째`}>
+            {page.position} / {page.total}
+          </span>
         </div>
-        <span className="quiz-progress" aria-label={`${page.total}문제 중 ${page.position}번째`}>
-          {page.position} / {page.total}
-        </span>
       </header>
 
-      {state.phase === "evaluated" && submission && (
-        <div className="quiz-score" ref={statusRef} tabIndex={-1}>
-          <span>결과</span>
-          <strong>{submission.attempt.score}점</strong>
-        </div>
-      )}
-
-      <fieldset className="quiz-question-card">
-        <legend>{question.prompt}</legend>
+      <div
+        aria-labelledby={questionTitleId}
+        className="quiz-question-card"
+        role="radiogroup"
+      >
+        <h3 className="quiz-question-title" id={questionTitleId}>
+          {question.prompt}
+        </h3>
         <div className="quiz-choice-list">
           {question.choices.map((choice, index) => {
             const selected = selectedChoice === index;
@@ -135,17 +140,16 @@ export function AdaptiveQuizPanel({
             );
           })}
         </div>
-      </fieldset>
-
-      {evaluated && (
-        <div className={`quiz-feedback ${evaluated.correct ? "is-correct" : "is-incorrect"}`}>
-          <strong>{evaluated.correct ? "잘 이해했어요" : "이 부분은 다시 확인해 보세요"}</strong>
-          <p>{evaluated.explanation}</p>
-          <button type="button" onClick={() => onSeek(evaluated.citation.startSeconds)}>
-            관련 장면 {formatTime(evaluated.citation.startSeconds)}
-          </button>
-        </div>
-      )}
+        {evaluated && (
+          <div className={`quiz-feedback ${evaluated.correct ? "is-correct" : "is-incorrect"}`}>
+            <strong>{evaluated.correct ? "잘 이해했어요" : "이 부분은 다시 확인해 보세요"}</strong>
+            <p>{evaluated.explanation}</p>
+            <button type="button" onClick={() => onSeek(evaluated.citation.startSeconds)}>
+              관련 장면 {formatTime(evaluated.citation.startSeconds)}
+            </button>
+          </div>
+        )}
+      </div>
 
       <footer className="quiz-actions">
         <button

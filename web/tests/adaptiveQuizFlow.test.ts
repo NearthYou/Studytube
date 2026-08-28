@@ -2,10 +2,30 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   quizControls,
+  quizPollingTimedOut,
   quizStateFromApi,
   shouldAutoRequestQuiz,
   transitionQuizState,
 } from "../src/features/learning/adaptiveQuizFlow.ts";
+
+test("quiz polling timeout stops the endless generating state", () => {
+  const generating = quizStateFromApi(
+    { id: "loop-1", state: "generating", questions: [] },
+    true,
+  );
+  const timedOut = quizPollingTimedOut(generating);
+
+  assert.equal(timedOut.phase, "failed");
+  assert.equal(quizControls(timedOut).retry, true);
+  assert.equal(
+    timedOut.message,
+    "퀴즈 준비가 오래 걸리고 있어요. 다시 만들어주세요.",
+  );
+  assert.equal(
+    transitionQuizState(timedOut, { type: "requested" }).phase,
+    "generating",
+  );
+});
 
 test("quiz UI follows the bounded request to evaluated state contract", () => {
   let state = quizStateFromApi(null, true);

@@ -45,7 +45,7 @@ export function quizStateFromApi(
       evidenceReady,
       loopId: "",
       message: evidenceReady
-        ? "지금까지 본 구간으로 퀴즈를 만들 수 있습니다."
+        ? "영상 전체 내용으로 퀴즈를 만들 수 있습니다."
         : "퀴즈를 준비하고 있어요.",
     };
   }
@@ -61,7 +61,10 @@ export function transitionQuizState(
   state: QuizUiState,
   event: QuizUiEvent,
 ): QuizUiState {
-  if (event.type === "requested" && state.phase === "request") {
+  if (
+    event.type === "requested" &&
+    ["request", "failed", "stale"].includes(state.phase)
+  ) {
     return { ...state, phase: "generating", message: messageFor("generating") };
   }
   if (
@@ -95,6 +98,15 @@ export function quizControls(state: QuizUiState) {
     submit: state.phase === "answering",
     retry: state.phase === "failed",
     regenerate: state.phase === "stale",
+  };
+}
+
+export function quizPollingTimedOut(state: QuizUiState): QuizUiState {
+  if (state.phase !== "generating") return state;
+  return {
+    ...state,
+    phase: "failed",
+    message: "퀴즈 준비가 오래 걸리고 있어요. 다시 만들어주세요.",
   };
 }
 

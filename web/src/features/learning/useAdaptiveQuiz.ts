@@ -7,6 +7,7 @@ import {
   type AdaptiveQuizSubmission,
 } from "../../api.ts";
 import {
+  quizPollingTimedOut,
   quizStateFromApi,
   shouldAutoRequestQuiz,
   transitionQuizState,
@@ -119,7 +120,10 @@ export function useAdaptiveQuiz({
           setLoop(next);
           setState(quizStateFromApi(next, evidenceReadyRef.current));
           if (next.state !== "generating") return;
-          if (attempts + 1 >= MAX_QUIZ_POLLS) return;
+          if (attempts + 1 >= MAX_QUIZ_POLLS) {
+            setState(quizPollingTimedOut);
+            return;
+          }
           if (!(await waitForPoll(1_500, signal))) return;
         } catch {
           if (!signal.aborted) {

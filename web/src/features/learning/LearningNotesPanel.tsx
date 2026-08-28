@@ -1,6 +1,11 @@
-import { useState, type RefObject } from "react";
+import { useEffect, useReducer, type RefObject } from "react";
 import type { LearningNote } from "../../types.ts";
 import { formatTime } from "../../videoSummaryDetails.ts";
+import {
+  canSaveSavedNote,
+  createSavedNoteState,
+  transitionSavedNote,
+} from "./savedNoteFlow.ts";
 
 export function LearningNotesPanel({
   busyId,
@@ -113,30 +118,81 @@ function NoteEditor({
   onSave: (body: string) => void;
   onSeek: () => void;
 }) {
-  const [body, setBody] = useState(note.body);
+  const [state, dispatch] = useReducer(
+    transitionSavedNote,
+    note.body,
+    createSavedNoteState,
+  );
+  useEffect(() => {
+    dispatch({ type: "sync", body: note.body });
+  }, [note.body]);
+
   return (
-    <article>
-      <button className="note-time" type="button" onClick={onSeek}>
-        {formatTime(note.positionSeconds)}
-      </button>
-      <textarea
-        aria-label={`${formatTime(note.positionSeconds)} 메모 내용`}
-        maxLength={4000}
-        value={body}
-        onChange={(event) => setBody(event.target.value)}
-      />
-      <div>
+    <article className={`saved-note-card is-${state.mode}`}>
+      <header className="saved-note-card-header">
         <button
-          disabled={busy || body.trim() === note.body}
+          className="note-time"
+          title={`${formatTime(note.positionSeconds)} 장면으로 이동`}
           type="button"
-          onClick={() => onSave(body)}
+          onClick={onSeek}
         >
-          수정
+          {formatTime(note.positionSeconds)}
         </button>
-        <button disabled={busy} type="button" onClick={onDelete}>
-          삭제
-        </button>
-      </div>
+        {state.mode === "view" && (
+          <div className="saved-note-card-actions">
+            <button
+              className="quiet-button"
+              disabled={busy}
+              type="button"
+              onClick={() => dispatch({ type: "edit" })}
+            >
+              수정
+            </button>
+            <button
+              className="quiet-button danger-button"
+              disabled={busy}
+              type="button"
+              onClick={onDelete}
+            >
+              삭제
+            </button>
+          </div>
+        )}
+      </header>
+
+      {state.mode === "view" ? (
+        <p className="saved-note-body">{note.body}</p>
+      ) : (
+        <>
+          <textarea
+            aria-label={`${formatTime(note.positionSeconds)} 메모 내용`}
+            autoFocus
+            maxLength={4000}
+            value={state.draftBody}
+            onChange={(event) =>
+              dispatch({ type: "change", body: event.target.value })
+            }
+          />
+          <div className="saved-note-edit-actions">
+            <span>{state.draftBody.length.toLocaleString()} / 4,000</span>
+            <button
+              className="quiet-button"
+              disabled={busy}
+              type="button"
+              onClick={() => dispatch({ type: "cancel" })}
+            >
+              취소
+            </button>
+            <button
+              disabled={busy || !canSaveSavedNote(state)}
+              type="button"
+              onClick={() => onSave(state.draftBody)}
+            >
+              {busy ? "저장 중" : "저장"}
+            </button>
+          </div>
+        </>
+      )}
     </article>
   );
 }

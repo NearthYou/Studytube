@@ -142,10 +142,13 @@ export function useAdaptiveQuiz({
   }, [loopId, loopState]);
 
   useEffect(() => {
-    if (["failed", "stale", "evaluated"].includes(state.phase)) {
+    if (
+      ["failed", "stale", "evaluated"].includes(state.phase) ||
+      (state.phase === "answering" && state.message)
+    ) {
       statusRef.current?.focus();
     }
-  }, [state.phase]);
+  }, [state.message, state.phase]);
 
   function chooseAnswer(questionId: string, choiceIndex: number) {
     setAnswers((current) => ({ ...current, [questionId]: choiceIndex }));
@@ -172,10 +175,11 @@ export function useAdaptiveQuiz({
     setState((current) =>
       transitionQuizState(current, { type: "submit_started" }),
     );
+    const idempotencyKey = crypto.randomUUID();
     try {
       const result = await submitAdaptiveQuiz({
         loopId: loop.id,
-        idempotencyKey: crypto.randomUUID(),
+        idempotencyKey,
         answers: selectedAnswers as Array<{
           questionId: string;
           selectedChoiceIndex: number;
@@ -192,7 +196,33 @@ export function useAdaptiveQuiz({
       try {
         const latest = await fetchAdaptiveQuiz(loop.id);
         setLoop(latest);
-        setState(quizStateFromApi(latest, evidenceReady));
+        if (latest.state === "evaluated") {
+          const result = await submitAdaptiveQuiz({
+            loopId: loop.id,
+            idempotencyKey,
+            answers: selectedAnswers as Array<{
+              questionId: string;
+              selectedChoiceIndex: number;
+            }>,
+          });
+          setSubmission(result);
+          setState((current) =>
+            transitionQuizState(current, {
+              type: "submit_succeeded",
+              result: { score: result.attempt.score },
+            }),
+          );
+        } else if (latest.state === "ready") {
+          setState((current) =>
+            transitionQuizState(current, {
+              type: "submit_failed",
+              message:
+                "답을 확인하지 못했어요. 선택한 답은 그대로 두었으니 다시 시도해 주세요.",
+            }),
+          );
+        } else {
+          setState(quizStateFromApi(latest, evidenceReady));
+        }
       } catch {
         setState((current) => ({
           ...current,

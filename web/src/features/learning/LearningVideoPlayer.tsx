@@ -5,10 +5,15 @@ import {
   useImperativeHandle,
   useRef,
   useState,
+  type CSSProperties,
 } from "react";
 import { Link } from "react-router";
 import { youtubePlayerVars } from "./youtubePlayerOptions.ts";
 import { shouldScheduleCaptionLowering } from "./captionControlVisibility.ts";
+import {
+  loadCaptionPreferences,
+  saveCaptionPreferences,
+} from "./captionPreferences.ts";
 
 type YoutubePlayer = {
   destroy: () => void;
@@ -80,8 +85,8 @@ export const LearningVideoPlayer = forwardRef<
   const errorRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState("");
   const [controlsVisible, setControlsVisible] = useState(true);
-  const [captionSize, setCaptionSize] = useState<"small" | "medium" | "large">(
-    "medium",
+  const [captionPreferences, setCaptionPreferences] = useState(() =>
+    loadCaptionPreferences(),
   );
   onTimeChangeRef.current = onTimeChange;
   onDurationChangeRef.current = onDurationChange;
@@ -221,10 +226,20 @@ export const LearningVideoPlayer = forwardRef<
     if (error) errorRef.current?.focus();
   }, [error]);
 
+  useEffect(() => {
+    saveCaptionPreferences(captionPreferences);
+  }, [captionPreferences]);
+
   return (
     <>
       <section
-        className={`learning-player caption-size-${captionSize}${controlsVisible ? " controls-visible" : ""}`}
+        className={`learning-player caption-size-${captionPreferences.size}${controlsVisible ? " controls-visible" : ""}`}
+        style={
+          {
+            "--learning-caption-opacity":
+              captionPreferences.backgroundOpacity.toString(),
+          } as CSSProperties
+        }
         aria-label="YouTube 영상 플레이어"
         onPointerEnter={keepControlsVisible}
         onPointerDown={keepControlsVisible}
@@ -233,7 +248,7 @@ export const LearningVideoPlayer = forwardRef<
         onTouchStart={handleTouchStart}
       >
         <div id="learning-youtube-player" />
-        {(caption.korean || caption.source) && (
+        {captionPreferences.visible && (caption.korean || caption.source) && (
           <div className="learning-player-caption" aria-live="polite">
             {caption.source && (
               <p className="learning-caption-source">{caption.source}</p>
@@ -256,18 +271,57 @@ export const LearningVideoPlayer = forwardRef<
           </div>
         )}
       </section>
-      <div className="learning-caption-settings" role="group" aria-label="자막 크기">
-        <span>자막 크기</span>
-        {(["small", "medium", "large"] as const).map((size) => (
-          <button
-            aria-pressed={captionSize === size}
-            key={size}
-            type="button"
-            onClick={() => setCaptionSize(size)}
-          >
-            {{ small: "작게", medium: "보통", large: "크게" }[size]}
-          </button>
-        ))}
+      <div className="learning-caption-settings" role="group" aria-label="자막 설정">
+        <button
+          aria-pressed={captionPreferences.visible}
+          className="caption-visibility-toggle"
+          type="button"
+          onClick={() =>
+            setCaptionPreferences((current) => ({
+              ...current,
+              visible: !current.visible,
+            }))
+          }
+        >
+          {captionPreferences.visible ? "자막 켜짐" : "자막 꺼짐"}
+        </button>
+        <div className="caption-size-controls" role="group" aria-label="자막 크기">
+          <span>크기</span>
+          {(["small", "medium", "large"] as const).map((size) => (
+            <button
+              aria-pressed={captionPreferences.size === size}
+              disabled={!captionPreferences.visible}
+              key={size}
+              type="button"
+              onClick={() =>
+                setCaptionPreferences((current) => ({ ...current, size }))
+              }
+            >
+              {{ small: "작게", medium: "보통", large: "크게" }[size]}
+            </button>
+          ))}
+        </div>
+        <label className="caption-opacity-control">
+          <span>투명도</span>
+          <input
+            aria-label="자막 배경 투명도"
+            disabled={!captionPreferences.visible}
+            max="95"
+            min="35"
+            step="5"
+            type="range"
+            value={Math.round(captionPreferences.backgroundOpacity * 100)}
+            onChange={(event) =>
+              setCaptionPreferences((current) => ({
+                ...current,
+                backgroundOpacity: Number(event.target.value) / 100,
+              }))
+            }
+          />
+          <output>
+            {Math.round(captionPreferences.backgroundOpacity * 100)}%
+          </output>
+        </label>
       </div>
     </>
   );

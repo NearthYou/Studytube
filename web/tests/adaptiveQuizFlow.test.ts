@@ -57,6 +57,27 @@ test("quiz UI follows the bounded request to evaluated state contract", () => {
   assert.equal(quizControls(state).submit, false);
 });
 
+test("quiz submit failure returns to the answers with a visible message", () => {
+  let state = quizStateFromApi(
+    { id: "loop-1", state: "ready", questions: [{ id: "q1" }] },
+    true,
+  );
+  state = transitionQuizState(state, { type: "answer_changed" });
+  state = transitionQuizState(state, { type: "submit_started" });
+
+  state = transitionQuizState(state, {
+    type: "submit_failed",
+    message: "답을 확인하지 못했어요. 선택한 답은 그대로 두었으니 다시 시도해 주세요.",
+  });
+
+  assert.equal(state.phase, "answering");
+  assert.equal(
+    state.message,
+    "답을 확인하지 못했어요. 선택한 답은 그대로 두었으니 다시 시도해 주세요.",
+  );
+  assert.equal(quizControls(state).submit, true);
+});
+
 test("failed allows retry while stale only allows a new quiz", () => {
   const failed = quizStateFromApi(
     { id: "loop-1", state: "failed", questions: [] },

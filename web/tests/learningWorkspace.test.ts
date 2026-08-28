@@ -323,6 +323,30 @@ test("note composer keeps the pinned sentence beside the draft", () => {
   assert.match(source, /저장한 메모/);
 });
 
+test("saved notes stay compact until the learner chooses to edit", () => {
+  const source = readFileSync(
+    resolve(featureDirectory, "LearningNotesPanel.tsx"),
+    "utf8",
+  );
+  const css = readFileSync(
+    resolve(featureDirectory, "LearningWorkspace.css"),
+    "utf8",
+  );
+
+  assert.match(source, /className="saved-note-body"/);
+  assert.match(source, /state\.mode === "view"/);
+  assert.match(source, />\s*취소\s*</);
+  assert.match(
+    css,
+    /\.learning-note-list \.saved-note-card\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/,
+  );
+  assert.match(css, /\.saved-note-card-header\s*\{/);
+  assert.match(
+    css,
+    /\.saved-note-card \.note-time\s*\{[^}]*min-height:\s*44px/,
+  );
+});
+
 test("captionless videos can create progressive captions from shared tab audio", () => {
   const workspaceSource = readFileSync(
     resolve(featureDirectory, "LearningWorkspace.tsx"),

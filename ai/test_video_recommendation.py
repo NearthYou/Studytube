@@ -66,6 +66,44 @@ class VideoRecommendationTest(unittest.TestCase):
 
         self.assertEqual(ranked, [])
 
+    def test_uses_the_duration_written_in_the_request_when_profile_pace_is_empty(self):
+        self.assertIsNotNone(rank_video_candidates)
+        if rank_video_candidates is None:
+            return
+
+        ranked = rank_video_candidates(
+            [
+                {
+                    "videoId": "cpp-seventeen-minutes",
+                    "title": "C++ 기초 17분",
+                    "channel": "코딩 교실",
+                    "sourceUrl": "https://youtu.be/cpp-seventeen-minutes",
+                    "summary": "C++ 입문",
+                    "durationSeconds": 1_020,
+                    "captionAvailable": True,
+                },
+                {
+                    "videoId": "cpp-eighty-three-minutes",
+                    "title": "C++ 초보자 전체 강의",
+                    "channel": "긴 강의",
+                    "sourceUrl": "https://youtu.be/cpp-eighty-three-minutes",
+                    "summary": "C++ 입문",
+                    "durationSeconds": 4_980,
+                    "captionAvailable": True,
+                },
+            ],
+            {
+                "subject": "C++를 20분씩 기초부터 배우고 싶어",
+                "pace": "",
+                "learningGoal": "기초부터",
+            },
+        )
+
+        self.assertEqual(
+            [video["videoId"] for video in ranked],
+            ["cpp-seventeen-minutes"],
+        )
+
     def test_keeps_recent_learning_and_duration_visible_in_the_reason(self):
         self.assertIsNotNone(rank_video_candidates)
         if rank_video_candidates is None:

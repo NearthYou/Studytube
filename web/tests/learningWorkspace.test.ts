@@ -274,6 +274,10 @@ test("quiz presents one content question at a time with custom choice cards", ()
     css,
     /\.adaptive-quiz-panel\s*\{[^}]*grid-template-rows:\s*auto minmax\(0, 1fr\) auto/,
   );
+  assert.match(
+    css,
+    /\.adaptive-quiz-panel\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/,
+  );
 });
 
 test("learning playback records history and shows a clear completion action", () => {

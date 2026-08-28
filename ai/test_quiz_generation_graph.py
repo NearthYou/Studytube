@@ -148,6 +148,20 @@ class QuizGenerationGraphTest(unittest.TestCase):
             self.assertEqual(question["citation"]["resourceId"], f"caption-{index + 1}")
             self.assertEqual(question["citation"]["startSeconds"], index * 10)
 
+    def test_server_pins_generated_questions_to_their_passage_order(self):
+        questions = semantic_questions()
+        for question in questions:
+            question["evidencePosition"] = 1
+            question["supportingQuote"] = "모델이 바꿔 쓴 문장"
+        self.configure(FakeOpenAI(questions))
+
+        response = build_quiz_response(payload())
+
+        self.assertEqual(
+            [question["citation"]["resourceId"] for question in response["questions"]],
+            [f"caption-{index + 1}" for index in range(5)],
+        )
+
     def test_rejects_generated_questions_that_test_timestamp_memory(self):
         questions = semantic_questions()
         questions[0]["prompt"] = "0초 근처에서 설명한 내용은 무엇인가요?"
@@ -175,13 +189,14 @@ class QuizGenerationGraphTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "content-based"):
             build_quiz_response(payload())
 
-    def test_rejects_a_quote_missing_from_the_cited_passage(self):
+    def test_replaces_model_quote_with_the_pinned_passage(self):
         questions = semantic_questions()
         questions[0]["supportingQuote"] = "영상에 전혀 없는 문장"
         self.configure(FakeOpenAI(questions))
 
-        with self.assertRaisesRegex(ValueError, "content-based"):
-            build_quiz_response(payload())
+        response = build_quiz_response(payload())
+
+        self.assertEqual(response["questions"][0]["citation"]["resourceId"], "caption-1")
 
     def test_rejects_an_unrelated_question_even_with_a_real_quote(self):
         questions = semantic_questions()

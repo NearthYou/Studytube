@@ -212,7 +212,16 @@ function redactString(value: string, secrets: readonly string[]): string {
 }
 
 function isSensitiveKey(key: string): boolean {
-  return SENSITIVE_KEYS.has(normalizeKey(key));
+  const normalized = normalizeKey(key);
+  return (
+    SENSITIVE_KEYS.has(normalized) ||
+    normalized.endsWith('apikey') ||
+    normalized.endsWith('accesstoken') ||
+    normalized.endsWith('refreshtoken') ||
+    normalized.endsWith('sessiontoken') ||
+    normalized.endsWith('clientsecret') ||
+    normalized.endsWith('privatekey')
+  );
 }
 
 function normalizeKey(key: string): string {

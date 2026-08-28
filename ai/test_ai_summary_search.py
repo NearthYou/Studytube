@@ -24,6 +24,134 @@ from main import (
 )
 
 class AiServiceTest(unittest.TestCase):
+    def test_learning_overview_retries_once_when_the_first_shape_is_invalid(self):
+        class FakeOpenAI:
+            calls = 0
+
+            def __init__(self):
+                self.chat = self.Chat()
+
+            class Chat:
+                def __init__(self):
+                    self.completions = self.Completions()
+
+                class Completions:
+                    @staticmethod
+                    def create(**_kwargs):
+                        FakeOpenAI.calls += 1
+                        content = (
+                            {"overview": "too short", "chapters": [], "takeaways": []}
+                            if FakeOpenAI.calls == 1
+                            else {
+                                "overview": "영상은 작은 습관을 시작해 반복 가능한 학습 흐름으로 만드는 방법을 처음부터 끝까지 설명합니다.",
+                                "chapters": [
+                                    {"startSeconds": 0, "endSeconds": 20, "title": "시작", "body": "작게 시작합니다."},
+                                    {"startSeconds": 20, "endSeconds": 40, "title": "반복", "body": "반복 기준을 정합니다."},
+                                    {"startSeconds": 40, "endSeconds": 60, "title": "유지", "body": "중단 뒤 다시 이어갑니다."},
+                                ],
+                                "takeaways": ["다시 시작하기 쉬운 기준을 만든다"],
+                            }
+                        )
+                        message = type(
+                            "Message",
+                            (),
+                            {"content": json.dumps(content, ensure_ascii=False)},
+                        )()
+                        choice = type("Choice", (), {"message": message})()
+                        return type("Response", (), {"choices": [choice]})()
+
+        original_openai = main.OpenAI
+        original_key = os.environ.get("OPENAI_API_KEY")
+        main.OpenAI = FakeOpenAI
+        os.environ["OPENAI_API_KEY"] = "test-key"
+        try:
+            response = main.build_youtube_summary({
+                "responseShape": "learning-overview",
+                "videoId": "retryvideo1",
+                "coverage": {"scope": "full_video", "startSeconds": 0, "endSeconds": 60},
+                "segments": [
+                    {"start": 0, "end": 20, "text": "Start small."},
+                    {"start": 20, "end": 40, "text": "Repeat it."},
+                    {"start": 40, "end": 60, "text": "Return after a break."},
+                ],
+            })
+        finally:
+            main.OpenAI = original_openai
+            if original_key is None:
+                os.environ.pop("OPENAI_API_KEY", None)
+            else:
+                os.environ["OPENAI_API_KEY"] = original_key
+
+        self.assertEqual(FakeOpenAI.calls, 2)
+        self.assertEqual(response["status"], "ready")
+
+    def test_learning_overview_uses_windows_from_the_whole_video_and_normalizes_bounds(self):
+        class FakeOpenAI:
+            user_payload = {}
+
+            def __init__(self):
+                self.chat = self.Chat()
+
+            class Chat:
+                def __init__(self):
+                    self.completions = self.Completions()
+
+                class Completions:
+                    @staticmethod
+                    def create(**kwargs):
+                        FakeOpenAI.user_payload = json.loads(
+                            kwargs["messages"][1]["content"]
+                        )
+                        content = {
+                            "overview": "영상은 처음부터 끝까지 C++ 학습 순서를 설명합니다. 각 단계에서 무엇을 먼저 익혀야 하는지 구체적으로 안내합니다.",
+                            "chapters": [
+                                {"startSeconds": 5, "endSeconds": 25, "title": "기초 문법", "body": "첫 부분은 문법을 다룹니다."},
+                                {"startSeconds": 5, "endSeconds": 65, "title": "객체 설계", "body": "중간 부분은 객체 설계를 다룹니다."},
+                                {"startSeconds": 5, "endSeconds": 95, "title": "직접 적용", "body": "마지막 부분은 적용 순서를 다룹니다."},
+                            ],
+                            "takeaways": ["기초부터 순서대로 적용한다"],
+                        }
+                        message = type(
+                            "Message",
+                            (),
+                            {"content": json.dumps(content, ensure_ascii=False)},
+                        )()
+                        choice = type("Choice", (), {"message": message})()
+                        return type("Response", (), {"choices": [choice]})()
+
+        original_openai = main.OpenAI
+        original_key = os.environ.get("OPENAI_API_KEY")
+        main.OpenAI = FakeOpenAI
+        os.environ["OPENAI_API_KEY"] = "test-key"
+        try:
+            response = main.build_youtube_summary({
+                "responseShape": "learning-overview",
+                "videoId": "wholevideo1",
+                "coverage": {"scope": "full_video", "startSeconds": 0, "endSeconds": 100},
+                "segments": [
+                    {"start": index * 10, "end": index * 10 + 9, "text": f"section {index}"}
+                    for index in range(10)
+                ],
+            })
+        finally:
+            main.OpenAI = original_openai
+            if original_key is None:
+                os.environ.pop("OPENAI_API_KEY", None)
+            else:
+                os.environ["OPENAI_API_KEY"] = original_key
+
+        windows = FakeOpenAI.user_payload["transcriptWindows"]
+        self.assertEqual(len(windows), 5)
+        self.assertEqual(windows[0]["startSeconds"], 0)
+        self.assertEqual(windows[-1]["endSeconds"], 100)
+        self.assertIn("section 9", windows[-1]["text"])
+        self.assertEqual(response["summary"]["chapters"][0]["startSeconds"], 0)
+        self.assertEqual(response["summary"]["chapters"][-1]["endSeconds"], 100)
+        self.assertTrue(all(
+            chapter["endSeconds"] > chapter["startSeconds"]
+            for chapter in response["summary"]["chapters"]
+        ))
+
     def test_learning_overview_returns_only_validated_summary_content(self):
         class FakeOpenAI:
             def __init__(self):

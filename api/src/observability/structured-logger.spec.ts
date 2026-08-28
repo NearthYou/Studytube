@@ -81,4 +81,28 @@ describe('telemetry redaction', () => {
       'connections postgresql://[REDACTED]@db:5432/app and valkey://[REDACTED]@cache:6379',
     );
   });
+
+  it('redacts a custom API key header inside an Axios-style error', () => {
+    const canary = 'CANARY_internal_api_key_never_log';
+    const error = Object.assign(new Error('upstream returned 500'), {
+      config: {
+        headers: {
+          'X-INTERNAL-API-KEY': canary,
+          Accept: 'application/json',
+        },
+      },
+    });
+
+    const serialized = JSON.stringify(redactTelemetryValue(error));
+
+    expect(serialized).not.toContain(canary);
+    expect(redactTelemetryValue(error)).toMatchObject({
+      config: {
+        headers: {
+          'X-INTERNAL-API-KEY': '[REDACTED]',
+          Accept: 'application/json',
+        },
+      },
+    });
+  });
 });

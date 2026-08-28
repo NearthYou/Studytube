@@ -95,6 +95,20 @@ test("course recommendations survive reloads before the user saves a course", ()
   assert.match(source, /clearCourseRecommendation/);
 });
 
+test("a new Course search removes the previous prepared result first", () => {
+  const source = readFileSync(coursePath, "utf8");
+  const generationStart = source.indexOf("setIsGenerating(true)");
+  const clearStored = source.indexOf("clearCourseRecommendation()", generationStart);
+  const clearVisible = source.indexOf("setRecommendation(null)", generationStart);
+  const clearSavedMatches = source.indexOf("setRagResult(null)", generationStart);
+  const requestStart = source.indexOf("Promise.allSettled", generationStart);
+
+  assert.ok(generationStart >= 0);
+  assert.ok(clearStored > generationStart && clearStored < requestStart);
+  assert.ok(clearVisible > generationStart && clearVisible < requestStart);
+  assert.ok(clearSavedMatches > generationStart && clearSavedMatches < requestStart);
+});
+
 test("a prepared recommendation can be saved after the page reloads", () => {
   const source = readFileSync(coursePath, "utf8");
 

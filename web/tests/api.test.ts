@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   approveLearningProposal,
+  askAgent,
   captureLiveCaptionChunk,
   completeRegistration,
   consumeEmailVerification,
@@ -16,6 +17,54 @@ import {
   updateMe,
   verifyMe,
 } from "../src/api.ts";
+
+test("sends recent learning and exclusions to the Course agent", async () => {
+  const requestAgent = askAgent as unknown as (
+    goal: string,
+    interests: string[],
+    recommendationContext: {
+      subject: string;
+      pace: string;
+      learningGoal: string;
+      interests: string[];
+      excludedVideoIds: string[];
+      recentVideos: Array<{
+        videoId: string;
+        title: string;
+        channel: string;
+        completed: boolean;
+      }>;
+    },
+  ) => Promise<unknown>;
+  const recommendationContext = {
+    subject: "C++",
+    pace: "하루 20분",
+    learningGoal: "기초부터 이해하기",
+    interests: ["프로그래밍"],
+    excludedVideoIds: ["abc123DEF45"],
+    recentVideos: [
+      {
+        videoId: "abc123DEF45",
+        title: "C++ 변수 기초",
+        channel: "코딩 교실",
+        completed: false,
+      },
+    ],
+  };
+
+  const request = await captureRequest(
+    () => requestAgent("배울 내용: C++", ["프로그래밍"], recommendationContext),
+    { recommendations: [] },
+  );
+
+  assert.match(request.input, /\/ai\/agent\/study-plan$/);
+  assert.deepEqual(JSON.parse(String(request.init?.body)), {
+    goal: "배울 내용: C++",
+    language: "ko",
+    interests: ["프로그래밍"],
+    recommendationContext,
+  });
+});
 
 test("uploads and finalizes captured captions through authenticated endpoints", async () => {
   const chunk = await captureRequest(

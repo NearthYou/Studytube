@@ -161,8 +161,7 @@ def search_youtube_data_api(query: str, limit: int) -> list[dict[str, Any]]:
         if not video_id:
             continue
 
-        videos.append(
-            video_metadata(
+        video = video_metadata(
                 provider="youtube-data-api",
                 video_id=video_id,
                 title=snippet.get("title") or "YouTube video",
@@ -171,9 +170,136 @@ def search_youtube_data_api(query: str, limit: int) -> list[dict[str, Any]]:
                 summary=snippet.get("description")
                 or f"Actual YouTube search result for '{query}'.",
             )
-        )
+        video["captionAvailable"] = True
+        if snippet.get("publishedAt"):
+            video["publishedAt"] = snippet["publishedAt"]
+        videos.append(video)
 
+    details = fetch_youtube_data_api_details(
+        api_key,
+        [str(video.get("videoId") or "") for video in videos],
+    )
+    for video in videos:
+        video.update(details.get(str(video.get("videoId") or ""), {}))
     return videos
+
+
+def fetch_youtube_data_api_details(
+    api_key: str,
+    video_ids: list[str],
+) -> dict[str, dict[str, Any]]:
+    requested_ids = [video_id for video_id in video_ids if video_id]
+    if httpx is None or not requested_ids:
+        return {}
+    try:
+        response = httpx.get(
+            "https://www.googleapis.com/youtube/v3/videos",
+            params={
+                "key": api_key,
+                "part": "contentDetails,statistics,snippet",
+                "id": ",".join(requested_ids),
+            },
+            timeout=8.0,
+        )
+        response.raise_for_status()
+        data = response.json()
+    except Exception:
+        return {}
+
+    details: dict[str, dict[str, Any]] = {}
+    for item in data.get("items", []):
+        video_id = str(item.get("id") or "").strip()
+        if not video_id:
+            continue
+        snippet = item.get("snippet") or {}
+        content = item.get("contentDetails") or {}
+        statistics = item.get("statistics") or {}
+        entry: dict[str, Any] = {
+            "captionAvailable": str(content.get("caption") or "").lower()
+            == "true",
+        }
+        duration_seconds = parse_youtube_duration(content.get("duration"))
+        if duration_seconds is not None:
+            entry["durationSeconds"] = duration_seconds
+            entry["durationLabel"] = format_duration_label(duration_seconds)
+        view_count = parse_integer(statistics.get("viewCount"))
+        if view_count is not None:
+            entry["viewCount"] = view_count
+        source_language = str(
+            snippet.get("defaultAudioLanguage")
+            or snippet.get("defaultLanguage")
+            or ""
+        ).strip()
+        if source_language:
+            entry["sourceLanguage"] = source_language
+        published_at = str(snippet.get("publishedAt") or "").strip()
+        if published_at:
+            entry["publishedAt"] = published_at
+        details[video_id] = entry
+    return details
+
+
+def parse_youtube_duration(value: Any) -> int | None:
+    match = re.fullmatch(
+        r"P(?:(?P<days>\d+)D)?T(?:(?P<hours>\d+)H)?(?:(?P<minutes>\d+)M)?(?:(?P<seconds>\d+)S)?",
+        str(value or "").strip(),
+    )
+    if not match:
+        return None
+    parts = {name: int(number or 0) for name, number in match.groupdict().items()}
+    return (
+        parts["days"] * 86_400
+        + parts["hours"] * 3_600
+        + parts["minutes"] * 60
+        + parts["seconds"]
+    )
+
+
+def format_duration_label(total_seconds: int) -> str:
+    hours, remainder = divmod(max(0, total_seconds), 3_600)
+    minutes, seconds = divmod(remainder, 60)
+    return (
+        f"{hours}:{minutes:02d}:{seconds:02d}"
+        if hours
+        else f"{minutes}:{seconds:02d}"
+    )
+
+
+def parse_integer(value: Any) -> int | None:
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def parse_clock_duration(value: str) -> int | None:
+    parts = value.strip().split(":")
+    if len(parts) not in {2, 3} or any(not part.isdigit() for part in parts):
+        return None
+    numbers = [int(part) for part in parts]
+    if len(numbers) == 2:
+        minutes, seconds = numbers
+        return minutes * 60 + seconds
+    hours, minutes, seconds = numbers
+    return hours * 3_600 + minutes * 60 + seconds
+
+
+def parse_view_count(value: str) -> int | None:
+    normalized = clean_text(value).casefold().replace(",", "")
+    match = re.search(r"([0-9]+(?:\.[0-9]+)?)\s*([천만억kmb]?)", normalized)
+    if not match:
+        return None
+    number = float(match.group(1))
+    multiplier = {
+        "": 1,
+        "천": 1_000,
+        "k": 1_000,
+        "만": 10_000,
+        "m": 1_000_000,
+        "억": 100_000_000,
+        "b": 1_000_000_000,
+    }[match.group(2)]
+    return max(0, int(number * multiplier))
 
 
 def search_youtube_page(query: str, limit: int) -> list[dict[str, Any]]:
@@ -229,9 +355,23 @@ def search_youtube_page(query: str, limit: int) -> list[dict[str, Any]]:
                 or f"Actual YouTube search result for '{query}'."
             ),
         )
+        caption_available = video_renderer_has_captions(renderer)
+        video["captionAvailable"] = caption_available
+        duration_seconds = parse_clock_duration(
+            extract_text(renderer.get("lengthText"))
+        )
+        if duration_seconds is not None:
+            video["durationSeconds"] = duration_seconds
+            video["durationLabel"] = format_duration_label(duration_seconds)
+        view_count = parse_view_count(extract_text(renderer.get("viewCountText")))
+        if view_count is not None:
+            video["viewCount"] = view_count
+        published_label = extract_text(renderer.get("publishedTimeText"))
+        if published_label:
+            video["publishedLabel"] = published_label
         target = (
             captioned_videos
-            if video_renderer_has_captions(renderer)
+            if caption_available
             else fallback_videos
         )
         target.append(video)

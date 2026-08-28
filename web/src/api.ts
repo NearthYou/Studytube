@@ -2,6 +2,7 @@ import type {
   AgentResponse,
   CaptionResponse,
   Comment as StudyComment,
+  CourseRecommendationContext,
   McpResponse,
   PaginatedPosts,
   RagResponse,
@@ -392,6 +393,7 @@ export function askMcp(
 export function askAgent(
   goal: string,
   interests: string[] = [],
+  recommendationContext?: CourseRecommendationContext,
 ): Promise<AgentResponse> {
   return requestJson<AgentResponse>("/ai/agent/study-plan", {
     method: "POST",
@@ -399,6 +401,7 @@ export function askAgent(
       goal,
       language: "ko",
       interests: interests.length > 0 ? interests : ["youtube", "study"],
+      ...(recommendationContext ? { recommendationContext } : {}),
     }),
   });
 }

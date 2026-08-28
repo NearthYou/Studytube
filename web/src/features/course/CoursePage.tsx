@@ -3,7 +3,14 @@ import type { FormEvent } from "react";
 import { Link, useNavigate } from "react-router";
 import { askAgent, askMcp, askRag } from "../../api";
 import { createCourse, fetchOwnerCourses, publishCourse } from "../../courseApi";
-import { createPersonalizedCoursePrompt, createPromptSuggestions, hasLearningPreferences } from "../../courseDiscovery";
+import {
+  chooseCourseRecommendationVideos,
+  createCourseRecommendationContext,
+  createPersonalizedCoursePrompt,
+  createPromptSuggestions,
+  hasLearningPreferences,
+} from "../../courseDiscovery";
+import { readLearningHistory } from "../learning/learningHistory";
 import { addVideosToQueue } from "../../watchQueueStorage";
 import {
   clearCourseRecommendation,
@@ -22,6 +29,7 @@ import {
   type QueueVideo,
 } from "../../watchQueue";
 import type { AgentResponse, Course, McpResponse, RagResponse, Session } from "../../types";
+import { RecommendationVideoResult } from "./RecommendationVideoResult";
 import "./CoursePage.css";
 
 export function CourseBuilderPage({ session }: { session: Session }) {
@@ -91,11 +99,21 @@ export function CourseBuilderPage({ session }: { session: Session }) {
     setStatus(
       "저장한 학습 자료와 YouTube 영상을 살펴 코스를 만들고 있어요.",
     );
+    const recommendationContext = createCourseRecommendationContext(
+      profile,
+      subject,
+      courses,
+      readLearningHistory(),
+    );
 
     const [ragResponse, agentResponse, mcpResponse] = await Promise.allSettled([
-      askRag(goal),
-      askAgent(goal, profile?.interests ?? []),
-      askMcp(goal),
+      askRag(subject || goal),
+      askAgent(
+        goal,
+        profile?.interests ?? [],
+        recommendationContext,
+      ),
+      askMcp({ query: subject || recommendationContext.subject, limit: 10 }),
     ]);
 
     if (ragResponse.status === "fulfilled") {
@@ -114,20 +132,27 @@ export function CourseBuilderPage({ session }: { session: Session }) {
       setMcpResult(null);
     }
 
-    const playableVideos = uniqueVideos([
-      ...(agentResponse.status === "fulfilled"
+    const agentCandidates =
+      agentResponse.status === "fulfilled"
         ? agentResponse.value.recommendations.flatMap((item) => {
             const video = queueVideoFromRecommendation(item);
             return video ? [video] : [];
           })
-        : []),
-      ...(mcpResponse.status === "fulfilled"
+        : [];
+    const fallbackCandidates =
+      mcpResponse.status === "fulfilled"
         ? (mcpResponse.value.result?.videos ?? []).flatMap((item) => {
             const video = queueVideoFromMcpVideo(item);
             return video ? [video] : [];
           })
-        : []),
-    ]).slice(0, 4);
+        : [];
+    const playableVideos = uniqueVideos(
+      chooseCourseRecommendationVideos(
+        agentResponse.status === "fulfilled",
+        agentCandidates,
+        fallbackCandidates,
+      ),
+    ).slice(0, 4);
     if (playableVideos.length > 0) {
       const recommendationTitle = (
         agentResponse.status === "fulfilled"
@@ -148,8 +173,8 @@ export function CourseBuilderPage({ session }: { session: Session }) {
       canFormCourse(playableVideos)
         ? `${playableVideos.length}개 영상을 학습 순서로 정리했습니다.`
         : playableVideos.length === 1
-          ? "관련 영상 한 개를 찾았습니다. 코스로 묶으려면 영상이 두 개 이상 필요합니다."
-          : "재생할 수 있는 관련 영상을 찾지 못했습니다. 주제를 조금 더 구체적으로 적어주세요.",
+          ? "기준에 맞는 영상 한 개를 찾았습니다. 이 영상은 바로 학습할 수 있어요."
+          : "지금 학습하기에 맞는 영상을 찾지 못했어요. 주제나 원하는 영상 길이를 조금 더 구체적으로 적어주세요.",
     );
     setIsGenerating(false);
   }
@@ -258,10 +283,9 @@ export function CourseBuilderPage({ session }: { session: Session }) {
 
       return video ? [video] : [];
     }) ?? [];
-  const generatedVideos = uniqueVideos([...agentVideos, ...mcpVideos]).slice(
-    0,
-    4,
-  );
+  const generatedVideos = uniqueVideos(
+    chooseCourseRecommendationVideos(Boolean(agentResult), agentVideos, mcpVideos),
+  ).slice(0, 4);
   const generatedCourseReady = canFormCourse(generatedVideos);
   const generatedTitle =
     (
@@ -333,7 +357,7 @@ export function CourseBuilderPage({ session }: { session: Session }) {
           </form>
           <p className="system-note" aria-live="polite">{status}</p>
           <p className="course-recommendation-basis">
-            주제 관련도, 학습 설정, 자막 가능성, 중복 여부를 기준으로 고릅니다. 조회수 순이 아닙니다.
+            주제, 자막, 영상 길이, 최근 학습을 함께 살펴봅니다. 이미 본 영상은 다시 추천하지 않습니다.
           </p>
         </div>
       </section>
@@ -374,11 +398,11 @@ export function CourseBuilderPage({ session }: { session: Session }) {
             )}
           </div>
           {preparedVideos.map((video, index) => (
-            <button
-              className="video-result"
+            <RecommendationVideoResult
+              actionLabel={index === 0 ? "첫 영상 보기" : "이 영상부터 보기"}
+              index={index}
               key={video.videoId}
-              type="button"
-              onClick={() =>
+              onSelect={() =>
                 canFormCourse(preparedVideos)
                   ? addCourseAndWatch(video, preparedVideos, {
                       id: `recent-recommendation-${recommendation.updatedAt}`,
@@ -386,14 +410,8 @@ export function CourseBuilderPage({ session }: { session: Session }) {
                     })
                   : addAndWatch(video, preparedVideos)
               }
-            >
-              <img src={video.thumbnailUrl} alt="" />
-              <span>
-                <small>{index + 1}번째 영상</small>
-                <strong>{video.title}</strong>
-                <em>{index === 0 ? "첫 영상 보기" : "이 영상부터 보기"}</em>
-              </span>
-            </button>
+              video={video}
+            />
           ))}
         </section>
       )}
@@ -442,25 +460,19 @@ export function CourseBuilderPage({ session }: { session: Session }) {
               {isSavingPlaylist ? "저장 중" : "영상 저장하고 코스 만들기"}
             </button>
           </div>
-          {generatedVideos.map((video) => (
-            <button
-              className="video-result"
+          {generatedVideos.map((video, index) => (
+            <RecommendationVideoResult
+              actionLabel="이 영상부터 코스로 보기"
+              index={index}
               key={video.id}
-              type="button"
-              onClick={() =>
+              onSelect={() =>
                 addCourseAndWatch(video, generatedVideos, {
                   id: `generated-course-${generatedVideos.map((item) => item.videoId).join("-")}`,
                   title: generatedTitle,
                 })
               }
-            >
-              <img src={video.thumbnailUrl} alt="" />
-              <span>
-                <strong>{video.title}</strong>
-                <small>{video.channelName || "YouTube"}</small>
-                <em>이 영상부터 코스로 보기</em>
-              </span>
-            </button>
+              video={video}
+            />
           ))}
         </section>
       )}
@@ -469,22 +481,16 @@ export function CourseBuilderPage({ session }: { session: Session }) {
         <section className="course-results single-video-result">
           <div className="section-title">
             <div>
-              <h2>관련 영상 한 개를 찾았습니다</h2>
-              <p>코스로 묶으려면 영상이 두 개 이상 필요합니다. 이 영상은 바로 학습할 수 있습니다.</p>
+              <h2>기준에 맞는 영상 한 개를 찾았습니다</h2>
+              <p>무관한 영상을 억지로 채우지 않았어요. 이 영상은 바로 학습할 수 있습니다.</p>
             </div>
           </div>
-          <button
-            className="video-result"
-            type="button"
-            onClick={() => addAndWatch(generatedVideos[0], generatedVideos)}
-          >
-            <img src={generatedVideos[0].thumbnailUrl} alt="" />
-            <span>
-              <strong>{generatedVideos[0].title}</strong>
-              <small>{generatedVideos[0].channelName || "YouTube"}</small>
-              <em>이 영상 학습하기</em>
-            </span>
-          </button>
+          <RecommendationVideoResult
+            actionLabel="이 영상 학습하기"
+            index={0}
+            onSelect={() => addAndWatch(generatedVideos[0], generatedVideos)}
+            video={generatedVideos[0]}
+          />
         </section>
       )}
 

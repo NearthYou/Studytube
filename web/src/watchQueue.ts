@@ -32,6 +32,12 @@ export type QueueVideo = {
   translatedNotes: string;
   source: string;
   evidenceSnippet?: string;
+  recommendationReasons?: string[];
+  recommendationScore?: number;
+  durationSeconds?: number;
+  captionAvailable?: boolean;
+  difficulty?: 'beginner' | 'concept' | 'advanced';
+  courseRole?: 'introduction' | 'concept' | 'practice' | 'application';
   courseStepId?: string;
   sourcePostId?: number | null;
   learning?: VideoLearningState;
@@ -160,7 +166,7 @@ export function queueVideoFromRagPost(
     channelName: post.channelName,
     summary: post.summary,
     translatedNotes: post.translatedNotes,
-    source: `AI 분석 매칭 ${post.score}`,
+    source: `저장한 학습 자료 ${post.score}`,
     evidenceSnippet: post.evidenceSnippet,
   };
 }
@@ -180,10 +186,16 @@ export function queueVideoFromRecommendation(
     videoId,
     videoUrl: `https://www.youtube.com/watch?v=${videoId}`,
     thumbnailUrl: item.thumbnailUrl || youtubeThumbnailUrl(videoId),
-    channelName: item.source,
+    channelName: item.channel?.trim() || item.source,
     summary: item.why,
     translatedNotes: item.why,
     source: item.source,
+    recommendationReasons: item.recommendationReasons,
+    recommendationScore: item.recommendationScore,
+    durationSeconds: item.durationSeconds ?? undefined,
+    captionAvailable: item.captionAvailable ?? undefined,
+    difficulty: item.difficulty,
+    courseRole: item.courseRole,
   };
 }
 

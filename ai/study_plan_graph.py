@@ -13,6 +13,7 @@ ToolName = Literal["search_video", "create_playlist_draft"]
 class StudyPlanGraphState(TypedDict):
     goal: str
     search_queries: list[str]
+    learner_context: dict[str, Any]
     max_iterations: int
     next_tool: ToolName | None
     external: dict[str, Any] | None

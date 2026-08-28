@@ -210,6 +210,87 @@ class StudyGenerationGraphTest(unittest.TestCase):
         )
         self.assertEqual(len(response["recommendations"]), 4)
 
+    def test_uses_learner_context_and_keeps_explainable_recommendations(self):
+        response = study_generation.build_study_plan(
+            {
+                "goal": "배울 내용: C++\n학습 속도: 하루 20분",
+                "maxIterations": 1,
+                "recommendationContext": {
+                    "subject": "C++",
+                    "pace": "하루 20분",
+                    "learningGoal": "기초부터 이해하기",
+                    "excludedVideoIds": ["already-seen"],
+                    "recentVideos": [
+                        {"title": "C++ 변수 기초", "channel": "지난 채널"}
+                    ],
+                },
+            },
+            lambda _payload: {
+                "provider": "youtube-test",
+                "summary": "C++ 학습 영상",
+                "videos": [
+                    {
+                        "videoId": "already-seen",
+                        "title": "C++ 입문 인기 강의",
+                        "channel": "지난 채널",
+                        "sourceUrl": "https://youtu.be/already-seen",
+                        "thumbnailUrl": "seen.jpg",
+                        "provider": "youtube-test",
+                        "summary": "C++ 기초",
+                        "durationSeconds": 1200,
+                        "captionAvailable": True,
+                        "viewCount": 900000,
+                    },
+                    {
+                        "videoId": "cpp-intro-fit",
+                        "title": "C++ 기초를 20분에 배우기",
+                        "channel": "코딩 교실",
+                        "sourceUrl": "https://youtu.be/cpp-intro-fit",
+                        "thumbnailUrl": "intro.jpg",
+                        "provider": "youtube-test",
+                        "summary": "변수와 반복문",
+                        "durationSeconds": 1180,
+                        "captionAvailable": True,
+                        "viewCount": 25000,
+                    },
+                    {
+                        "videoId": "cpp-practice",
+                        "title": "C++ 반복문 실습",
+                        "channel": "실습 채널",
+                        "sourceUrl": "https://youtu.be/cpp-practice",
+                        "thumbnailUrl": "practice.jpg",
+                        "provider": "youtube-test",
+                        "summary": "C++ 예제를 따라 합니다.",
+                        "durationSeconds": 1500,
+                        "captionAvailable": True,
+                        "viewCount": 12000,
+                    },
+                    {
+                        "videoId": "running-video",
+                        "title": "20분 러닝 운동",
+                        "channel": "러닝 채널",
+                        "sourceUrl": "https://youtu.be/running-video",
+                        "thumbnailUrl": "running.jpg",
+                        "provider": "youtube-test",
+                        "summary": "초보 달리기",
+                        "durationSeconds": 1200,
+                        "captionAvailable": True,
+                        "viewCount": 500000,
+                    },
+                ],
+            },
+        )
+
+        self.assertEqual(
+            [item["title"] for item in response["recommendations"]],
+            ["C++ 기초를 20분에 배우기", "C++ 반복문 실습"],
+        )
+        first = response["recommendations"][0]
+        self.assertEqual(first.get("channel"), "코딩 교실")
+        self.assertIn("원문 자막 제공", first.get("recommendationReasons", []))
+        self.assertGreater(first.get("recommendationScore", 0), 0)
+        self.assertNotIn("already-seen", json.dumps(response))
+
 
 if __name__ == "__main__":
     unittest.main()

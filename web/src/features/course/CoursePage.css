@@ -20,6 +20,14 @@
   line-height: 1.6;
 }
 
+.course-recommendation-reasons {
+  display: block;
+  margin: 0;
+  color: var(--app-muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
 .course-builder-heading,
 .course-builder-heading > div,
 .preference-summary {

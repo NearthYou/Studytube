@@ -240,6 +240,33 @@ test('rejects MCP videos without a usable video id', () => {
   assert.equal(queueVideo, null);
 });
 
+test('keeps the Course recommendation explanation with the playable video', () => {
+  const queueVideo = queueVideoFromRecommendation({
+    title: 'C++ 기초를 20분에 배우기',
+    source: 'youtube-data-api',
+    channel: '코딩 교실',
+    url: 'https://www.youtube.com/watch?v=SqcY0GlETPk',
+    thumbnailUrl: 'https://i.ytimg.com/vi/SqcY0GlETPk/hqdefault.jpg',
+    why: '원문 자막 제공, 약 20분',
+    recommendationReasons: ['원문 자막 제공', '약 20분'],
+    recommendationScore: 86,
+    durationSeconds: 1180,
+    captionAvailable: true,
+    difficulty: 'beginner',
+    courseRole: 'introduction',
+  });
+
+  assert.ok(queueVideo);
+  assert.equal(queueVideo.channelName, '코딩 교실');
+  assert.deepEqual(queueVideo.recommendationReasons, [
+    '원문 자막 제공',
+    '약 20분',
+  ]);
+  assert.equal(queueVideo.durationSeconds, 1180);
+  assert.equal(queueVideo.captionAvailable, true);
+  assert.equal(queueVideo.recommendationScore, 86);
+});
+
 test('builds a native Course snapshot without a legacy post write', () => {
   const toCourseStep = (
     watchQueue as unknown as {

@@ -4,6 +4,7 @@ import re
 from typing import Any, Callable
 
 from study_plan_graph import StudyPlanGraphState, ToolName, run_study_plan_graph
+from video_recommendation import rank_video_candidates, select_course_sequence
 
 
 def build_study_plan(
@@ -14,9 +15,15 @@ def build_study_plan(
     language = str(payload.get("language") or "ko")
     interests = [str(item) for item in payload.get("interests") or []]
     max_iterations = bounded_iterations(payload.get("maxIterations"))
+    recommendation_context = normalize_recommendation_context(
+        payload.get("recommendationContext"),
+        goal,
+        interests,
+    )
     state: StudyPlanGraphState = {
         "goal": goal,
         "search_queries": build_search_queries(goal),
+        "learner_context": recommendation_context,
         "max_iterations": max_iterations,
         "next_tool": None,
         "external": None,
@@ -93,21 +100,66 @@ def create_playlist_recommendations(state: dict[str, Any]) -> list[dict[str, Any
     recommendations = []
     external = state.get("external")
     if external:
-        ordered_videos = sorted(
+        ranked_videos = rank_video_candidates(
             external.get("videos") or [],
-            key=lambda video: learning_order_score(str(video.get("title") or "")),
+            state.get("learner_context") or {},
         )
-        for video in ordered_videos[:4]:
+        for video in select_course_sequence(ranked_videos, limit=4):
+            reasons = [
+                str(reason)
+                for reason in video.get("recommendationReasons") or []
+                if str(reason).strip()
+            ]
             recommendations.append(
                 {
                     "title": video["title"],
                     "url": video["sourceUrl"],
                     "thumbnailUrl": video["thumbnailUrl"],
                     "source": video.get("provider") or external["provider"],
-                    "why": video.get("summary") or external["summary"],
+                    "channel": video.get("channel") or "YouTube",
+                    "why": ", ".join(reasons)
+                    or video.get("summary")
+                    or external["summary"],
+                    "recommendationReasons": reasons,
+                    "recommendationScore": video.get("recommendationScore", 0),
+                    "durationSeconds": video.get("durationSeconds"),
+                    "captionAvailable": video.get("captionAvailable"),
+                    "difficulty": video.get("difficulty"),
+                    "courseRole": video.get("courseRole"),
                 }
             )
     return recommendations
+
+
+def normalize_recommendation_context(
+    value: Any,
+    goal: str,
+    interests: list[str],
+) -> dict[str, Any]:
+    context = dict(value) if isinstance(value, dict) else {}
+    context["subject"] = str(
+        context.get("subject") or build_search_queries(goal)[0]
+    ).strip()
+    context["pace"] = str(context.get("pace") or "").strip()
+    context["learningGoal"] = str(
+        context.get("learningGoal") or goal
+    ).strip()
+    context["interests"] = [
+        str(item).strip()
+        for item in context.get("interests") or interests
+        if str(item).strip()
+    ][:5]
+    context["excludedVideoIds"] = [
+        str(item).strip()
+        for item in context.get("excludedVideoIds") or []
+        if str(item).strip()
+    ][:100]
+    context["recentVideos"] = [
+        dict(item)
+        for item in context.get("recentVideos") or []
+        if isinstance(item, dict)
+    ][:5]
+    return context
 
 
 def learning_order_score(title: str) -> int:

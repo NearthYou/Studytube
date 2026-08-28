@@ -9,6 +9,10 @@ const appSource = readFileSync(resolve(root, "App.tsx"), "utf8");
 const coursePath = resolve(root, "features/course/CoursePage.tsx");
 const courseLibraryPath = resolve(root, "features/course/CourseLibraryPage.tsx");
 const courseCssPath = resolve(root, "features/course/CoursePage.css");
+const recommendationCardPath = resolve(
+  root,
+  "features/course/RecommendationVideoResult.tsx",
+);
 const routesPath = resolve(root, "app/AppRoutes.tsx");
 
 test("Course creation and saved Course browsing have separate routes", () => {
@@ -46,10 +50,12 @@ test("Course builder contains creation without the saved Course library", () => 
   assert.doesNotMatch(source, /<details className="course-builder">/);
   assert.match(source, /이번 코스에 적용되는 학습 설정/);
   assert.match(source, /학습 설정 바꾸기/);
-  assert.doesNotMatch(source, /readLearningHistory|learningHistoryProgress/);
-  assert.doesNotMatch(source, /이어갈 코스|최근 학습|준비된 학습 순서/);
+  assert.match(source, /readLearningHistory/);
+  assert.match(source, /createCourseRecommendationContext/);
+  assert.match(source, /askAgent\([\s\S]*recommendationContext/);
+  assert.doesNotMatch(source, /learningHistoryProgress/);
+  assert.doesNotMatch(source, /이어갈 코스|준비된 학습 순서/);
   assert.match(source, /저장 전 코스/);
-  assert.match(source, /조회수 순이 아닙니다/);
   assert.doesNotMatch(
     source,
     /findMatchingCourses|courseMatches|fetchPosts|postsFromCourse/,
@@ -60,8 +66,8 @@ test("a single recommendation is never presented or saved as a course", () => {
   const source = readFileSync(coursePath, "utf8");
 
   assert.match(source, /canFormCourse\(generatedVideos\)/);
-  assert.match(source, /관련 영상 한 개를 찾았습니다/);
-  assert.match(source, /코스로 묶으려면 영상이 두 개 이상 필요합니다/);
+  assert.match(source, /기준에 맞는 영상 한 개를 찾았습니다/);
+  assert.match(source, /무관한 영상을 억지로 채우지 않았어요/);
   assert.match(source, /saveCourse\(\s*generatedVideos,\s*generatedTitle/);
 });
 
@@ -120,5 +126,24 @@ test("the new Course button keeps readable text on its accent background", () =>
   assert.match(
     css,
     /\.course-library-heading \.primary-link\s*\{[^}]*color:\s*#07101f/,
+  );
+});
+
+test("generated Course cards show learner-facing recommendation reasons", () => {
+  assert.equal(existsSync(recommendationCardPath), true);
+  if (!existsSync(recommendationCardPath)) return;
+  const page = readFileSync(coursePath, "utf8");
+  const source = readFileSync(recommendationCardPath, "utf8");
+  const css = readFileSync(courseCssPath, "utf8");
+
+  assert.match(page, /RecommendationVideoResult/);
+  assert.match(source, /recommendationPresentation/);
+  assert.match(source, /className="course-recommendation-reasons"/);
+  assert.match(source, /presentation\.stepLabel/);
+  assert.match(source, /presentation\.reasonText/);
+  assert.doesNotMatch(source, /recommendationScore/);
+  assert.match(
+    css,
+    /\.course-recommendation-reasons\s*\{[^}]*color:\s*var\(--app-muted\)/,
   );
 });

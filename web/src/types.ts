@@ -12,6 +12,20 @@ export type LearningPreferences = {
   goal: string;
 };
 
+export type CourseRecommendationContext = {
+  subject: string;
+  pace: string;
+  learningGoal: string;
+  interests: string[];
+  excludedVideoIds: string[];
+  recentVideos: Array<{
+    videoId: string;
+    title: string;
+    channel: string;
+    completed: boolean;
+  }>;
+};
+
 export type Session = {
   user: User;
 };
@@ -209,6 +223,12 @@ export type McpResponse = {
       sourceUrl: string;
       durationLabel: string;
       summary: string;
+      durationSeconds?: number;
+      captionAvailable?: boolean;
+      sourceLanguage?: string;
+      publishedAt?: string;
+      publishedLabel?: string;
+      viewCount?: number;
     }>;
   };
   error?: {
@@ -226,7 +246,14 @@ export type AgentResponse = {
     url: string;
     thumbnailUrl: string;
     source: string;
+    channel?: string;
     why: string;
+    recommendationReasons?: string[];
+    recommendationScore?: number;
+    durationSeconds?: number | null;
+    captionAvailable?: boolean | null;
+    difficulty?: "beginner" | "concept" | "advanced";
+    courseRole?: "introduction" | "concept" | "practice" | "application";
   }>;
   suggestedTags: string[];
   rationale: string;

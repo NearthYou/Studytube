@@ -4,7 +4,11 @@ import re
 from typing import Any, Callable
 
 from study_plan_graph import StudyPlanGraphState, ToolName, run_study_plan_graph
-from video_recommendation import rank_video_candidates, select_course_sequence
+from video_recommendation import (
+    clean_subject_request,
+    rank_video_candidates,
+    select_course_sequence,
+)
 
 
 def build_study_plan(
@@ -71,12 +75,7 @@ def build_search_queries(goal: str) -> list[str]:
         if separator and label.strip() in {"배울 내용", "주제", "관심사"}:
             subject = value.strip()
             break
-    subject = re.sub(
-        r"\s*(?:배우고|공부하고|익히고)\s*싶(?:어|어요|습니다).*$",
-        "",
-        subject,
-    ).strip()
-    subject = subject or goal.strip()
+    subject = clean_subject_request(subject) or goal.strip()
     return list(
         dict.fromkeys(
             [
@@ -137,10 +136,11 @@ def normalize_recommendation_context(
     interests: list[str],
 ) -> dict[str, Any]:
     context = dict(value) if isinstance(value, dict) else {}
-    context["subject"] = str(
+    raw_subject = str(
         context.get("subject") or build_search_queries(goal)[0]
     ).strip()
-    context["pace"] = str(context.get("pace") or "").strip()
+    context["subject"] = clean_subject_request(raw_subject)
+    context["pace"] = str(context.get("pace") or raw_subject).strip()
     context["learningGoal"] = str(
         context.get("learningGoal") or goal
     ).strip()

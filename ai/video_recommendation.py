@@ -36,13 +36,14 @@ def rank_video_candidates(
     context: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     learner = context or {}
-    subject = clean_subject_request(str(learner.get("subject") or ""))
+    raw_subject = str(learner.get("subject") or "")
+    subject = clean_subject_request(raw_subject)
     excluded_ids = {
         str(value).strip()
         for value in learner.get("excludedVideoIds") or []
         if str(value).strip()
     }
-    pace = str(learner.get("pace") or "")
+    pace = str(learner.get("pace") or raw_subject)
     target_minutes = preferred_minutes(pace)
     paced_max_seconds = max(3_600, target_minutes * 4 * 60)
     wants_advanced = contains_marker(

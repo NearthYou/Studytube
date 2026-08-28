@@ -138,11 +138,17 @@ class StudyGenerationGraphTest(unittest.TestCase):
             }
 
         response = study_generation.build_study_plan(
-            {"goal": "배울 내용: C++ 배우고 싶어\n학습 목표: 기초부터"},
+            {
+                "goal": (
+                    "배울 내용: C++를 20분씩 기초부터 배우고 싶어\n"
+                    "학습 목표: 기초부터"
+                )
+            },
             lookup,
         )
 
         self.assertEqual(queries[0], "C++")
+        self.assertEqual(response["playlistTitle"], "C++ 학습 코스")
         self.assertIn("C++ 기초 강의", queries)
         self.assertGreaterEqual(len(response["recommendations"]), 2)
         self.assertLessEqual(len(response["recommendations"]), 4)

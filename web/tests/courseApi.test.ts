@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   CourseCursorLoopError,
+  archiveCourse,
   createCourse,
   drainCursorPages,
   publishCourse,
@@ -85,6 +86,7 @@ test('sends course idempotency and optimistic version contracts', async () => {
       'user-7:draft-a:revision-3',
     );
     await publishCourse(11, 4);
+    await archiveCourse(11, 5);
 
     const createHeaders = new Headers(calls[0].init?.headers);
     assert.equal(
@@ -95,6 +97,10 @@ test('sends course idempotency and optimistic version contracts', async () => {
       expectedVersion: 4,
     });
     assert.match(calls[1].path, /\/courses\/11\/publish$/);
+    assert.deepEqual(JSON.parse(String(calls[2].init?.body)), {
+      expectedVersion: 5,
+    });
+    assert.match(calls[2].path, /\/courses\/11\/archive$/);
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -129,8 +129,16 @@ test("saved courses use searchable preview cards with a compact video list", () 
   assert.match(source, /2~3개/);
   assert.match(source, /4개 이상/);
   assert.match(source, /최근 저장순/);
+  assert.match(source, /archiveCourse/);
+  assert.match(source, /className="course-delete-trigger"/);
+  assert.match(source, /삭제 확인/);
+  assert.match(source, /disabled=\{deletingCourseId !== null\}/);
+  assert.match(source, /role="status"/);
+  assert.match(source, /libraryTitleRef\.current\?\.focus\(\)/);
+  assert.match(source, /\$\{course\.title\} 삭제 확인/);
   assert.match(css, /\.course-library-grid\s*\{[^}]*grid-template-columns:/);
-  assert.match(css, /\.course-library-card\s*\{[^}]*padding:\s*18px/);
+  assert.match(css, /\.course-card-open\s*\{[^}]*padding:\s*18px/);
+  assert.match(css, /\.course-card-actions\s*\{[^}]*justify-content:\s*flex-end/);
   assert.match(css, /\.course-video-preview img\s*\{[^}]*width:\s*72px/);
 });
 

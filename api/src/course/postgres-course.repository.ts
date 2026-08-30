@@ -145,6 +145,7 @@ export class PostgresCourseRepository implements CourseRepository {
     const result = await this.queryOwner(
       this.pool,
       `c.owner_id = $1
+       AND c.status <> 'archived'
        AND ($2::timestamptz IS NULL OR (c.created_at, c.id) < ($2, $3))`,
       [ownerId, cursor?.timestamp ?? null, cursor?.id ?? null, limit + 1],
       'ORDER BY c.created_at DESC, c.id DESC LIMIT $4',

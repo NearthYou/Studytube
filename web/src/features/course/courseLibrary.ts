@@ -39,3 +39,7 @@ export function filterAndSortCourses(
       return Date.parse(right.updatedAt) - Date.parse(left.updatedAt);
     });
 }
+
+export function removeCourseFromLibrary(courses: Course[], courseId: number) {
+  return courses.filter((course) => course.id !== courseId);
+}

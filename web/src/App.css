@@ -4778,34 +4778,32 @@ footer {
 .learning-caption-settings {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 10px;
   min-height: 44px;
-  padding: 6px 10px;
+  padding: 8px 10px;
   border: 1px solid var(--app-line);
   border-top: 0;
   border-radius: 0 0 10px 10px;
   background: var(--app-surface);
 }
 
-.learning-caption-settings span {
-  margin-right: 4px;
-  color: var(--app-muted);
-  font-size: 12px;
-}
-
 .learning-caption-settings button {
   min-height: 44px;
-  padding: 0 10px;
-  border: 1px solid transparent;
+  padding: 0 12px;
+  border: 1px solid var(--app-line);
+  border-radius: 8px;
   background: transparent;
   color: var(--app-muted);
-  font-size: 12px;
+  font-size: 13px;
+  font-weight: 700;
+  box-shadow: none;
 }
 
-.learning-caption-settings button[aria-pressed="true"] {
-  border-color: var(--app-line);
+.learning-caption-settings button[aria-pressed="true"],
+.learning-caption-settings .caption-visibility-toggle.active {
+  border-color: #52627a;
   background: var(--app-elevated);
   color: var(--app-text);
 }
@@ -4814,21 +4812,53 @@ footer {
 .caption-opacity-control {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 0;
 }
 
-.caption-size-controls > span,
-.caption-opacity-control > span {
-  margin-right: 2px;
+.caption-size-controls {
+  overflow: hidden;
+  border: 1px solid var(--app-line);
+  border-radius: 8px;
+  background: #10151d;
+}
+
+.caption-size-controls .caption-size-option {
+  width: 44px;
+  padding: 0;
+  border: 0;
+  border-right: 1px solid var(--app-line);
+  border-radius: 0;
+  font-weight: 700;
+}
+
+.caption-size-controls .caption-size-option:last-child {
+  border-right: 0;
+}
+
+.caption-size-controls .caption-size-option-small {
+  font-size: 12px;
+}
+
+.caption-size-controls .caption-size-option-medium {
+  font-size: 15px;
+}
+
+.caption-size-controls .caption-size-option-large {
+  font-size: 18px;
 }
 
 .caption-opacity-control {
+  flex: 1 1 180px;
+  gap: 8px;
+  min-width: 150px;
+  max-width: 280px;
   min-height: 44px;
-  padding-left: 6px;
 }
 
 .caption-opacity-control input {
-  width: clamp(92px, 12vw, 150px);
+  flex: 1;
+  height: 44px;
+  min-width: 96px;
   margin: 0;
   accent-color: var(--app-accent);
 }
@@ -4845,6 +4875,18 @@ footer {
 .caption-opacity-control input:disabled {
   cursor: not-allowed;
   opacity: 0.45;
+}
+
+@media (max-width: 520px) {
+  .learning-caption-settings {
+    gap: 8px;
+  }
+
+  .caption-opacity-control {
+    flex-basis: 100%;
+    max-width: none;
+    padding: 0 4px;
+  }
 }
 
 .learning-player-error {

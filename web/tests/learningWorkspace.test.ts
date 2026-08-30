@@ -166,9 +166,9 @@ test("player captions move with controls and expose three readable sizes", () =>
   assert.match(playerSource, /controls-visible/);
   assert.match(playerSource, /const CONTROLS_HIDE_DELAY_MS = 4_200/);
   assert.match(playerSource, /자막 크기/);
-  assert.match(playerSource, /small: "작게"/);
-  assert.match(playerSource, /medium: "보통"/);
-  assert.match(playerSource, /large: "크게"/);
+  assert.match(playerSource, /small: "A-"/);
+  assert.match(playerSource, /medium: "A"/);
+  assert.match(playerSource, /large: "A\+"/);
   assert.match(
     css,
     /\.learning-player-caption\s*\{[^}]*bottom:\s*clamp\(44px,\s*7%,\s*58px\)/,

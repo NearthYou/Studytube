@@ -273,8 +273,7 @@ export const LearningVideoPlayer = forwardRef<
       </section>
       <div className="learning-caption-settings" role="group" aria-label="자막 설정">
         <button
-          aria-pressed={captionPreferences.visible}
-          className="caption-visibility-toggle"
+          className={`caption-visibility-toggle${captionPreferences.visible ? " active" : ""}`}
           type="button"
           onClick={() =>
             setCaptionPreferences((current) => ({
@@ -283,13 +282,20 @@ export const LearningVideoPlayer = forwardRef<
             }))
           }
         >
-          {captionPreferences.visible ? "자막 켜짐" : "자막 꺼짐"}
+          {captionPreferences.visible ? "자막 끄기" : "자막 켜기"}
         </button>
         <div className="caption-size-controls" role="group" aria-label="자막 크기">
-          <span>크기</span>
           {(["small", "medium", "large"] as const).map((size) => (
             <button
+              aria-label={
+                {
+                  small: "자막 작게",
+                  medium: "자막 보통",
+                  large: "자막 크게",
+                }[size]
+              }
               aria-pressed={captionPreferences.size === size}
+              className={`caption-size-option caption-size-option-${size}`}
               disabled={!captionPreferences.visible}
               key={size}
               type="button"
@@ -297,17 +303,16 @@ export const LearningVideoPlayer = forwardRef<
                 setCaptionPreferences((current) => ({ ...current, size }))
               }
             >
-              {{ small: "작게", medium: "보통", large: "크게" }[size]}
+              {{ small: "A-", medium: "A", large: "A+" }[size]}
             </button>
           ))}
         </div>
         <label className="caption-opacity-control">
-          <span>투명도</span>
           <input
-            aria-label="자막 배경 투명도"
+            aria-label="자막 배경 진하기"
             disabled={!captionPreferences.visible}
-            max="95"
-            min="35"
+            max="100"
+            min="0"
             step="5"
             type="range"
             value={Math.round(captionPreferences.backgroundOpacity * 100)}

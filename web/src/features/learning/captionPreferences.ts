@@ -28,8 +28,8 @@ export function loadCaptionPreferences(
       !parsed ||
       typeof parsed.visible !== "boolean" ||
       typeof parsed.backgroundOpacity !== "number" ||
-      parsed.backgroundOpacity < 0.35 ||
-      parsed.backgroundOpacity > 0.95 ||
+      parsed.backgroundOpacity < 0 ||
+      parsed.backgroundOpacity > 1 ||
       !CAPTION_SIZES.has(parsed.size as CaptionSize)
     ) {
       return { ...DEFAULT_CAPTION_PREFERENCES };

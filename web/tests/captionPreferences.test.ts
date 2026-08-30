@@ -50,3 +50,28 @@ test("invalid caption preferences fall back to readable defaults", async () => {
     size: "medium",
   });
 });
+
+test("caption background opacity accepts the full zero to one range", async () => {
+  const preferences = await import(
+    "../src/features/learning/captionPreferences.ts"
+  ).catch(() => null);
+  assert.ok(preferences, "caption preferences should exist");
+
+  for (const backgroundOpacity of [0, 1]) {
+    const storage = {
+      getItem() {
+        return JSON.stringify({
+          visible: true,
+          backgroundOpacity,
+          size: "medium",
+        });
+      },
+      setItem() {},
+    };
+
+    assert.equal(
+      preferences.loadCaptionPreferences(storage).backgroundOpacity,
+      backgroundOpacity,
+    );
+  }
+});

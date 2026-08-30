@@ -233,9 +233,8 @@
 
 .course-library-card {
   display: grid;
-  gap: 16px;
   min-width: 0;
-  padding: 18px;
+  overflow: hidden;
   border: 1px solid var(--app-line);
   border-radius: 12px;
   background: #10151d;
@@ -246,6 +245,24 @@
 
 .course-library-card:hover {
   border-color: #52627a;
+}
+
+.course-card-open {
+  display: grid;
+  gap: 16px;
+  width: 100%;
+  min-width: 0;
+  padding: 18px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--app-text);
+  box-shadow: none;
+  text-align: left;
+}
+
+.course-card-open:hover,
+.course-card-open:focus-visible {
   background: var(--app-elevated);
 }
 
@@ -320,6 +337,58 @@
   color: var(--app-muted);
   font-size: 12px;
   text-align: right;
+}
+
+.course-card-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 0 18px 14px;
+}
+
+.course-delete-error {
+  align-self: center;
+  margin-right: auto;
+  color: #ffb4bc;
+  font-size: 13px;
+}
+
+.course-page #my-course-title:focus-visible {
+  border-radius: 4px;
+  outline: 2px solid var(--app-accent);
+  outline-offset: 4px;
+}
+
+.course-card-actions button {
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--app-line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--app-muted);
+  box-shadow: none;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.course-card-actions .course-delete-trigger {
+  border-color: transparent;
+}
+
+.course-card-actions .course-delete-trigger:hover {
+  border-color: #6d3f46;
+  color: #ffb4bc;
+}
+
+.course-card-actions .course-delete-confirm {
+  border-color: #98444f;
+  background: #662e36;
+  color: #fff;
+}
+
+.course-card-actions button:disabled {
+  cursor: wait;
+  opacity: 0.55;
 }
 
 @media (max-width: 720px) {

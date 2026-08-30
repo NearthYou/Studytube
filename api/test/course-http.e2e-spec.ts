@@ -207,6 +207,13 @@ describe('Course HTTP and PostgreSQL boundary (e2e)', () => {
     ).body as { feedback: Array<Record<string, unknown>> };
     expect(publicAfterRetiredFeedback.feedback).toHaveLength(0);
 
+    await request(app.getHttpServer())
+      .post(`/courses/${created.id}/archive`)
+      .set('Origin', WEB_ORIGIN)
+      .set('Cookie', outsider.cookie)
+      .send({ expectedVersion: published.version })
+      .expect(404);
+
     const archived = (
       await request(app.getHttpServer())
         .post(`/courses/${created.id}/archive`)
@@ -216,6 +223,15 @@ describe('Course HTTP and PostgreSQL boundary (e2e)', () => {
         .expect(201)
     ).body as CourseResponse;
     expect(archived).toMatchObject({ status: 'archived' });
+    const ownerCoursesAfterArchive = (
+      await request(app.getHttpServer())
+        .get('/courses')
+        .set('Cookie', owner.cookie)
+        .expect(200)
+    ).body as { items: Array<{ id: number }> };
+    expect(ownerCoursesAfterArchive.items.map(({ id }) => id)).not.toContain(
+      created.id,
+    );
     await request(app.getHttpServer())
       .get(`/explore/courses/${created.id}`)
       .expect(404);

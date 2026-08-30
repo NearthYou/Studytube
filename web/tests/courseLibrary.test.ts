@@ -92,3 +92,19 @@ test("saved Course length filter separates compact and long Courses", async () =
     [2],
   );
 });
+
+test("removes only the archived Course from the saved Course collection", async () => {
+  const library = await loadFilter();
+
+  assert.equal(
+    typeof library.removeCourseFromLibrary,
+    "function",
+    "저장 코스에서 삭제한 항목을 제거하는 동작이 없습니다.",
+  );
+
+  assert.deepEqual(
+    library.removeCourseFromLibrary(courses, 2).map((item) => item.id),
+    [1, 3],
+  );
+  assert.deepEqual(courses.map((item) => item.id), [1, 2, 3]);
+});

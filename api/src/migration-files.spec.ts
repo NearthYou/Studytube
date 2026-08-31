@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   assertConnectedDatabase,
@@ -13,6 +13,10 @@ import {
   replacementForLegacyDemoPasswordHash,
   shouldAdvanceSequence,
 } from '../scripts/seed-demo';
+import {
+  PRESERVED_APPLICATION_TABLES,
+  RESET_APPLICATION_TABLES,
+} from './maintenance/user-data-reset.manifest';
 
 const TABLES = [
   'users',
@@ -343,6 +347,27 @@ describe('database migration files', () => {
     );
     expect(migration).toContain('sessions_google_reauthenticated_idx');
     expect(migration).not.toMatch(/access_token|refresh_token|id_token/iu);
+  });
+
+  it('requires every migrated application table in the reset manifest', async () => {
+    const migrationsDirectory = join(process.cwd(), 'migrations');
+    const files = (await readdir(migrationsDirectory))
+      .filter((file) => file.endsWith('.cjs'))
+      .sort();
+    const createdTables = new Set<string>(['pgmigrations']);
+
+    for (const file of files) {
+      const migration = await readFile(join(migrationsDirectory, file), 'utf8');
+      for (const match of migration.matchAll(
+        /CREATE TABLE(?: IF NOT EXISTS)?\s+([a-z_]+)/giu,
+      )) {
+        if (match[1]) createdTables.add(match[1].toLowerCase());
+      }
+    }
+
+    expect([...createdTables].sort()).toEqual(
+      [...RESET_APPLICATION_TABLES, ...PRESERVED_APPLICATION_TABLES].sort(),
+    );
   });
 
   it('defines an additive Course aggregate migration with guarded rollback', async () => {

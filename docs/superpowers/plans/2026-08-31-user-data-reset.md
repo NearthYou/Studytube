@@ -138,10 +138,12 @@ export const RESET_APPLICATION_TABLES = [
 ```ts
 export type UserDataResetPlan = Readonly<{
   databaseName: string;
-  migrationIds: readonly string[];
+  migrationNames: readonly string[];
   resetTables: readonly { name: string; rows: number }[];
   preservedTables: readonly { name: string; rows: number }[];
   manifestSha256: string;
+  planSha256: string;
+  preservedFingerprintSha256: string;
   totalResetRows: number;
 }>;
 ```
@@ -172,7 +174,7 @@ git commit -m "feat(ops): 사용자 데이터 초기화 manifest 추가"
 - Modify: `api/package.json`
 
 **Interfaces:**
-- Consumes: `DATABASE_URL`, `USER_DATA_RESET_BACKUP_PROOF`, `--plan`, `--execute`, `--run-id`, `--manifest-sha256`
+- Consumes: `DATABASE_URL`, `USER_DATA_RESET_BACKUP_PROOF`, `--plan`, `--execute`, `--run-id`, `--manifest-sha256`, `--plan-sha256`
 - Produces: JSON plan, transaction reset result, post-reset zero count evidence
 
 - [ ] **Step 1: 안전 gate 실패 테스트 작성**
@@ -203,6 +205,7 @@ type VerifiedResetBackupProof = {
   runId: string;
   databaseName: string;
   manifestSha256: string;
+  planSha256: string;
   dumpSha256: string;
   s3Bucket: string;
   s3ObjectKey: string;
@@ -212,7 +215,7 @@ type VerifiedResetBackupProof = {
 };
 ```
 
-실행 mode는 proof의 run id, DB 이름, manifest hash, checksum 형식, restore flag와 7일 delete time을 검사한다.
+실행 mode는 proof의 run id, DB 이름, manifest hash, 승인된 계획 hash, checksum 형식, restore flag와 7일 delete time을 검사한다.
 
 - [ ] **Step 4: transaction reset 구현**
 
@@ -384,7 +387,8 @@ Expected: FAIL because the run script does not exist.
 ```text
 --run-id
 --manifest-sha256
---approval "RESET:${RESET_RUN_ID}:${RESET_MANIFEST_SHA256}"
+--plan-sha256
+--approval "RESET:${RESET_RUN_ID}:${RESET_MANIFEST_SHA256}:${RESET_PLAN_SHA256}"
 verified-backup.json
 AUTH_MODE=google_only
 ```
@@ -525,7 +529,8 @@ Expected: unknown table count 0, backup retention compatible, no service state c
 백업 위치: run 전용 S3 object key
 백업 폐기 예정: UTC timestamp
 manifest: SHA-256
-승인 문자열: RESET:${RESET_RUN_ID}:${RESET_MANIFEST_SHA256}
+plan: SHA-256
+승인 문자열: RESET:${RESET_RUN_ID}:${RESET_MANIFEST_SHA256}:${RESET_PLAN_SHA256}
 ```
 
 이 단계에서는 backup, service stop, DB write와 Valkey flush를 실행하지 않는다. 사용자가 `운영 초기화 승인`과 plan output의 `runId` 값을 함께 답할 때까지 Task 7을 시작하지 않는다.

@@ -9,6 +9,19 @@ import { PasswordHasher } from './password-hasher';
 import { RequestIdMiddleware } from './request-id.middleware';
 import { SessionGuard } from './session.guard';
 import { AuthService } from './auth.service';
+import { GoogleAuthController } from './google/google-auth.controller';
+import {
+  GOOGLE_AUTH_CONFIG,
+  resolveGoogleAuthConfig,
+  type GoogleAuthConfig,
+} from './google/google-auth.config';
+import { GoogleAuthService } from './google/google-auth.service';
+import { GoogleAttemptCrypto } from './google/google-attempt.crypto';
+import {
+  GOOGLE_IDENTITY_CLIENT,
+  OfficialGoogleIdentityClient,
+  type GoogleIdentityClient,
+} from './google/google-identity.client';
 import {
   resolveVerificationEmailConfig,
   resolveVerificationPepper,
@@ -16,7 +29,7 @@ import {
 
 @Module({
   imports: [ConfigModule],
-  controllers: [AuthController],
+  controllers: [AuthController, GoogleAuthController],
   providers: [
     DatabaseService,
     PasswordHasher,
@@ -41,6 +54,44 @@ import {
               ? process.env.API_SOCKET_PATH
               : undefined,
         }),
+    },
+    {
+      provide: GOOGLE_AUTH_CONFIG,
+      useFactory: () => resolveGoogleAuthConfig(process.env),
+    },
+    {
+      provide: GoogleAttemptCrypto,
+      useFactory: (config: GoogleAuthConfig) =>
+        new GoogleAttemptCrypto(config.attemptEncryptionKey),
+      inject: [GOOGLE_AUTH_CONFIG],
+    },
+    {
+      provide: GOOGLE_IDENTITY_CLIENT,
+      useFactory: (config: GoogleAuthConfig) =>
+        new OfficialGoogleIdentityClient(config),
+      inject: [GOOGLE_AUTH_CONFIG],
+    },
+    {
+      provide: GoogleAuthService,
+      useFactory: (
+        database: DatabaseService,
+        identityClient: GoogleIdentityClient,
+        attemptCrypto: GoogleAttemptCrypto,
+        config: GoogleAuthConfig,
+      ) =>
+        new GoogleAuthService({
+          repository: database.getGoogleAuthRepository(),
+          identityClient,
+          attemptCrypto,
+          clock: () => new Date(),
+          attemptTtlMs: config.attemptTtlMs,
+        }),
+      inject: [
+        DatabaseService,
+        GOOGLE_IDENTITY_CLIENT,
+        GoogleAttemptCrypto,
+        GOOGLE_AUTH_CONFIG,
+      ],
     },
     {
       provide: AuthService,
@@ -90,6 +141,7 @@ import {
   exports: [
     AuthCookiePolicy,
     AuthService,
+    GoogleAuthService,
     ClientAddressResolver,
     DatabaseService,
     RequestIdMiddleware,

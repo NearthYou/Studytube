@@ -6,6 +6,8 @@ export type GoogleAuthConfig = Readonly<{
   attemptTtlMs: 600_000;
 }>;
 
+export const GOOGLE_AUTH_CONFIG = Symbol('GOOGLE_AUTH_CONFIG');
+
 const DEVELOPMENT_KEY = Buffer.alloc(32, 23).toString('base64');
 
 export function resolveGoogleAuthConfig(

@@ -9,6 +9,8 @@ import { ConfigService } from '@nestjs/config';
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { Pool, PoolClient, type QueryConfig } from 'pg';
 import { AuthRepositoryUnavailableError } from './auth/auth.repository';
+import type { GoogleAuthRepository } from './auth/google/google-auth.repository';
+import { PostgresGoogleAuthRepository } from './auth/google/postgres-google-auth.repository';
 import {
   PostgresVerificationEmailOutboxRepository,
   type VerificationEmailOutboxRepository,
@@ -106,6 +108,7 @@ export class DatabaseService
   private liveCaptionRepository?: LiveCaptionRepository;
   private workRepository?: WorkRepository;
   private retrievalRepository?: RetrievalRepository;
+  private googleAuthRepository?: GoogleAuthRepository;
   private verificationEmailOutboxRepository?: VerificationEmailOutboxRepository;
   private courseWriterLeaseStateTail: Promise<void> = Promise.resolve();
   private courseWriterLeaseClient?: PoolClient;
@@ -233,6 +236,11 @@ export class DatabaseService
   getWorkRepository(): WorkRepository {
     this.workRepository ??= new PostgresWorkRepository(this.pool);
     return this.workRepository;
+  }
+
+  getGoogleAuthRepository(): GoogleAuthRepository {
+    this.googleAuthRepository ??= new PostgresGoogleAuthRepository(this.pool);
+    return this.googleAuthRepository;
   }
 
   getRetrievalRepository(): RetrievalRepository {

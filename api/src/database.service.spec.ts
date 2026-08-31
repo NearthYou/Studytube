@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { AuthRepositoryUnavailableError } from './auth/auth.repository';
+import { PostgresGoogleAuthRepository } from './auth/google/postgres-google-auth.repository';
 import { PostgresVerificationEmailOutboxRepository } from './auth/verification-email-outbox.repository';
 import { DatabaseService } from './database.service';
 import { createObservabilityRuntime } from './observability';
@@ -95,6 +96,16 @@ describe('DatabaseService fail-fast persistence', () => {
     const second = workOwner.getWorkRepository();
 
     expect(first).toBeInstanceOf(PostgresWorkRepository);
+    expect(second).toBe(first);
+  });
+
+  it('shares one Google authentication repository with the auth module', () => {
+    const service = new DatabaseService(configService());
+
+    const first = service.getGoogleAuthRepository();
+    const second = service.getGoogleAuthRepository();
+
+    expect(first).toBeInstanceOf(PostgresGoogleAuthRepository);
     expect(second).toBe(first);
   });
 

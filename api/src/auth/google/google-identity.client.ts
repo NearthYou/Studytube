@@ -37,6 +37,8 @@ export interface GoogleIdentityClient {
   exchange(input: GoogleCodeExchangeInput): Promise<GoogleIdentity>;
 }
 
+export const GOOGLE_IDENTITY_CLIENT = Symbol('GOOGLE_IDENTITY_CLIENT');
+
 export interface GoogleOAuthClientPort {
   generateAuthUrl(
     options: Record<string, string | string[] | undefined>,

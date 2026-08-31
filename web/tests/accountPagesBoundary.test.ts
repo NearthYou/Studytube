@@ -35,13 +35,13 @@ test("active account and onboarding actions avoid retired routes", () => {
   assert.doesNotMatch(source, /학습 설정|학습 속도|학습 취향/);
 });
 
-test("account screen explains recommendation settings and progress", () => {
+test("account screen explains how Course recommendations change", () => {
   const source = readFileSync(
     resolve(root, "features/account/MyPage.tsx"),
     "utf8",
   );
-  assert.match(source, /추천 기준/);
-  assert.match(source, /추천 기준 수정/);
+  assert.match(source, /코스 추천/);
+  assert.match(source, /추천 바꾸기/);
   assert.match(source, /to="\/me\/preferences"/);
   assert.match(source, /내 학습/);
   assert.match(source, /진행 중인 코스/);
@@ -49,7 +49,7 @@ test("account screen explains recommendation settings and progress", () => {
   assert.match(source, /저장한 문장/);
   assert.match(
     source,
-    /코스의 주제와 하루 학습량을 고를 때 반영합니다/,
+    /분야는 검색 주제에, 시간은 영상 길이에, 배우는 방식은 어떤 영상을 먼저 고를지 정할 때 써요/,
   );
   assert.doesNotMatch(source, /보드 플레이리스트|등록 영상/);
 });
@@ -80,9 +80,33 @@ test("recommendation settings have a direct password-free edit route", () => {
   assert.match(preferences, /paceForPreferenceSave/);
   assert.doesNotMatch(preferences, /currentPassword|ProfileVerificationForm/);
   assert.match(fields, /배우고 싶은 분야/);
-  assert.match(fields, /하루 학습 시간/);
-  assert.match(fields, /원하는 학습 결과/);
+  assert.match(fields, /한 번에 볼 시간/);
+  assert.match(fields, /type="number"/);
+  assert.match(fields, /min=\{LEARNING_TIME_LIMITS\.min\}/);
+  assert.match(fields, /max=\{LEARNING_TIME_LIMITS\.max\}/);
+  assert.match(fields, /step=\{LEARNING_TIME_LIMITS\.step\}/);
+  assert.match(fields, /required=\{!legacyTime\}/);
+  assert.match(fields, /어떻게 배우고 싶나요/);
+  assert.doesNotMatch(fields, /하루 학습 시간|원하는 학습 결과|학습 속도/);
   assert.doesNotMatch(accountEdit, /preference-section|draft\.interests|draft\.pace|draft\.goal/);
+});
+
+test("account editing keeps only the required dark form", () => {
+  const source = readFileSync(
+    resolve(root, "features/account/MyEditPage.tsx"),
+    "utf8",
+  );
+  const cssPath = resolve(root, "features/account/AccountEditPage.css");
+
+  assert.equal(existsSync(cssPath), true);
+  if (!existsSync(cssPath)) return;
+  const css = readFileSync(cssPath, "utf8");
+
+  assert.match(source, /account-edit-page/);
+  assert.match(source, /AccountEditPage\.css/);
+  assert.doesNotMatch(source, /profile-stats|관심사|확인됨|확인 유지/);
+  assert.match(css, /\.account-edit-form\s*\{[^}]*background:\s*var\(--app-surface\)/);
+  assert.match(css, /\.account-edit-fields\s*\{[^}]*background:\s*var\(--app-elevated\)/);
 });
 
 test("profile verification keeps readable dark surfaces and controls", () => {

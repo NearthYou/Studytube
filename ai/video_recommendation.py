@@ -28,6 +28,7 @@ PRACTICE_MARKERS = (
     "build",
     "project",
 )
+REVIEW_MARKERS = ("복습", "핵심", "요약", "review", "recap", "summary")
 COURSE_ROLE_ORDER = ("introduction", "concept", "practice", "application")
 
 
@@ -46,15 +47,15 @@ def rank_video_candidates(
     pace = str(learner.get("pace") or raw_subject)
     target_minutes = preferred_minutes(pace)
     paced_max_seconds = max(3_600, target_minutes * 4 * 60)
-    wants_advanced = contains_marker(
-        " ".join(
-            [
-                str(learner.get("learningGoal") or ""),
-                subject,
-            ]
-        ),
-        ADVANCED_MARKERS,
+    learning_intent = " ".join(
+        [
+            str(learner.get("learningGoal") or ""),
+            subject,
+        ]
     )
+    wants_advanced = contains_marker(learning_intent, ADVANCED_MARKERS)
+    wants_practice = contains_marker(learning_intent, PRACTICE_MARKERS)
+    wants_review = contains_marker(learning_intent, REVIEW_MARKERS)
     recent_tokens = recent_learning_tokens(learner.get("recentVideos") or [])
     seen_keys: set[str] = set()
     seen_titles: set[str] = set()
@@ -120,6 +121,15 @@ def rank_video_candidates(
             score += {"advanced": 15, "concept": 9, "beginner": 4}[difficulty]
         else:
             score += {"beginner": 15, "concept": 9, "advanced": 2}[difficulty]
+
+        if wants_practice and role in {"practice", "application"}:
+            score += 16
+            reasons.append("직접 따라 하기 좋음")
+        elif wants_review and contains_marker(
+            f"{title} {summary}", REVIEW_MARKERS
+        ):
+            score += 16
+            reasons.append("복습하기 좋은 구성")
 
         duration_score, duration_reason = duration_fit_score(
             duration_seconds,

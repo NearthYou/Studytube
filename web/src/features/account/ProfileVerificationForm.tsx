@@ -11,7 +11,7 @@ export function ProfileVerificationForm({
   onVerified: (user: User, currentPassword: string) => void;
 }) {
   const [currentPassword, setCurrentPassword] = useState("");
-  const [status, setStatus] = useState("현재 비밀번호를 입력하세요.");
+  const [status, setStatus] = useState("");
   const [isChecking, setIsChecking] = useState(false);
 
   async function submit(event: FormEvent) {
@@ -24,23 +24,23 @@ export function ProfileVerificationForm({
     const trimmedCurrentPassword = currentPassword.trim();
 
     if (!trimmedCurrentPassword) {
-      setStatus("현재 비밀번호가 필요합니다.");
+      setStatus("현재 비밀번호를 입력해 주세요.");
       return;
     }
 
     setIsChecking(true);
-    setStatus("본인 확인 중입니다.");
+    setStatus("확인하고 있어요.");
 
     try {
       const user = await verifyMe({
         currentPassword: trimmedCurrentPassword,
       });
 
-      setStatus("본인 확인이 완료되었습니다.");
+      setStatus("확인했어요.");
       onVerified(user, trimmedCurrentPassword);
     } catch (error) {
       setStatus(
-        error instanceof Error ? error.message : "본인 확인에 실패했습니다.",
+        error instanceof Error ? error.message : "비밀번호를 확인하지 못했어요.",
       );
     } finally {
       setIsChecking(false);
@@ -50,10 +50,6 @@ export function ProfileVerificationForm({
   return (
     <form className="profile-form profile-verification-form" onSubmit={submit}>
       <section className="profile-form-section identity-section">
-        <div>
-          <strong>본인 확인</strong>
-          <p>내 정보 수정 화면으로 이동하기 전에 현재 비밀번호를 확인합니다.</p>
-        </div>
         <label>
           현재 비밀번호
           <input
@@ -66,7 +62,7 @@ export function ProfileVerificationForm({
           />
         </label>
         <div className="section-title compact-title">
-          <span>{status}</span>
+          <span aria-live="polite">{status}</span>
           <button
             type="submit"
             disabled={isChecking || !currentPassword.trim()}

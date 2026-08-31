@@ -1,6 +1,6 @@
 import {
-  DAILY_LEARNING_TIME_OPTIONS,
-  learningTimeSelection,
+  LEARNING_TIME_LIMITS,
+  learningTimeMinutes,
   normalizeLearningPace,
 } from "../../courseDiscovery";
 import "./LearningPreferences.css";
@@ -22,14 +22,22 @@ export function LearningPreferenceFields({
   name: string;
   onChange: (draft: LearningPreferenceDraft) => void;
 }) {
-  const selectedTime = learningTimeSelection(draft.pace);
+  const selectedMinutes = learningTimeMinutes(draft.pace);
+  const directInput = /^\d{0,3}$/.test(draft.pace.trim())
+    ? draft.pace.trim()
+    : null;
+  const timeInputValue = directInput ?? selectedMinutes?.toString() ?? "";
   const normalizedTime = normalizeLearningPace(draft.pace);
-  const legacyTime = normalizedTime && !selectedTime ? normalizedTime : "";
+  const legacyTime =
+    normalizedTime && selectedMinutes === null && directInput === null
+      ? normalizedTime
+      : "";
 
   return (
     <div className="learning-preference-fields">
       <label>
         <span>배우고 싶은 분야</span>
+        <small>이 내용과 가까운 영상을 먼저 찾아요.</small>
         <input
           disabled={disabled}
           onChange={(event) =>
@@ -39,29 +47,36 @@ export function LearningPreferenceFields({
           value={draft.interests}
         />
       </label>
-      <fieldset>
-        <legend>하루 학습 시간</legend>
-        {legacyTime && (
-          <p className="legacy-learning-time">현재 입력: {legacyTime}</p>
-        )}
-        <div className="learning-time-options">
-          {DAILY_LEARNING_TIME_OPTIONS.map((option) => (
-            <label key={option.value}>
-              <input
-                checked={selectedTime === option.value}
-                disabled={disabled}
-                name={name}
-                onChange={() => onChange({ ...draft, pace: option.value })}
-                type="radio"
-                value={option.value}
-              />
-              <span>{option.label}</span>
-            </label>
-          ))}
-        </div>
-      </fieldset>
       <label>
-        <span>원하는 학습 결과</span>
+        <span>한 번에 볼 시간</span>
+        <small>이 시간 안팎의 영상을 먼저 보여줘요.</small>
+        <div className="learning-time-control">
+          <input
+            aria-label="한 번에 볼 시간"
+            disabled={disabled}
+            inputMode="numeric"
+            max={LEARNING_TIME_LIMITS.max}
+            min={LEARNING_TIME_LIMITS.min}
+            name={name}
+            onChange={(event) =>
+              onChange({ ...draft, pace: event.target.value })
+            }
+            required={!legacyTime}
+            step={LEARNING_TIME_LIMITS.step}
+            type="number"
+            value={timeInputValue}
+          />
+          <span aria-hidden="true">분</span>
+        </div>
+        {legacyTime && (
+          <small className="legacy-learning-time">
+            지금 설정: {legacyTime}
+          </small>
+        )}
+      </label>
+      <label>
+        <span>어떻게 배우고 싶나요?</span>
+        <small>입문, 실습, 복습 중 어떤 영상을 먼저 고를지 참고해요.</small>
         <textarea
           disabled={disabled}
           onChange={(event) => onChange({ ...draft, goal: event.target.value })}

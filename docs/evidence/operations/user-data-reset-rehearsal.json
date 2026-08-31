@@ -1,0 +1,58 @@
+{
+  "schemaVersion": "studytube.user-data-reset-rehearsal.v1",
+  "runId": "local-reset-20260831T124047Z",
+  "status": "passed",
+  "completedAt": "2026-08-31T12:58:51.407Z",
+  "implementationSha": "12db0a8ad40e4ef5108a250d8020bd5d6822d98b",
+  "environment": {
+    "scope": "isolated-local-docker",
+    "dockerServerVersion": "29.6.1",
+    "composeProject": "studytube-reset-rehearsal",
+    "composeFileSha256": "009f8a7df1bd70fbe1c5eec5a8abaef05b9f2701f6e95c4601de7098060bcad3",
+    "sourceDatabase": "app_reset_test",
+    "restoreDatabase": "app_reset_restore_test",
+    "postgresPort": 55432,
+    "valkeyPort": 56379
+  },
+  "database": {
+    "migrationsApplied": 24,
+    "resetTableCount": 58,
+    "preservedTableCount": 4,
+    "resetRowsBefore": 337,
+    "resetRowsAfter": 0,
+    "manifestSha256": "2775cad31ae0260d5b3a3c96208ddb13f76a12784de220466b852c827089d131",
+    "approvedPlanSha256": "90e37d9ef5e15646db8c90398b0d6618ea9a8c7989702d9a8b88d85a71b67699",
+    "preservedFingerprintBefore": "f731405ca390c408d55ab16b16e7e10fafef68120ae575faedc253eb2d42ddfb",
+    "preservedFingerprintAfter": "f731405ca390c408d55ab16b16e7e10fafef68120ae575faedc253eb2d42ddfb"
+  },
+  "backupRestore": {
+    "format": "postgresql-custom",
+    "dumpSha256": "a02fa31d5b6ad1e607c9ceeeb7f80f427d8e1b7a5c75f0ce606468258f7a17db",
+    "sourceResetRows": 337,
+    "restoredResetRows": 337,
+    "allTableCountsMatched": true,
+    "preservedFingerprintMatched": true,
+    "s3UploadPerformed": false
+  },
+  "valkey": {
+    "keysBefore": 6,
+    "keysAfter": 0
+  },
+  "tests": {
+    "focusedGoogleAndDeletionTests": 6,
+    "apiE2eSuites": 24,
+    "apiE2eTests": 106
+  },
+  "safety": {
+    "loopbackOnly": true,
+    "productionDataTouched": false,
+    "approvalBoundToPlanHash": true,
+    "maintenanceMarkerVerified": true,
+    "temporaryContainersRemoved": true,
+    "temporaryVolumesRemoved": true,
+    "temporaryDumpRemoved": true
+  },
+  "limitations": [
+    "S3 업로드, bucket lifecycle과 운영 IAM은 읽기 전용 운영 인벤토리 단계에서 별도로 확인해야 합니다."
+  ]
+}

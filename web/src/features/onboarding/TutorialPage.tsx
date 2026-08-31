@@ -35,31 +35,31 @@ export function TutorialPage({
   }));
   const [preferenceStatus, setPreferenceStatus] = useState(
     hasLearningPreferences(session.user.preferences)
-      ? "저장된 추천 기준을 사용합니다."
-      : "추천 기준을 정하면 다음 코스부터 반영됩니다.",
+      ? "저장한 설정으로 코스를 추천해요."
+      : "원하는 방식에 맞춰 코스를 추천해드릴게요.",
   );
   const [isSavingPreferences, setIsSavingPreferences] = useState(false);
   const tutorialSteps = [
     {
       number: "01",
-      title: "유튜브 링크를 학습 자료로 바꿉니다",
-      body: "등록 화면에 영상 링크를 넣으면 제목, 채널, 태그, 요약 노트가 자동으로 정리됩니다.",
+      title: "유튜브 링크 하나로 시작해요",
+      body: "링크를 넣으면 제목과 채널을 확인하고 바로 학습 화면을 열어요.",
     },
     {
       number: "02",
-      title: "학습 순서를 이어서 제안합니다",
-      body: "관심 주제를 입력하면 관련 영상을 묶어 작은 플레이리스트로 시작할 수 있습니다.",
+      title: "다음에 볼 영상을 골라드려요",
+      body: "관심 주제를 적으면 관련 영상 2~4개를 순서대로 모아드려요.",
     },
     {
       number: "03",
-      title: "학습 화면에서 자막, 메모, 반복 구간을 조절합니다",
-      body: "영상을 보며 중요한 지점을 마킹해 메모하고, 한국어/영어 자막과 재생 속도, 반복 구간을 함께 조절할 수 있습니다.",
+      title: "자막과 메모를 영상 옆에서 바로 써요",
+      body: "중요한 순간을 저장하고 자막, 재생 속도, 반복 구간을 한곳에서 조절해요.",
     },
   ];
   const tutorialHighlights = [
-    "처음에는 영상 하나만 등록해도 충분합니다.",
-    "보드에 쌓인 영상은 코스와 학습 큐로 다시 이어집니다.",
-    "내 정보에서 추천 기준을 바꾸면 다음 코스부터 반영됩니다.",
+    "영상 하나로 시작해도 괜찮아요.",
+    "본 영상은 기록에 남아 언제든 이어볼 수 있어요.",
+    "코스 추천 설정을 바꾸면 다음 코스부터 달라져요.",
   ];
   const tutorialPreviewItems = [
     {
@@ -97,12 +97,12 @@ export function TutorialPage({
       !nextPreferences.pace ||
       !nextPreferences.goal
     ) {
-      setPreferenceStatus("배우고 싶은 분야와 원하는 결과를 입력해주세요.");
+      setPreferenceStatus("배우고 싶은 분야와 방식을 적어 주세요.");
       return;
     }
 
     setIsSavingPreferences(true);
-    setPreferenceStatus("추천 기준을 저장하는 중이에요.");
+    setPreferenceStatus("저장하고 있어요.");
 
     try {
       const nextUser = await updateMe({
@@ -115,12 +115,12 @@ export function TutorialPage({
         pace: paceForPreferenceSave(nextUser.preferences.pace),
         goal: nextUser.preferences.goal,
       });
-      setPreferenceStatus("추천 기준을 저장했어요.");
+      setPreferenceStatus("저장했어요.");
     } catch (error) {
       setPreferenceStatus(
         error instanceof Error
           ? error.message
-          : "추천 기준을 저장하지 못했어요.",
+          : "추천 설정을 저장하지 못했어요.",
       );
     } finally {
       setIsSavingPreferences(false);
@@ -132,14 +132,10 @@ export function TutorialPage({
       <section className="tutorial-hero">
         <div className="tutorial-copy">
           <p className="eyebrow">첫 시작</p>
-          <h1>
-            {session.user.name}님,
-            <br />
-            StudyTube는 영상을 공부 흐름으로 바꿉니다
-          </h1>
+          <h1>{session.user.name}님, 영상 하나로 공부를 시작해 보세요</h1>
           <p>
-            링크를 모으는 곳에서 끝나지 않고, 요약과 코스 추천, 자막 기반
-            학습까지 한 번에 이어가는 개인 학습 보드입니다.
+            놓친 문장은 바로 확인하고, 기억할 내용은 저장하고, 다음 영상까지
+            이어서 볼 수 있어요.
           </p>
           <div className="tutorial-actions">
             <button type="button" onClick={() => finishTutorial("/")}>
@@ -195,8 +191,8 @@ export function TutorialPage({
       >
         <section className="profile-form-section preference-section tutorial-preferences">
           <div>
-            <strong>추천 기준 정하기</strong>
-            <p>배우고 싶은 분야와 하루 학습량을 정합니다.</p>
+            <strong>코스 추천 맞추기</strong>
+            <p>분야와 시간, 배우는 방식에 맞춰 영상을 골라요.</p>
           </div>
           <LearningPreferenceFields
             disabled={isSavingPreferences}
@@ -207,7 +203,7 @@ export function TutorialPage({
           <div className="section-title compact-title">
             <span>{preferenceStatus}</span>
             <button type="submit" disabled={isSavingPreferences}>
-              {isSavingPreferences ? "저장 중" : "기준 저장"}
+              {isSavingPreferences ? "저장 중" : "저장"}
             </button>
           </div>
         </section>

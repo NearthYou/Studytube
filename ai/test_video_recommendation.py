@@ -245,6 +245,88 @@ class VideoRecommendationTest(unittest.TestCase):
             ranked[1]["recommendationScore"],
         )
 
+    def test_prefers_hands_on_videos_for_a_practice_goal(self):
+        self.assertIsNotNone(rank_video_candidates)
+        if rank_video_candidates is None:
+            return
+
+        ranked = rank_video_candidates(
+            [
+                {
+                    "videoId": "react-concept",
+                    "title": "React 핵심 개념 정리",
+                    "channel": "인기 개발 채널",
+                    "sourceUrl": "https://youtu.be/react-concept",
+                    "summary": "React 상태와 컴포넌트 설명",
+                    "durationSeconds": 1200,
+                    "captionAvailable": True,
+                    "viewCount": 1_000_000,
+                },
+                {
+                    "videoId": "react-practice",
+                    "title": "React Todo 프로젝트 따라 만들기",
+                    "channel": "실습 채널",
+                    "sourceUrl": "https://youtu.be/react-practice",
+                    "summary": "작은 앱을 직접 만드는 실습",
+                    "durationSeconds": 1200,
+                    "captionAvailable": True,
+                    "viewCount": 500,
+                },
+            ],
+            {
+                "subject": "React",
+                "pace": "한 번에 20분",
+                "learningGoal": "작은 프로젝트를 따라 만들고 싶어",
+            },
+        )
+
+        self.assertEqual(ranked[0]["videoId"], "react-practice")
+        self.assertIn(
+            "직접 따라 하기 좋음",
+            ranked[0]["recommendationReasons"],
+        )
+
+    def test_prefers_summary_videos_for_a_review_goal(self):
+        self.assertIsNotNone(rank_video_candidates)
+        if rank_video_candidates is None:
+            return
+
+        ranked = rank_video_candidates(
+            [
+                {
+                    "videoId": "react-overview",
+                    "title": "React 완전 정리",
+                    "channel": "인기 개발 채널",
+                    "sourceUrl": "https://youtu.be/react-overview",
+                    "summary": "React 전반 설명",
+                    "durationSeconds": 1200,
+                    "captionAvailable": True,
+                    "viewCount": 1_000_000,
+                },
+                {
+                    "videoId": "react-review",
+                    "title": "React 핵심 복습 요약",
+                    "channel": "복습 채널",
+                    "sourceUrl": "https://youtu.be/react-review",
+                    "summary": "React 핵심을 짧게 복습",
+                    "durationSeconds": 1200,
+                    "captionAvailable": True,
+                    "viewCount": 500,
+                },
+            ],
+            {
+                "subject": "React",
+                "pace": "한 번에 20분",
+                "learningGoal": "핵심만 복습하고 싶어",
+            },
+        )
+
+        self.assertEqual(ranked[0]["videoId"], "react-review")
+        self.assertIn(
+            "복습하기 좋은 구성",
+            ranked[0]["recommendationReasons"],
+        )
+
     def test_builds_a_diverse_learning_sequence_instead_of_one_channel_dump(self):
         self.assertIsNotNone(
             select_course_sequence,

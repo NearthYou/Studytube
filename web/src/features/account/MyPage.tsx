@@ -20,7 +20,7 @@ export function MyPage({
   const [savedSentenceCount] = useState(() =>
     countSavedSentences(session.user.id),
   );
-  const [status, setStatus] = useState("추천 기준을 불러오는 중입니다.");
+  const [status, setStatus] = useState("추천을 불러오는 중이에요.");
   const [isVerifying, setIsVerifying] = useState(false);
 
   useEffect(() => {
@@ -36,7 +36,7 @@ export function MyPage({
 
         setUser(nextUser);
         onSessionUpdate(nextUser);
-        setStatus("현재 기준");
+        setStatus("현재 설정");
         const nextCourses = await fetchOwnerCourses().catch(() => []);
         if (!mounted) return;
         const activeCourses = nextCourses.filter(
@@ -48,7 +48,7 @@ export function MyPage({
         );
       } catch {
         if (mounted) {
-          setStatus("추천 기준을 불러오지 못했습니다.");
+          setStatus("추천 설정을 불러오지 못했어요.");
         }
       }
     }
@@ -67,21 +67,21 @@ export function MyPage({
         <div>
           <h1>내 학습</h1>
           <p>
-            이어갈 코스와 저장한 문장을 한곳에서 확인하세요.
+            이어서 볼 코스와 저장한 문장을 확인하세요.
           </p>
           <div className="profile-actions">
             <Link className="primary-link" to="/">
               이어서 학습
             </Link>
             <Link className="secondary-link" to="/me/preferences">
-              추천 기준 수정
+              추천 바꾸기
             </Link>
             <button
               className="secondary-action"
               type="button"
               onClick={() => setIsVerifying((current) => !current)}
             >
-              계정 정보 수정
+              내 정보 수정
             </button>
           </div>
         </div>
@@ -104,7 +104,7 @@ export function MyPage({
       <section className="profile-layout">
         <section className="profile-read-panel">
           <div className="section-title">
-            <h2>추천 기준</h2>
+            <h2>코스 추천</h2>
             <span>{status}</span>
           </div>
           <dl className="profile-info-list">
@@ -113,20 +113,20 @@ export function MyPage({
               <dd>{user.preferences.interests.join(", ") || "아직 정하지 않았어요"}</dd>
             </div>
             <div>
-              <dt>하루 학습 시간</dt>
+              <dt>한 번에 볼 시간</dt>
               <dd>
                 {normalizeLearningPace(user.preferences.pace) ||
                   "아직 정하지 않았어요"}
               </dd>
             </div>
             <div>
-              <dt>원하는 학습 결과</dt>
+              <dt>배우는 방식</dt>
               <dd>{user.preferences.goal || "아직 정하지 않았어요"}</dd>
             </div>
             <div>
-              <dt>코스 활용</dt>
+              <dt>어디에 쓰이나요?</dt>
               <dd>
-                코스의 주제와 하루 학습량을 고를 때 반영합니다.
+                분야는 검색 주제에, 시간은 영상 길이에, 배우는 방식은 어떤 영상을 먼저 고를지 정할 때 써요.
               </dd>
             </div>
           </dl>
@@ -136,7 +136,7 @@ export function MyPage({
           <strong>{user.name}</strong>
           <p>{user.email}</p>
           <small>계정</small>
-          <p>{user.preferences.interests.join(", ") || "추천 기준을 추가해주세요"}</p>
+          <p>{user.preferences.interests.join(", ") || "코스 추천을 맞춰주세요"}</p>
           <span>
             {[normalizeLearningPace(user.preferences.pace), user.preferences.goal]
               .filter(Boolean)
@@ -151,7 +151,7 @@ export function MyPage({
 
       {isVerifying && (
         <ProfileVerificationForm
-          submitLabel="본인 확인 후 수정"
+          submitLabel="확인하고 수정"
           onVerified={(nextUser, currentPassword) => {
             setUser(nextUser);
             onSessionUpdate(nextUser);

@@ -54,7 +54,7 @@ test('builds course prompts from the active learning profile', () => {
   assert.equal(hasLearningPreferences(profile), true);
   assert.equal(
     createPersonalizedCoursePrompt(profile),
-    '관심사: React, 영어 회화\n학습 속도: 하루 20분\n학습 목표: 퇴근 후 복습\n실제로 재생할 수 있는 YouTube 영상 2~4개를 쉬운 순서로 추천해줘.',
+    '관심사: React, 영어 회화\n한 번에 볼 시간: 한 번에 20분\n배우는 방식: 퇴근 후 복습\n실제로 재생할 수 있는 YouTube 영상 2~4개를 쉬운 순서로 추천해줘.',
   );
   assert.deepEqual(createPromptSuggestions(profile), [
     'React 기초부터 배우기',
@@ -63,28 +63,33 @@ test('builds course prompts from the active learning profile', () => {
   ]);
   assert.equal(
     createPersonalizedCoursePrompt(profile, '중국어 여행 회화'),
-    '배울 내용: 중국어 여행 회화\n관심사: React, 영어 회화\n학습 속도: 하루 20분\n학습 목표: 퇴근 후 복습\n실제로 재생할 수 있는 YouTube 영상 2~4개를 쉬운 순서로 추천해줘.',
+    '배울 내용: 중국어 여행 회화\n관심사: React, 영어 회화\n한 번에 볼 시간: 한 번에 20분\n배우는 방식: 퇴근 후 복습\n실제로 재생할 수 있는 YouTube 영상 2~4개를 쉬운 순서로 추천해줘.',
   );
 });
 
-test('turns legacy pace values into a clear daily learning time', async () => {
+test('accepts any five-minute session length from 5 to 120 minutes', async () => {
   const discovery = await import('../src/courseDiscovery.ts');
   assert.equal(typeof discovery.normalizeLearningPace, 'function');
-  assert.equal(typeof discovery.learningTimeSelection, 'function');
+  assert.equal(typeof discovery.learningTimeMinutes, 'function');
   assert.equal(typeof discovery.paceForPreferenceSave, 'function');
   if (
     typeof discovery.normalizeLearningPace !== 'function' ||
-    typeof discovery.learningTimeSelection !== 'function' ||
+    typeof discovery.learningTimeMinutes !== 'function' ||
     typeof discovery.paceForPreferenceSave !== 'function'
   ) {
     return;
   }
-  assert.equal(discovery.normalizeLearningPace('20'), '하루 20분');
-  assert.equal(discovery.normalizeLearningPace('하루 1시간'), '하루 1시간');
-  assert.equal(discovery.learningTimeSelection('20'), '하루 20분');
-  assert.equal(discovery.learningTimeSelection('빠르게'), null);
+  assert.equal(discovery.normalizeLearningPace('20'), '한 번에 20분');
+  assert.equal(discovery.normalizeLearningPace('하루 1시간'), '한 번에 60분');
+  assert.equal(discovery.learningTimeMinutes('한 번에 5분'), 5);
+  assert.equal(discovery.learningTimeMinutes('40'), 40);
+  assert.equal(discovery.learningTimeMinutes('한 번에 120분'), 120);
+  assert.equal(discovery.learningTimeMinutes('4분'), null);
+  assert.equal(discovery.learningTimeMinutes('125분'), null);
+  assert.equal(discovery.learningTimeMinutes('빠르게'), null);
+  assert.equal(discovery.paceForPreferenceSave('40'), '한 번에 40분');
   assert.equal(discovery.paceForPreferenceSave('주 3회'), '주 3회');
-  assert.equal(discovery.paceForPreferenceSave(''), '하루 20분');
+  assert.equal(discovery.paceForPreferenceSave(''), '한 번에 20분');
 });
 
 test('summarizes only recommendation settings the learner can understand', async () => {
@@ -97,7 +102,7 @@ test('summarizes only recommendation settings the learner can understand', async
       pace: '20',
       goal: '에아',
     }),
-    'React 위주로 하루 20분에 맞춰 추천해요.',
+    'React 영상을 먼저 찾고, 20분 안팎으로 볼 수 있게 고릅니다.',
   );
   assert.equal(
     discovery.learningPreferenceSummary({

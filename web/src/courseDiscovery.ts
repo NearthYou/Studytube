@@ -9,12 +9,12 @@ import type {
 } from './types.ts';
 import { extractYouTubeId } from './videoMetadata.ts';
 
-export const DAILY_LEARNING_TIME_OPTIONS = [
-  { value: '하루 10분', label: '10분' },
-  { value: '하루 20분', label: '20분' },
-  { value: '하루 30분', label: '30분' },
-  { value: '하루 1시간', label: '1시간' },
-] as const;
+export const LEARNING_TIME_LIMITS = {
+  min: 5,
+  max: 120,
+  step: 5,
+  default: 20,
+} as const;
 
 export function hasLearningPreferences(
   profile: LearningPreferences | null | undefined,
@@ -47,16 +47,16 @@ export function createPersonalizedCoursePrompt(
     return [
       `배울 내용: ${requestedSubject}`,
       `관심사: ${interests}`,
-      `학습 속도: ${pace}`,
-      `학습 목표: ${profile.goal}`,
+      `한 번에 볼 시간: ${pace}`,
+      `배우는 방식: ${profile.goal}`,
       requestTail,
     ].join('\n');
   }
 
   return [
     `관심사: ${interests}`,
-    `학습 속도: ${pace}`,
-    `학습 목표: ${profile.goal}`,
+    `한 번에 볼 시간: ${pace}`,
+    `배우는 방식: ${profile.goal}`,
     requestTail,
   ].join('\n');
 }
@@ -75,25 +75,29 @@ export function createPromptSuggestions(profile: LearningPreferences | null) {
 
 export function normalizeLearningPace(value: string) {
   const normalized = value.trim().replace(/\s+/g, ' ');
-  const minutes = normalized.match(/^(?:하루 )?(\d{1,3})\s*분?(?:씩)?$/);
-  if (minutes) {
-    return Number(minutes[1]) === 60
-      ? '하루 1시간'
-      : `하루 ${Number(minutes[1])}분`;
-  }
-  if (/^(?:하루 )?1\s*시간$/.test(normalized)) return '하루 1시간';
+  const minutes = extractLearningMinutes(normalized);
+  if (minutes !== null) return `한 번에 ${minutes}분`;
   return normalized;
 }
 
-export function learningTimeSelection(value: string) {
-  const normalized = normalizeLearningPace(value);
-  return DAILY_LEARNING_TIME_OPTIONS.some((option) => option.value === normalized)
-    ? normalized
-    : null;
+export function learningTimeMinutes(value: string) {
+  const minutes = extractLearningMinutes(value.trim().replace(/\s+/g, ' '));
+  if (
+    minutes === null ||
+    minutes < LEARNING_TIME_LIMITS.min ||
+    minutes > LEARNING_TIME_LIMITS.max ||
+    minutes % LEARNING_TIME_LIMITS.step !== 0
+  ) {
+    return null;
+  }
+  return minutes;
 }
 
 export function paceForPreferenceSave(value: string) {
-  return normalizeLearningPace(value) || '하루 20분';
+  return (
+    normalizeLearningPace(value) ||
+    `한 번에 ${LEARNING_TIME_LIMITS.default}분`
+  );
 }
 
 export function learningPreferencesFromDraft(input: {
@@ -118,13 +122,21 @@ export function learningPreferenceSummary(
     profile?.interests.map((item) => item.trim()).filter(Boolean).slice(0, 2) ??
     [];
   if (interests.length === 0) return '';
-  const normalizedPace = normalizeLearningPace(profile?.pace ?? '');
-  const knownPace = DAILY_LEARNING_TIME_OPTIONS.some(
-    (option) => option.value === normalizedPace,
-  );
-  return knownPace
-    ? `${interests.join(', ')} 위주로 ${normalizedPace}에 맞춰 추천해요.`
+  const minutes = learningTimeMinutes(profile?.pace ?? '');
+  return minutes
+    ? `${interests.join(', ')} 영상을 먼저 찾고, ${minutes}분 안팎으로 볼 수 있게 고릅니다.`
     : `${interests.join(', ')} 위주로 추천해요.`;
+}
+
+function extractLearningMinutes(value: string) {
+  const minutes = value.match(
+    /^(?:(?:하루|매일|한\s*번(?:에)?)\s*)?(\d{1,3})\s*분?(?:씩)?$/,
+  );
+  if (minutes) return Number(minutes[1]);
+  const hours = value.match(
+    /^(?:(?:하루|매일|한\s*번(?:에)?)\s*)?(\d{1,2})\s*시간$/,
+  );
+  return hours ? Number(hours[1]) * 60 : null;
 }
 
 export function createCourseRecommendationContext(

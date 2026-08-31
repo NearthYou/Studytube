@@ -42,8 +42,23 @@ test("course creation has one clear primary action and visible progress", () => 
   assert.doesNotMatch(source, /기존 코스 먼저 찾기|새로 만들어줘/);
   assert.doesNotMatch(source, /배우고 싶은 내용을 입력해주세요/);
   assert.equal(
-    source.match(/배우고 싶은 내용을 적으면/g)?.length,
+    source.match(/배울 내용을 적으면 맞는 영상을 골라/g)?.length,
     1,
+  );
+});
+
+test("a quick recommendation starts generation with the selected text", () => {
+  const source = readFileSync(coursePath, "utf8");
+
+  assert.match(source, /async function generateNewCourse\(requestedSubject/);
+  assert.match(source, /requestedSubject \?\? query/);
+  assert.match(
+    source,
+    /onClick=\{\(\) => \{[\s\S]*?setQuery\(prompt\);[\s\S]*?generateNewCourse\(prompt\)/,
+  );
+  assert.match(
+    source,
+    /quick-prompts[\s\S]*?disabled=\{isGenerating\}/,
   );
 });
 
@@ -57,11 +72,15 @@ test("Course builder contains creation without the saved Course library", () => 
   assert.doesNotMatch(source, /학습 속도 \{profile\.pace\}|목표 \{profile\.goal\}/);
   assert.match(source, /learningPreferenceSummary/);
   assert.match(source, /className="course-preference-note"/);
-  assert.match(source, /추천 기준 수정/);
+  assert.match(source, /추천 바꾸기/);
   assert.match(source, /to="\/me\/preferences"/);
   assert.match(source, /readLearningHistory/);
   assert.match(source, /createCourseRecommendationContext/);
   assert.match(source, /askAgent\([\s\S]*recommendationContext/);
+  assert.match(
+    source,
+    /자막이 있고 아직 보지 않은 영상을 먼저 고릅니다\. 조회수는 비슷한 영상끼리 비교할 때만 봐요\./,
+  );
   assert.doesNotMatch(source, /learningHistoryProgress/);
   assert.doesNotMatch(source, /이어갈 코스|준비된 학습 순서/);
   assert.match(source, /저장 전 코스/);
@@ -75,8 +94,8 @@ test("a single recommendation is never presented or saved as a course", () => {
   const source = readFileSync(coursePath, "utf8");
 
   assert.match(source, /canFormCourse\(generatedVideos\)/);
-  assert.match(source, /기준에 맞는 영상 한 개를 찾았습니다/);
-  assert.match(source, /무관한 영상을 억지로 채우지 않았어요/);
+  assert.match(source, /맞는 영상 한 개를 찾았어요/);
+  assert.match(source, /관련 없는 영상을 채우지 않았어요/);
   assert.match(source, /saveCourse\(\s*generatedVideos,\s*generatedTitle/);
 });
 

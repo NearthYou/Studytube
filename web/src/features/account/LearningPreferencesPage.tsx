@@ -36,11 +36,11 @@ export function LearningPreferencesPage({
 
     const preferences = learningPreferencesFromDraft(draft);
     if (preferences.interests.length === 0) {
-      setStatus("배우고 싶은 분야를 하나 이상 입력해주세요.");
+      setStatus("배우고 싶은 분야를 적어 주세요.");
       return;
     }
     if (!preferences.goal) {
-      setStatus("원하는 학습 결과를 입력해주세요.");
+      setStatus("어떻게 배우고 싶은지 적어주세요.");
       return;
     }
 
@@ -57,7 +57,7 @@ export function LearningPreferencesPage({
       setStatus(
         error instanceof Error
           ? error.message
-          : "추천 기준을 저장하지 못했어요.",
+          : "추천 설정을 저장하지 못했어요.",
       );
     } finally {
       setIsSaving(false);
@@ -68,8 +68,11 @@ export function LearningPreferencesPage({
     <main className="page-shell profile-page learning-preferences-page">
       <header className="learning-preferences-heading">
         <div>
-          <h1>추천 기준 수정</h1>
-          <p>코스의 주제와 하루 학습량을 고를 때 반영합니다.</p>
+          <h1>코스 추천 맞추기</h1>
+          <p>
+            분야는 검색 주제에, 시간은 영상 길이에, 배우는 방식은 어떤
+            영상을 먼저 고를지 정할 때 써요.
+          </p>
         </div>
         <Link to={returnTo}>취소</Link>
       </header>
@@ -83,7 +86,7 @@ export function LearningPreferencesPage({
         <div className="learning-preference-actions">
           <p aria-live="polite">{status}</p>
           <button disabled={isSaving} type="submit">
-            {isSaving ? "저장 중" : "저장하고 돌아가기"}
+            {isSaving ? "저장 중" : "저장"}
           </button>
         </div>
       </form>

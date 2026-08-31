@@ -94,7 +94,7 @@ test("recommendation context excludes watched and saved videos while retaining r
 
   assert.deepEqual(context, {
     subject: "C++",
-    pace: "하루 20분",
+    pace: "한 번에 20분",
     learningGoal: "기초부터 직접 코드를 작성하기",
     interests: ["프로그래밍", "영어"],
     excludedVideoIds: ["abc123DEF45", "courseVID01"],

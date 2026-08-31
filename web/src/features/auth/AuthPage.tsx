@@ -1,6 +1,7 @@
 import { useLocation, useSearchParams } from "react-router";
 import { googleLoginUrl } from "../../api";
 import {
+  accountDeletedMessage,
   googleAuthErrorMessage,
   safeGoogleReturnPath,
 } from "./googleAuthPresentation";
@@ -10,7 +11,9 @@ export function AuthPage() {
   const [searchParams] = useSearchParams();
   const state = location.state as { from?: unknown } | null;
   const returnPath = safeGoogleReturnPath(state?.from);
-  const errorMessage = googleAuthErrorMessage(searchParams.get("googleError"));
+  const statusMessage =
+    googleAuthErrorMessage(searchParams.get("googleError")) ||
+    accountDeletedMessage(searchParams.get("accountDeleted"));
 
   return (
     <main className="auth-page">
@@ -18,9 +21,9 @@ export function AuthPage() {
         <p className="eyebrow">StudyTube</p>
         <h1>영상으로 배우기</h1>
         <p>Google 계정으로 바로 시작하세요.</p>
-        {errorMessage && (
+        {statusMessage && (
           <p className="auth-status" aria-live="polite">
-            {errorMessage}
+            {statusMessage}
           </p>
         )}
         <a

@@ -149,6 +149,9 @@ export function MyPage({
           <Link className="profile-note-action" to="/courses">
             내 코스 열기
           </Link>
+          <Link className="profile-note-action danger-link" to="/me/delete">
+            회원 탈퇴
+          </Link>
         </aside>
       </section>
     </main>

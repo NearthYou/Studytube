@@ -1,0 +1,80 @@
+.account-deletion-page {
+  display: grid;
+  max-width: 680px;
+  min-height: calc(100vh - 68px);
+  align-items: center;
+}
+
+.account-deletion-card {
+  display: grid;
+  gap: 18px;
+  padding: 28px;
+  border: 1px solid var(--app-line);
+  border-radius: 12px;
+  background: var(--app-surface);
+}
+
+.account-deletion-card h1,
+.account-deletion-card p {
+  margin: 0;
+}
+
+.account-deletion-card h1 {
+  font-size: clamp(28px, 5vw, 36px);
+}
+
+.account-deletion-card p,
+.account-deletion-confirmation {
+  color: var(--app-muted);
+}
+
+.account-reauth-link {
+  justify-self: start;
+}
+
+.account-deletion-confirmation {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 10px;
+}
+
+.account-deletion-confirmation input {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--app-accent);
+}
+
+.account-deletion-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.danger-action:not(:disabled) {
+  background: #c93b45;
+  color: #fff;
+}
+
+.danger-action:not(:disabled):hover {
+  background: #ad2f39;
+}
+
+.profile-note-action.danger-link {
+  background: transparent;
+  color: #ff8e96;
+}
+
+@media (max-width: 520px) {
+  .account-deletion-page {
+    padding: 20px;
+  }
+
+  .account-deletion-card {
+    padding: 22px;
+  }
+
+  .account-deletion-actions > * {
+    width: 100%;
+  }
+}

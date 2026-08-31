@@ -8,6 +8,10 @@ export function googleAuthErrorMessage(code: string | null | undefined) {
   return code ? (GOOGLE_AUTH_MESSAGES[code] ?? "") : "";
 }
 
+export function accountDeletedMessage(value: string | null | undefined) {
+  return value === "1" ? "계정과 학습 기록을 삭제했어요." : "";
+}
+
 export function safeGoogleReturnPath(value: unknown) {
   if (
     typeof value !== "string" ||

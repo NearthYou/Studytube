@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from "react-router";
 import { MyEditPage } from "../features/account/MyEditPage";
 import { MyPage } from "../features/account/MyPage";
 import { LearningPreferencesPage } from "../features/account/LearningPreferencesPage";
+import { AccountDeletionPage } from "../features/account/AccountDeletionPage";
 import { AuthPage } from "../features/auth/AuthPage";
 import { GoogleAuthCompletePage } from "../features/auth/GoogleAuthCompletePage";
 import { CourseBuilderPage } from "../features/course/CoursePage";
@@ -16,12 +17,14 @@ type AppRoutesProps = {
   session: Session | null;
   onAuthComplete: (session: Session) => void;
   onSessionUpdate: (user: User) => void;
+  onAccountDeleted: () => void;
 };
 
 export function AppRoutes({
   session,
   onAuthComplete,
   onSessionUpdate,
+  onAccountDeleted,
 }: AppRoutesProps) {
   return (
     <Routes>
@@ -97,6 +100,14 @@ export function AppRoutes({
         element={
           <ProtectedRoute session={session}>
             <MyEditPage session={session!} onSessionUpdate={onSessionUpdate} />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/me/delete"
+        element={
+          <ProtectedRoute session={session}>
+            <AccountDeletionPage onDeleted={onAccountDeleted} />
           </ProtectedRoute>
         }
       />

@@ -6,7 +6,10 @@ import { SiteNav } from "./app/SiteNav";
 import { normalizeSession, readSession, saveSession } from "./authSession";
 import { logout, setUnauthorizedHandler } from "./api";
 import { SESSION_STORAGE_KEY } from "./localStudyStorage";
-import { ensureStudyTubeStorageEpoch } from "./studyStorageReset";
+import {
+  clearStudyTubeStorage,
+  ensureStudyTubeStorageEpoch,
+} from "./studyStorageReset";
 import type { Session, User } from "./types";
 
 function App() {
@@ -47,6 +50,12 @@ function App() {
     });
   }
 
+  function handleAccountDeleted() {
+    clearStudyTubeStorage(window.localStorage);
+    clearStudyTubeStorage(window.sessionStorage);
+    setSession(null);
+  }
+
   return (
     <>
       <SiteNav session={session} onLogout={handleLogout} />
@@ -54,6 +63,7 @@ function App() {
         session={session}
         onAuthComplete={handleAuthComplete}
         onSessionUpdate={handleUserUpdate}
+        onAccountDeleted={handleAccountDeleted}
       />
     </>
   );

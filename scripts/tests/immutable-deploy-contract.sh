@@ -295,6 +295,18 @@ grep -Fq 'timeout --signal=TERM --kill-after=30s 15m \' \
   fail 'Course backfill and verification are not bounded inside the primary activation budget'
 grep -Fq 'verify_application_units_active' "$runner" ||
   fail 'rollback can clear pending state before restored services are active'
+grep -Fq "readonly APPLICATION_STABILITY_SECONDS='5'" "$runner" ||
+  fail 'deployment success has no bounded application stability window'
+grep -Fq 'application_unit_runtime_sample' "$runner" ||
+  fail 'deployment success does not capture application process identity'
+grep -Fq -- '--property=SubState' "$runner" ||
+  fail 'deployment success does not require running application units'
+grep -Fq -- '--property=NRestarts' "$runner" ||
+  fail 'deployment success does not observe application restart counts'
+grep -Fq -- '--property=MainPID' "$runner" ||
+  fail 'deployment success does not observe application process IDs'
+[[ "$(grep -Fc 'verify_application_units_stable || exit 1' "$runner")" -eq 2 ]] ||
+  fail 'successful activation and completed recovery do not enforce stable application units'
 grep -Fq 'verify_release_public_endpoints "$previous_snapshot"' "$runner" ||
   fail 'rollback can clear pending state before the adopted public edge answers HTTPS probes'
 grep -Fq 'Interrupted deployment crossed durable Course activation; rolling forward' "$runner" ||
@@ -344,6 +356,76 @@ cleanup() {
   rm -rf -- "$temporary_dir"
 }
 trap cleanup EXIT
+
+(
+  source <(sed '/^command_name=/,$d' "$runner")
+  timeout() {
+    [[ " $* " == *' systemctl show studytube-worker.service '* ]] || return 1
+    [[ " $* " == *' --property=ActiveState '* ]] || return 1
+    [[ " $* " == *' --property=SubState '* ]] || return 1
+    [[ " $* " == *' --property=NRestarts '* ]] || return 1
+    [[ " $* " == *' --property=MainPID '* ]] || return 1
+    printf '%s\n' \
+      'MainPID=4051' \
+      'NRestarts=2' \
+      'ActiveState=active' \
+      'SubState=running'
+  }
+  [[ "$(application_unit_runtime_sample studytube-worker.service)" == $'2\t4051' ]] ||
+    fail 'application runtime sampling did not parse systemd properties safely'
+)
+
+(
+  source <(sed '/^command_name=/,$d' "$runner")
+  sample_round=0
+  sleep() { sample_round=1; }
+  public_edge_container_state() { printf 'running\n'; }
+  application_unit_runtime_sample() {
+    local unit_name="$1" main_pid=4100
+    case "$unit_name" in
+      studytube-api.service) main_pid=4101 ;;
+      studytube-ai.service) main_pid=4102 ;;
+      studytube-worker.service) main_pid=4103 ;;
+      studytube-caddy.service) main_pid=4104 ;;
+    esac
+    printf '0\t%s\n' "$main_pid"
+  }
+  verify_application_units_stable
+) || fail 'stable application units were rejected'
+
+if (
+  source <(sed '/^command_name=/,$d' "$runner")
+  sample_round=0
+  sleep() { sample_round=1; }
+  public_edge_container_state() { printf 'running\n'; }
+  application_unit_runtime_sample() {
+    local restart_count=0
+    if [[ "$sample_round" -eq 1 && "$1" == 'studytube-worker.service' ]]; then
+      restart_count=1
+    fi
+    printf '%s\t4200\n' "$restart_count"
+  }
+  verify_application_units_stable
+) >/dev/null 2>&1; then
+  fail 'application restart during the stability window was accepted'
+fi
+
+if (
+  source <(sed '/^command_name=/,$d' "$runner")
+  sample_round=0
+  sleep() { sample_round=1; }
+  public_edge_container_state() { printf 'running\n'; }
+  application_unit_runtime_sample() {
+    local main_pid=4300
+    if [[ "$sample_round" -eq 1 && "$1" == 'studytube-worker.service' ]]; then
+      main_pid=4301
+    fi
+    printf '0\t%s\n' "$main_pid"
+  }
+  verify_application_units_stable
+) >/dev/null 2>&1; then
+  fail 'application process replacement during the stability window was accepted'
+fi
 
 (
   # Load function definitions without executing the runner CLI.

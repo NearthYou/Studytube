@@ -10,6 +10,7 @@ readonly DEFAULT_DEPLOYMENT_GUARD_PATH='/run/studytube-deploy/resume-active'
 readonly DEPLOYMENT_GUARD_SERVICE='studytube-deploy-resume-guard.service'
 readonly DEPLOYMENT_WATCHDOG_SERVICE='studytube-deployment-watchdog.service'
 readonly DEPLOYMENT_WATCHDOG_TIMEOUT_SECONDS='8700'
+readonly APPLICATION_STABILITY_SECONDS='5'
 readonly COURSE_ACTIVATION_MARKER='/var/lib/studytube/course-cutover/course-activated'
 readonly -a APPLICATION_UNITS=(
   studytube-api.service
@@ -715,6 +716,82 @@ verify_application_units_active() {
   done
   [[ "$(public_edge_container_state)" == 'running' ]] || {
     fail 'recovered public edge container is not running'
+    return 1
+  }
+}
+
+application_unit_runtime_sample() {
+  local unit_name="$1" properties property value show_status=0
+  properties="$(
+    timeout --signal=TERM --kill-after=5s 15s \
+      systemctl show "$unit_name" \
+      --property=ActiveState \
+      --property=SubState \
+      --property=NRestarts \
+      --property=MainPID
+  )" || show_status=$?
+  ((show_status == 0)) || {
+    fail "could not inspect application unit runtime: $unit_name"
+    return 1
+  }
+
+  local active_state='' sub_state='' restart_count='' main_pid=''
+  while IFS='=' read -r property value; do
+    case "$property" in
+      ActiveState) active_state="$value" ;;
+      SubState) sub_state="$value" ;;
+      NRestarts) restart_count="$value" ;;
+      MainPID) main_pid="$value" ;;
+    esac
+  done <<<"$properties"
+
+  [[ "$active_state" == 'active' && "$sub_state" == 'running' ]] || {
+    fail "application unit is not active/running: $unit_name"
+    return 1
+  }
+  [[ "$restart_count" =~ ^[0-9]+$ ]] || {
+    fail "application unit returned an invalid restart count: $unit_name"
+    return 1
+  }
+  [[ "$main_pid" =~ ^[1-9][0-9]*$ ]] || {
+    fail "application unit has no live main process: $unit_name"
+    return 1
+  }
+  printf '%s\t%s\n' "$restart_count" "$main_pid"
+}
+
+verify_application_units_stable() {
+  local -A initial_restart_counts=()
+  local -A initial_main_pids=()
+  local unit_name sample restart_count main_pid
+
+  for unit_name in "${APPLICATION_UNITS[@]}"; do
+    sample="$(application_unit_runtime_sample "$unit_name")" || return 1
+    IFS=$'\t' read -r restart_count main_pid <<<"$sample"
+    initial_restart_counts["$unit_name"]="$restart_count"
+    initial_main_pids["$unit_name"]="$main_pid"
+  done
+  [[ "$(public_edge_container_state)" == 'running' ]] || {
+    fail 'public edge container is not running before the stability window'
+    return 1
+  }
+
+  sleep "$APPLICATION_STABILITY_SECONDS" || return 1
+
+  for unit_name in "${APPLICATION_UNITS[@]}"; do
+    sample="$(application_unit_runtime_sample "$unit_name")" || return 1
+    IFS=$'\t' read -r restart_count main_pid <<<"$sample"
+    [[ "$restart_count" == "${initial_restart_counts["$unit_name"]}" ]] || {
+      fail "application unit restarted during the stability window: $unit_name"
+      return 1
+    }
+    [[ "$main_pid" == "${initial_main_pids["$unit_name"]}" ]] || {
+      fail "application unit process changed during the stability window: $unit_name"
+      return 1
+    }
+  done
+  [[ "$(public_edge_container_state)" == 'running' ]] || {
+    fail 'public edge container stopped during the stability window'
     return 1
   }
 }
@@ -1954,7 +2031,7 @@ finalize_successful_activation() {
     flock -w 30 202 || exit 1
     verify_deployment_owner_lease_held || exit 1
     verify_deployment_watchdog_active || exit 1
-    verify_application_units_active || exit 1
+    verify_application_units_stable || exit 1
     write_release_success_metadata \
       "$release_dir" "$config_snapshot" "$config_fingerprint" || exit 1
     atomic_symlink "$release_dir" "$current_link" || exit 1
@@ -1998,7 +2075,7 @@ finalize_completed_recovery() {
     flock -w 30 202 || exit 1
     verify_deployment_owner_lease_held || exit 1
     verify_deployment_watchdog_active || exit 1
-    verify_application_units_active || exit 1
+    verify_application_units_stable || exit 1
     [[ ! -e "$deployment_guard_path" && ! -L "$deployment_guard_path" ]] || {
       fail 'completed recovery remains sealed'
       exit 1

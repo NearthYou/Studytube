@@ -1,7 +1,6 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { Pool, type PoolClient, type QueryConfig, type QueryResult } from 'pg';
-import { DatabaseService } from '../src/database.service';
 import {
   assertQueryPlanContract,
   extractExplainPlan,
@@ -9,6 +8,7 @@ import {
   type ExplainPlan,
   type QueryPlanContract,
 } from '../src/database-query-plan';
+import { PostgresGoogleAuthRepository } from '../src/auth/google/postgres-google-auth.repository';
 import { PostgresCourseRepository } from '../src/course/postgres-course.repository';
 import { PostgresRetrievalRepository } from '../src/retrieval/postgres-retrieval.repository';
 import { PostgresWorkRepository } from '../src/work/postgres-work.repository';
@@ -40,19 +40,15 @@ async function main(): Promise<void> {
     const fixture = await installFixture(client);
 
     plans.push({
-      name: 'auth lookup',
+      name: 'Google authorization attempt lookup',
       plan: await captureSinglePlan(client, async (explainingPool) => {
-        const repository = Object.create(
-          DatabaseService.prototype,
-        ) as DatabaseService;
-        Object.defineProperty(repository, 'pool', { value: explainingPool });
-        await repository.findAuthUser({
-          emailCanonical: fixture.emailCanonical,
-        });
+        await new PostgresGoogleAuthRepository(
+          explainingPool,
+        ).consumeGoogleAuthAttempt(fixture.googleAuthStateDigest, new Date());
       }),
       contract: {
-        requiredIndexes: [/^users_email_canonical_key$/u],
-        forbiddenSequentialScanRelations: ['users'],
+        requiredIndexes: [/^google_auth_attempts_state_key$/u],
+        forbiddenSequentialScanRelations: ['google_auth_attempts'],
       },
     });
     plans.push({
@@ -168,9 +164,10 @@ async function captureSinglePlan(
 async function installFixture(client: PoolClient): Promise<{
   ownerId: number;
   courseId: number;
-  emailCanonical: string;
+  googleAuthStateDigest: Buffer;
 }> {
   const emailCanonical = 'ci-query-plan-target@example.test';
+  const googleAuthStateDigest = Buffer.alloc(32, 17);
   const owner = await client.query<{ id: number }>(
     `
       INSERT INTO users (
@@ -188,6 +185,36 @@ async function installFixture(client: PoolClient): Promise<{
     [emailCanonical],
   );
   const ownerId = requireInteger(owner.rows[0]?.id, 'fixture owner');
+  await client.query(
+    `
+      INSERT INTO google_auth_attempts (
+        id, purpose, state_digest, nonce_digest, encrypted_code_verifier,
+        created_at, expires_at
+      )
+      VALUES (
+        gen_random_uuid(), 'login', $1, decode(repeat('22', 32), 'hex'),
+        decode('78', 'hex'), statement_timestamp(),
+        statement_timestamp() + interval '10 minutes'
+      )
+    `,
+    [googleAuthStateDigest],
+  );
+  await client.query(
+    `
+      INSERT INTO google_auth_attempts (
+        id, purpose, state_digest, nonce_digest, encrypted_code_verifier,
+        created_at, expires_at
+      )
+      SELECT gen_random_uuid(),
+             'login',
+             decode(md5(value::text) || md5('state-' || value::text), 'hex'),
+             decode(md5('nonce-' || value::text) || md5('n-' || value::text), 'hex'),
+             decode('78', 'hex'),
+             statement_timestamp(),
+             statement_timestamp() + interval '10 minutes'
+      FROM generate_series(1, 1000) AS series(value)
+    `,
+  );
   await client.query(
     `
       INSERT INTO users (
@@ -332,9 +359,9 @@ async function installFixture(client: PoolClient): Promise<{
     [ownerId, nearVector, farVector],
   );
   await client.query(
-    'ANALYZE users, courses, course_steps, course_feedback, work_outbox_events, posts, retrieval_embeddings',
+    'ANALYZE users, google_auth_attempts, courses, course_steps, course_feedback, work_outbox_events, posts, retrieval_embeddings',
   );
-  return { ownerId, courseId, emailCanonical };
+  return { ownerId, courseId, googleAuthStateDigest };
 }
 
 async function persistPlans(path: string, plans: NamedPlan[]): Promise<void> {

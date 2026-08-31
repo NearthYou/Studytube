@@ -8,15 +8,15 @@ import {
 
 const jsonResponseSchemas: Record<string, Schema> = {
   ...domainResponseSchemas,
-  AuthController_signup: acceptedStatusSchema(),
-  AuthController_resend: acceptedStatusSchema(),
-  AuthController_registrationReadiness: {
+  LegacyEmailAuthController_signup: acceptedStatusSchema(),
+  LegacyEmailAuthController_resend: acceptedStatusSchema(),
+  LegacyEmailAuthController_registrationReadiness: {
     type: 'object',
     required: ['status'],
     properties: { status: { type: 'string', enum: ['ready'] } },
   },
-  AuthController_completeRegistration: userEnvelopeSchema(),
-  AuthController_login: userEnvelopeSchema(),
+  LegacyEmailAuthController_completeRegistration: userEnvelopeSchema(),
+  LegacyEmailAuthController_login: userEnvelopeSchema(),
   AuthController_getMe: { $ref: '#/components/schemas/AuthPublicUser' },
   AuthController_verifyProfile: {
     $ref: '#/components/schemas/AuthPublicUser',
@@ -522,8 +522,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function publicOperationSecurity(operationId: unknown): Schema[] {
   if (
-    operationId === 'AuthController_registrationReadiness' ||
-    operationId === 'AuthController_completeRegistration'
+    operationId === 'LegacyEmailAuthController_registrationReadiness' ||
+    operationId === 'LegacyEmailAuthController_completeRegistration'
   ) {
     return [{ enrollment: [] }];
   }

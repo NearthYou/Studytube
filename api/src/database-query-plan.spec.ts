@@ -18,16 +18,16 @@ describe('database query plan contracts', () => {
       Plans: [
         {
           'Node Type': 'Index Scan',
-          'Relation Name': 'users',
-          'Index Name': 'users_email_canonical_key',
+          'Relation Name': 'google_auth_attempts',
+          'Index Name': 'google_auth_attempts_state_key',
         },
       ],
     };
 
     expect(() =>
-      assertQueryPlanContract('auth lookup', plan, {
-        requiredIndexes: [/^users_email_canonical_key$/u],
-        forbiddenSequentialScanRelations: ['users'],
+      assertQueryPlanContract('Google authorization attempt lookup', plan, {
+        requiredIndexes: [/^google_auth_attempts_state_key$/u],
+        forbiddenSequentialScanRelations: ['google_auth_attempts'],
       }),
     ).not.toThrow();
   });

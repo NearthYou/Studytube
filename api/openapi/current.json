@@ -2577,31 +2577,14 @@
       },
       "UpdateProfileDto": {
         "properties": {
-          "currentPassword": {
-            "type": "string"
-          },
           "name": {
             "maxLength": 100,
-            "type": "string"
-          },
-          "password": {
             "type": "string"
           },
           "preferences": {
             "$ref": "#/components/schemas/LearningPreferencesDto"
           }
         },
-        "type": "object"
-      },
-      "VerifyProfileDto": {
-        "properties": {
-          "currentPassword": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "currentPassword"
-        ],
         "type": "object"
       },
       "VideoAssetResponse": {
@@ -3158,7 +3141,7 @@
     },
     "/auth/email-verifications/consume": {
       "post": {
-        "operationId": "AuthController_consumeVerification",
+        "operationId": "LegacyEmailAuthController_consumeVerification",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -3177,13 +3160,13 @@
         },
         "security": [],
         "tags": [
-          "Auth"
+          "LegacyEmailAuth"
         ]
       }
     },
     "/auth/email-verifications/resend": {
       "post": {
-        "operationId": "AuthController_resend",
+        "operationId": "LegacyEmailAuthController_resend",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -3220,13 +3203,69 @@
         },
         "security": [],
         "tags": [
-          "Auth"
+          "LegacyEmailAuth"
+        ]
+      }
+    },
+    "/auth/google/callback": {
+      "get": {
+        "operationId": "GoogleAuthController_callback",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "error",
+            "required": false,
+            "schema": {}
+          },
+          {
+            "in": "query",
+            "name": "code",
+            "required": false,
+            "schema": {}
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {}
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Redirects to the StudyTube authentication result"
+          }
+        },
+        "security": [],
+        "tags": [
+          "GoogleAuth"
+        ]
+      }
+    },
+    "/auth/google/start": {
+      "get": {
+        "operationId": "GoogleAuthController_start",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "returnTo",
+            "required": false,
+            "schema": {}
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Redirects to Google authorization"
+          }
+        },
+        "security": [],
+        "tags": [
+          "GoogleAuth"
         ]
       }
     },
     "/auth/login": {
       "post": {
-        "operationId": "AuthController_login",
+        "operationId": "LegacyEmailAuthController_login",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -3260,7 +3299,7 @@
         },
         "security": [],
         "tags": [
-          "Auth"
+          "LegacyEmailAuth"
         ]
       }
     },
@@ -3281,7 +3320,7 @@
     },
     "/auth/registrations/complete": {
       "post": {
-        "operationId": "AuthController_completeRegistration",
+        "operationId": "LegacyEmailAuthController_completeRegistration",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -3319,13 +3358,13 @@
           }
         ],
         "tags": [
-          "Auth"
+          "LegacyEmailAuth"
         ]
       }
     },
     "/auth/registrations/current": {
       "get": {
-        "operationId": "AuthController_registrationReadiness",
+        "operationId": "LegacyEmailAuthController_registrationReadiness",
         "parameters": [],
         "responses": {
           "200": {
@@ -3356,13 +3395,13 @@
           }
         ],
         "tags": [
-          "Auth"
+          "LegacyEmailAuth"
         ]
       }
     },
     "/auth/signup": {
       "post": {
-        "operationId": "AuthController_signup",
+        "operationId": "LegacyEmailAuthController_signup",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -3399,7 +3438,7 @@
         },
         "security": [],
         "tags": [
-          "Auth"
+          "LegacyEmailAuth"
         ]
       }
     },
@@ -4994,6 +5033,18 @@
       }
     },
     "/me": {
+      "delete": {
+        "operationId": "AccountDeletionController_deleteAccount",
+        "parameters": [],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "AccountDeletion"
+        ]
+      },
       "get": {
         "operationId": "AuthController_getMe",
         "parameters": [],
@@ -5043,34 +5094,17 @@
         ]
       }
     },
-    "/me/verify": {
-      "post": {
-        "operationId": "AuthController_verifyProfile",
+    "/me/deletion/google/start": {
+      "get": {
+        "operationId": "GoogleAuthController_startDeletion",
         "parameters": [],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/VerifyProfileDto"
-              }
-            }
-          },
-          "required": true
-        },
         "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AuthPublicUser"
-                }
-              }
-            },
-            "description": ""
+          "302": {
+            "description": "Redirects to Google account reauthentication"
           }
         },
         "tags": [
-          "Auth"
+          "GoogleAuth"
         ]
       }
     },

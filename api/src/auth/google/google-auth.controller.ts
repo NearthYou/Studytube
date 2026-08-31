@@ -1,4 +1,5 @@
 import { Controller, Get, HttpStatus, Query, Req, Res } from '@nestjs/common';
+import { ApiResponse } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { AuthCookiePolicy } from '../auth-cookie';
 import { Public } from '../public.decorator';
@@ -14,6 +15,10 @@ export class GoogleAuthController {
 
   @Public()
   @Get('auth/google/start')
+  @ApiResponse({
+    status: HttpStatus.FOUND,
+    description: 'Redirects to Google authorization',
+  })
   async start(
     @Query('returnTo') returnPath: string | undefined,
     @Res() response: Response,
@@ -28,6 +33,10 @@ export class GoogleAuthController {
 
   @Public()
   @Get('auth/google/callback')
+  @ApiResponse({
+    status: HttpStatus.FOUND,
+    description: 'Redirects to the StudyTube authentication result',
+  })
   async callback(
     @Query('state') state: string | undefined,
     @Query('code') code: string | undefined,
@@ -82,6 +91,10 @@ export class GoogleAuthController {
   }
 
   @Get('me/deletion/google/start')
+  @ApiResponse({
+    status: HttpStatus.FOUND,
+    description: 'Redirects to Google account reauthentication',
+  })
   async startDeletion(
     @Req() request: AuthenticatedRequest,
     @Res() response: Response,

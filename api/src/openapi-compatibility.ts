@@ -1,6 +1,6 @@
 const methods = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options'];
 
-const retiredSocialPaths = new Set([
+const intentionallyRetiredPaths = new Set([
   '/posts',
   '/posts/{id}',
   '/posts/{id}/comments',
@@ -11,8 +11,15 @@ const retiredSocialPaths = new Set([
   '/playlists/{id}/items',
   '/playlists/{id}/feedback',
   '/courses/{id}/feedback',
+  '/me/verify',
 ]);
-const retiredSocialSchemas = new Set(['CreateCourseFeedbackDto']);
+const intentionallyRetiredSchemas = new Set([
+  'CreateCourseFeedbackDto',
+  'VerifyProfileDto',
+]);
+const intentionallyRetiredSchemaProperties = new Map([
+  ['UpdateProfileDto', new Set(['currentPassword', 'password'])],
+]);
 
 export type OpenApiOperation = {
   security?: Array<Record<string, unknown>>;
@@ -81,7 +88,7 @@ export function findBreakingChanges(
   for (const [path, baselinePath] of Object.entries(baseline.paths)) {
     const currentPath = current.paths[path];
     if (!currentPath) {
-      if (!retiredSocialPaths.has(path)) {
+      if (!intentionallyRetiredPaths.has(path)) {
         breaks.push(`removed path ${path}`);
       }
       continue;
@@ -221,7 +228,7 @@ function compareSchemas(
   const previousSchemas = baseline.components?.schemas ?? {};
   const nextSchemas = current.components?.schemas ?? {};
   for (const name of Object.keys(previousSchemas)) {
-    if (!(name in nextSchemas) && !retiredSocialSchemas.has(name)) {
+    if (!(name in nextSchemas) && !intentionallyRetiredSchemas.has(name)) {
       breaks.push(`removed schema ${name}`);
     }
   }
@@ -274,7 +281,9 @@ function compareSchema(
     const previousProperty = previousProperties[property];
     const nextProperty = nextProperties[property];
     if (!nextProperty) {
-      breaks.push(`removed schema ${context} property ${property}`);
+      if (!intentionallyRetiredSchemaProperties.get(context)?.has(property)) {
+        breaks.push(`removed schema ${context} property ${property}`);
+      }
       continue;
     }
     compareSchema(

@@ -47,9 +47,7 @@ export function CourseBuilderPage({ session }: { session: Session }) {
     readCourseRecommendation(),
   );
   const [courses, setCourses] = useState<Course[]>([]);
-  const [status, setStatus] = useState(
-    "배우고 싶은 내용을 입력해주세요.",
-  );
+  const [status, setStatus] = useState("");
   const isSearching = false;
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSavingPlaylist, setIsSavingPlaylist] = useState(false);
@@ -317,7 +315,6 @@ export function CourseBuilderPage({ session }: { session: Session }) {
         <header className="course-builder-heading">
           <div>
             <h2>배울 내용 정하기</h2>
-            <p>배우고 싶은 내용을 적으면 관련 영상을 2~4개 골라 순서대로 보여드립니다.</p>
           </div>
         </header>
         <div className="course-builder-body">
@@ -351,7 +348,11 @@ export function CourseBuilderPage({ session }: { session: Session }) {
               {isGenerating ? "코스 만드는 중" : "코스 만들기"}
             </button>
           </form>
-          <p className="system-note" aria-live="polite">{status}</p>
+          {status && (
+            <p className="system-note" aria-live="polite">
+              {status}
+            </p>
+          )}
           <p className="course-recommendation-basis">
             주제, 자막, 영상 길이, 최근 학습을 함께 살펴봅니다. 이미 본 영상은 다시 추천하지 않습니다.
           </p>

@@ -40,6 +40,11 @@ test("course creation has one clear primary action and visible progress", () => 
   assert.match(source, /aria-busy=\{isGenerating\}/);
   assert.match(source, /저장 코스 보기/);
   assert.doesNotMatch(source, /기존 코스 먼저 찾기|새로 만들어줘/);
+  assert.doesNotMatch(source, /배우고 싶은 내용을 입력해주세요/);
+  assert.equal(
+    source.match(/배우고 싶은 내용을 적으면/g)?.length,
+    1,
+  );
 });
 
 test("Course builder contains creation without the saved Course library", () => {

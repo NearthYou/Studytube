@@ -6,7 +6,6 @@ import type {
   McpResponse,
   PaginatedPosts,
   RagResponse,
-  Session,
   StudyPost,
   LearningNote,
   LearningCaptionSnapshotResponse,
@@ -155,6 +154,9 @@ function localizedApiError(
   }
 
   const codeMessages: Record<string, string> = {
+    ACCOUNT_NOT_FOUND: "계정 정보를 찾을 수 없습니다.",
+    ACCOUNT_REAUTH_REQUIRED:
+      "본인 확인 시간이 지났어요. Google 계정으로 다시 확인해 주세요.",
     INVALID_CREDENTIALS: "이메일 또는 비밀번호가 올바르지 않습니다.",
     INVALID_CURRENT_PASSWORD: "현재 비밀번호가 올바르지 않습니다.",
     INVALID_ENROLLMENT:
@@ -203,56 +205,17 @@ export function apiBaseUrl() {
   return API_BASE_URL;
 }
 
-export function signUp(input: {
-  email: string;
-}): Promise<{ status: "accepted" }> {
-  return requestJson<{ status: "accepted" }>("/auth/signup", {
-    method: "POST",
-    body: JSON.stringify(input),
-  });
+export function googleLoginUrl(returnTo: string) {
+  const query = new URLSearchParams({ returnTo });
+  return `${API_BASE_URL}/auth/google/start?${query.toString()}`;
 }
 
-export function resendEmailVerification(input: {
-  email: string;
-}): Promise<{ status: "accepted" }> {
-  return requestJson<{ status: "accepted" }>(
-    "/auth/email-verifications/resend",
-    {
-      method: "POST",
-      body: JSON.stringify(input),
-    },
-  );
+export function accountDeletionReauthUrl() {
+  return `${API_BASE_URL}/me/deletion/google/start`;
 }
 
-export function consumeEmailVerification(verificationToken: string) {
-  return requestJson<void>("/auth/email-verifications/consume", {
-    method: "POST",
-    body: JSON.stringify({ verificationToken }),
-  });
-}
-
-export function fetchRegistrationReadiness(): Promise<{ status: "ready" }> {
-  return requestJson<{ status: "ready" }>("/auth/registrations/current");
-}
-
-export function completeRegistration(input: {
-  name: string;
-  password: string;
-}): Promise<Session> {
-  return requestJson<Session>("/auth/registrations/complete", {
-    method: "POST",
-    body: JSON.stringify(input),
-  });
-}
-
-export function login(input: {
-  email: string;
-  password: string;
-}): Promise<Session> {
-  return requestJson<Session>("/auth/login", {
-    method: "POST",
-    body: JSON.stringify(input),
-  });
+export function deleteMe() {
+  return requestJson<void>("/me", { method: "DELETE" });
 }
 
 export function logout() {
@@ -265,17 +228,8 @@ export function fetchMe(): Promise<User> {
   return requestJson<User>("/me");
 }
 
-export function verifyMe(input: { currentPassword: string }): Promise<User> {
-  return requestJson<User>("/me/verify", {
-    method: "POST",
-    body: JSON.stringify(input),
-  });
-}
-
 export function updateMe(input: {
-  currentPassword?: string;
   name?: string;
-  password?: string;
   preferences?: {
     interests: string[];
     pace: string;

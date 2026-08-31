@@ -18,6 +18,9 @@ import { PasswordValidationError } from './password-hasher';
 import { RequestIdMiddleware } from './request-id.middleware';
 import { SessionGuard } from './session.guard';
 import { AuthService } from './auth.service';
+import { LegacyEmailAuthController } from './legacy-email-auth.controller';
+import { AccountDeletionController } from '../account/account-deletion.controller';
+import { AccountErasureService } from '../account/account-erasure.service';
 
 const WEB_ORIGIN = 'https://web.studytube.test';
 const SESSION_TOKEN = Buffer.alloc(32, 1).toString('base64url');
@@ -67,17 +70,24 @@ describe('authentication HTTP boundary', () => {
     createPost,
   };
   const recommend = jest.fn();
+  const eraseAccount = jest.fn();
 
   beforeAll(async () => {
     const module = await Test.createTestingModule({
       controllers: [
         AuthController,
+        LegacyEmailAuthController,
+        AccountDeletionController,
         AppController,
         StudyBoardController,
         AiController,
       ],
       providers: [
         { provide: AuthService, useValue: authService },
+        {
+          provide: AccountErasureService,
+          useValue: { eraseAccount },
+        },
         { provide: StudyBoardService, useValue: studyBoardService },
         {
           provide: AppService,
@@ -155,6 +165,7 @@ describe('authentication HTTP boundary', () => {
       status: 'updated',
       user: updatedUser,
     });
+    eraseAccount.mockResolvedValue({ status: 'deleted' });
     studyBoardService.listPublicPosts.mockResolvedValue({ items: [] });
     studyBoardService.createPost.mockResolvedValue({ id: 91 });
   });
@@ -306,30 +317,50 @@ describe('authentication HTTP boundary', () => {
       .expect(401);
   });
 
-  it('verifies and updates the authenticated profile through cookie routes', async () => {
+  it('updates the authenticated profile without a password route', async () => {
     await request(app.getHttpServer())
       .post('/me/verify')
       .set('Origin', WEB_ORIGIN)
       .set('Cookie', `studytube_session=${SESSION_TOKEN}`)
       .send({ currentPassword: 'current password' })
-      .expect(200, updatedUser);
-
-    expect(authService.verifyProfile).toHaveBeenCalledWith(
-      user,
-      'current password',
-    );
+      .expect(404);
 
     await request(app.getHttpServer())
       .put('/me')
       .set('Origin', WEB_ORIGIN)
       .set('Cookie', `studytube_session=${SESSION_TOKEN}`)
-      .send({ preferences: updatedUser.preferences })
+      .send({ name: updatedUser.name, preferences: updatedUser.preferences })
       .expect(200, updatedUser);
 
     expect(authService.updateProfile).toHaveBeenCalledWith(
       { sessionId: 11, user },
-      { preferences: updatedUser.preferences },
+      { name: updatedUser.name, preferences: updatedUser.preferences },
     );
+  });
+
+  it('deletes the authenticated account only through an origin-checked request', async () => {
+    const deleted = await request(app.getHttpServer())
+      .delete('/me')
+      .set('Origin', WEB_ORIGIN)
+      .set('Content-Type', 'application/json')
+      .set('Cookie', `studytube_session=${SESSION_TOKEN}`)
+      .send({})
+      .expect(204);
+
+    expect(eraseAccount).toHaveBeenCalledWith({
+      userId: 7,
+      sessionId: 11,
+    });
+    expect((deleted.get('Set-Cookie') ?? []).join('\n')).toContain(
+      'studytube_session=;',
+    );
+
+    await request(app.getHttpServer())
+      .delete('/me')
+      .set('Content-Type', 'application/json')
+      .set('Cookie', `studytube_session=${SESSION_TOKEN}`)
+      .send({})
+      .expect(403);
   });
 
   it('rejects missing, malformed, duplicate, and bearer-only session credentials', async () => {

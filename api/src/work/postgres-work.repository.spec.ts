@@ -5,6 +5,7 @@ import { PostgresWorkRepository } from './postgres-work.repository';
 type RepositoryContract = {
   appendOutboxEvent(event: {
     id: string;
+    ownerId: number | null;
     eventType: string;
     aggregateType: string;
     aggregateId: string;
@@ -68,6 +69,7 @@ describe('PostgresWorkRepository', () => {
 
     await (repository as unknown as RepositoryContract).appendOutboxEvent({
       id: '11111111-1111-4111-8111-111111111111',
+      ownerId: 7,
       eventType: 'video_asset.requested',
       aggregateType: 'post',
       aggregateId: '42',
@@ -78,8 +80,10 @@ describe('PostgresWorkRepository', () => {
 
     const [sql, values] = query.mock.calls[0] as [string, unknown[]];
     expect(sql).toContain('INSERT INTO work_outbox_events');
+    expect(sql).toContain('owner_id');
     expect(values).toEqual([
       '11111111-1111-4111-8111-111111111111',
+      7,
       'video_asset.requested',
       'post',
       '42',
@@ -103,6 +107,7 @@ describe('PostgresWorkRepository', () => {
         rows: [
           {
             id: '11111111-1111-4111-8111-111111111111',
+            ownerId: 7,
             eventType: 'video_asset.requested',
             aggregateType: 'post',
             aggregateId: '42',
@@ -126,6 +131,7 @@ describe('PostgresWorkRepository', () => {
     expect(claimed).toEqual([
       expect.objectContaining({
         id: '11111111-1111-4111-8111-111111111111',
+        ownerId: 7,
         leaseToken: '22222222-2222-4222-8222-222222222222',
         payload: { postId: 42 },
       }),

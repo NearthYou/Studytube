@@ -4,18 +4,12 @@ import {
   approveLearningProposal,
   askAgent,
   captureLiveCaptionChunk,
-  completeRegistration,
-  consumeEmailVerification,
   dismissLearningProposal,
-  fetchRegistrationReadiness,
   finalizeLiveCaptions,
   logout,
   requestJson,
-  resendEmailVerification,
   setUnauthorizedHandler,
-  signUp,
   updateMe,
-  verifyMe,
 } from "../src/api.ts";
 
 test("sends recent learning and exclusions to the Course agent", async () => {
@@ -221,36 +215,6 @@ test("explains a learning daily limit without calling it a service outage", asyn
   }
 });
 
-test("keeps the session when only the current password is wrong", async () => {
-  const originalFetch = globalThis.fetch;
-  let unauthorized = 0;
-  setUnauthorizedHandler(() => {
-    unauthorized += 1;
-  });
-  globalThis.fetch = async () =>
-    new Response(
-      JSON.stringify({
-        code: "INVALID_CURRENT_PASSWORD",
-        message: "Current password is invalid",
-      }),
-      {
-        status: 401,
-        headers: { "Content-Type": "application/json" },
-      },
-    );
-
-  try {
-    await assert.rejects(
-      verifyMe({ currentPassword: "wrong password" }),
-      /현재 비밀번호가 올바르지 않습니다/,
-    );
-    assert.equal(unauthorized, 0);
-  } finally {
-    setUnauthorizedHandler(null);
-    globalThis.fetch = originalFetch;
-  }
-});
-
 test("logs out through the cookie session endpoint", async () => {
   const originalFetch = globalThis.fetch;
   let request: { input: string; init?: RequestInit } | null = null;
@@ -269,88 +233,11 @@ test("logs out through the cookie session endpoint", async () => {
   }
 });
 
-test("starts registration with only an email address", async () => {
-  const request = await captureRequest(
-    () => signUp({ email: "ada@example.com" }),
-    { status: "accepted" },
-  );
-
-  assert.match(request.input, /\/auth\/signup$/);
-  assert.equal(request.init?.method, "POST");
-  assert.deepEqual(JSON.parse(String(request.init?.body)), {
-    email: "ada@example.com",
-  });
-});
-
-test("resends verification for the saved email through the dedicated endpoint", async () => {
-  const request = await captureRequest(
-    () => resendEmailVerification({ email: "ada@example.com" }),
-    { status: "accepted" },
-    202,
-  );
-
-  assert.match(request.input, /\/auth\/email-verifications\/resend$/);
-  assert.equal(request.init?.method, "POST");
-  assert.deepEqual(JSON.parse(String(request.init?.body)), {
-    email: "ada@example.com",
-  });
-});
-
-test("consumes the verification token without exposing an enrollment token", async () => {
-  const request = await captureRequest(
-    () => consumeEmailVerification("v1.pending.secret"),
-    undefined,
-    204,
-  );
-
-  assert.match(request.input, /\/auth\/email-verifications\/consume$/);
-  assert.equal(request.init?.method, "POST");
-  // Synthetic versioned token fixture: this only verifies request serialization.
-  assert.deepEqual(JSON.parse(String(request.init?.body)), {
-    verificationToken: "v1.pending.secret",
-  });
-});
-
-test("checks the HttpOnly enrollment cookie before rendering completion", async () => {
-  const request = await captureRequest(() => fetchRegistrationReadiness(), {
-    status: "ready",
-  });
-
-  assert.match(request.input, /\/auth\/registrations\/current$/);
-  assert.equal(request.init?.method, undefined);
-  assert.equal(request.init?.credentials, "include");
-  assert.equal(request.init?.body, undefined);
-});
-
-test("completes registration with name and password only", async () => {
-  const request = await captureRequest(
-    () => completeRegistration({ name: "Ada", password: "correct horse" }),
-    { user: { id: 1, name: "Ada" } },
-  );
-
-  assert.match(request.input, /\/auth\/registrations\/complete$/);
-  assert.equal(request.init?.method, "POST");
-  assert.deepEqual(JSON.parse(String(request.init?.body)), {
-    name: "Ada",
-    password: "correct horse",
-  });
-});
-
-test("verifies and updates the current profile through cookie endpoints", async () => {
-  const verification = await captureRequest(
-    () => verifyMe({ currentPassword: "current password" }),
-    { id: 7, name: "Ada" },
-  );
-
-  assert.match(verification.input, /\/me\/verify$/);
-  assert.equal(verification.init?.method, "POST");
-  assert.deepEqual(JSON.parse(String(verification.init?.body)), {
-    currentPassword: "current password",
-  });
-
+test("updates the current profile through the cookie endpoint", async () => {
   const update = await captureRequest(
     () =>
       updateMe({
+        name: "Ada",
         preferences: {
           interests: ["Docker"],
           pace: "10분",
@@ -363,6 +250,7 @@ test("verifies and updates the current profile through cookie endpoints", async 
   assert.match(update.input, /\/me$/);
   assert.equal(update.init?.method, "PUT");
   assert.deepEqual(JSON.parse(String(update.init?.body)), {
+    name: "Ada",
     preferences: {
       interests: ["Docker"],
       pace: "10분",

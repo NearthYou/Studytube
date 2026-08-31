@@ -2,9 +2,9 @@ import { Navigate, Route, Routes } from "react-router";
 import { MyEditPage } from "../features/account/MyEditPage";
 import { MyPage } from "../features/account/MyPage";
 import { LearningPreferencesPage } from "../features/account/LearningPreferencesPage";
+import { AccountDeletionPage } from "../features/account/AccountDeletionPage";
 import { AuthPage } from "../features/auth/AuthPage";
-import { RegistrationCompletionPage } from "../features/auth/RegistrationCompletionPage";
-import { VerificationPage } from "../features/auth/VerificationPage";
+import { GoogleAuthCompletePage } from "../features/auth/GoogleAuthCompletePage";
 import { CourseBuilderPage } from "../features/course/CoursePage";
 import { CourseLibraryPage } from "../features/course/CourseLibraryPage";
 import { LearningPage } from "../features/learning/LearningPage";
@@ -17,27 +17,21 @@ type AppRoutesProps = {
   session: Session | null;
   onAuthComplete: (session: Session) => void;
   onSessionUpdate: (user: User) => void;
+  onAccountDeleted: () => void;
 };
 
 export function AppRoutes({
   session,
   onAuthComplete,
   onSessionUpdate,
+  onAccountDeleted,
 }: AppRoutesProps) {
   return (
     <Routes>
+      <Route path="/login" element={<AuthPage />} />
       <Route
-        path="/login"
-        element={<AuthPage mode="login" onComplete={onAuthComplete} />}
-      />
-      <Route
-        path="/signup"
-        element={<AuthPage mode="signup" onComplete={onAuthComplete} />}
-      />
-      <Route path="/signup/verify" element={<VerificationPage />} />
-      <Route
-        path="/signup/complete"
-        element={<RegistrationCompletionPage onComplete={onAuthComplete} />}
+        path="/auth/google/complete"
+        element={<GoogleAuthCompletePage onComplete={onAuthComplete} />}
       />
       <Route
         path="/"
@@ -106,6 +100,14 @@ export function AppRoutes({
         element={
           <ProtectedRoute session={session}>
             <MyEditPage session={session!} onSessionUpdate={onSessionUpdate} />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/me/delete"
+        element={
+          <ProtectedRoute session={session}>
+            <AccountDeletionPage onDeleted={onAccountDeleted} />
           </ProtectedRoute>
         }
       />

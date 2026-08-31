@@ -46,12 +46,6 @@ export class LoginDto {
   password!: string;
 }
 
-export class VerifyProfileDto {
-  @IsString()
-  @IsNotEmpty()
-  currentPassword!: string;
-}
-
 export class LearningPreferencesDto {
   @IsArray()
   @ArrayNotEmpty()
@@ -75,18 +69,8 @@ export class UpdateProfileDto {
   @IsOptional()
   @IsString()
   @IsNotEmpty()
-  currentPassword?: string;
-
-  @IsOptional()
-  @IsString()
-  @IsNotEmpty()
   @MaxLength(100)
   name?: string;
-
-  @IsOptional()
-  @IsString()
-  @IsNotEmpty()
-  password?: string;
 
   @IsOptional()
   @ValidateNested()

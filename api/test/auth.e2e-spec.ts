@@ -554,7 +554,7 @@ describe('cookie authentication with PostgreSQL (e2e)', () => {
     expect(JSON.stringify(persisted.rows)).not.toContain(password);
   });
 
-  it('persists learning preferences and verifies the current password', async () => {
+  it('persists learning preferences without a password verification route', async () => {
     const email = testEmail('profile');
     const preferences = {
       interests: ['Docker'],
@@ -575,7 +575,7 @@ describe('cookie authentication with PostgreSQL (e2e)', () => {
       .post('/me/verify')
       .set('Origin', WEB_ORIGIN)
       .send({ currentPassword: registered.password })
-      .expect(200, expectedUser);
+      .expect(404);
 
     const persisted = await pool.query<{ preferences: unknown }>(
       'SELECT preferences FROM users WHERE email_canonical = $1',

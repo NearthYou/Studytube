@@ -213,6 +213,18 @@ function createService(
 }
 
 describe('AuthService enrollment', () => {
+  it('rejects legacy email enrollment before any write in Google-only mode', async () => {
+    const { service, repository } = createService({
+      legacyEmailEnabled: false,
+    });
+
+    await expect(
+      service.signup({ email: 'ada@example.com' }, '203.0.113.7'),
+    ).rejects.toThrow('LEGACY_EMAIL_AUTH_DISABLED');
+    expect(repository.consumeRateLimit).not.toHaveBeenCalled();
+    expect(repository.createPendingRegistration).not.toHaveBeenCalled();
+  });
+
   it('canonicalizes exactly the migration ASCII email contract', () => {
     expect(canonicalizeAuthEmail(' Ada.Example+tag@Example.COM ')).toBe(
       'ada.example+tag@example.com',
@@ -490,23 +502,6 @@ describe('AuthService profile', () => {
     createdAt: NOW.toISOString(),
   };
 
-  it('verifies the current password without returning credential fields', async () => {
-    const { service, repository, passwordHasher } = createService();
-    repository.findAuthUser.mockResolvedValue({ user: authUser() });
-    passwordHasher.verify.mockResolvedValueOnce({
-      valid: true,
-      needsRehash: false,
-      algorithm: 'argon2id',
-    });
-
-    await expect(
-      service.verifyProfile(publicUser, 'current password'),
-    ).resolves.toEqual({
-      status: 'verified',
-      user: publicUser,
-    });
-  });
-
   it('updates learning preferences without asking for the current password', async () => {
     const { service, repository } = createService();
     const preferences = {
@@ -535,6 +530,35 @@ describe('AuthService profile', () => {
       sessionId: SESSION_ID,
       name: undefined,
       preferences,
+      expectedPasswordHash: undefined,
+      expectedPasswordVersion: undefined,
+      passwordUpgrade: undefined,
+    });
+  });
+
+  it('updates the display name without asking for a password', async () => {
+    const { service, repository } = createService();
+    repository.updateProfile.mockResolvedValueOnce({
+      status: 'updated',
+      user: { ...publicUser, name: 'Grace' },
+    });
+
+    await expect(
+      service.updateProfile(
+        { sessionId: SESSION_ID, user: publicUser },
+        { name: ' Grace ' },
+      ),
+    ).resolves.toEqual({
+      status: 'updated',
+      user: { ...publicUser, name: 'Grace' },
+    });
+
+    expect(repository.findAuthUser).not.toHaveBeenCalled();
+    expect(repository.updateProfile).toHaveBeenCalledWith({
+      userId: 7,
+      sessionId: SESSION_ID,
+      name: 'Grace',
+      preferences: undefined,
       expectedPasswordHash: undefined,
       expectedPasswordVersion: undefined,
       passwordUpgrade: undefined,

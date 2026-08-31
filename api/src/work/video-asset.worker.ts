@@ -112,6 +112,7 @@ export class VideoAssetJobHandler {
     signal.throwIfAborted();
     await this.events.appendOutboxEvent({
       id: deterministicWorkUuid(job.eventId, 'retrieval_embedding.requested'),
+      ownerId: job.ownerId,
       eventType: 'retrieval_embedding.requested',
       aggregateType: 'post',
       aggregateId: String(post.id),
@@ -126,6 +127,7 @@ export class VideoAssetJobHandler {
           job.eventId,
           `retrieval_embedding.course_step.${courseStepId}`,
         ),
+        ownerId: job.ownerId,
         eventType: 'retrieval_embedding.requested',
         aggregateType: 'course_step',
         aggregateId: courseStepId,
@@ -207,6 +209,7 @@ export class VideoAssetJobHandler {
             job.eventId,
             `retrieval_embedding.learning_context.${context.studyContextId}.${context.sourceVersion}`,
           ),
+          ownerId: job.ownerId,
           eventType: 'retrieval_embedding.requested',
           aggregateType: 'study_context',
           aggregateId: context.studyContextId,

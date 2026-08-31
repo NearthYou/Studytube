@@ -9,6 +9,10 @@ import { ConfigService } from '@nestjs/config';
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { Pool, PoolClient, type QueryConfig } from 'pg';
 import { AuthRepositoryUnavailableError } from './auth/auth.repository';
+import type { AccountErasureRepository } from './account/account-erasure.repository';
+import { PostgresAccountErasureRepository } from './account/postgres-account-erasure.repository';
+import type { GoogleAuthRepository } from './auth/google/google-auth.repository';
+import { PostgresGoogleAuthRepository } from './auth/google/postgres-google-auth.repository';
 import {
   PostgresVerificationEmailOutboxRepository,
   type VerificationEmailOutboxRepository,
@@ -106,6 +110,8 @@ export class DatabaseService
   private liveCaptionRepository?: LiveCaptionRepository;
   private workRepository?: WorkRepository;
   private retrievalRepository?: RetrievalRepository;
+  private googleAuthRepository?: GoogleAuthRepository;
+  private accountErasureRepository?: AccountErasureRepository;
   private verificationEmailOutboxRepository?: VerificationEmailOutboxRepository;
   private courseWriterLeaseStateTail: Promise<void> = Promise.resolve();
   private courseWriterLeaseClient?: PoolClient;
@@ -233,6 +239,18 @@ export class DatabaseService
   getWorkRepository(): WorkRepository {
     this.workRepository ??= new PostgresWorkRepository(this.pool);
     return this.workRepository;
+  }
+
+  getGoogleAuthRepository(): GoogleAuthRepository {
+    this.googleAuthRepository ??= new PostgresGoogleAuthRepository(this.pool);
+    return this.googleAuthRepository;
+  }
+
+  getAccountErasureRepository(): AccountErasureRepository {
+    this.accountErasureRepository ??= new PostgresAccountErasureRepository(
+      this.pool,
+    );
+    return this.accountErasureRepository;
   }
 
   getRetrievalRepository(): RetrievalRepository {
@@ -1357,7 +1375,7 @@ export class DatabaseService
         client,
       );
       await this.getWorkRepository().appendOutboxEvent(
-        this.retrievalEmbeddingRequestedEvent(post.id),
+        this.retrievalEmbeddingRequestedEvent(post.id, post.authorId),
         client,
       );
       await client.query('COMMIT');
@@ -1435,7 +1453,7 @@ export class DatabaseService
         );
       }
       await this.getWorkRepository().appendOutboxEvent(
-        this.retrievalEmbeddingRequestedEvent(id),
+        this.retrievalEmbeddingRequestedEvent(id, current.authorId),
         client,
       );
       await client.query('COMMIT');
@@ -1507,7 +1525,7 @@ export class DatabaseService
 
     try {
       await client.query('BEGIN');
-      const result = await client.query<VideoAssetRow>(
+      const result = await client.query<VideoAssetRow & { ownerId: number }>(
         `
           INSERT INTO video_assets (
             post_id,
@@ -1547,15 +1565,17 @@ export class DatabaseService
                     source_segments AS "sourceSegments",
                     translated_segments AS "translatedSegments",
                     summary_sections AS "summarySections",
-                    transcript_body AS "transcriptBody",
-                    error_message AS "errorMessage",
-                    created_at AS "createdAt", updated_at AS "updatedAt"
+                     transcript_body AS "transcriptBody",
+                     error_message AS "errorMessage",
+                     (SELECT author_id FROM posts WHERE id = post_id) AS "ownerId",
+                     created_at AS "createdAt", updated_at AS "updatedAt"
         `,
         [input.postId, input.videoId, input.videoUrl, input.language ?? null],
       );
       await this.getWorkRepository().appendOutboxEvent(
         {
           id: randomUUID(),
+          ownerId: result.rows[0].ownerId,
           eventType: 'video_asset.requested',
           aggregateType: 'post',
           aggregateId: String(input.postId),
@@ -2009,6 +2029,7 @@ export class DatabaseService
   }) {
     return {
       id: randomUUID(),
+      ownerId: post.authorId,
       eventType: 'video_asset.requested',
       aggregateType: 'post',
       aggregateId: String(post.id),
@@ -2023,9 +2044,10 @@ export class DatabaseService
     };
   }
 
-  private retrievalEmbeddingRequestedEvent(postId: number) {
+  private retrievalEmbeddingRequestedEvent(postId: number, ownerId: number) {
     return {
       id: randomUUID(),
+      ownerId,
       eventType: 'retrieval_embedding.requested',
       aggregateType: 'post',
       aggregateId: String(postId),

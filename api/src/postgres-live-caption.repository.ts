@@ -213,13 +213,14 @@ export class PostgresLiveCaptionRepository implements LiveCaptionRepository {
         );
         await client.query(
           `INSERT INTO work_outbox_events (
-             id, event_type, aggregate_type, aggregate_id, aggregate_version,
+             id, owner_id, event_type, aggregate_type, aggregate_id, aggregate_version,
              payload_schema_version, payload
-           ) VALUES ($1, 'retrieval_embedding.requested', 'study_context',
-                     $2, $3::bigint, 1, $4::jsonb)
+           ) VALUES ($1, $2, 'retrieval_embedding.requested', 'study_context',
+                     $3, $4::bigint, 1, $5::jsonb)
            ON CONFLICT (id) DO NOTHING`,
           [
             eventId,
+            input.userId,
             input.contextId,
             retrievalVersion,
             JSON.stringify({

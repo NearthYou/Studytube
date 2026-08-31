@@ -6,6 +6,7 @@ export type OutboxEventPayload = Record<string, unknown>;
 
 export type AppendOutboxEvent = {
   id: string;
+  ownerId: number | null;
   eventType: string;
   aggregateType: string;
   aggregateId: string;
@@ -22,6 +23,7 @@ export type ClaimedOutboxEvent = Required<
   Pick<
     AppendOutboxEvent,
     | 'id'
+    | 'ownerId'
     | 'eventType'
     | 'aggregateType'
     | 'aggregateId'

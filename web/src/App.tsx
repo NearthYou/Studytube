@@ -6,10 +6,17 @@ import { SiteNav } from "./app/SiteNav";
 import { normalizeSession, readSession, saveSession } from "./authSession";
 import { logout, setUnauthorizedHandler } from "./api";
 import { SESSION_STORAGE_KEY } from "./localStudyStorage";
+import {
+  clearStudyTubeStorage,
+  ensureStudyTubeStorageEpoch,
+} from "./studyStorageReset";
 import type { Session, User } from "./types";
 
 function App() {
-  const [session, setSession] = useState<Session | null>(() => readSession());
+  const [session, setSession] = useState<Session | null>(() => {
+    ensureStudyTubeStorageEpoch(window.localStorage, window.sessionStorage);
+    return readSession();
+  });
 
   useEffect(() => {
     setUnauthorizedHandler(() => {
@@ -43,6 +50,12 @@ function App() {
     });
   }
 
+  function handleAccountDeleted() {
+    clearStudyTubeStorage(window.localStorage);
+    clearStudyTubeStorage(window.sessionStorage);
+    setSession(null);
+  }
+
   return (
     <>
       <SiteNav session={session} onLogout={handleLogout} />
@@ -50,6 +63,7 @@ function App() {
         session={session}
         onAuthComplete={handleAuthComplete}
         onSessionUpdate={handleUserUpdate}
+        onAccountDeleted={handleAccountDeleted}
       />
     </>
   );

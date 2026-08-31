@@ -1056,12 +1056,12 @@ for required_name in \
   POSTGRES_DB \
   INTERNAL_AI_API_KEY \
   MCP_SERVICE_ASSERTION_SECRET \
+  AUTH_MODE \
   AUTH_VERIFICATION_PEPPER \
   AUTH_RATE_LIMIT_PEPPER \
-  AUTH_EMAIL_PROVIDER \
-  AUTH_EMAIL_SENDER \
-  AUTH_EMAIL_AWS_CREDENTIAL_SOURCE \
-  AUTH_EMAIL_AWS_REGION \
+  GOOGLE_OAUTH_CLIENT_ID \
+  GOOGLE_OAUTH_CLIENT_SECRET \
+  GOOGLE_AUTH_ATTEMPT_ENCRYPTION_KEY \
   STUDYTUBE_SITE_ADDRESS \
   STUDYTUBE_PUBLIC_URL \
   WEB_ORIGIN; do
@@ -1071,13 +1071,27 @@ for required_name in \
   fi
 done
 
-if [ "$AUTH_EMAIL_PROVIDER" != "ses" ]; then
-  echo "AUTH_EMAIL_PROVIDER must be ses in production" >&2
-  exit 1
-fi
-
-if [ "$AUTH_EMAIL_AWS_CREDENTIAL_SOURCE" != "instance-role" ]; then
-  echo "AUTH_EMAIL_AWS_CREDENTIAL_SOURCE must be instance-role in production" >&2
+if [ "$AUTH_MODE" = "legacy" ]; then
+  for required_name in \
+    AUTH_EMAIL_PROVIDER \
+    AUTH_EMAIL_SENDER \
+    AUTH_EMAIL_AWS_CREDENTIAL_SOURCE \
+    AUTH_EMAIL_AWS_REGION; do
+    if [ -z "${!required_name:-}" ]; then
+      echo "$required_name is required for legacy production authentication" >&2
+      exit 1
+    fi
+  done
+  if [ "$AUTH_EMAIL_PROVIDER" != "ses" ]; then
+    echo "AUTH_EMAIL_PROVIDER must be ses in production" >&2
+    exit 1
+  fi
+  if [ "$AUTH_EMAIL_AWS_CREDENTIAL_SOURCE" != "instance-role" ]; then
+    echo "AUTH_EMAIL_AWS_CREDENTIAL_SOURCE must be instance-role in production" >&2
+    exit 1
+  fi
+elif [ "$AUTH_MODE" != "google_only" ]; then
+  echo "AUTH_MODE must be google_only or legacy" >&2
   exit 1
 fi
 

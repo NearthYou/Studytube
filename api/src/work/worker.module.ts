@@ -1,9 +1,10 @@
 import { HttpModule, HttpService } from '@nestjs/axios';
-import { Logger, Module } from '@nestjs/common';
+import { Logger, Module, type Provider } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { randomUUID } from 'node:crypto';
 import { AiProxyService } from '../ai-proxy.service';
-import { AuthModule } from '../auth/auth.module';
+import { DatabaseModule } from '../database.module';
+import { resolveAuthMode, type AuthMode } from '../auth/auth-mode';
 import { DatabaseService } from '../database.service';
 import { VideoAssetService } from '../video-asset.service';
 import { RetrievalEmbeddingJobHandler } from '../retrieval/retrieval-embedding.worker';
@@ -54,7 +55,7 @@ import {
 @Module({
   imports: [
     ConfigModule.forRoot(runtimeConfigOptions(process.env)),
-    AuthModule,
+    DatabaseModule,
     LearningModule,
     HttpModule,
   ],
@@ -254,6 +255,14 @@ import {
       },
       inject: [LearningService, LoopbackMcpLearningClient, ConfigService],
     },
+    ...verificationEmailProvidersForMode(resolveAuthMode(process.env)),
+  ],
+})
+export class WorkerModule {}
+
+export function verificationEmailProvidersForMode(mode: AuthMode): Provider[] {
+  if (mode === 'google_only') return [];
+  return [
     {
       provide: VERIFICATION_EMAIL_SENDER,
       useFactory: (): VerificationEmailSender => {
@@ -322,9 +331,8 @@ import {
       },
       inject: [DatabaseService, VERIFICATION_EMAIL_SENDER],
     },
-  ],
-})
-export class WorkerModule {}
+  ];
+}
 
 function positiveInteger(value: string | undefined, fallback: number): number {
   const parsed = Number(value);

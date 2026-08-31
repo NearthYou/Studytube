@@ -14,10 +14,13 @@ test("onboarding and account screens own their feature modules", () => {
     "features/account/MyEditPage.tsx",
     "features/account/LearningPreferencesPage.tsx",
     "features/account/LearningPreferenceFields.tsx",
-    "features/account/ProfileVerificationForm.tsx",
   ]) {
     assert.equal(existsSync(resolve(root, path)), true);
   }
+  assert.equal(
+    existsSync(resolve(root, "features/account/ProfileVerificationForm.tsx")),
+    false,
+  );
   assert.doesNotMatch(
     appSource,
     /function (TutorialPage|MyPage|MyEditPage|ProfileVerificationForm)/,
@@ -49,7 +52,7 @@ test("account screen explains how Course recommendations change", () => {
   assert.match(source, /저장한 문장/);
   assert.match(
     source,
-    /분야는 검색 주제에, 시간은 영상 길이에, 배우는 방식은 어떤 영상을 먼저 고를지 정할 때 써요/,
+    /분야는 검색 주제에, 시간은 영상 길이에, 배우는 방식은 어떤\s+영상을 먼저 고를지 정할 때 써요/,
   );
   assert.doesNotMatch(source, /보드 플레이리스트|등록 영상/);
 });
@@ -74,7 +77,10 @@ test("recommendation settings have a direct password-free edit route", () => {
     "utf8",
   );
 
-  assert.match(routes, /path="\/me\/preferences"[\s\S]*LearningPreferencesPage/);
+  assert.match(
+    routes,
+    /path="\/me\/preferences"[\s\S]*LearningPreferencesPage/,
+  );
   assert.match(preferences, /updateMe\(\{\s*preferences,/);
   assert.match(preferences, /clearCourseRecommendation\(\)/);
   assert.match(preferences, /paceForPreferenceSave/);
@@ -88,7 +94,10 @@ test("recommendation settings have a direct password-free edit route", () => {
   assert.match(fields, /required=\{!legacyTime\}/);
   assert.match(fields, /어떻게 배우고 싶나요/);
   assert.doesNotMatch(fields, /하루 학습 시간|원하는 학습 결과|학습 속도/);
-  assert.doesNotMatch(accountEdit, /preference-section|draft\.interests|draft\.pace|draft\.goal/);
+  assert.doesNotMatch(
+    accountEdit,
+    /preference-section|draft\.interests|draft\.pace|draft\.goal/,
+  );
 });
 
 test("account editing keeps only the required dark form", () => {
@@ -104,24 +113,22 @@ test("account editing keeps only the required dark form", () => {
 
   assert.match(source, /account-edit-page/);
   assert.match(source, /AccountEditPage\.css/);
-  assert.doesNotMatch(source, /profile-stats|관심사|확인됨|확인 유지/);
-  assert.match(css, /\.account-edit-form\s*\{[^}]*background:\s*var\(--app-surface\)/);
-  assert.match(css, /\.account-edit-fields\s*\{[^}]*background:\s*var\(--app-elevated\)/);
-});
-
-test("profile verification keeps readable dark surfaces and controls", () => {
-  const css = readFileSync(resolve(root, "App.css"), "utf8");
-
+  assert.doesNotMatch(
+    source,
+    /profile-stats|관심사|확인됨|확인 유지|currentPassword|새 비밀번호|ProfileVerificationForm/,
+  );
+  const accountPage = readFileSync(
+    resolve(root, "features/account/MyPage.tsx"),
+    "utf8",
+  );
+  assert.match(accountPage, /to="\/me\/edit"/);
+  assert.doesNotMatch(accountPage, /isVerifying|ProfileVerificationForm/);
   assert.match(
     css,
-    /\.profile-page \.profile-verification-form\s*\{[^}]*background:\s*var\(--app-surface\)/,
+    /\.account-edit-form\s*\{[^}]*background:\s*var\(--app-surface\)/,
   );
   assert.match(
     css,
-    /\.profile-page \.profile-verification-form \.identity-section\s*\{[^}]*background:\s*var\(--app-elevated\)/,
-  );
-  assert.match(
-    css,
-    /\.profile-page \.profile-verification-form input\s*\{[^}]*color:\s*var\(--app-text\)/,
+    /\.account-edit-fields\s*\{[^}]*background:\s*var\(--app-elevated\)/,
   );
 });

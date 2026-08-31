@@ -16,6 +16,7 @@ const SOURCE_URL = 'https://www.youtube.com/watch?v=quizsource1';
 
 const JOB: WorkQueueJob = {
   eventId: '22222222-2222-4222-8222-222222222222',
+  ownerId: 7,
   eventType: 'quiz_generation.requested',
   handlerVersion: 'quiz-generation-v2',
   payloadSchemaVersion: 2,

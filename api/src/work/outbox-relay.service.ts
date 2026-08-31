@@ -79,6 +79,7 @@ export class OutboxRelayService {
             event.eventType,
             {
               eventId: event.id,
+              ownerId: event.ownerId,
               eventType: event.eventType,
               handlerVersion,
               payloadSchemaVersion: event.payloadSchemaVersion,

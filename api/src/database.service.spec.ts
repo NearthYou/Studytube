@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
 import { AuthRepositoryUnavailableError } from './auth/auth.repository';
+import { PostgresGoogleAuthRepository } from './auth/google/postgres-google-auth.repository';
+import { PostgresAccountErasureRepository } from './account/postgres-account-erasure.repository';
 import { PostgresVerificationEmailOutboxRepository } from './auth/verification-email-outbox.repository';
 import { DatabaseService } from './database.service';
 import { createObservabilityRuntime } from './observability';
@@ -95,6 +97,26 @@ describe('DatabaseService fail-fast persistence', () => {
     const second = workOwner.getWorkRepository();
 
     expect(first).toBeInstanceOf(PostgresWorkRepository);
+    expect(second).toBe(first);
+  });
+
+  it('shares one Google authentication repository with the auth module', () => {
+    const service = new DatabaseService(configService());
+
+    const first = service.getGoogleAuthRepository();
+    const second = service.getGoogleAuthRepository();
+
+    expect(first).toBeInstanceOf(PostgresGoogleAuthRepository);
+    expect(second).toBe(first);
+  });
+
+  it('shares one account erasure repository with the account module', () => {
+    const service = new DatabaseService(configService());
+
+    const first = service.getAccountErasureRepository();
+    const second = service.getAccountErasureRepository();
+
+    expect(first).toBeInstanceOf(PostgresAccountErasureRepository);
     expect(second).toBe(first);
   });
 
@@ -1268,7 +1290,8 @@ describe('DatabaseService durable post work', () => {
       [string, unknown[]]
     >;
     const values = calls[outboxIndexes[0] ?? -1]?.[1] ?? [];
-    expect(values.slice(1, 7)).toEqual([
+    expect(values.slice(1, 8)).toEqual([
+      7,
       'video_asset.requested',
       'post',
       '42',
@@ -1279,7 +1302,8 @@ describe('DatabaseService durable post work', () => {
         videoUrl: 'https://youtu.be/durablePost',
       }),
     ]);
-    expect(calls[outboxIndexes[1] ?? -1]?.[1]?.[1]).toBe(
+    expect(calls[outboxIndexes[1] ?? -1]?.[1]?.[1]).toBe(7);
+    expect(calls[outboxIndexes[1] ?? -1]?.[1]?.[2]).toBe(
       'retrieval_embedding.requested',
     );
     expect(release).toHaveBeenCalled();
@@ -1294,6 +1318,7 @@ describe('DatabaseService durable post work', () => {
           rows: [
             {
               id: 9,
+              ownerId: 7,
               postId: 42,
               videoId: 'durablePost',
               videoUrl: 'https://youtu.be/durablePost',
@@ -1353,6 +1378,11 @@ describe('DatabaseService durable post work', () => {
     expect(assetIndex).toBeGreaterThan(sql.indexOf('BEGIN'));
     expect(outboxIndex).toBeGreaterThan(assetIndex);
     expect(outboxIndex).toBeLessThan(sql.indexOf('COMMIT'));
+    const queryCalls = clientQuery.mock.calls as unknown as Array<
+      [string, unknown[]]
+    >;
+    const outboxValues = queryCalls[outboxIndex]?.[1] ?? [];
+    expect(outboxValues[1]).toBe(7);
     expect(release).toHaveBeenCalled();
   });
 });

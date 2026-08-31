@@ -50,6 +50,7 @@ export class PostgresWorkRepository
       `
         INSERT INTO work_outbox_events (
           id,
+          owner_id,
           event_type,
           aggregate_type,
           aggregate_id,
@@ -62,15 +63,16 @@ export class PostgresWorkRepository
           max_attempts
         )
         VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8,
-          COALESCE($9, statement_timestamp()),
+          $1, $2, $3, $4, $5, $6, $7, $8, $9,
           COALESCE($10, statement_timestamp()),
-          $11
+          COALESCE($11, statement_timestamp()),
+          $12
         )
         ON CONFLICT (id) DO NOTHING
       `,
       [
         event.id,
+        event.ownerId,
         event.eventType,
         event.aggregateType,
         event.aggregateId,
@@ -157,6 +159,7 @@ export class PostgresWorkRepository
         WHERE event.id = claimable.id
         RETURNING
           event.id,
+          event.owner_id AS "ownerId",
           event.event_type AS "eventType",
           event.aggregate_type AS "aggregateType",
           event.aggregate_id AS "aggregateId",
@@ -523,6 +526,7 @@ export class PostgresWorkRepository
           SELECT
             dead_letter.id AS dead_letter_id,
             event.id AS original_event_id,
+            event.owner_id,
             event.event_type,
             event.aggregate_type,
             event.aggregate_id,
@@ -539,6 +543,7 @@ export class PostgresWorkRepository
         ), replay_event AS (
           INSERT INTO work_outbox_events (
             id,
+            owner_id,
             event_type,
             aggregate_type,
             aggregate_id,
@@ -550,6 +555,7 @@ export class PostgresWorkRepository
           )
           SELECT
             $2,
+            owner_id,
             event_type,
             aggregate_type,
             aggregate_id,

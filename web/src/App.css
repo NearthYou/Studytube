@@ -141,21 +141,33 @@ input {
 }
 
 .auth-card {
+  display: grid;
+  gap: 18px;
   width: min(460px, 100%);
-  padding: 34px;
+  padding: 28px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 12px;
   background: #fff;
-  box-shadow: 0 24px 70px rgba(25, 31, 40, 0.1);
+  box-shadow: none;
 }
 
 .auth-card h1 {
-  margin-bottom: 16px;
-  font-size: clamp(42px, 6vw, 64px);
+  margin: 0;
+  font-size: clamp(28px, 5vw, 36px);
 }
 
 .auth-card p {
+  margin: 0;
   font-size: var(--font-16);
+}
+
+.auth-status {
+  color: var(--app-muted);
+}
+
+.google-login {
+  width: 100%;
+  margin-top: 4px;
 }
 
 .auth-switch {
@@ -280,49 +292,6 @@ input {
   font-weight: 800;
   line-height: 1.55;
   overflow-wrap: break-word;
-}
-
-.profile-verification-form {
-  max-width: 720px;
-  margin-top: 24px;
-}
-
-.profile-page .profile-verification-form {
-  padding: 24px;
-  border: 1px solid var(--app-line);
-  background: var(--app-surface);
-  color: var(--app-text);
-  box-shadow: none;
-}
-
-.profile-page .profile-verification-form .identity-section {
-  border-color: var(--app-line);
-  background: var(--app-elevated);
-}
-
-.profile-page .profile-verification-form strong,
-.profile-page .profile-verification-form label {
-  color: var(--app-text);
-}
-
-.profile-page .profile-verification-form p,
-.profile-page .profile-verification-form .section-title span {
-  color: var(--app-muted);
-}
-
-.profile-page .profile-verification-form input {
-  border-color: var(--app-line);
-  background: #10151d;
-  color: var(--app-text);
-}
-
-.profile-page .profile-verification-form input::placeholder {
-  color: #7f8da1;
-}
-
-.profile-page .profile-verification-form button:disabled {
-  background: #26364f;
-  color: #aab5c4;
 }
 
 .compact-title {

@@ -453,12 +453,13 @@ export class PostgresProviderBudgetRepository implements ProviderBudgetRepositor
     if (!id) throw new Error('Provider work reservation was not persisted');
     await client.query(
       `INSERT INTO work_outbox_events (
-         id, event_type, aggregate_type, aggregate_id, aggregate_version,
+         id, owner_id, event_type, aggregate_type, aggregate_id, aggregate_version,
          payload_schema_version, payload
-       ) VALUES ($1::uuid, 'learning_intake.requested', 'provider_work', $2, 1, 1, $3::jsonb)
+       ) VALUES ($1::uuid, $2, 'learning_intake.requested', 'provider_work', $3, 1, 1, $4::jsonb)
        ON CONFLICT (id) DO NOTHING`,
       [
         workId,
+        command.userId,
         id,
         JSON.stringify({
           schemaVersion: 1,

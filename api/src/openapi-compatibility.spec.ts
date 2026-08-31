@@ -33,6 +33,46 @@ describe('OpenAPI compatibility', () => {
     );
   });
 
+  it('allows the intentional password profile contract retirement', () => {
+    const baseline = {
+      paths: {
+        '/me/verify': { post: { responses: { '200': {} } } },
+        '/me': { patch: { responses: { '200': {} } } },
+      },
+      components: {
+        schemas: {
+          VerifyProfileDto: {
+            type: 'object',
+            properties: { currentPassword: { type: 'string' } },
+          },
+          UpdateProfileDto: {
+            type: 'object',
+            properties: {
+              name: { type: 'string' },
+              currentPassword: { type: 'string' },
+              password: { type: 'string' },
+            },
+          },
+        },
+      },
+    };
+    const current = {
+      paths: {
+        '/me': { patch: { responses: { '200': {} } } },
+      },
+      components: {
+        schemas: {
+          UpdateProfileDto: {
+            type: 'object',
+            properties: { name: { type: 'string' } },
+          },
+        },
+      },
+    };
+
+    expect(findBreakingChanges(baseline, current)).toEqual([]);
+  });
+
   it('detects removed operations and newly required parameters', () => {
     const baseline = {
       'x-studytube-contract-version': 1,

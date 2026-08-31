@@ -291,7 +291,13 @@ export class PostgresLearningProposalRepository implements LearningProposalRepos
           [course.id, courseVersion],
         );
       }
-      await enqueueRetrieval(client, course.id, courseVersion, courseStepId);
+      await enqueueRetrieval(
+        client,
+        ownerId,
+        course.id,
+        courseVersion,
+        courseStepId,
+      );
       const approved = await client.query<ProposalRow>(
         `
           UPDATE learning_proposals
@@ -402,6 +408,7 @@ async function createCourseOccurrence(
 
 async function enqueueRetrieval(
   client: PoolClient,
+  ownerId: number,
   courseId: number,
   courseVersion: number,
   courseStepId: string,
@@ -416,13 +423,19 @@ async function enqueueRetrieval(
   await client.query(
     `
       INSERT INTO work_outbox_events (
-        id, event_type, aggregate_type, aggregate_id,
+        id, owner_id, event_type, aggregate_type, aggregate_id,
         aggregate_version, payload_schema_version, payload, trace_context
       )
-      VALUES ($1, 'retrieval_embedding.requested', 'course_step', $2,
-              $3, 1, $4::jsonb, '{}'::jsonb)
+      VALUES ($1, $2, 'retrieval_embedding.requested', 'course_step', $3,
+              $4, 1, $5::jsonb, '{}'::jsonb)
     `,
-    [randomUUID(), courseStepId, courseVersion, JSON.stringify(payload)],
+    [
+      randomUUID(),
+      ownerId,
+      courseStepId,
+      courseVersion,
+      JSON.stringify(payload),
+    ],
   );
 }
 

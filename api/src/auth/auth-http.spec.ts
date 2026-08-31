@@ -306,29 +306,24 @@ describe('authentication HTTP boundary', () => {
       .expect(401);
   });
 
-  it('verifies and updates the authenticated profile through cookie routes', async () => {
+  it('updates the authenticated profile without a password route', async () => {
     await request(app.getHttpServer())
       .post('/me/verify')
       .set('Origin', WEB_ORIGIN)
       .set('Cookie', `studytube_session=${SESSION_TOKEN}`)
       .send({ currentPassword: 'current password' })
-      .expect(200, updatedUser);
-
-    expect(authService.verifyProfile).toHaveBeenCalledWith(
-      user,
-      'current password',
-    );
+      .expect(404);
 
     await request(app.getHttpServer())
       .put('/me')
       .set('Origin', WEB_ORIGIN)
       .set('Cookie', `studytube_session=${SESSION_TOKEN}`)
-      .send({ preferences: updatedUser.preferences })
+      .send({ name: updatedUser.name, preferences: updatedUser.preferences })
       .expect(200, updatedUser);
 
     expect(authService.updateProfile).toHaveBeenCalledWith(
       { sessionId: 11, user },
-      { preferences: updatedUser.preferences },
+      { name: updatedUser.name, preferences: updatedUser.preferences },
     );
   });
 

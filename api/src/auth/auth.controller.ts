@@ -18,7 +18,6 @@ import {
   ResendVerificationDto,
   SignupDto,
   UpdateProfileDto,
-  VerifyProfileDto,
 } from './auth.dto';
 import { AuthHttpException } from './auth-http.exception';
 import { ClientAddressResolver } from './client-address.resolver';
@@ -181,26 +180,6 @@ export class AuthController {
     return request.principal.user;
   }
 
-  @Post('me/verify')
-  @HttpCode(HttpStatus.OK)
-  async verifyProfile(
-    @Body() body: VerifyProfileDto,
-    @Req() request: AuthenticatedRequest,
-  ) {
-    const result = await this.authService.verifyProfile(
-      request.principal.user,
-      body.currentPassword,
-    );
-    if (result.status !== 'verified') {
-      throw new AuthHttpException(
-        'INVALID_CURRENT_PASSWORD',
-        'Current password is invalid',
-        HttpStatus.UNAUTHORIZED,
-      );
-    }
-    return result.user;
-  }
-
   @Put('me')
   @HttpCode(HttpStatus.OK)
   async updateProfile(
@@ -213,11 +192,7 @@ export class AuthController {
         user: request.principal.user,
       },
       {
-        ...(body.currentPassword !== undefined
-          ? { currentPassword: body.currentPassword }
-          : {}),
         ...(body.name !== undefined ? { name: body.name } : {}),
-        ...(body.password !== undefined ? { password: body.password } : {}),
         ...(body.preferences !== undefined
           ? { preferences: body.preferences }
           : {}),

@@ -42,6 +42,7 @@ test("the public auth surface contains Google login only", () => {
   );
   const routes = readFileSync(resolve(root, "app/AppRoutes.tsx"), "utf8");
   const navigation = readFileSync(resolve(root, "app/SiteNav.tsx"), "utf8");
+  const documentShell = readFileSync(resolve(root, "../index.html"), "utf8");
 
   assert.match(authPage, /Google로 계속하기/);
   assert.doesNotMatch(
@@ -63,6 +64,10 @@ test("the public auth surface contains Google login only", () => {
     /path="\/signup|VerificationPage|RegistrationCompletionPage/,
   );
   assert.doesNotMatch(navigation, /회원가입|to="\/signup"/);
+  assert.doesNotMatch(authPage, /className="eyebrow"/);
+  assert.match(navigation, /location\.pathname !== "\/login"/);
+  assert.match(documentShell, /<html lang="ko">/);
+  assert.match(documentShell, /<title>StudyTube<\/title>/);
 });
 
 test("the Google login card keeps one compact full-width action", () => {

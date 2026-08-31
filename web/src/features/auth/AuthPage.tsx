@@ -18,7 +18,6 @@ export function AuthPage() {
   return (
     <main className="auth-page">
       <section className="auth-card">
-        <p className="eyebrow">StudyTube</p>
         <h1>영상으로 배우기</h1>
         <p>Google 계정으로 바로 시작하세요.</p>
         {statusMessage && (

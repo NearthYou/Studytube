@@ -1,5 +1,6 @@
 import type { Session } from "../types";
 import { GuardedLink, GuardedNavLink } from "./GuardedLink";
+import { useLocation } from "react-router";
 
 export function SiteNav({
   session,
@@ -8,6 +9,8 @@ export function SiteNav({
   session: Session | null;
   onLogout: () => void;
 }) {
+  const location = useLocation();
+
   return (
     <header className="site-nav">
       <GuardedLink className="brand" to="/" aria-label="StudyTube home">
@@ -27,13 +30,13 @@ export function SiteNav({
             </button>
           </div>
         </>
-      ) : (
+      ) : location.pathname !== "/login" ? (
         <div className="nav-account">
           <GuardedLink className="nav-cta" to="/login">
             로그인
           </GuardedLink>
         </div>
-      )}
+      ) : null}
     </header>
   );
 }

@@ -24,9 +24,6 @@ test('builds a profile edit draft from the current user', () => {
     name: 'Ada',
     email: 'ada@example.com',
     password: '',
-    interests: 'react, english',
-    pace: '20 minutes a day',
-    goal: 'Review commute lessons',
   });
 });
 

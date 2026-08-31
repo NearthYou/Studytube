@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from "react-router";
 import { MyEditPage } from "../features/account/MyEditPage";
 import { MyPage } from "../features/account/MyPage";
+import { LearningPreferencesPage } from "../features/account/LearningPreferencesPage";
 import { AuthPage } from "../features/auth/AuthPage";
 import { RegistrationCompletionPage } from "../features/auth/RegistrationCompletionPage";
 import { VerificationPage } from "../features/auth/VerificationPage";
@@ -86,6 +87,17 @@ export function AppRoutes({
         element={
           <ProtectedRoute session={session}>
             <MyPage session={session!} onSessionUpdate={onSessionUpdate} />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/me/preferences"
+        element={
+          <ProtectedRoute session={session}>
+            <LearningPreferencesPage
+              session={session!}
+              onSessionUpdate={onSessionUpdate}
+            />
           </ProtectedRoute>
         }
       />

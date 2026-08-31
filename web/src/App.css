@@ -1088,27 +1088,6 @@ button:disabled:hover {
   margin-bottom: 0;
 }
 
-.preference-summary {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  align-items: center;
-  max-width: 880px;
-  margin-top: 18px;
-  padding: 14px 16px;
-  border-radius: 8px;
-  background: #f8fafc;
-}
-
-.preference-summary strong {
-  color: var(--text);
-}
-
-.preference-summary span {
-  color: var(--muted);
-  font-weight: 800;
-}
-
 .feature-section {
   display: grid;
   grid-template-columns: 1fr 1fr;

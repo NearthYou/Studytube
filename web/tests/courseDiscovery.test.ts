@@ -46,7 +46,7 @@ function playlist(id: number, input: Partial<Playlist> = {}): Playlist {
 
 const profile: LearningPreferences = {
   interests: ['React', '영어 회화'],
-  pace: '하루 20분',
+  pace: '20',
   goal: '퇴근 후 복습',
 };
 
@@ -57,13 +57,74 @@ test('builds course prompts from the active learning profile', () => {
     '관심사: React, 영어 회화\n학습 속도: 하루 20분\n학습 목표: 퇴근 후 복습\n실제로 재생할 수 있는 YouTube 영상 2~4개를 쉬운 순서로 추천해줘.',
   );
   assert.deepEqual(createPromptSuggestions(profile), [
-    'React 입문 코스',
-    '퇴근 후 복습',
-    '하루 20분 따라갈 수 있는 취향 코스',
+    'React 기초부터 배우기',
+    'React 따라 하며 익히기',
+    'React 핵심만 복습하기',
   ]);
   assert.equal(
     createPersonalizedCoursePrompt(profile, '중국어 여행 회화'),
     '배울 내용: 중국어 여행 회화\n관심사: React, 영어 회화\n학습 속도: 하루 20분\n학습 목표: 퇴근 후 복습\n실제로 재생할 수 있는 YouTube 영상 2~4개를 쉬운 순서로 추천해줘.',
+  );
+});
+
+test('turns legacy pace values into a clear daily learning time', async () => {
+  const discovery = await import('../src/courseDiscovery.ts');
+  assert.equal(typeof discovery.normalizeLearningPace, 'function');
+  assert.equal(typeof discovery.learningTimeSelection, 'function');
+  assert.equal(typeof discovery.paceForPreferenceSave, 'function');
+  if (
+    typeof discovery.normalizeLearningPace !== 'function' ||
+    typeof discovery.learningTimeSelection !== 'function' ||
+    typeof discovery.paceForPreferenceSave !== 'function'
+  ) {
+    return;
+  }
+  assert.equal(discovery.normalizeLearningPace('20'), '하루 20분');
+  assert.equal(discovery.normalizeLearningPace('하루 1시간'), '하루 1시간');
+  assert.equal(discovery.learningTimeSelection('20'), '하루 20분');
+  assert.equal(discovery.learningTimeSelection('빠르게'), null);
+  assert.equal(discovery.paceForPreferenceSave('주 3회'), '주 3회');
+  assert.equal(discovery.paceForPreferenceSave(''), '하루 20분');
+});
+
+test('summarizes only recommendation settings the learner can understand', async () => {
+  const discovery = await import('../src/courseDiscovery.ts');
+  assert.equal(typeof discovery.learningPreferenceSummary, 'function');
+  if (typeof discovery.learningPreferenceSummary !== 'function') return;
+  assert.equal(
+    discovery.learningPreferenceSummary({
+      interests: ['React'],
+      pace: '20',
+      goal: '에아',
+    }),
+    'React 위주로 하루 20분에 맞춰 추천해요.',
+  );
+  assert.equal(
+    discovery.learningPreferenceSummary({
+      interests: ['영어 회화'],
+      pace: '빠르게',
+      goal: '면접 준비',
+    }),
+    '영어 회화 위주로 추천해요.',
+  );
+});
+
+test('keeps an unknown legacy pace when recommendation settings are saved', async () => {
+  const discovery = await import('../src/courseDiscovery.ts');
+  assert.equal(typeof discovery.learningPreferencesFromDraft, 'function');
+  if (typeof discovery.learningPreferencesFromDraft !== 'function') return;
+
+  assert.deepEqual(
+    discovery.learningPreferencesFromDraft({
+      interests: ' React, 영어 회화 ',
+      pace: '주 3회',
+      goal: ' 면접 준비 ',
+    }),
+    {
+      interests: ['React', '영어 회화'],
+      pace: '주 3회',
+      goal: '면접 준비',
+    },
   );
 });
 

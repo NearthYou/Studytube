@@ -48,8 +48,12 @@ test("Course builder contains creation without the saved Course library", () => 
   assert.match(source, /className="course-builder"/);
   assert.doesNotMatch(source, /id="my-course-title">저장한 코스/);
   assert.doesNotMatch(source, /<details className="course-builder">/);
-  assert.match(source, /이번 코스에 적용되는 학습 설정/);
-  assert.match(source, /학습 설정 바꾸기/);
+  assert.doesNotMatch(source, /이번 코스에 적용되는 학습 설정/);
+  assert.doesNotMatch(source, /학습 속도 \{profile\.pace\}|목표 \{profile\.goal\}/);
+  assert.match(source, /learningPreferenceSummary/);
+  assert.match(source, /className="course-preference-note"/);
+  assert.match(source, /추천 기준 수정/);
+  assert.match(source, /to="\/me\/preferences"/);
   assert.match(source, /readLearningHistory/);
   assert.match(source, /createCourseRecommendationContext/);
   assert.match(source, /askAgent\([\s\S]*recommendationContext/);

@@ -9,6 +9,7 @@ import {
   createPersonalizedCoursePrompt,
   createPromptSuggestions,
   hasLearningPreferences,
+  learningPreferenceSummary,
 } from "../../courseDiscovery";
 import { readLearningHistory } from "../learning/learningHistory";
 import { addVideosToQueue } from "../../watchQueueStorage";
@@ -36,6 +37,7 @@ export function CourseBuilderPage({ session }: { session: Session }) {
   const navigate = useNavigate();
   const profile = session.user.preferences;
   const hasProfile = hasLearningPreferences(profile);
+  const preferenceSummary = learningPreferenceSummary(profile);
   const initialQuery = createPersonalizedCoursePrompt(profile);
   const [query, setQuery] = useState("");
   const [ragResult, setRagResult] = useState<RagResponse | null>(null);
@@ -46,9 +48,7 @@ export function CourseBuilderPage({ session }: { session: Session }) {
   );
   const [courses, setCourses] = useState<Course[]>([]);
   const [status, setStatus] = useState(
-    hasProfile
-      ? `${profile.interests[0]} 관심사와 학습 목표를 새 코스에 반영합니다.`
-      : "배우고 싶은 주제와 목표를 입력해주세요.",
+    "배우고 싶은 내용을 입력해주세요.",
   );
   const isSearching = false;
   const [isGenerating, setIsGenerating] = useState(false);
@@ -319,21 +319,14 @@ export function CourseBuilderPage({ session }: { session: Session }) {
             <h2>배울 내용 정하기</h2>
             <p>배우고 싶은 내용을 적으면 관련 영상을 2~4개 골라 순서대로 보여드립니다.</p>
           </div>
-          <Link to="/me">학습 설정 바꾸기</Link>
         </header>
         <div className="course-builder-body">
-          {hasProfile && (
-            <div className="preference-summary">
-              <strong>이번 코스에 적용되는 학습 설정</strong>
-              <span>관심사 {profile.interests.join(", ")}</span>
-              <span>학습 속도 {profile.pace}</span>
-              <span>목표 {profile.goal}</span>
-            </div>
-          )}
-          {!hasProfile && (
-            <div className="preference-summary empty">
-              <strong>학습 설정이 아직 없습니다</strong>
-              <span>주제만으로도 만들 수 있고, 설정을 저장하면 관심사와 속도를 함께 반영합니다.</span>
+          {hasProfile && preferenceSummary && (
+            <div className="course-preference-note">
+              <span>{preferenceSummary}</span>
+              <Link state={{ returnTo: "/courses/new" }} to="/me/preferences">
+                추천 기준 수정
+              </Link>
             </div>
           )}
           <div className="quick-prompts" aria-label="추천 예시">

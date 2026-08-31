@@ -2,9 +2,14 @@ import { useState } from "react";
 import type { FormEvent } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { updateMe } from "../../api";
-import { hasLearningPreferences } from "../../courseDiscovery";
+import {
+  hasLearningPreferences,
+  learningPreferencesFromDraft,
+  paceForPreferenceSave,
+} from "../../courseDiscovery";
 import { tutorialNextDestination } from "../../onboarding";
 import type { Session, User } from "../../types";
+import { LearningPreferenceFields } from "../account/LearningPreferenceFields";
 
 export function TutorialPage({
   session,
@@ -25,13 +30,13 @@ export function TutorialPage({
   const nextLabel = "가던 곳으로 계속";
   const [preferenceDraft, setPreferenceDraft] = useState(() => ({
     interests: session.user.preferences.interests.join(", "),
-    pace: session.user.preferences.pace,
+    pace: paceForPreferenceSave(session.user.preferences.pace),
     goal: session.user.preferences.goal,
   }));
   const [preferenceStatus, setPreferenceStatus] = useState(
     hasLearningPreferences(session.user.preferences)
-      ? "저장된 학습 취향을 추천에 사용합니다."
-      : "관심사, 학습 속도와 목표를 저장하면 다음 학습 제안에 반영됩니다.",
+      ? "저장된 추천 기준을 사용합니다."
+      : "추천 기준을 정하면 다음 코스부터 반영됩니다.",
   );
   const [isSavingPreferences, setIsSavingPreferences] = useState(false);
   const tutorialSteps = [
@@ -54,7 +59,7 @@ export function TutorialPage({
   const tutorialHighlights = [
     "처음에는 영상 하나만 등록해도 충분합니다.",
     "보드에 쌓인 영상은 코스와 학습 큐로 다시 이어집니다.",
-    "내 정보에서 관심사와 목표를 바꾸면 추천 맥락도 함께 바뀝니다.",
+    "내 정보에서 추천 기준을 바꾸면 다음 코스부터 반영됩니다.",
   ];
   const tutorialPreviewItems = [
     {
@@ -85,26 +90,19 @@ export function TutorialPage({
       return;
     }
 
-    const nextPreferences = {
-      interests: preferenceDraft.interests
-        .split(",")
-        .map((item) => item.trim())
-        .filter(Boolean),
-      pace: preferenceDraft.pace.trim(),
-      goal: preferenceDraft.goal.trim(),
-    };
+    const nextPreferences = learningPreferencesFromDraft(preferenceDraft);
 
     if (
       nextPreferences.interests.length === 0 ||
       !nextPreferences.pace ||
       !nextPreferences.goal
     ) {
-      setPreferenceStatus("관심사, 학습 속도, 목표를 모두 입력하세요.");
+      setPreferenceStatus("배우고 싶은 분야와 원하는 결과를 입력해주세요.");
       return;
     }
 
     setIsSavingPreferences(true);
-    setPreferenceStatus("학습 취향을 저장하는 중입니다.");
+    setPreferenceStatus("추천 기준을 저장하는 중이에요.");
 
     try {
       const nextUser = await updateMe({
@@ -114,15 +112,15 @@ export function TutorialPage({
       onSessionUpdate(nextUser);
       setPreferenceDraft({
         interests: nextUser.preferences.interests.join(", "),
-        pace: nextUser.preferences.pace,
+        pace: paceForPreferenceSave(nextUser.preferences.pace),
         goal: nextUser.preferences.goal,
       });
-      setPreferenceStatus("학습 취향을 저장했습니다. 다음 학습에 반영됩니다.");
+      setPreferenceStatus("추천 기준을 저장했어요.");
     } catch (error) {
       setPreferenceStatus(
         error instanceof Error
           ? error.message
-          : "학습 취향을 저장하지 못했어요.",
+          : "추천 기준을 저장하지 못했어요.",
       );
     } finally {
       setIsSavingPreferences(false);
@@ -197,58 +195,19 @@ export function TutorialPage({
       >
         <section className="profile-form-section preference-section tutorial-preferences">
           <div>
-            <strong>학습 취향 선택</strong>
-            <p>
-              영상과 코스 추천에 사용할 관심사, 학습 속도와 목표를 먼저
-              정합니다.
-            </p>
+            <strong>추천 기준 정하기</strong>
+            <p>배우고 싶은 분야와 하루 학습량을 정합니다.</p>
           </div>
-          <label>
-            관심사
-            <input
-              value={preferenceDraft.interests}
-              onChange={(event) =>
-                setPreferenceDraft({
-                  ...preferenceDraft,
-                  interests: event.target.value,
-                })
-              }
-              placeholder="React, 영어 회화, 홈트"
-              disabled={isSavingPreferences}
-            />
-          </label>
-          <label>
-            학습 속도
-            <input
-              value={preferenceDraft.pace}
-              onChange={(event) =>
-                setPreferenceDraft({
-                  ...preferenceDraft,
-                  pace: event.target.value,
-                })
-              }
-              placeholder="하루 20분"
-              disabled={isSavingPreferences}
-            />
-          </label>
-          <label>
-            목표
-            <textarea
-              value={preferenceDraft.goal}
-              onChange={(event) =>
-                setPreferenceDraft({
-                  ...preferenceDraft,
-                  goal: event.target.value,
-                })
-              }
-              placeholder="어떤 목표로 영상을 공부하고 싶은지"
-              disabled={isSavingPreferences}
-            />
-          </label>
+          <LearningPreferenceFields
+            disabled={isSavingPreferences}
+            draft={preferenceDraft}
+            name="tutorial-daily-learning-time"
+            onChange={setPreferenceDraft}
+          />
           <div className="section-title compact-title">
             <span>{preferenceStatus}</span>
             <button type="submit" disabled={isSavingPreferences}>
-              {isSavingPreferences ? "저장 중" : "취향 저장"}
+              {isSavingPreferences ? "저장 중" : "기준 저장"}
             </button>
           </div>
         </section>

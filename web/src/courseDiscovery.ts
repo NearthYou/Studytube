@@ -9,6 +9,13 @@ import type {
 } from './types.ts';
 import { extractYouTubeId } from './videoMetadata.ts';
 
+export const DAILY_LEARNING_TIME_OPTIONS = [
+  { value: '하루 10분', label: '10분' },
+  { value: '하루 20분', label: '20분' },
+  { value: '하루 30분', label: '30분' },
+  { value: '하루 1시간', label: '1시간' },
+] as const;
+
 export function hasLearningPreferences(
   profile: LearningPreferences | null | undefined,
 ): profile is LearningPreferences {
@@ -35,11 +42,12 @@ export function createPersonalizedCoursePrompt(
   }
 
   const interests = profile.interests.slice(0, 2).join(', ');
+  const pace = normalizeLearningPace(profile.pace);
   if (requestedSubject) {
     return [
       `배울 내용: ${requestedSubject}`,
       `관심사: ${interests}`,
-      `학습 속도: ${profile.pace}`,
+      `학습 속도: ${pace}`,
       `학습 목표: ${profile.goal}`,
       requestTail,
     ].join('\n');
@@ -47,7 +55,7 @@ export function createPersonalizedCoursePrompt(
 
   return [
     `관심사: ${interests}`,
-    `학습 속도: ${profile.pace}`,
+    `학습 속도: ${pace}`,
     `학습 목표: ${profile.goal}`,
     requestTail,
   ].join('\n');
@@ -59,10 +67,64 @@ export function createPromptSuggestions(profile: LearningPreferences | null) {
   }
 
   return [
-    `${profile.interests[0]} 입문 코스`,
-    `${profile.goal}`,
-    `${profile.pace} 따라갈 수 있는 취향 코스`,
+    `${profile.interests[0]} 기초부터 배우기`,
+    `${profile.interests[0]} 따라 하며 익히기`,
+    `${profile.interests[0]} 핵심만 복습하기`,
   ];
+}
+
+export function normalizeLearningPace(value: string) {
+  const normalized = value.trim().replace(/\s+/g, ' ');
+  const minutes = normalized.match(/^(?:하루 )?(\d{1,3})\s*분?(?:씩)?$/);
+  if (minutes) {
+    return Number(minutes[1]) === 60
+      ? '하루 1시간'
+      : `하루 ${Number(minutes[1])}분`;
+  }
+  if (/^(?:하루 )?1\s*시간$/.test(normalized)) return '하루 1시간';
+  return normalized;
+}
+
+export function learningTimeSelection(value: string) {
+  const normalized = normalizeLearningPace(value);
+  return DAILY_LEARNING_TIME_OPTIONS.some((option) => option.value === normalized)
+    ? normalized
+    : null;
+}
+
+export function paceForPreferenceSave(value: string) {
+  return normalizeLearningPace(value) || '하루 20분';
+}
+
+export function learningPreferencesFromDraft(input: {
+  interests: string;
+  pace: string;
+  goal: string;
+}): LearningPreferences {
+  return {
+    interests: input.interests
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean),
+    pace: paceForPreferenceSave(input.pace),
+    goal: input.goal.trim(),
+  };
+}
+
+export function learningPreferenceSummary(
+  profile: LearningPreferences | null | undefined,
+) {
+  const interests =
+    profile?.interests.map((item) => item.trim()).filter(Boolean).slice(0, 2) ??
+    [];
+  if (interests.length === 0) return '';
+  const normalizedPace = normalizeLearningPace(profile?.pace ?? '');
+  const knownPace = DAILY_LEARNING_TIME_OPTIONS.some(
+    (option) => option.value === normalizedPace,
+  );
+  return knownPace
+    ? `${interests.join(', ')} 위주로 ${normalizedPace}에 맞춰 추천해요.`
+    : `${interests.join(', ')} 위주로 추천해요.`;
 }
 
 export function createCourseRecommendationContext(
@@ -88,7 +150,7 @@ export function createCourseRecommendationContext(
   }
   return {
     subject: subject.trim(),
-    pace: profile?.pace.trim() ?? '',
+    pace: normalizeLearningPace(profile?.pace ?? ''),
     learningGoal: profile?.goal.trim() ?? '',
     interests: profile?.interests.map((item) => item.trim()).filter(Boolean) ?? [],
     excludedVideoIds: [...excludedVideoIds],

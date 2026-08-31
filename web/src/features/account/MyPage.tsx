@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { fetchMe } from "../../api";
 import { fetchOwnerCourses } from "../../courseApi";
+import { normalizeLearningPace } from "../../courseDiscovery";
 import type { Session, User } from "../../types";
 import { ProfileVerificationForm } from "./ProfileVerificationForm";
 
@@ -19,7 +20,7 @@ export function MyPage({
   const [savedSentenceCount] = useState(() =>
     countSavedSentences(session.user.id),
   );
-  const [status, setStatus] = useState("계정 정보를 불러오는 중입니다.");
+  const [status, setStatus] = useState("추천 기준을 불러오는 중입니다.");
   const [isVerifying, setIsVerifying] = useState(false);
 
   useEffect(() => {
@@ -35,7 +36,7 @@ export function MyPage({
 
         setUser(nextUser);
         onSessionUpdate(nextUser);
-        setStatus("학습 설정이 최신 상태입니다.");
+        setStatus("현재 기준");
         const nextCourses = await fetchOwnerCourses().catch(() => []);
         if (!mounted) return;
         const activeCourses = nextCourses.filter(
@@ -47,7 +48,7 @@ export function MyPage({
         );
       } catch {
         if (mounted) {
-          setStatus("학습 설정을 불러오지 못했습니다. 다시 시도해주세요.");
+          setStatus("추천 기준을 불러오지 못했습니다.");
         }
       }
     }
@@ -72,12 +73,15 @@ export function MyPage({
             <Link className="primary-link" to="/">
               이어서 학습
             </Link>
+            <Link className="secondary-link" to="/me/preferences">
+              추천 기준 수정
+            </Link>
             <button
               className="secondary-action"
               type="button"
               onClick={() => setIsVerifying((current) => !current)}
             >
-              학습 설정 바꾸기
+              계정 정보 수정
             </button>
           </div>
         </div>
@@ -100,27 +104,29 @@ export function MyPage({
       <section className="profile-layout">
         <section className="profile-read-panel">
           <div className="section-title">
-            <h2>학습 설정</h2>
+            <h2>추천 기준</h2>
             <span>{status}</span>
           </div>
           <dl className="profile-info-list">
             <div>
-              <dt>관심사</dt>
+              <dt>배우고 싶은 분야</dt>
               <dd>{user.preferences.interests.join(", ") || "아직 정하지 않았어요"}</dd>
             </div>
             <div>
-              <dt>학습 속도</dt>
-              <dd>{user.preferences.pace || "아직 정하지 않았어요"}</dd>
+              <dt>하루 학습 시간</dt>
+              <dd>
+                {normalizeLearningPace(user.preferences.pace) ||
+                  "아직 정하지 않았어요"}
+              </dd>
             </div>
             <div>
-              <dt>학습 목표</dt>
+              <dt>원하는 학습 결과</dt>
               <dd>{user.preferences.goal || "아직 정하지 않았어요"}</dd>
             </div>
             <div>
               <dt>코스 활용</dt>
               <dd>
-                코스를 찾을 때 관심사, 학습 속도와 목표를 검색 조건에 함께
-                넣습니다.
+                코스의 주제와 하루 학습량을 고를 때 반영합니다.
               </dd>
             </div>
           </dl>
@@ -130,9 +136,11 @@ export function MyPage({
           <strong>{user.name}</strong>
           <p>{user.email}</p>
           <small>계정</small>
-          <p>{user.preferences.interests.join(", ") || "학습 설정을 추가해주세요"}</p>
+          <p>{user.preferences.interests.join(", ") || "추천 기준을 추가해주세요"}</p>
           <span>
-            {[user.preferences.pace, user.preferences.goal].filter(Boolean).join(" / ")}
+            {[normalizeLearningPace(user.preferences.pace), user.preferences.goal]
+              .filter(Boolean)
+              .join(" / ")}
           </span>
           <span>가입일 {formatDate(user.createdAt)}</span>
           <Link className="profile-note-action" to="/courses">

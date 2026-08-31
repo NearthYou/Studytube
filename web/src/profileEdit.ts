@@ -6,9 +6,6 @@ export type ProfileEditDraft = {
   name: string;
   email: string;
   password: string;
-  interests: string;
-  pace: string;
-  goal: string;
 };
 
 export function profileEditDraftFromUser(user: User): ProfileEditDraft {
@@ -16,9 +13,6 @@ export function profileEditDraftFromUser(user: User): ProfileEditDraft {
     name: user.name,
     email: user.email,
     password: '',
-    interests: user.preferences.interests.join(', '),
-    pace: user.preferences.pace,
-    goal: user.preferences.goal,
   };
 }
 

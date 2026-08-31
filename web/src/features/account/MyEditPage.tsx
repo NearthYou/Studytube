@@ -79,26 +79,8 @@ export function MyEditPage({
 
     const trimmedName = draft.name.trim();
     const trimmedPassword = draft.password.trim();
-    const nextPreferences = {
-      interests: draft.interests
-        .split(",")
-        .map((item) => item.trim())
-        .filter(Boolean),
-      pace: draft.pace.trim(),
-      goal: draft.goal.trim(),
-    };
-
     if (!trimmedName) {
       setStatus("이름을 입력하세요.");
-      return;
-    }
-
-    if (
-      nextPreferences.interests.length === 0 ||
-      !nextPreferences.pace ||
-      !nextPreferences.goal
-    ) {
-      setStatus("관심사, 학습 속도, 목표를 모두 입력하세요.");
       return;
     }
 
@@ -110,7 +92,6 @@ export function MyEditPage({
         currentPassword: verifiedPassword,
         name: trimmedName,
         password: trimmedPassword || undefined,
-        preferences: nextPreferences,
       });
 
       setUser(nextUser);
@@ -131,7 +112,6 @@ export function MyEditPage({
       <main className="page-shell profile-page">
         <section className="profile-hero">
           <div>
-            <p className="eyebrow">Profile edit</p>
             <h1>본인 확인</h1>
             <p>
               내 정보를 수정하려면 먼저 현재 비밀번호로 본인 확인을 진행합니다.
@@ -170,11 +150,9 @@ export function MyEditPage({
     <main className="page-shell profile-page">
       <section className="profile-hero">
         <div>
-          <p className="eyebrow">Profile edit</p>
           <h1>내 정보 수정</h1>
           <p>
-            본인 확인이 완료되었습니다. 이름, 비밀번호, 학습 취향을 수정한 뒤
-            저장하세요.
+            본인 확인이 완료되었습니다. 이름이나 비밀번호를 변경할 수 있습니다.
           </p>
         </div>
         <div className="profile-stats" aria-label="수정 상태">
@@ -229,45 +207,6 @@ export function MyEditPage({
           </label>
         </section>
 
-        <section className="profile-form-section preference-section">
-          <div>
-            <strong>학습 취향</strong>
-            <p>다음 코스를 추천할 때 사용할 관심사, 속도와 목표입니다.</p>
-          </div>
-          <label>
-            관심사
-            <input
-              value={draft.interests}
-              onChange={(event) =>
-                setDraft({ ...draft, interests: event.target.value })
-              }
-              placeholder="React, 영어 회화, 홈트"
-              disabled={isSaving}
-            />
-          </label>
-          <label>
-            학습 속도
-            <input
-              value={draft.pace}
-              onChange={(event) =>
-                setDraft({ ...draft, pace: event.target.value })
-              }
-              placeholder="하루 20분"
-              disabled={isSaving}
-            />
-          </label>
-          <label>
-            목표
-            <textarea
-              value={draft.goal}
-              onChange={(event) =>
-                setDraft({ ...draft, goal: event.target.value })
-              }
-              placeholder="어떤 목표로 영상을 공부하고 싶은지"
-              disabled={isSaving}
-            />
-          </label>
-        </section>
         <div className="row-actions">
           <button type="submit" disabled={isSaving}>
             {isSaving ? "저장 중" : "변경 저장"}

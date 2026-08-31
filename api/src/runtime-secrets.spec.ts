@@ -2,6 +2,7 @@ import { assertProductionRuntimeSecrets } from './runtime-secrets';
 
 const validProductionSecrets = {
   NODE_ENV: 'production',
+  AUTH_MODE: 'google_only',
   INTERNAL_AI_API_KEY: 'a'.repeat(32),
   AUTH_VERIFICATION_PEPPER: 'b'.repeat(32),
   AUTH_RATE_LIMIT_PEPPER: 'c'.repeat(32),
@@ -9,15 +10,13 @@ const validProductionSecrets = {
 } satisfies NodeJS.ProcessEnv;
 
 describe('production runtime secrets', () => {
-  it('requires the MCP signing secret for the worker runtime', () => {
+  it('accepts a Google-only worker without legacy auth peppers', () => {
     expect(() =>
       assertProductionRuntimeSecrets(
         {
           NODE_ENV: 'production',
+          AUTH_MODE: 'google_only',
           INTERNAL_AI_API_KEY: validProductionSecrets.INTERNAL_AI_API_KEY,
-          AUTH_VERIFICATION_PEPPER:
-            validProductionSecrets.AUTH_VERIFICATION_PEPPER,
-          AUTH_RATE_LIMIT_PEPPER: validProductionSecrets.AUTH_RATE_LIMIT_PEPPER,
           MCP_SERVICE_ASSERTION_SECRET:
             validProductionSecrets.MCP_SERVICE_ASSERTION_SECRET,
         },
@@ -31,14 +30,36 @@ describe('production runtime secrets', () => {
       assertProductionRuntimeSecrets(
         {
           NODE_ENV: 'production',
+          AUTH_MODE: 'google_only',
           INTERNAL_AI_API_KEY: validProductionSecrets.INTERNAL_AI_API_KEY,
-          AUTH_VERIFICATION_PEPPER:
-            validProductionSecrets.AUTH_VERIFICATION_PEPPER,
-          AUTH_RATE_LIMIT_PEPPER: validProductionSecrets.AUTH_RATE_LIMIT_PEPPER,
         },
         'worker',
       ),
     ).toThrow(/MCP_SERVICE_ASSERTION_SECRET/u);
+  });
+
+  it('requires only the verification pepper for a legacy email worker', () => {
+    const workerSecrets = {
+      NODE_ENV: 'production',
+      AUTH_MODE: 'legacy',
+      INTERNAL_AI_API_KEY: validProductionSecrets.INTERNAL_AI_API_KEY,
+      MCP_SERVICE_ASSERTION_SECRET:
+        validProductionSecrets.MCP_SERVICE_ASSERTION_SECRET,
+    } satisfies NodeJS.ProcessEnv;
+
+    expect(() =>
+      assertProductionRuntimeSecrets(workerSecrets, 'worker'),
+    ).toThrow(/AUTH_VERIFICATION_PEPPER/u);
+    expect(() =>
+      assertProductionRuntimeSecrets(
+        {
+          ...workerSecrets,
+          AUTH_VERIFICATION_PEPPER:
+            validProductionSecrets.AUTH_VERIFICATION_PEPPER,
+        },
+        'worker',
+      ),
+    ).not.toThrow();
   });
 
   it('accepts distinct non-placeholder secrets', () => {
@@ -46,6 +67,18 @@ describe('production runtime secrets', () => {
       assertProductionRuntimeSecrets(validProductionSecrets, 'api'),
     ).not.toThrow();
   });
+
+  it.each(['AUTH_VERIFICATION_PEPPER', 'AUTH_RATE_LIMIT_PEPPER'] as const)(
+    'keeps %s required for the API runtime',
+    (name) => {
+      expect(() =>
+        assertProductionRuntimeSecrets(
+          { ...validProductionSecrets, [name]: undefined },
+          'api',
+        ),
+      ).toThrow(new RegExp(name, 'u'));
+    },
+  );
 
   it.each([
     ['missing', undefined],

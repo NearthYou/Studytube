@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, type Type } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
 import { DatabaseService } from '../database.service';
@@ -9,6 +9,7 @@ import { PasswordHasher } from './password-hasher';
 import { RequestIdMiddleware } from './request-id.middleware';
 import { SessionGuard } from './session.guard';
 import { AuthService } from './auth.service';
+import { resolveAuthMode, type AuthMode } from './auth-mode';
 import { GoogleAuthController } from './google/google-auth.controller';
 import {
   GOOGLE_AUTH_CONFIG,
@@ -22,6 +23,7 @@ import {
   OfficialGoogleIdentityClient,
   type GoogleIdentityClient,
 } from './google/google-identity.client';
+import { LegacyEmailAuthController } from './legacy-email-auth.controller';
 import {
   resolveVerificationEmailConfig,
   resolveVerificationPepper,
@@ -29,7 +31,7 @@ import {
 
 @Module({
   imports: [ConfigModule],
-  controllers: [AuthController, GoogleAuthController],
+  controllers: authControllersForMode(resolveAuthMode(process.env)),
   providers: [
     DatabaseService,
     PasswordHasher,
@@ -149,6 +151,12 @@ import {
   ],
 })
 export class AuthModule {}
+
+export function authControllersForMode(mode: AuthMode): Type<unknown>[] {
+  const controllers: Type<unknown>[] = [AuthController, GoogleAuthController];
+  if (mode === 'legacy') controllers.push(LegacyEmailAuthController);
+  return controllers;
+}
 
 function environment(): 'development' | 'test' | 'production' {
   const value = process.env.NODE_ENV;

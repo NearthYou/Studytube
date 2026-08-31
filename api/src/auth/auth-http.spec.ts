@@ -18,6 +18,7 @@ import { PasswordValidationError } from './password-hasher';
 import { RequestIdMiddleware } from './request-id.middleware';
 import { SessionGuard } from './session.guard';
 import { AuthService } from './auth.service';
+import { LegacyEmailAuthController } from './legacy-email-auth.controller';
 
 const WEB_ORIGIN = 'https://web.studytube.test';
 const SESSION_TOKEN = Buffer.alloc(32, 1).toString('base64url');
@@ -72,6 +73,7 @@ describe('authentication HTTP boundary', () => {
     const module = await Test.createTestingModule({
       controllers: [
         AuthController,
+        LegacyEmailAuthController,
         AppController,
         StudyBoardController,
         AiController,

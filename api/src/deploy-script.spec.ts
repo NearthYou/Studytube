@@ -90,12 +90,16 @@ describe('EC2 deployment script', () => {
     'utf8',
   );
   const validProductionEnvironment = {
+    AUTH_MODE: 'google_only',
     AUTH_EMAIL_AWS_CREDENTIAL_SOURCE: 'instance-role',
     AUTH_EMAIL_AWS_REGION: 'ap-northeast-2',
     AUTH_EMAIL_PROVIDER: 'ses',
     AUTH_EMAIL_SENDER: 'no-reply@studytube.test',
     AUTH_RATE_LIMIT_PEPPER: 'c'.repeat(32),
     AUTH_VERIFICATION_PEPPER: 'b'.repeat(32),
+    GOOGLE_AUTH_ATTEMPT_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64'),
+    GOOGLE_OAUTH_CLIENT_ID: 'google-client-id',
+    GOOGLE_OAUTH_CLIENT_SECRET: 'google-client-secret',
     INTERNAL_AI_API_KEY: 'a'.repeat(32),
     MCP_SERVICE_ASSERTION_SECRET: 'd'.repeat(32),
     POSTGRES_PASSWORD: 'p'.repeat(32),
@@ -105,6 +109,22 @@ describe('EC2 deployment script', () => {
   it('passes the database connection URL explicitly to psql', () => {
     expect(script).toContain('psql --dbname "$DATABASE_URL" "$@"');
     expect(script).not.toContain('PGDATABASE="$DATABASE_URL"');
+  });
+
+  it('requires Google-only authentication configuration before production cutover', () => {
+    const requiredStart = script.indexOf('for required_name in');
+    const requiredEnd = script.indexOf('; do', requiredStart);
+    const requiredBlock = script.slice(requiredStart, requiredEnd);
+
+    for (const name of [
+      'AUTH_MODE',
+      'GOOGLE_AUTH_ATTEMPT_ENCRYPTION_KEY',
+      'GOOGLE_OAUTH_CLIENT_ID',
+      'GOOGLE_OAUTH_CLIENT_SECRET',
+    ]) {
+      expect(requiredBlock).toContain(name);
+      expect(environmentExample).toContain(`${name}=`);
+    }
   });
 
   it('prepares the verified release and database before stopping managed services', () => {

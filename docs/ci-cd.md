@@ -191,6 +191,11 @@ GOOGLE_OAUTH_CLIENT_SECRET=<google-web-client-secret>
 GOOGLE_AUTH_ATTEMPT_ENCRYPTION_KEY=<base64-encoded-32-byte-secret>
 IRREVERSIBLE_MIGRATIONS_VERIFIED_BACKUP_MARKER=/var/lib/studytube/migration-backup/verified-backup
 
+AWS_REGION=ap-northeast-2
+AWS_USER_RESET_BACKUP_BUCKET=<private-seven-day-backup-bucket>
+USER_DATA_RESET_BACKUP_PREFIX=user-data-reset
+USER_DATA_RESET_INSTANCE_ID=<exact-ec2-instance-id>
+
 MCP_SERVICE_ASSERTION_SECRET=<random-secret>
 STUDYTUBE_API_SOCKET_PATH=/run/studytube/api.sock
 MCP_ALLOWED_HOSTS=127.0.0.1:*,localhost:*,[::1]:*
@@ -200,7 +205,9 @@ MCP_ALLOWED_HOSTS=127.0.0.1:*,localhost:*,[::1]:*
 
 Google Cloud Console에서는 OAuth 2.0 Web application client를 만들고 운영 redirect URI를 `https://studytube.page/api/auth/google/callback`으로 정확히 등록한다. 로컬 개발 callback은 별도 client 또는 별도 허용 URI로 `http://localhost:3000/auth/google/callback`을 사용한다. Client Secret과 32바이트 인증 시도 암호화 키는 root-owned deployment config에만 저장하며 GitHub variable, Web bundle과 로그에 넣지 않는다.
 
-초기 비공개 점검 release만 `AUTH_MODE=legacy`를 사용할 수 있다. 운영 사용자 데이터 초기화와 Google 로그인 smoke test가 끝난 뒤 `AUTH_MODE=google_only`로 고정한다. 이 모드에서는 이메일 가입, 이메일 인증과 비밀번호 로그인 controller가 등록되지 않는다.
+사용자 데이터 초기화용 bucket과 instance id는 API나 worker 환경 파일로 복사하지 않는다. root 전용 운영 스크립트만 `/etc/studytube/deployment.env`에서 읽는다. bucket은 public access block, server-side encryption, `studytube-retention=user-reset-7d` 전용 7일 lifecycle을 모두 만족해야 한다.
+
+초기 비공개 점검 release만 `AUTH_MODE=legacy`를 사용할 수 있다. 운영 사용자 데이터 초기화와 Google 로그인 smoke test가 끝난 뒤 `AUTH_MODE=google_only`로 고정한다. 이 모드에서는 이메일 가입, 이메일 인증과 비밀번호 로그인 controller가 등록되지 않고 이메일 발송 worker도 시작하지 않는다. API와 worker runtime 파일에는 `AUTH_EMAIL_*` 값을 복사하지 않는다.
 
 MCP는 현재 서버 내부 agent integration 경계다. Caddy는 `/mcp`와 protected-resource discovery 경로를 404로 닫고, FastAPI listener의 loopback 경로에서만 짧은 수명의 service assertion을 검증한다. 기본 설정은 OAuth protected-resource metadata route를 등록하지 않는다.
 

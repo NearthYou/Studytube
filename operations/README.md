@@ -57,6 +57,49 @@ pwsh ./operations/backup/Invoke-PostgresRestoreDrill.ps1 `
 
 덤프 파일은 호스트로 복사하지 않고 컨테이너의 임시 경로에서 제거합니다. JSON만 `docs/evidence/operations/results`에 남습니다.
 
+## Google 전환 사용자 데이터 초기화
+
+이 초기화는 한 번만 실행하며 먼저 읽기 전용 계획을 확인합니다.
+
+```bash
+sudo scripts/user-data-reset-run.sh plan
+```
+
+계획에는 운영 DB 이름, migration, 삭제 및 보존 table별 행 수, manifest hash, Valkey key 수와 7일 백업 bucket 호환성만 표시됩니다. 사용자 row와 payload는 출력하지 않습니다. 모르는 table이나 누락된 table이 있으면 계획 단계에서 중단합니다.
+
+운영 실행 전에 사용자에게 다음 값을 그대로 보여주고 별도 승인을 받습니다.
+
+- AWS 계정, instance id와 database
+- 삭제할 table별 행 수와 합계
+- 보존할 네 table
+- S3 bucket과 run 전용 object key
+- 백업 생성 및 폐기 예정 시각
+- run id, manifest SHA-256과 plan SHA-256
+
+계획에 포함된 `planSha256`은 DB 이름, migration 목록, 삭제 및 보존 table별 행 수, manifest와 보존 데이터 fingerprint를 함께 묶습니다. 승인 문자열은 `RESET:${RESET_RUN_ID}:${RESET_MANIFEST_SHA256}:${RESET_PLAN_SHA256}` 형식입니다. 계획 뒤 행 수나 보존 데이터가 달라지면 실행 전에 중단합니다.
+
+승인 뒤 같은 값을 사용해 실행합니다.
+
+```bash
+sudo scripts/user-data-reset-run.sh execute \
+  --run-id "$RESET_RUN_ID" \
+  --manifest-sha256 "$RESET_MANIFEST_SHA256" \
+  --plan-sha256 "$RESET_PLAN_SHA256" \
+  --approval "RESET:$RESET_RUN_ID:$RESET_MANIFEST_SHA256:$RESET_PLAN_SHA256"
+```
+
+실행기는 worker와 API 쓰기를 차례로 멈춘 뒤 PostgreSQL custom dump를 만듭니다. 별도 DB 복원과 전체 table 행 수 및 외래 키 비교가 성공한 뒤에만 AES256 S3 object를 만들고 reset transaction을 시작합니다. DB reset 뒤 Valkey가 비워지지 않거나 Google 전용 API 확인이 실패하면 서비스를 다시 열지 않고 maintenance marker를 남깁니다.
+
+백업 bucket은 `studytube-retention=user-reset-7d` tag에 대해 current와 noncurrent version을 7일로 만료하는 lifecycle이 있어야 합니다. 더 긴 Object Lock이 있거나 lifecycle이 맞지 않으면 초기화를 시작하지 않습니다.
+
+7일이 지난 뒤 exact run id의 backup만 폐기하고 version과 delete marker가 남지 않았는지 확인합니다.
+
+```bash
+sudo scripts/user-data-reset-purge-backup.sh --run-id "$RESET_RUN_ID"
+```
+
+prefix나 bucket 전체를 삭제하지 않습니다. 폐기 증거에는 object key 원문 대신 SHA-256만 남깁니다.
+
 ## 서비스 실패 및 복구
 
 계획만 확인합니다.

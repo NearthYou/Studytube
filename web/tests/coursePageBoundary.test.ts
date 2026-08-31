@@ -115,6 +115,15 @@ test("course builder heading stays subordinate to the page title", () => {
   );
 });
 
+test("prepared Course actions fit side by side at phone width", () => {
+  const css = readFileSync(courseCssPath, "utf8");
+
+  assert.match(
+    css,
+    /@media \(max-width: 720px\)[\s\S]*?\.playlist-toolbar \.prepared-course-actions\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);/,
+  );
+});
+
 test("course recommendations survive reloads before the user saves a course", () => {
   const source = readFileSync(coursePath, "utf8");
 

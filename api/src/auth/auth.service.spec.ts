@@ -213,6 +213,18 @@ function createService(
 }
 
 describe('AuthService enrollment', () => {
+  it('rejects legacy email enrollment before any write in Google-only mode', async () => {
+    const { service, repository } = createService({
+      legacyEmailEnabled: false,
+    });
+
+    await expect(
+      service.signup({ email: 'ada@example.com' }, '203.0.113.7'),
+    ).rejects.toThrow('LEGACY_EMAIL_AUTH_DISABLED');
+    expect(repository.consumeRateLimit).not.toHaveBeenCalled();
+    expect(repository.createPendingRegistration).not.toHaveBeenCalled();
+  });
+
   it('canonicalizes exactly the migration ASCII email contract', () => {
     expect(canonicalizeAuthEmail(' Ada.Example+tag@Example.COM ')).toBe(
       'ada.example+tag@example.com',

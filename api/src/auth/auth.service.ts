@@ -62,6 +62,7 @@ type AuthServiceOptions = {
   verificationPepper: Buffer | string;
   rateLimitPepper: Buffer | string;
   timing: { minimumDurationMs: number };
+  legacyEmailEnabled?: boolean;
   delivery: {
     sender: string;
     publicOrigin: string;
@@ -435,6 +436,9 @@ export class AuthService {
     email: string,
     resolvedIpAddress: string,
   ): Promise<AuthAcceptance> {
+    if (this.options.legacyEmailEnabled === false) {
+      throw new Error('LEGACY_EMAIL_AUTH_DISABLED');
+    }
     const startedAt = this.clock();
     try {
       const emailCanonical = canonicalizeAuthEmail(email);

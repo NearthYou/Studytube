@@ -91,10 +91,6 @@ describe('EC2 deployment script', () => {
   );
   const validProductionEnvironment = {
     AUTH_MODE: 'google_only',
-    AUTH_EMAIL_AWS_CREDENTIAL_SOURCE: 'instance-role',
-    AUTH_EMAIL_AWS_REGION: 'ap-northeast-2',
-    AUTH_EMAIL_PROVIDER: 'ses',
-    AUTH_EMAIL_SENDER: 'no-reply@studytube.test',
     AUTH_RATE_LIMIT_PEPPER: 'c'.repeat(32),
     AUTH_VERIFICATION_PEPPER: 'b'.repeat(32),
     GOOGLE_AUTH_ATTEMPT_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64'),
@@ -125,6 +121,8 @@ describe('EC2 deployment script', () => {
       expect(requiredBlock).toContain(name);
       expect(environmentExample).toContain(`${name}=`);
     }
+    expect(requiredBlock).not.toContain('AUTH_EMAIL_PROVIDER');
+    expect(script).toContain('if [ "$AUTH_MODE" = "legacy" ]');
   });
 
   it('prepares the verified release and database before stopping managed services', () => {

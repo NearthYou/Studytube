@@ -32,9 +32,6 @@ export function SiteNav({
           <GuardedLink className="nav-cta" to="/login">
             로그인
           </GuardedLink>
-          <GuardedLink className="nav-cta" to="/signup">
-            회원가입
-          </GuardedLink>
         </div>
       )}
     </header>

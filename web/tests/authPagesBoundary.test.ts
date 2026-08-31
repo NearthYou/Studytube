@@ -9,21 +9,19 @@ const appSource = readFileSync(resolve(root, "App.tsx"), "utf8");
 const routesSource = readFileSync(resolve(root, "app/AppRoutes.tsx"), "utf8");
 
 test("authentication screens own their feature modules", () => {
+  for (const file of ["AuthPage.tsx", "GoogleAuthCompletePage.tsx"]) {
+    assert.equal(existsSync(resolve(root, "features/auth", file)), true);
+  }
   for (const file of [
-    "AuthPage.tsx",
     "VerificationPage.tsx",
     "RegistrationCompletionPage.tsx",
   ]) {
-    assert.equal(existsSync(resolve(root, "features/auth", file)), true);
+    assert.equal(existsSync(resolve(root, "features/auth", file)), false);
   }
   assert.match(routesSource, /from "\.\.\/features\/auth\/AuthPage"/);
-  assert.match(routesSource, /from "\.\.\/features\/auth\/VerificationPage"/);
   assert.match(
     routesSource,
-    /from "\.\.\/features\/auth\/RegistrationCompletionPage"/,
+    /from "\.\.\/features\/auth\/GoogleAuthCompletePage"/,
   );
-  assert.doesNotMatch(
-    appSource,
-    /function (AuthPage|VerificationPage|RegistrationCompletionPage)/,
-  );
+  assert.doesNotMatch(appSource, /function (AuthPage|GoogleAuthCompletePage)/);
 });

@@ -1,10 +1,9 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router";
+import { Link } from "react-router";
 import { fetchMe } from "../../api";
 import { fetchOwnerCourses } from "../../courseApi";
 import { normalizeLearningPace } from "../../courseDiscovery";
 import type { Session, User } from "../../types";
-import { ProfileVerificationForm } from "./ProfileVerificationForm";
 
 export function MyPage({
   session,
@@ -13,7 +12,6 @@ export function MyPage({
   session: Session;
   onSessionUpdate: (user: User) => void;
 }) {
-  const navigate = useNavigate();
   const [user, setUser] = useState(session.user);
   const [courseCount, setCourseCount] = useState(0);
   const [videoCount, setVideoCount] = useState(0);
@@ -21,7 +19,6 @@ export function MyPage({
     countSavedSentences(session.user.id),
   );
   const [status, setStatus] = useState("추천을 불러오는 중이에요.");
-  const [isVerifying, setIsVerifying] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -44,7 +41,10 @@ export function MyPage({
         );
         setCourseCount(activeCourses.length);
         setVideoCount(
-          activeCourses.reduce((total, course) => total + course.steps.length, 0),
+          activeCourses.reduce(
+            (total, course) => total + course.steps.length,
+            0,
+          ),
         );
       } catch {
         if (mounted) {
@@ -66,9 +66,7 @@ export function MyPage({
       <section className="profile-hero">
         <div>
           <h1>내 학습</h1>
-          <p>
-            이어서 볼 코스와 저장한 문장을 확인하세요.
-          </p>
+          <p>이어서 볼 코스와 저장한 문장을 확인하세요.</p>
           <div className="profile-actions">
             <Link className="primary-link" to="/">
               이어서 학습
@@ -76,13 +74,9 @@ export function MyPage({
             <Link className="secondary-link" to="/me/preferences">
               추천 바꾸기
             </Link>
-            <button
-              className="secondary-action"
-              type="button"
-              onClick={() => setIsVerifying((current) => !current)}
-            >
+            <Link className="secondary-link" to="/me/edit">
               내 정보 수정
-            </button>
+            </Link>
           </div>
         </div>
         <div className="profile-stats" aria-label="내 학습 데이터">
@@ -110,7 +104,10 @@ export function MyPage({
           <dl className="profile-info-list">
             <div>
               <dt>배우고 싶은 분야</dt>
-              <dd>{user.preferences.interests.join(", ") || "아직 정하지 않았어요"}</dd>
+              <dd>
+                {user.preferences.interests.join(", ") ||
+                  "아직 정하지 않았어요"}
+              </dd>
             </div>
             <div>
               <dt>한 번에 볼 시간</dt>
@@ -126,7 +123,8 @@ export function MyPage({
             <div>
               <dt>어디에 쓰이나요?</dt>
               <dd>
-                분야는 검색 주제에, 시간은 영상 길이에, 배우는 방식은 어떤 영상을 먼저 고를지 정할 때 써요.
+                분야는 검색 주제에, 시간은 영상 길이에, 배우는 방식은 어떤
+                영상을 먼저 고를지 정할 때 써요.
               </dd>
             </div>
           </dl>
@@ -136,9 +134,14 @@ export function MyPage({
           <strong>{user.name}</strong>
           <p>{user.email}</p>
           <small>계정</small>
-          <p>{user.preferences.interests.join(", ") || "코스 추천을 맞춰주세요"}</p>
+          <p>
+            {user.preferences.interests.join(", ") || "코스 추천을 맞춰주세요"}
+          </p>
           <span>
-            {[normalizeLearningPace(user.preferences.pace), user.preferences.goal]
+            {[
+              normalizeLearningPace(user.preferences.pace),
+              user.preferences.goal,
+            ]
               .filter(Boolean)
               .join(" / ")}
           </span>
@@ -148,22 +151,6 @@ export function MyPage({
           </Link>
         </aside>
       </section>
-
-      {isVerifying && (
-        <ProfileVerificationForm
-          submitLabel="확인하고 수정"
-          onVerified={(nextUser, currentPassword) => {
-            setUser(nextUser);
-            onSessionUpdate(nextUser);
-            navigate("/me/edit", {
-              state: {
-                currentPassword,
-                verifiedAt: Date.now(),
-              },
-            });
-          }}
-        />
-      )}
     </main>
   );
 }

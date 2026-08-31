@@ -6,10 +6,14 @@ import { SiteNav } from "./app/SiteNav";
 import { normalizeSession, readSession, saveSession } from "./authSession";
 import { logout, setUnauthorizedHandler } from "./api";
 import { SESSION_STORAGE_KEY } from "./localStudyStorage";
+import { ensureStudyTubeStorageEpoch } from "./studyStorageReset";
 import type { Session, User } from "./types";
 
 function App() {
-  const [session, setSession] = useState<Session | null>(() => readSession());
+  const [session, setSession] = useState<Session | null>(() => {
+    ensureStudyTubeStorageEpoch(window.localStorage, window.sessionStorage);
+    return readSession();
+  });
 
   useEffect(() => {
     setUnauthorizedHandler(() => {

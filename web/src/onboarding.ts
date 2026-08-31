@@ -1,58 +1,28 @@
-export type AuthMode = 'login' | 'signup';
-
-const DEFAULT_LOGIN_DESTINATION = '/';
-const DEFAULT_SIGNUP_NEXT_DESTINATION = '/board';
-const TUTORIAL_DESTINATION = '/tutorial';
-const AUTH_DESTINATIONS = new Set(['/login', '/signup', '/tutorial']);
-
-export function authCompletionDestination({
-  mode,
-  from,
-}: {
-  mode: AuthMode;
-  from: string;
-}) {
-  if (mode === 'signup') {
-    return TUTORIAL_DESTINATION;
-  }
-
-  return normalizeInternalPath(from, DEFAULT_LOGIN_DESTINATION);
-}
-
-export function signupTutorialNextDestination(from: string) {
-  const normalizedPath = normalizeInternalPath(
-    from,
-    DEFAULT_SIGNUP_NEXT_DESTINATION,
-  );
-
-  if (normalizedPath === '/' || AUTH_DESTINATIONS.has(normalizedPath)) {
-    return DEFAULT_SIGNUP_NEXT_DESTINATION;
-  }
-
-  return normalizedPath;
-}
+const LEARNING_HOME = "/";
+const INTERNAL_ORIGIN = "https://studytube.local";
 
 export function tutorialNextDestination(value: unknown) {
-  if (typeof value !== 'string') {
-    return DEFAULT_SIGNUP_NEXT_DESTINATION;
+  if (
+    typeof value !== "string" ||
+    !value.startsWith("/") ||
+    value.startsWith("//") ||
+    value.includes("\\") ||
+    /\p{Cc}/u.test(value)
+  ) {
+    return LEARNING_HOME;
   }
-
-  const normalizedPath = normalizeInternalPath(
-    value,
-    DEFAULT_SIGNUP_NEXT_DESTINATION,
-  );
-
-  if (normalizedPath === '/' || AUTH_DESTINATIONS.has(normalizedPath)) {
-    return DEFAULT_SIGNUP_NEXT_DESTINATION;
+  try {
+    const parsed = new URL(value, INTERNAL_ORIGIN);
+    if (
+      parsed.origin !== INTERNAL_ORIGIN ||
+      parsed.pathname === "/login" ||
+      parsed.pathname === "/auth" ||
+      parsed.pathname.startsWith("/auth/")
+    ) {
+      return LEARNING_HOME;
+    }
+    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    return LEARNING_HOME;
   }
-
-  return normalizedPath;
-}
-
-function normalizeInternalPath(path: string, fallback: string) {
-  if (!path.startsWith('/') || path.startsWith('//')) {
-    return fallback;
-  }
-
-  return path;
 }

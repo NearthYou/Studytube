@@ -8,6 +8,7 @@ export const WORK_QUEUE_PUBLISHER = Symbol('WORK_QUEUE_PUBLISHER');
 
 export type WorkQueueJob = {
   eventId: string;
+  ownerId: number | null;
   eventType: string;
   handlerVersion: string;
   payloadSchemaVersion: number;

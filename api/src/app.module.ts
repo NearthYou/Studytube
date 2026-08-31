@@ -18,6 +18,7 @@ import { LearningModule } from './learning/learning.module';
 import { McpModule } from './mcp/mcp.module';
 import { runtimeConfigOptions } from './runtime-environment-files';
 import { LiveCaptionService } from './live-caption.service';
+import { AccountModule } from './account/account.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { LiveCaptionService } from './live-caption.service';
     LearningModule,
     McpModule,
     AuthModule,
+    AccountModule,
     CourseModule,
     WorkModule,
     HttpModule,

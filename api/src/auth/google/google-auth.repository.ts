@@ -46,6 +46,13 @@ export type CommitGoogleLoginResult =
     }
   | { status: 'invalid' };
 
+export type MarkGoogleReauthenticatedCommand = {
+  userId: number;
+  sessionId: string;
+  googleSubject: string;
+  reauthenticatedAt: Date;
+};
+
 export interface GoogleAuthRepository {
   createGoogleAuthAttempt(
     command: CreateGoogleAuthAttemptCommand,
@@ -57,4 +64,7 @@ export interface GoogleAuthRepository {
   commitGoogleLogin(
     command: CommitGoogleLoginCommand,
   ): Promise<CommitGoogleLoginResult>;
+  markGoogleReauthenticated(
+    command: MarkGoogleReauthenticatedCommand,
+  ): Promise<boolean>;
 }

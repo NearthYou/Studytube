@@ -34,6 +34,12 @@ export type CompleteGoogleLoginResult =
     }
   | { status: 'invalid' };
 
+export type CompleteGoogleAuthorizationResult =
+  | Exclude<CompleteGoogleLoginResult, { status: 'invalid' }>
+  | { status: 'deletion_verified' }
+  | { status: 'wrong_account' }
+  | { status: 'invalid' };
+
 export class GoogleAuthService {
   private readonly uuid: () => string;
   private readonly random: (size: number) => Buffer;
@@ -53,33 +59,19 @@ export class GoogleAuthService {
   }
 
   async startLogin(input: { returnPath?: string } = {}) {
-    const state = this.random(32).toString('base64url');
-    const nonce = this.random(32).toString('base64url');
-    const verifier = this.random(64).toString('base64url');
-    const codeChallenge = createHash('sha256')
-      .update(verifier, 'utf8')
-      .digest('base64url');
-    const createdAt = this.options.clock();
-    const returnPath = safeReturnPath(input.returnPath);
-
-    await this.options.repository.createGoogleAuthAttempt({
-      id: this.uuid(),
+    return this.startAttempt({
       purpose: 'login',
-      stateDigest: this.options.attemptCrypto.digest(state),
-      nonceDigest: this.options.attemptCrypto.digest(nonce),
-      encryptedCodeVerifier:
-        this.options.attemptCrypto.encryptVerifier(verifier),
-      returnPath,
-      createdAt,
-      expiresAt: new Date(createdAt.getTime() + this.attemptTtlMs),
+      returnPath: safeReturnPath(input.returnPath),
     });
+  }
 
-    return Object.freeze({
-      authorizationUrl: this.options.identityClient.authorizationUrl({
-        state,
-        nonce,
-        codeChallenge,
-      }),
+  async startAccountDeletion(input: { userId: number; sessionId: string }) {
+    return this.startAttempt({
+      purpose: 'delete_account',
+      userId: input.userId,
+      sessionId: input.sessionId,
+      returnPath: '/me/delete',
+      prompt: 'select_account',
     });
   }
 
@@ -87,6 +79,14 @@ export class GoogleAuthService {
     state: string;
     code: string;
   }): Promise<CompleteGoogleLoginResult> {
+    const result = await this.completeAuthorization(input);
+    return result.status === 'authenticated' ? result : { status: 'invalid' };
+  }
+
+  async completeAuthorization(input: {
+    state: string;
+    code: string;
+  }): Promise<CompleteGoogleAuthorizationResult> {
     if (!STATE_PATTERN.test(input.state) || !input.code.trim()) {
       return { status: 'invalid' };
     }
@@ -95,12 +95,7 @@ export class GoogleAuthService {
       this.options.attemptCrypto.digest(input.state),
       consumedAt,
     );
-    if (
-      consumed.status !== 'consumed' ||
-      consumed.attempt.purpose !== 'login'
-    ) {
-      return { status: 'invalid' };
-    }
+    if (consumed.status !== 'consumed') return { status: 'invalid' };
 
     let verifier: string;
     try {
@@ -115,6 +110,25 @@ export class GoogleAuthService {
       codeVerifier: verifier,
       expectedNonceDigest: consumed.attempt.nonceDigest,
     });
+
+    if (consumed.attempt.purpose === 'delete_account') {
+      if (
+        consumed.attempt.userId === undefined ||
+        consumed.attempt.sessionId === undefined
+      ) {
+        return { status: 'invalid' };
+      }
+      const marked = await this.options.repository.markGoogleReauthenticated({
+        userId: consumed.attempt.userId,
+        sessionId: consumed.attempt.sessionId,
+        googleSubject: identity.subject,
+        reauthenticatedAt: consumedAt,
+      });
+      return marked
+        ? { status: 'deletion_verified' }
+        : { status: 'wrong_account' };
+    }
+
     const session = this.opaqueTokenFactory();
     const sessionId = this.uuid();
     const committed = await this.options.repository.commitGoogleLogin({
@@ -142,6 +156,45 @@ export class GoogleAuthService {
       user: committed.user,
       newUser: committed.newUser,
       returnPath: consumed.attempt.returnPath,
+    });
+  }
+
+  private async startAttempt(input: {
+    purpose: 'login' | 'delete_account';
+    userId?: number;
+    sessionId?: string;
+    returnPath: string;
+    prompt?: 'select_account';
+  }) {
+    const state = this.random(32).toString('base64url');
+    const nonce = this.random(32).toString('base64url');
+    const verifier = this.random(64).toString('base64url');
+    const codeChallenge = createHash('sha256')
+      .update(verifier, 'utf8')
+      .digest('base64url');
+    const createdAt = this.options.clock();
+
+    await this.options.repository.createGoogleAuthAttempt({
+      id: this.uuid(),
+      purpose: input.purpose,
+      stateDigest: this.options.attemptCrypto.digest(state),
+      nonceDigest: this.options.attemptCrypto.digest(nonce),
+      encryptedCodeVerifier:
+        this.options.attemptCrypto.encryptVerifier(verifier),
+      ...(input.userId === undefined ? {} : { userId: input.userId }),
+      ...(input.sessionId === undefined ? {} : { sessionId: input.sessionId }),
+      returnPath: input.returnPath,
+      createdAt,
+      expiresAt: new Date(createdAt.getTime() + this.attemptTtlMs),
+    });
+
+    return Object.freeze({
+      authorizationUrl: this.options.identityClient.authorizationUrl({
+        state,
+        nonce,
+        codeChallenge,
+        prompt: input.prompt,
+      }),
     });
   }
 }

@@ -50,6 +50,7 @@ const ASSET: VideoAsset = {
 
 const JOB: WorkQueueJob = {
   eventId: '11111111-1111-4111-8111-111111111111',
+  ownerId: 7,
   eventType: 'video_asset.requested',
   handlerVersion: 'video-asset-v1',
   payloadSchemaVersion: 1,
@@ -126,6 +127,7 @@ describe('VideoAssetJobHandler', () => {
     );
     const job: WorkQueueJob = {
       eventId: '33333333-3333-4333-8333-333333333333',
+      ownerId: 7,
       eventType: 'learning_intake.requested',
       handlerVersion: 'learning-caption-v1',
       payloadSchemaVersion: 1,
@@ -157,6 +159,7 @@ describe('VideoAssetJobHandler', () => {
     expect(signalArg).toBeInstanceOf(AbortSignal);
     expect(results.appendedEvents).toEqual([
       expect.objectContaining({
+        ownerId: 7,
         eventType: 'retrieval_embedding.requested',
         aggregateType: 'study_context',
         aggregateId: '81',
@@ -300,11 +303,13 @@ describe('VideoAssetJobHandler', () => {
     expect(preparations).toBe(1);
     expect(results.appendedEvents).toHaveLength(2);
     expect(results.appendedEvents[0]).toMatchObject({
+      ownerId: 7,
       eventType: 'retrieval_embedding.requested',
       aggregateId: '42',
       payload: { postId: 42 },
     });
     expect(results.appendedEvents[1]).toMatchObject({
+      ownerId: 7,
       eventType: 'retrieval_embedding.requested',
       aggregateType: 'course_step',
       aggregateId: '24',

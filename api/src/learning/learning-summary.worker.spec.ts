@@ -12,6 +12,7 @@ import {
 
 const JOB: WorkQueueJob = {
   eventId: '33333333-3333-4333-8333-333333333333',
+  ownerId: 7,
   eventType: 'learning_summary.requested',
   handlerVersion: 'learning-summary-v1',
   payloadSchemaVersion: 1,

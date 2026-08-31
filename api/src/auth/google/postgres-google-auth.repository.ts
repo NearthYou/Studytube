@@ -8,6 +8,7 @@ import type {
   CreateGoogleAuthAttemptCommand,
   GoogleAuthAttemptPurpose,
   GoogleAuthRepository,
+  MarkGoogleReauthenticatedCommand,
 } from './google-auth.repository';
 
 type GoogleAuthSqlPool = Pick<Pool, 'query' | 'connect'>;
@@ -223,6 +224,37 @@ export class PostgresGoogleAuthRepository implements GoogleAuthRepository {
       throw new AuthRepositoryUnavailableError();
     } finally {
       client.release();
+    }
+  }
+
+  async markGoogleReauthenticated(
+    command: MarkGoogleReauthenticatedCommand,
+  ): Promise<boolean> {
+    try {
+      const result = await this.pool.query<{ id: string }>(
+        `
+          UPDATE sessions AS session
+          SET google_reauthenticated_at = $4
+          FROM users AS user
+          WHERE session.user_id = $1
+            AND session.id = $2
+            AND user.id = session.user_id
+            AND user.google_subject = $3
+            AND session.revoked_at IS NULL
+            AND session.absolute_expires_at > $4
+            AND session.idle_expires_at > $4
+          RETURNING session.id
+        `,
+        [
+          command.userId,
+          command.sessionId,
+          command.googleSubject,
+          command.reauthenticatedAt,
+        ],
+      );
+      return result.rows[0] !== undefined;
+    } catch {
+      throw new AuthRepositoryUnavailableError();
     }
   }
 }

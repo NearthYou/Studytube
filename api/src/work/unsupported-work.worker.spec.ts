@@ -5,6 +5,7 @@ import { UnsupportedWorkJobHandler } from './unsupported-work.worker';
 
 const JOB: WorkQueueJob = {
   eventId: '11111111-1111-4111-8111-111111111111',
+  ownerId: null,
   eventType: 'unknown.requested',
   handlerVersion: 'unsupported-v1',
   payloadSchemaVersion: 1,

@@ -20,7 +20,7 @@ describe('GoogleAuthController', () => {
 
   it('sets the opaque session cookie before redirecting to Web completion', async () => {
     const fixture = createFixture();
-    fixture.completeLogin.mockResolvedValueOnce({
+    fixture.completeAuthorization.mockResolvedValueOnce({
       status: 'authenticated',
       sessionToken: 'opaque-session-cookie',
       user: {
@@ -63,10 +63,10 @@ describe('GoogleAuthController', () => {
       302,
       '/login?googleError=cancelled',
     );
-    expect(cancelled.completeLogin).not.toHaveBeenCalled();
+    expect(cancelled.completeAuthorization).not.toHaveBeenCalled();
 
     const expired = createFixture();
-    expired.completeLogin.mockResolvedValueOnce({ status: 'invalid' });
+    expired.completeAuthorization.mockResolvedValueOnce({ status: 'invalid' });
     await expired.controller.callback(
       'state-value',
       'code-value',
@@ -82,7 +82,7 @@ describe('GoogleAuthController', () => {
 
   it('does not expose a provider failure in the redirect URL', async () => {
     const fixture = createFixture();
-    fixture.completeLogin.mockRejectedValueOnce(
+    fixture.completeAuthorization.mockRejectedValueOnce(
       new Error('upstream contained a private token'),
     );
 
@@ -101,6 +101,62 @@ describe('GoogleAuthController', () => {
       'private token',
     );
   });
+
+  it('starts deletion reauthentication for the current session only', async () => {
+    const fixture = createFixture();
+
+    await fixture.controller.startDeletion(
+      {
+        principal: {
+          userId: 71,
+          sessionId: '33333333-3333-4333-8333-333333333333',
+        },
+      } as never,
+      fixture.response,
+    );
+
+    expect(fixture.startAccountDeletion).toHaveBeenCalledWith({
+      userId: 71,
+      sessionId: '33333333-3333-4333-8333-333333333333',
+    });
+    expect(fixture.redirect).toHaveBeenCalledWith(
+      302,
+      'https://accounts.google.com/o/oauth2/v2/auth?state=deletion',
+    );
+  });
+
+  it('returns deletion callbacks to the confirmation page without a new session', async () => {
+    const verified = createFixture();
+    verified.completeAuthorization.mockResolvedValueOnce({
+      status: 'deletion_verified',
+    });
+    await verified.controller.callback(
+      'state-value',
+      'code-value',
+      undefined,
+      verified.response,
+    );
+    expect(verified.redirect).toHaveBeenCalledWith(
+      302,
+      '/me/delete?verified=1',
+    );
+    expect(verified.setSessionCookie).not.toHaveBeenCalled();
+
+    const wrongAccount = createFixture();
+    wrongAccount.completeAuthorization.mockResolvedValueOnce({
+      status: 'wrong_account',
+    });
+    await wrongAccount.controller.callback(
+      'state-value',
+      'code-value',
+      undefined,
+      wrongAccount.response,
+    );
+    expect(wrongAccount.redirect).toHaveBeenCalledWith(
+      302,
+      '/me/delete?googleError=wrong_account',
+    );
+  });
 });
 
 function createFixture() {
@@ -110,10 +166,17 @@ function createFixture() {
         'https://accounts.google.com/o/oauth2/v2/auth?state=opaque',
     }),
   );
-  const completeLogin = jest.fn();
+  const completeAuthorization = jest.fn();
+  const startAccountDeletion = jest.fn(() =>
+    Promise.resolve({
+      authorizationUrl:
+        'https://accounts.google.com/o/oauth2/v2/auth?state=deletion',
+    }),
+  );
   const service = {
     startLogin,
-    completeLogin,
+    completeAuthorization,
+    startAccountDeletion,
   } as unknown as jest.Mocked<GoogleAuthService>;
   const setSessionCookie = jest.fn();
   const cookies = {
@@ -126,7 +189,8 @@ function createFixture() {
   return {
     controller: new GoogleAuthController(service, cookies),
     startLogin,
-    completeLogin,
+    completeAuthorization,
+    startAccountDeletion,
     setSessionCookie,
     redirect,
     response,

@@ -19,6 +19,8 @@ import { RequestIdMiddleware } from './request-id.middleware';
 import { SessionGuard } from './session.guard';
 import { AuthService } from './auth.service';
 import { LegacyEmailAuthController } from './legacy-email-auth.controller';
+import { AccountDeletionController } from '../account/account-deletion.controller';
+import { AccountErasureService } from '../account/account-erasure.service';
 
 const WEB_ORIGIN = 'https://web.studytube.test';
 const SESSION_TOKEN = Buffer.alloc(32, 1).toString('base64url');
@@ -68,18 +70,24 @@ describe('authentication HTTP boundary', () => {
     createPost,
   };
   const recommend = jest.fn();
+  const eraseAccount = jest.fn();
 
   beforeAll(async () => {
     const module = await Test.createTestingModule({
       controllers: [
         AuthController,
         LegacyEmailAuthController,
+        AccountDeletionController,
         AppController,
         StudyBoardController,
         AiController,
       ],
       providers: [
         { provide: AuthService, useValue: authService },
+        {
+          provide: AccountErasureService,
+          useValue: { eraseAccount },
+        },
         { provide: StudyBoardService, useValue: studyBoardService },
         {
           provide: AppService,
@@ -157,6 +165,7 @@ describe('authentication HTTP boundary', () => {
       status: 'updated',
       user: updatedUser,
     });
+    eraseAccount.mockResolvedValue({ status: 'deleted' });
     studyBoardService.listPublicPosts.mockResolvedValue({ items: [] });
     studyBoardService.createPost.mockResolvedValue({ id: 91 });
   });
@@ -327,6 +336,31 @@ describe('authentication HTTP boundary', () => {
       { sessionId: 11, user },
       { name: updatedUser.name, preferences: updatedUser.preferences },
     );
+  });
+
+  it('deletes the authenticated account only through an origin-checked request', async () => {
+    const deleted = await request(app.getHttpServer())
+      .delete('/me')
+      .set('Origin', WEB_ORIGIN)
+      .set('Content-Type', 'application/json')
+      .set('Cookie', `studytube_session=${SESSION_TOKEN}`)
+      .send({})
+      .expect(204);
+
+    expect(eraseAccount).toHaveBeenCalledWith({
+      userId: 7,
+      sessionId: 11,
+    });
+    expect((deleted.get('Set-Cookie') ?? []).join('\n')).toContain(
+      'studytube_session=;',
+    );
+
+    await request(app.getHttpServer())
+      .delete('/me')
+      .set('Content-Type', 'application/json')
+      .set('Cookie', `studytube_session=${SESSION_TOKEN}`)
+      .send({})
+      .expect(403);
   });
 
   it('rejects missing, malformed, duplicate, and bearer-only session credentials', async () => {

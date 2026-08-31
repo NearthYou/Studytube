@@ -178,20 +178,21 @@ export class PostgresLearningOverviewRepository implements LearningOverviewRepos
         await client.query(
           `
             INSERT INTO work_outbox_events (
-              id, event_type, aggregate_type, aggregate_id,
+              id, owner_id, event_type, aggregate_type, aggregate_id,
               aggregate_version, payload_schema_version, payload
             ) VALUES (
-              $1::uuid, 'learning_summary.requested', 'learning_context_summary',
-              $2::text, $3::int, 1, jsonb_build_object(
-                'summaryId', $2::text,
-                'studyContextId', $4::text,
-                'captionArtifactId', $5::text,
-                'captionGeneration', $3::int
+              $1::uuid, $2, 'learning_summary.requested', 'learning_context_summary',
+              $3::text, $4::int, 1, jsonb_build_object(
+                'summaryId', $3::text,
+                'studyContextId', $5::text,
+                'captionArtifactId', $6::text,
+                'captionGeneration', $4::int
               )
             )
           `,
           [
             eventId,
+            userId,
             summaryId,
             artifact.generation,
             contextId,

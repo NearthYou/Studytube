@@ -130,7 +130,12 @@ export class PostgresCourseRepository implements CourseRepository {
         for (const [index, step] of command.course.steps.entries()) {
           await this.insertStep(client, courseId, index + 1, step);
         }
-        await this.enqueueCourseStepRetrieval(client, courseId, 1);
+        await this.enqueueCourseStepRetrieval(
+          client,
+          command.ownerId,
+          courseId,
+          1,
+        );
       }
 
       return this.requireOwner(client, command.ownerId, courseId);
@@ -217,6 +222,7 @@ export class PostgresCourseRepository implements CourseRepository {
       }
       await this.enqueueCourseStepRetrieval(
         client,
+        command.ownerId,
         command.courseId,
         result.rows[0].version,
       );
@@ -310,6 +316,7 @@ export class PostgresCourseRepository implements CourseRepository {
       );
       await this.enqueueCourseStepRetrieval(
         client,
+        command.ownerId,
         command.courseId,
         updated.rows[0].version,
         deletedIds,
@@ -432,6 +439,7 @@ export class PostgresCourseRepository implements CourseRepository {
       }
       await this.enqueueCourseStepRetrieval(
         client,
+        command.ownerId,
         command.courseId,
         courseVersion,
       );
@@ -581,6 +589,7 @@ export class PostgresCourseRepository implements CourseRepository {
 
   private async enqueueCourseStepRetrieval(
     client: PoolClient,
+    ownerId: number,
     courseId: number,
     courseVersion: number,
     deletedStepIds: string[] = [],
@@ -597,6 +606,7 @@ export class PostgresCourseRepository implements CourseRepository {
     for (const step of steps.rows) {
       await this.enqueueCourseStepRetrievalEvent(
         client,
+        ownerId,
         courseId,
         courseVersion,
         step.id,
@@ -606,6 +616,7 @@ export class PostgresCourseRepository implements CourseRepository {
     for (const stepId of deletedStepIds) {
       await this.enqueueCourseStepRetrievalEvent(
         client,
+        ownerId,
         courseId,
         courseVersion,
         stepId,
@@ -616,6 +627,7 @@ export class PostgresCourseRepository implements CourseRepository {
 
   private async enqueueCourseStepRetrievalEvent(
     client: PoolClient,
+    ownerId: number,
     courseId: number,
     courseVersion: number,
     courseStepId: string,
@@ -631,15 +643,21 @@ export class PostgresCourseRepository implements CourseRepository {
     await client.query(
       `
         INSERT INTO work_outbox_events (
-          id, event_type, aggregate_type, aggregate_id,
+          id, owner_id, event_type, aggregate_type, aggregate_id,
           aggregate_version, payload_schema_version, payload, trace_context
         )
         VALUES (
-          $1, 'retrieval_embedding.requested', 'course_step', $2,
-          $3, 1, $4::jsonb, '{}'::jsonb
+          $1, $2, 'retrieval_embedding.requested', 'course_step', $3,
+          $4, 1, $5::jsonb, '{}'::jsonb
         )
       `,
-      [randomUUID(), courseStepId, courseVersion, JSON.stringify(payload)],
+      [
+        randomUUID(),
+        ownerId,
+        courseStepId,
+        courseVersion,
+        JSON.stringify(payload),
+      ],
     );
   }
 

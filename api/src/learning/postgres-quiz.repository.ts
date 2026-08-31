@@ -656,11 +656,16 @@ export class PostgresQuizRepository {
       }
       await client.query(
         `INSERT INTO work_outbox_events (
-           id, event_type, aggregate_type, aggregate_id, aggregate_version,
+           id, owner_id, event_type, aggregate_type, aggregate_id, aggregate_version,
            payload_schema_version, payload
-         ) VALUES ($1, 'quiz_generation.requested', 'learning_quiz_loop',
-                   $2, 1, 2, $3::jsonb)`,
-        [eventId, loopId, JSON.stringify({ quizLoopId: loopId })],
+         ) VALUES ($1, $2, 'quiz_generation.requested', 'learning_quiz_loop',
+                   $3, 1, 2, $4::jsonb)`,
+        [
+          eventId,
+          command.userId,
+          loopId,
+          JSON.stringify({ quizLoopId: loopId }),
+        ],
       );
       return this.requireAdaptiveQuiz(client, command.userId, loopId);
     });

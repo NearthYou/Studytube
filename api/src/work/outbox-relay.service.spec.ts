@@ -15,6 +15,7 @@ import type {
 
 const EVENT: ClaimedOutboxEvent = {
   id: '11111111-1111-4111-8111-111111111111',
+  ownerId: 7,
   eventType: 'video_asset.requested',
   aggregateType: 'post',
   aggregateId: '42',
@@ -184,6 +185,7 @@ describe('OutboxRelayService', () => {
         name: 'video_asset.requested',
         data: {
           eventId: EVENT.id,
+          ownerId: EVENT.ownerId,
           eventType: EVENT.eventType,
           handlerVersion: 'video-asset-v1',
           payloadSchemaVersion: 1,

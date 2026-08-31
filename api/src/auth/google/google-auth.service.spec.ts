@@ -115,6 +115,65 @@ describe('GoogleAuthService', () => {
       expect(fixture.repository.created[0]?.returnPath).toBe('/');
     },
   );
+
+  it('binds account-deletion reauthentication to the current user and session', async () => {
+    const fixture = createFixture();
+
+    const started = await fixture.service.startAccountDeletion({
+      userId: 71,
+      sessionId: '33333333-3333-4333-8333-333333333333',
+    });
+    const url = new URL(started.authorizationUrl);
+
+    expect(url.searchParams.get('prompt')).toBe('select_account');
+    expect(fixture.repository.created[0]).toMatchObject({
+      purpose: 'delete_account',
+      userId: 71,
+      sessionId: '33333333-3333-4333-8333-333333333333',
+      returnPath: '/me/delete',
+    });
+  });
+
+  it('marks only the same Google identity as recently reauthenticated', async () => {
+    const fixture = createFixture();
+    const started = await fixture.service.startAccountDeletion({
+      userId: 71,
+      sessionId: '33333333-3333-4333-8333-333333333333',
+    });
+    const state = new URL(started.authorizationUrl).searchParams.get('state');
+    if (!state) throw new Error('Expected state');
+
+    await expect(
+      fixture.service.completeAuthorization({ state, code: 'deletion-code' }),
+    ).resolves.toEqual({ status: 'deletion_verified' });
+    expect(fixture.repository.reauthenticated).toEqual([
+      {
+        userId: 71,
+        sessionId: '33333333-3333-4333-8333-333333333333',
+        googleSubject: 'google-subject-1',
+        reauthenticatedAt: NOW,
+      },
+    ]);
+  });
+
+  it('does not authorize deletion when another Google account is selected', async () => {
+    const fixture = createFixture();
+    fixture.identity.subject = 'another-google-subject';
+    fixture.repository.acceptReauthentication = false;
+    const started = await fixture.service.startAccountDeletion({
+      userId: 71,
+      sessionId: '33333333-3333-4333-8333-333333333333',
+    });
+    const state = new URL(started.authorizationUrl).searchParams.get('state');
+    if (!state) throw new Error('Expected state');
+
+    await expect(
+      fixture.service.completeAuthorization({
+        state,
+        code: 'wrong-account-code',
+      }),
+    ).resolves.toEqual({ status: 'wrong_account' });
+  });
 });
 
 function createFixture() {
@@ -157,6 +216,13 @@ function createFixture() {
 class MemoryGoogleAuthRepository implements GoogleAuthRepository {
   readonly created: CreateGoogleAuthAttemptCommand[] = [];
   readonly committed: CommitGoogleLoginCommand[] = [];
+  readonly reauthenticated: Array<{
+    userId: number;
+    sessionId: string;
+    googleSubject: string;
+    reauthenticatedAt: Date;
+  }> = [];
+  acceptReauthentication = true;
   private readonly attempts = new Map<string, StoredGoogleAuthAttempt>();
 
   createGoogleAuthAttempt(command: CreateGoogleAuthAttemptCommand) {
@@ -166,6 +232,10 @@ class MemoryGoogleAuthRepository implements GoogleAuthRepository {
       purpose: command.purpose,
       nonceDigest: command.nonceDigest,
       encryptedCodeVerifier: command.encryptedCodeVerifier,
+      ...(command.userId === undefined ? {} : { userId: command.userId }),
+      ...(command.sessionId === undefined
+        ? {}
+        : { sessionId: command.sessionId }),
       returnPath: command.returnPath,
     });
     return Promise.resolve();
@@ -190,10 +260,21 @@ class MemoryGoogleAuthRepository implements GoogleAuthRepository {
       newUser: true,
     } as const);
   }
+
+  markGoogleReauthenticated(command: {
+    userId: number;
+    sessionId: string;
+    googleSubject: string;
+    reauthenticatedAt: Date;
+  }) {
+    this.reauthenticated.push(command);
+    return Promise.resolve(this.acceptReauthentication);
+  }
 }
 
 class MemoryGoogleIdentityClient implements GoogleIdentityClient {
   readonly exchanges: GoogleCodeExchangeInput[] = [];
+  subject = 'google-subject-1';
 
   authorizationUrl(input: GoogleAuthorizationInput) {
     const url = new URL('https://accounts.google.com/o/oauth2/v2/auth');
@@ -201,13 +282,14 @@ class MemoryGoogleIdentityClient implements GoogleIdentityClient {
     url.searchParams.set('nonce', input.nonce);
     url.searchParams.set('code_challenge', input.codeChallenge);
     url.searchParams.set('code_challenge_method', 'S256');
+    if (input.prompt) url.searchParams.set('prompt', input.prompt);
     return url.toString();
   }
 
   exchange(input: GoogleCodeExchangeInput) {
     this.exchanges.push(input);
     return Promise.resolve({
-      subject: 'google-subject-1',
+      subject: this.subject,
       email: 'learner@example.com',
       emailVerified: true as const,
       name: 'Learner',

@@ -353,6 +353,7 @@ export class PostgresAgentRunRepository {
         if (!courseStepId) throw new LearningPersistenceUnavailableError();
         await this.enqueueApprovedStep(
           client,
+          command.ownerId,
           command.runId,
           courseStepId,
           step,
@@ -560,6 +561,7 @@ export class PostgresAgentRunRepository {
 
   private async enqueueApprovedStep(
     client: PoolClient,
+    ownerId: number,
     runId: string,
     courseStepId: string,
     step: ProposedCourseStep,
@@ -636,13 +638,14 @@ export class PostgresAgentRunRepository {
       await client.query(
         `
           INSERT INTO work_outbox_events (
-            id, event_type, aggregate_type, aggregate_id,
+            id, owner_id, event_type, aggregate_type, aggregate_id,
             aggregate_version, payload_schema_version, payload, trace_context
           )
-          VALUES ($1, $2, 'course_step', $3, 1, 1, $4::jsonb, $5::jsonb)
+          VALUES ($1, $2, $3, 'course_step', $4, 1, 1, $5::jsonb, $6::jsonb)
         `,
         [
           eventId,
+          ownerId,
           item.eventType,
           courseStepId,
           JSON.stringify(item.payload),
@@ -699,13 +702,14 @@ export class PostgresAgentRunRepository {
       await client.query(
         `
           INSERT INTO work_outbox_events (
-            id, event_type, aggregate_type, aggregate_id,
+            id, owner_id, event_type, aggregate_type, aggregate_id,
             aggregate_version, payload_schema_version, payload, trace_context
           )
-          VALUES ($1, $2, 'course_step', $3, 1, $4, $5::jsonb, $6::jsonb)
+          VALUES ($1, $2, $3, 'course_step', $4, 1, $5, $6::jsonb, $7::jsonb)
         `,
         [
           eventId,
+          command.ownerId,
           eventTypes[item.kind],
           item.courseStepId,
           item.payloadSchemaVersion,

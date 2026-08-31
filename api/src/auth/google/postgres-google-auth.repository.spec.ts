@@ -121,6 +121,35 @@ describe('PostgresGoogleAuthRepository', () => {
     expect(statements[3]).toBe('COMMIT');
     expect(release).toHaveBeenCalledTimes(1);
   });
+
+  it('marks reauthentication only when user, session, and Google subject agree', async () => {
+    const query = jest.fn(() =>
+      Promise.resolve({ rows: [{ id: 'session-id' }], rowCount: 1 }),
+    );
+    const repository = new PostgresGoogleAuthRepository({ query } as never);
+    const reauthenticatedAt = new Date('2026-08-31T12:05:00.000Z');
+
+    await expect(
+      repository.markGoogleReauthenticated({
+        userId: 71,
+        sessionId: '33333333-3333-4333-8333-333333333333',
+        googleSubject: 'google-subject-1',
+        reauthenticatedAt,
+      }),
+    ).resolves.toBe(true);
+
+    const [sql, values] = query.mock.calls[0] as unknown as [string, unknown[]];
+    expect(sql).toContain('UPDATE sessions AS session');
+    expect(sql).toContain('user.google_subject = $3');
+    expect(sql).toContain('session.user_id = $1');
+    expect(sql).toContain('session.id = $2');
+    expect(values).toEqual([
+      71,
+      '33333333-3333-4333-8333-333333333333',
+      'google-subject-1',
+      reauthenticatedAt,
+    ]);
+  });
 });
 
 function loginCommand(): CommitGoogleLoginCommand {

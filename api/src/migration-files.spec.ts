@@ -270,6 +270,81 @@ describe('database migration files', () => {
     expect(pgm.sql).not.toHaveBeenCalled();
   });
 
+  it('expands users for Google identity without treating email as the account key', async () => {
+    const migrationPath = join(
+      process.cwd(),
+      'migrations',
+      '1753660821000_google-auth-expand.cjs',
+    );
+
+    expect(existsSync(migrationPath)).toBe(true);
+    if (!existsSync(migrationPath)) return;
+
+    const migration = await readFile(migrationPath, 'utf8');
+    expect(migration).toContain('ADD COLUMN google_subject TEXT');
+    expect(migration).toContain('users_google_subject_key');
+    expect(migration).toContain('users_auth_shape');
+    expect(migration).toContain('ALTER COLUMN password_hash DROP NOT NULL');
+    expect(migration).toContain('ALTER COLUMN password_version DROP DEFAULT');
+    expect(migration).toContain('DROP CONSTRAINT users_email_key');
+    expect(migration).toContain('DROP CONSTRAINT users_email_canonical_key');
+    expect(migration).toContain('CREATE TABLE google_auth_attempts');
+    expect(migration).toContain("purpose IN ('login', 'delete_account')");
+    expect(migration).toContain('google_auth_attempts_owner_shape');
+    expect(migration).toContain(
+      'REFERENCES sessions(id, user_id) ON DELETE CASCADE',
+    );
+  });
+
+  it('ties user-created work and its durable results to the account owner', async () => {
+    const migrationPath = join(
+      process.cwd(),
+      'migrations',
+      '1753660822000_user-owned-work-events.cjs',
+    );
+
+    expect(existsSync(migrationPath)).toBe(true);
+    if (!existsSync(migrationPath)) return;
+
+    const migration = await readFile(migrationPath, 'utf8');
+    expect(migration).toContain(
+      'ADD COLUMN owner_id INTEGER REFERENCES users(id) ON DELETE CASCADE',
+    );
+    expect(migration).toContain('work_outbox_events_owner_idx');
+    for (const constraint of [
+      'work_job_results_event_id_fkey',
+      'work_job_claims_event_id_fkey',
+      'work_dead_letters_event_id_fkey',
+      'work_replay_audits_dead_letter_id_fkey',
+      'work_replay_audits_replay_event_id_fkey',
+      'work_replay_audits_actor_id_fkey',
+      'learning_context_summaries_event_id_fkey',
+    ]) {
+      expect(migration).toContain(`DROP CONSTRAINT ${constraint}`);
+    }
+    expect(
+      migration.match(/ON DELETE CASCADE/gu)?.length,
+    ).toBeGreaterThanOrEqual(8);
+  });
+
+  it('stores only a short-lived Google reauthentication time on the session', async () => {
+    const migrationPath = join(
+      process.cwd(),
+      'migrations',
+      '1753660823000_google-account-deletion.cjs',
+    );
+
+    expect(existsSync(migrationPath)).toBe(true);
+    if (!existsSync(migrationPath)) return;
+
+    const migration = await readFile(migrationPath, 'utf8');
+    expect(migration).toContain(
+      'ADD COLUMN google_reauthenticated_at TIMESTAMPTZ',
+    );
+    expect(migration).toContain('sessions_google_reauthenticated_idx');
+    expect(migration).not.toMatch(/access_token|refresh_token|id_token/iu);
+  });
+
   it('defines an additive Course aggregate migration with guarded rollback', async () => {
     const migrationPath = join(
       process.cwd(),

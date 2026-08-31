@@ -53,4 +53,30 @@ test("caption controls stay compact and expose the full opacity range", () => {
   );
   assert.match(css, /\.caption-opacity-control\s*\{/);
   assert.match(css, /\.caption-opacity-control input\s*\{[^}]*height:\s*44px/);
+  assert.match(player, /const captionOpacityPercent = Math\.round\(/);
+  assert.match(
+    player,
+    /"--caption-opacity-percent": `\$\{captionOpacityPercent\}%`/,
+  );
+  assert.match(
+    css,
+    /\.caption-opacity-control input\s*\{[^}]*appearance:\s*none/,
+  );
+  assert.match(
+    css,
+    /\.caption-opacity-control input\s*\{[^}]*--caption-opacity-track:\s*linear-gradient\([\s\S]*?--caption-opacity-percent/,
+  );
+  assert.match(
+    css,
+    /\.caption-opacity-control input::-webkit-slider-runnable-track\s*\{[^}]*background:\s*var\(--caption-opacity-track\)/,
+  );
+  assert.match(
+    css,
+    /\.caption-opacity-control input::-moz-range-track\s*\{[^}]*background:\s*var\(--caption-opacity-track\)/,
+  );
+  assert.match(css, /\.caption-opacity-control input::-moz-range-progress\s*\{/);
+  assert.doesNotMatch(
+    css.match(/\.caption-opacity-control input\s*\{[^}]*\}/)?.[0] ?? "",
+    /accent-color/,
+  );
 });

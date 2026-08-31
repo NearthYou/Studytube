@@ -230,6 +230,10 @@ export const LearningVideoPlayer = forwardRef<
     saveCaptionPreferences(captionPreferences);
   }, [captionPreferences]);
 
+  const captionOpacityPercent = Math.round(
+    captionPreferences.backgroundOpacity * 100,
+  );
+
   return (
     <>
       <section
@@ -315,7 +319,12 @@ export const LearningVideoPlayer = forwardRef<
             min="0"
             step="5"
             type="range"
-            value={Math.round(captionPreferences.backgroundOpacity * 100)}
+            value={captionOpacityPercent}
+            style={
+              {
+                "--caption-opacity-percent": `${captionOpacityPercent}%`,
+              } as CSSProperties
+            }
             onChange={(event) =>
               setCaptionPreferences((current) => ({
                 ...current,
@@ -323,9 +332,7 @@ export const LearningVideoPlayer = forwardRef<
               }))
             }
           />
-          <output>
-            {Math.round(captionPreferences.backgroundOpacity * 100)}%
-          </output>
+          <output>{captionOpacityPercent}%</output>
         </label>
       </div>
     </>

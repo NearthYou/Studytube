@@ -442,8 +442,14 @@
     padding: 16px;
   }
 
-  .playlist-toolbar .prepared-course-actions,
+  .playlist-toolbar .prepared-course-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+
   .playlist-toolbar .prepared-course-actions button {
+    min-width: 0;
     width: 100%;
   }
 }

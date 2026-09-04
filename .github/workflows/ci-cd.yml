@@ -122,7 +122,7 @@ jobs:
         run: npm ci
 
       - name: Audit production dependencies
-        run: npm audit --omit=dev --audit-level=high
+        run: bash ../scripts/npm-audit-ci.sh
 
       - name: Lint
         run: npm run lint
@@ -164,7 +164,7 @@ jobs:
         run: npm ci
 
       - name: Audit production dependencies
-        run: npm audit --omit=dev --audit-level=high
+        run: bash ../scripts/npm-audit-ci.sh
 
       - name: Validate production runtime scripts
         run: |
@@ -174,12 +174,17 @@ jobs:
             ../scripts/ec2-autodeploy.sh \
             ../scripts/install-ec2-autodeploy.sh \
             ../scripts/install-production-runtime.sh \
+            ../scripts/npm-audit-ci.sh \
             ../scripts/send-ssm-deployment.sh \
             ../scripts/ssm-deploy-release.sh \
             ../scripts/tests/immutable-deploy-contract.sh \
+            ../scripts/tests/npm-audit-ci-contract.sh \
             ../scripts/tests/production-compose-loopback-contract.sh; do
             bash -n "$script"
           done
+
+      - name: Verify npm audit retry contract
+        run: bash ../scripts/tests/npm-audit-ci-contract.sh
 
       - name: Verify immutable deployment contract
         run: bash ../scripts/tests/immutable-deploy-contract.sh

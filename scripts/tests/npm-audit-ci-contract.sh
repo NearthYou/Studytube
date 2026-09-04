@@ -93,7 +93,11 @@ done
 cat >"$output" <<'SCANNER'
 #!/usr/bin/env bash
 set -euo pipefail
-[[ "$*" == 'scan source -r .' ]] || exit 2
+[[ "$#" -eq 5 ]] || exit 2
+[[ "$1" == 'scan' && "$2" == 'source' && "$3" == --config=* && "$4" == '-r' && "$5" == '.' ]] || exit 2
+config_path="${3#--config=}"
+grep -Fq 'group = "dev"' "$config_path" || exit 2
+grep -Fq 'vulnerability.ignore = true' "$config_path" || exit 2
 attempt=0
 if [[ -f "$FAKE_OSV_ATTEMPT_FILE" ]]; then
   attempt="$(cat "$FAKE_OSV_ATTEMPT_FILE")"

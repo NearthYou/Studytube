@@ -23,6 +23,7 @@ trap cleanup EXIT
 
 run_osv_fallback() {
   local scanner="$temporary_dir/osv-scanner"
+  local scanner_config="$temporary_dir/osv-scanner.toml"
   local scanner_url="https://github.com/google/osv-scanner/releases/download/v$osv_scanner_version/osv-scanner_linux_amd64"
 
   curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location \
@@ -30,7 +31,13 @@ run_osv_fallback() {
   printf '%s  %s\n' "$osv_scanner_sha256" "$scanner" |
     sha256sum --check --strict || return $?
   chmod 0700 "$scanner" || return $?
-  "$scanner" scan source -r .
+  printf '%s\n' \
+    '[[PackageOverrides]]' \
+    'group = "dev"' \
+    'vulnerability.ignore = true' \
+    'reason = "CI checks production dependencies only"' \
+    >"$scanner_config"
+  "$scanner" scan source --config="$scanner_config" -r .
 }
 
 for ((attempt = 1; attempt <= max_attempts; attempt += 1)); do

@@ -10,10 +10,10 @@
       .eyebrow { font-size:16px; font-weight:800; letter-spacing:2px; fill:#2563EB; }
       .title { font-size:40px; font-weight:850; letter-spacing:-1px; }
       .subtitle { font-size:18px; font-weight:500; fill:#64748B; }
-      .entity { font-size:20px; font-weight:850; }
-      .meaning { font-size:14px; font-weight:650; fill:#64748B; }
-      .relation { font-size:12px; font-weight:800; fill:#475569; }
-      .note { font-size:16px; font-weight:700; fill:#475569; }
+      .entity { font-size:23px; font-weight:850; }
+      .meaning { font-size:17px; font-weight:650; fill:#64748B; }
+      .relation { font-size:14px; font-weight:800; fill:#475569; }
+      .note { font-size:17px; font-weight:700; fill:#475569; }
     </style>
   </defs>
   <rect width="1600" height="740" fill="#F8FAFF"/>

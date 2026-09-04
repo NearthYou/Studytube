@@ -11,10 +11,10 @@
       .title { font-size:40px; font-weight:850; letter-spacing:-1px; }
       .subtitle { font-size:18px; font-weight:500; fill:#64748B; }
       .number { font-size:15px; font-weight:850; fill:#2563EB; }
-      .card-title { font-size:27px; font-weight:850; }
-      .line { font-size:20px; font-weight:650; fill:#334155; }
-      .result { font-size:20px; font-weight:700; fill:#FFFFFF; }
-      .footer { font-size:17px; font-weight:700; fill:#475569; }
+      .card-title { font-size:29px; font-weight:850; }
+      .line { font-size:22px; font-weight:650; fill:#334155; }
+      .result { font-size:22px; font-weight:700; fill:#FFFFFF; }
+      .footer { font-size:19px; font-weight:700; fill:#475569; }
     </style>
   </defs>
   <rect width="1600" height="620" fill="#F8FAFF"/>
@@ -54,7 +54,7 @@
     <text x="1198" y="255" class="card-title" style="fill:#FFFFFF">사용자 결과</text>
     <text x="1158" y="315" class="result">준비된 자막으로 바로 시작</text>
     <text x="1158" y="362" class="result">메모와 오답에서 장면으로 복습</text>
-    <text x="1158" y="409" class="result">저장한 코스로 다음 학습 이어 보기</text>
+    <text x="1158" y="409" class="result">저장한 코스로 다음 학습</text>
   </g>
 
   <rect x="70" y="530" width="1460" height="54" rx="16" fill="#FFFFFF" stroke="#DCE5F3"/>

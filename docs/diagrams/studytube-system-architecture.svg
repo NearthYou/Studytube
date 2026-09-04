@@ -10,12 +10,12 @@
       .eyebrow { font-size:16px; font-weight:800; letter-spacing:2px; fill:#2563EB; }
       .title { font-size:40px; font-weight:850; letter-spacing:-1px; }
       .subtitle { font-size:18px; font-weight:500; fill:#64748B; }
-      .rail { font-size:15px; font-weight:750; fill:#334155; }
-      .boundary { font-size:17px; font-weight:800; fill:#334155; }
-      .node { font-size:21px; font-weight:850; }
-      .tech { font-size:15px; font-weight:650; fill:#64748B; }
-      .edge { font-size:13px; font-weight:800; fill:#475569; }
-      .note { font-size:15px; font-weight:700; fill:#475569; }
+      .rail { font-size:17px; font-weight:750; fill:#334155; }
+      .boundary { font-size:19px; font-weight:800; fill:#334155; }
+      .node { font-size:23px; font-weight:850; }
+      .tech { font-size:17px; font-weight:650; fill:#64748B; }
+      .edge { font-size:14px; font-weight:800; fill:#475569; }
+      .note { font-size:17px; font-weight:700; fill:#475569; }
     </style>
   </defs>
   <rect width="1600" height="720" fill="#F8FAFF"/>
@@ -69,7 +69,7 @@
     <text x="645" y="449" class="tech">transaction + outbox</text>
   </g>
   <path d="M860 410 H925" stroke="#16A34A" stroke-width="3" marker-end="url(#arrow)"/>
-  <text x="870" y="398" class="edge">data + event</text>
+  <text x="860" y="390" class="edge">data + outbox</text>
 
   <g filter="url(#shadow)">
     <rect x="945" y="345" width="240" height="130" rx="20" fill="#FFFFFF" stroke="#BBF7D0"/>

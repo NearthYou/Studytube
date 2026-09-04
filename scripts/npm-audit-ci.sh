@@ -2,6 +2,8 @@
 set -Eeuo pipefail
 
 readonly max_attempts=3
+readonly osv_scanner_version='2.5.1'
+readonly osv_scanner_sha256='f9f25499a2c8cc367b3af45df2ea7eeca7fbccceab9c35079968f4b3652194be'
 retry_delay_seconds="${NPM_AUDIT_RETRY_DELAY_SECONDS:-15}"
 fetch_timeout_ms="${NPM_AUDIT_FETCH_TIMEOUT_MS:-60000}"
 [[ "$retry_delay_seconds" =~ ^[0-9]+$ ]] || {
@@ -18,6 +20,18 @@ cleanup() {
   rm -rf -- "$temporary_dir"
 }
 trap cleanup EXIT
+
+run_osv_fallback() {
+  local scanner="$temporary_dir/osv-scanner"
+  local scanner_url="https://github.com/google/osv-scanner/releases/download/v$osv_scanner_version/osv-scanner_linux_amd64"
+
+  curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location \
+    --output "$scanner" "$scanner_url" || return $?
+  printf '%s  %s\n' "$osv_scanner_sha256" "$scanner" |
+    sha256sum --check --strict || return $?
+  chmod 0700 "$scanner" || return $?
+  "$scanner" scan source -r .
+}
 
 for ((attempt = 1; attempt <= max_attempts; attempt += 1)); do
   audit_log="$temporary_dir/attempt-$attempt.log"
@@ -37,8 +51,10 @@ for ((attempt = 1; attempt <= max_attempts; attempt += 1)); do
   fi
 
   if ((attempt == max_attempts)); then
-    printf 'npm audit service remained unavailable after %s attempts\n' "$max_attempts" >&2
-    exit "$status"
+    printf 'npm audit service remained unavailable after %s attempts; using OSV-Scanner\n' \
+      "$max_attempts" >&2
+    run_osv_fallback
+    exit 0
   fi
 
   printf 'npm audit service unavailable; retrying attempt %s of %s\n' \

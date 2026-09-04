@@ -32,7 +32,7 @@ Web과 API의 production dependency audit은 취약점 0건으로 끝났습니�
 
 | 자료 | 확인 기준 | 파일 |
 | --- | --- | --- |
-| 제품 방향 | 시작 문제, 학습 흐름과 사용자 승인 경계 | [studytube-product-direction.svg](diagrams/studytube-product-direction.svg) |
+| 제품 방향 | 영상 시점과 공부 기록이 끊기는 문제, 이를 다시 연결하는 방식 | [studytube-product-direction.svg](diagrams/studytube-product-direction.svg) |
 | 시스템 아키텍처 | 공개 진입점, 내부 서비스, 데이터 저장소와 배포 경로 | [studytube-system-architecture.svg](diagrams/studytube-system-architecture.svg) |
 | 데이터 모델 | 핵심 학습 엔티티와 관계 | [studytube-data-model.svg](diagrams/studytube-data-model.svg) |
 

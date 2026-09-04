@@ -108,7 +108,7 @@
     <rect x="1075" y="585" width="250" height="90" rx="18" fill="#FFFFFF" stroke="#FED7AA"/>
     <rect x="1075" y="585" width="10" height="90" rx="5" fill="#EA580C"/>
     <text x="1103" y="623" class="entity">adaptive_quiz</text>
-    <text x="1103" y="651" class="meaning">자막 근거, 문제와 답안</text>
+    <text x="1103" y="651" class="meaning">출제 장면, 문제와 답안</text>
   </g>
 
   <rect x="60" y="696" width="1480" height="28" rx="14" fill="#0F172A"/>

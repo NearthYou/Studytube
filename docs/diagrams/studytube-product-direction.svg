@@ -1,63 +1,114 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="620" viewBox="0 0 1600 620" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="700" viewBox="0 0 1600 700" role="img" aria-labelledby="title desc">
   <title id="title">StudyTube 제품 방향</title>
-  <desc id="desc">흩어진 영상 학습 도구를 하나의 흐름으로 묶어 학습 시작, 복습과 다음 학습을 잇는 제품 방향</desc>
+  <desc id="desc">영상을 보다가 막힌 문장과 메모가 재생 시점에서 분리되는 문제를 StudyTube가 어떻게 해결하는지 보여준다.</desc>
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#F8FAFF"/><stop offset="1" stop-color="#EEF4FF"/></linearGradient>
-    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#1E3A8A" flood-opacity="0.08"/></filter>
-    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#64748B"/></marker>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#F8FAFF"/>
+      <stop offset="1" stop-color="#EEF4FF"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#1E3A8A" flood-opacity="0.08"/>
+    </filter>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#64748B"/>
+    </marker>
     <style>
       text { font-family: Pretendard, "Noto Sans KR", "Segoe UI", sans-serif; fill:#0F172A; }
       .eyebrow { font-size:16px; font-weight:800; letter-spacing:2px; fill:#2563EB; }
       .title { font-size:40px; font-weight:850; letter-spacing:-1px; }
-      .subtitle { font-size:18px; font-weight:500; fill:#64748B; }
-      .number { font-size:15px; font-weight:850; fill:#2563EB; }
-      .card-title { font-size:29px; font-weight:850; }
-      .line { font-size:22px; font-weight:650; fill:#334155; }
-      .result { font-size:22px; font-weight:700; fill:#FFFFFF; }
-      .footer { font-size:19px; font-weight:700; fill:#475569; }
+      .subtitle { font-size:19px; font-weight:550; fill:#64748B; }
+      .panel-label { font-size:16px; font-weight:800; letter-spacing:1.4px; fill:#64748B; }
+      .panel-title { font-size:28px; font-weight:850; }
+      .step-title { font-size:21px; font-weight:750; }
+      .step-note { font-size:16px; font-weight:600; fill:#64748B; }
+      .chip-title { font-size:19px; font-weight:800; }
+      .chip-note { font-size:15px; font-weight:600; fill:#64748B; }
+      .outcome { font-size:20px; font-weight:800; fill:#FFFFFF; }
     </style>
   </defs>
-  <rect width="1600" height="620" fill="#F8FAFF"/>
-  <rect width="1600" height="620" rx="24" fill="url(#bg)"/>
+
+  <rect width="1600" height="700" fill="#F8FAFF"/>
+  <rect width="1600" height="700" rx="24" fill="url(#bg)"/>
   <text x="70" y="62" class="eyebrow">STUDYTUBE / PRODUCT DIRECTION</text>
-  <text x="70" y="112" class="title">영상 학습을 다음 접속까지 이어 주는 서비스</text>
-  <text x="70" y="146" class="subtitle">흩어져 있던 일을 하나의 학습 흐름으로 줄였습니다.</text>
+  <text x="70" y="112" class="title">영상은 남아도, 공부한 맥락은 남지 않습니다</text>
+  <text x="70" y="148" class="subtitle">어느 문장에서 막혔고 무엇을 메모했는지가 영상의 재생 시점과 연결되지 않는 문제입니다.</text>
 
   <g filter="url(#shadow)">
-    <rect x="70" y="205" width="410" height="285" rx="24" fill="#FFFFFF" stroke="#DCE5F3"/>
-    <circle cx="112" cy="247" r="20" fill="#EFF6FF" stroke="#93C5FD"/>
-    <text x="112" y="252" text-anchor="middle" class="number">01</text>
-    <text x="148" y="255" class="card-title">문제</text>
-    <text x="108" y="315" class="line">영상과 번역이 따로 있음</text>
-    <text x="108" y="362" class="line">메모에 재생 시점이 남지 않음</text>
-    <text x="108" y="409" class="line">다음 영상을 다시 검색해야 함</text>
+    <rect x="70" y="195" width="650" height="440" rx="24" fill="#FFFFFF" stroke="#DCE5F3"/>
+  </g>
+  <text x="105" y="235" class="panel-label">기존 방식</text>
+  <text x="105" y="276" class="panel-title">20분짜리 영어 강의를 보다가 6:42에서 막힘</text>
+
+  <line x1="139" y1="322" x2="139" y2="528" stroke="#CBD5E1" stroke-width="4"/>
+  <g>
+    <circle cx="139" cy="330" r="22" fill="#EFF6FF" stroke="#93C5FD"/>
+    <text x="139" y="336" text-anchor="middle" font-size="15" font-weight="850" fill="#2563EB">1</text>
+    <text x="180" y="326" class="step-title">모르는 문장을 발견해 영상을 멈춤</text>
+    <text x="180" y="350" class="step-note">재생 위치 6:42</text>
+  </g>
+  <g>
+    <circle cx="139" cy="402" r="22" fill="#F8FAFC" stroke="#CBD5E1"/>
+    <text x="139" y="408" text-anchor="middle" font-size="15" font-weight="850" fill="#475569">2</text>
+    <text x="180" y="407" class="step-title">번역기를 따로 열어 뜻을 확인</text>
+  </g>
+  <g>
+    <circle cx="139" cy="474" r="22" fill="#F8FAFC" stroke="#CBD5E1"/>
+    <text x="139" y="480" text-anchor="middle" font-size="15" font-weight="850" fill="#475569">3</text>
+    <text x="180" y="479" class="step-title">메모장에 이해한 내용만 저장</text>
+  </g>
+  <g>
+    <circle cx="139" cy="546" r="22" fill="#FEF2F2" stroke="#FCA5A5"/>
+    <text x="139" y="552" text-anchor="middle" font-size="15" font-weight="850" fill="#DC2626">4</text>
+    <text x="180" y="551" class="step-title">다음 날 메모의 장면을 다시 탐색</text>
   </g>
 
-  <path d="M502 347 H555" stroke="#64748B" stroke-width="3" marker-end="url(#arrow)"/>
+  <rect x="105" y="586" width="580" height="34" rx="17" fill="#FEF2F2"/>
+  <circle cx="128" cy="603" r="6" fill="#EF4444"/>
+  <text x="146" y="609" font-size="17" font-weight="800" fill="#B91C1C">영상 시점과 공부 기록의 연결이 끊깁니다.</text>
+
+  <path d="M738 415 H770" stroke="#64748B" stroke-width="3" marker-end="url(#arrow)"/>
 
   <g filter="url(#shadow)">
-    <rect x="575" y="205" width="450" height="285" rx="24" fill="#FFFFFF" stroke="#BFDBFE"/>
-    <circle cx="617" cy="247" r="20" fill="#EEF2FF" stroke="#A5B4FC"/>
-    <text x="617" y="252" text-anchor="middle" class="number">02</text>
-    <text x="653" y="255" class="card-title">선택한 방식</text>
-    <text x="613" y="315" class="line">원문부터 먼저 보여 주기</text>
-    <text x="613" y="362" class="line">문장, 메모와 퀴즈를 시점에 묶기</text>
-    <text x="613" y="409" class="line">코스 변경은 사용자가 결정하기</text>
+    <rect x="790" y="195" width="740" height="440" rx="24" fill="#FFFFFF" stroke="#BFDBFE"/>
+  </g>
+  <text x="825" y="235" class="panel-label" fill="#2563EB">STUDYTUBE</text>
+  <text x="825" y="276" class="panel-title">6:42에 공부한 내용을 함께 저장</text>
+
+  <rect x="825" y="306" width="670" height="56" rx="18" fill="#0F172A"/>
+  <circle cx="860" cy="334" r="17" fill="#2563EB"/>
+  <path d="M860 324 V334 L867 339" fill="none" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round"/>
+  <text x="890" y="341" font-size="22" font-weight="850" style="fill:#FFFFFF">영상 6:42</text>
+  <text x="1020" y="341" font-size="16" font-weight="650" style="fill:#CBD5E1">이 시점이 모든 기록의 기준</text>
+
+  <line x1="1160" y1="362" x2="1160" y2="395" stroke="#93C5FD" stroke-width="3"/>
+  <line x1="920" y1="395" x2="1400" y2="395" stroke="#93C5FD" stroke-width="3"/>
+  <line x1="920" y1="395" x2="920" y2="414" stroke="#93C5FD" stroke-width="3"/>
+  <line x1="1080" y1="395" x2="1080" y2="414" stroke="#93C5FD" stroke-width="3"/>
+  <line x1="1240" y1="395" x2="1240" y2="414" stroke="#93C5FD" stroke-width="3"/>
+  <line x1="1400" y1="395" x2="1400" y2="414" stroke="#93C5FD" stroke-width="3"/>
+
+  <g>
+    <rect x="845" y="414" width="150" height="92" rx="17" fill="#EFF6FF" stroke="#BFDBFE"/>
+    <text x="865" y="450" class="chip-title">영어 원문</text>
+    <text x="865" y="478" class="chip-note">막힌 문장</text>
+  </g>
+  <g>
+    <rect x="1005" y="414" width="150" height="92" rx="17" fill="#EEF2FF" stroke="#C7D2FE"/>
+    <text x="1025" y="450" class="chip-title">한국어 번역</text>
+    <text x="1025" y="478" class="chip-note">문장의 뜻</text>
+  </g>
+  <g>
+    <rect x="1165" y="414" width="150" height="92" rx="17" fill="#F5F3FF" stroke="#DDD6FE"/>
+    <text x="1185" y="450" class="chip-title">내 메모</text>
+    <text x="1185" y="478" class="chip-note">이해한 내용</text>
+  </g>
+  <g>
+    <rect x="1325" y="414" width="150" height="92" rx="17" fill="#FFF7ED" stroke="#FED7AA"/>
+    <text x="1345" y="450" class="chip-title">틀린 문제</text>
+    <text x="1345" y="478" class="chip-note">문제와 정답</text>
   </g>
 
-  <path d="M1047 347 H1100" stroke="#64748B" stroke-width="3" marker-end="url(#arrow)"/>
-
-  <g filter="url(#shadow)">
-    <rect x="1120" y="205" width="410" height="285" rx="24" fill="#0F172A"/>
-    <circle cx="1162" cy="247" r="20" fill="#2563EB"/>
-    <text x="1162" y="252" text-anchor="middle" font-size="15" font-weight="850" style="fill:#FFFFFF">03</text>
-    <text x="1198" y="255" class="card-title" style="fill:#FFFFFF">사용자 결과</text>
-    <text x="1158" y="315" class="result">준비된 자막으로 바로 시작</text>
-    <text x="1158" y="362" class="result">메모와 오답에서 장면으로 복습</text>
-    <text x="1158" y="409" class="result">저장한 코스로 다음 학습</text>
-  </g>
-
-  <rect x="70" y="530" width="1460" height="54" rx="16" fill="#FFFFFF" stroke="#DCE5F3"/>
-  <circle cx="105" cy="557" r="7" fill="#2563EB"/>
-  <text x="126" y="563" class="footer">기준: 기다리지 않기, 시점을 잃지 않기, 관련 없는 영상을 억지로 채우지 않기</text>
+  <rect x="825" y="536" width="670" height="48" rx="16" fill="#2563EB"/>
+  <text x="1160" y="567" text-anchor="middle" class="outcome">메모나 오답을 누르면 영상 6:42로 바로 돌아갑니다.</text>
+  <text x="1160" y="613" text-anchor="middle" font-size="17" font-weight="750" fill="#475569">고른 다음 영상은 코스에 저장해 다음 접속에서 이어 봅니다.</text>
 </svg>

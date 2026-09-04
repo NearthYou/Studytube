@@ -1,0 +1,549 @@
+.auth-landing,
+.auth-landing *,
+.tutorial-simple,
+.tutorial-simple *,
+.learning-home,
+.learning-home *,
+.learning-workspace-empty,
+.learning-workspace-empty * {
+  box-sizing: border-box;
+}
+
+.auth-landing {
+  min-height: calc(100vh - 68px);
+  padding: clamp(48px, 8vw, 96px) 24px;
+  place-items: center;
+}
+
+.auth-landing-shell {
+  display: grid;
+  grid-template-columns: minmax(320px, 0.9fr) minmax(440px, 1.1fr);
+  gap: clamp(36px, 6vw, 72px);
+  align-items: center;
+  width: min(1120px, 100%);
+}
+
+.auth-card.auth-landing-copy {
+  width: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.auth-landing-copy > div {
+  display: grid;
+  gap: 18px;
+}
+
+.auth-landing-copy h1 {
+  max-width: 620px;
+  margin: 0;
+  color: var(--app-text);
+  font-size: clamp(36px, 5vw, 56px);
+  font-weight: 750;
+  line-height: 1.12;
+  letter-spacing: -0.035em;
+}
+
+.auth-landing-copy > div > p {
+  max-width: 540px;
+  color: var(--app-muted);
+  font-size: 17px;
+  line-height: 1.7;
+}
+
+.auth-landing-copy .google-login {
+  justify-content: center;
+  width: fit-content;
+  min-width: 220px;
+  min-height: 50px;
+  padding: 0 24px;
+  border-radius: 10px;
+}
+
+.auth-outcomes {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin: 6px 0 0;
+  padding: 22px 0 0;
+  border-top: 1px solid var(--app-line);
+  list-style: none;
+}
+
+.auth-outcomes li {
+  display: grid;
+  gap: 6px;
+}
+
+.auth-outcomes strong {
+  color: var(--app-text);
+  font-size: 14px;
+}
+
+.auth-outcomes span {
+  color: var(--app-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.auth-product-preview {
+  overflow: hidden;
+  border: 1px solid var(--app-line);
+  border-radius: 16px;
+  background: var(--app-surface);
+}
+
+.auth-preview-video {
+  position: relative;
+  display: grid;
+  min-height: 340px;
+  place-items: center;
+  overflow: hidden;
+  background: #090d12;
+}
+
+.auth-preview-video::before,
+.auth-preview-video::after {
+  position: absolute;
+  content: "";
+}
+
+.auth-preview-video::before {
+  inset: 20% 16% 28%;
+  border: 1px solid #263142;
+  border-radius: 14px;
+  background: #111722;
+}
+
+.auth-preview-video::after {
+  top: 28%;
+  left: 22%;
+  width: 42%;
+  height: 9px;
+  border-radius: 999px;
+  background: #263142;
+  box-shadow: 0 24px 0 #202a38, 0 48px 0 #1c2532;
+}
+
+.auth-preview-video-top {
+  position: absolute;
+  top: 18px;
+  right: 20px;
+  left: 20px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--app-muted);
+  font-size: 12px;
+}
+
+.auth-preview-video-top > span:first-child {
+  width: 92px;
+  height: 8px;
+  min-height: 0;
+  border-radius: 999px;
+  background: #2a3442;
+}
+
+.auth-preview-play {
+  position: relative;
+  z-index: 3;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: var(--app-accent);
+}
+
+.auth-preview-play::after {
+  position: absolute;
+  top: 50%;
+  left: 52%;
+  border-top: 8px solid transparent;
+  border-bottom: 8px solid transparent;
+  border-left: 12px solid #07101f;
+  content: "";
+  transform: translate(-50%, -50%);
+}
+
+.auth-preview-caption {
+  position: absolute;
+  right: 24px;
+  bottom: 24px;
+  left: 24px;
+  z-index: 4;
+  display: grid;
+  gap: 6px;
+  padding: 12px 16px;
+  border-radius: 10px;
+  background: rgba(5, 8, 12, 0.86);
+  text-align: center;
+}
+
+.auth-preview-caption p {
+  margin: 0;
+  color: var(--app-text);
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+.auth-preview-caption p:last-child {
+  color: #c7d5e8;
+}
+
+.auth-preview-tabs {
+  display: flex;
+  gap: 24px;
+  min-height: 58px;
+  align-items: center;
+  padding: 0 20px;
+  border-top: 1px solid var(--app-line);
+  border-bottom: 1px solid var(--app-line);
+  color: var(--app-muted);
+  font-size: 13px;
+}
+
+.auth-preview-tabs strong {
+  display: inline-flex;
+  min-height: 58px;
+  align-items: center;
+  border-bottom: 2px solid var(--app-accent);
+  color: var(--app-text);
+}
+
+.auth-preview-saved {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 16px;
+  padding: 18px 20px 20px;
+}
+
+.auth-preview-saved small {
+  grid-column: 1 / -1;
+  color: var(--app-muted);
+  font-size: 12px;
+}
+
+.auth-preview-saved strong {
+  overflow: hidden;
+  color: var(--app-text);
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.auth-preview-saved span {
+  min-height: 0;
+  color: var(--app-accent);
+  font-size: 13px;
+}
+
+.tutorial-page.tutorial-simple {
+  max-width: 820px;
+  padding-top: clamp(44px, 8vw, 84px);
+  padding-bottom: 96px;
+}
+
+.tutorial-setup {
+  display: grid;
+  gap: 32px;
+  padding: clamp(24px, 5vw, 48px);
+  border: 1px solid var(--app-line);
+  border-radius: 16px;
+  background: var(--app-surface);
+}
+
+.tutorial-heading {
+  display: grid;
+  gap: 12px;
+}
+
+.tutorial-heading h1 {
+  margin: 0;
+  color: var(--app-text);
+  font-size: clamp(32px, 5vw, 46px);
+  line-height: 1.18;
+  letter-spacing: -0.03em;
+}
+
+.tutorial-heading p {
+  max-width: 620px;
+  margin: 0;
+  color: var(--app-muted);
+  font-size: 16px;
+  line-height: 1.65;
+}
+
+.tutorial-simple .tutorial-preference-form {
+  display: grid;
+  gap: 22px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.tutorial-simple .learning-preference-fields {
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 0.42fr);
+}
+
+.tutorial-simple .learning-preference-fields > label:last-child {
+  grid-column: 1 / -1;
+}
+
+.tutorial-status {
+  min-height: 22px;
+  margin: 0;
+  color: #f2a7ad;
+  font-size: 14px;
+}
+
+.tutorial-simple .tutorial-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin: 0;
+}
+
+.tutorial-simple .tutorial-actions button {
+  min-height: 48px;
+  padding: 0 20px;
+}
+
+.tutorial-simple .tutorial-actions .quiet-button {
+  border-color: var(--app-line);
+  background: transparent;
+  color: var(--app-muted);
+}
+
+.learning-home {
+  max-width: 1120px;
+  padding: clamp(40px, 7vw, 72px) 24px 88px;
+}
+
+.learning-intake-card {
+  min-height: auto;
+  padding: clamp(28px, 5vw, 48px);
+  border: 1px solid var(--app-line);
+  border-radius: 16px;
+  background: var(--app-surface);
+  place-content: initial;
+  text-align: left;
+}
+
+.learning-intake-copy {
+  display: grid;
+  gap: 12px;
+}
+
+.learning-intake-copy h1 {
+  max-width: 720px;
+  margin: 0;
+  color: var(--app-text);
+  font-size: clamp(34px, 5vw, 50px);
+  line-height: 1.16;
+  letter-spacing: -0.03em;
+}
+
+.learning-intake-copy p {
+  max-width: 660px;
+  margin: 0;
+  color: var(--app-muted);
+  font-size: 17px;
+  line-height: 1.65;
+}
+
+.learning-intake-card .learning-intake-form {
+  width: min(760px, 100%);
+  margin-top: 26px;
+}
+
+.learning-intake-form label {
+  color: var(--app-text);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.learning-intake-form input {
+  border-color: var(--app-line);
+  background: #10151d;
+  color: var(--app-text);
+}
+
+.learning-intake-status {
+  color: #f2a7ad;
+  font-size: 14px;
+}
+
+.learning-first-guide {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 24px;
+  margin-top: 8px;
+  padding-top: 22px;
+  border-top: 1px solid var(--app-line);
+}
+
+.learning-first-guide span {
+  position: relative;
+  min-height: 0;
+  padding-left: 14px;
+  color: var(--app-muted);
+  font-size: 14px;
+}
+
+.learning-first-guide span::before {
+  position: absolute;
+  top: 0.58em;
+  left: 0;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--app-accent);
+  content: "";
+}
+
+.recent-learning {
+  margin-top: 20px;
+  padding: 22px;
+  border: 1px solid var(--app-line);
+  border-radius: 16px;
+  background: var(--app-surface);
+}
+
+.recent-learning .section-title {
+  margin-bottom: 14px;
+}
+
+.recent-learning .section-title h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.recent-learning-list button {
+  border-color: var(--app-line);
+  background: #10151d;
+  color: var(--app-text);
+}
+
+.recent-learning-list button:hover {
+  border-color: #3c5576;
+  background: var(--app-elevated);
+}
+
+.learning-workspace-empty {
+  max-width: 900px;
+  min-height: calc(100vh - 68px);
+  padding: clamp(48px, 9vw, 96px) 24px;
+}
+
+.learning-workspace-empty > section {
+  width: 100%;
+  gap: 24px;
+  padding: clamp(28px, 6vw, 52px);
+  border: 1px solid var(--app-line);
+  border-radius: 16px;
+  background: var(--app-surface);
+  box-shadow: none;
+}
+
+.learning-empty-copy {
+  display: grid;
+  gap: 10px;
+}
+
+.learning-workspace-empty .learning-empty-copy h1 {
+  max-width: 620px;
+  color: var(--app-text);
+  font-size: clamp(32px, 5vw, 46px);
+  line-height: 1.18;
+  letter-spacing: -0.03em;
+}
+
+.learning-workspace-empty .learning-empty-copy p {
+  color: var(--app-muted);
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+.learning-workspace-empty .learning-intake-form {
+  width: 100%;
+}
+
+.learning-workspace-empty .quiet-link {
+  justify-self: start;
+  padding: 0 4px;
+  color: var(--app-muted);
+}
+
+@media (max-width: 900px) {
+  .auth-landing-shell {
+    grid-template-columns: 1fr;
+    max-width: 720px;
+  }
+
+  .auth-preview-video {
+    min-height: 300px;
+  }
+}
+
+@media (max-width: 640px) {
+  .auth-landing {
+    padding: 28px 16px 56px;
+  }
+
+  .auth-product-preview {
+    display: none;
+  }
+
+  .auth-landing-copy h1,
+  .learning-intake-copy h1,
+  .learning-workspace-empty .learning-empty-copy h1 {
+    font-size: 34px;
+  }
+
+  .auth-landing-copy .google-login {
+    width: 100%;
+  }
+
+  .auth-outcomes {
+    grid-template-columns: 1fr;
+  }
+
+  .tutorial-page.tutorial-simple,
+  .learning-home,
+  .learning-workspace-empty {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+
+  .tutorial-simple .learning-preference-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .tutorial-simple .learning-preference-fields > label:last-child {
+    grid-column: auto;
+  }
+
+  .tutorial-simple .tutorial-actions {
+    flex-direction: column;
+  }
+
+  .tutorial-simple .tutorial-actions button {
+    width: 100%;
+  }
+
+  .learning-intake-form > div {
+    grid-template-columns: 1fr;
+  }
+
+  .learning-intake-form button {
+    width: 100%;
+  }
+
+  .learning-first-guide {
+    display: grid;
+  }
+}

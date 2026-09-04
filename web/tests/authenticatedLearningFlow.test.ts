@@ -17,6 +17,10 @@ const learningPagePath = resolve(
   testDirectory,
   "../src/features/learning/LearningPage.tsx",
 );
+const learningIntakePath = resolve(
+  testDirectory,
+  "../src/features/learning/LearningIntakeForm.tsx",
+);
 
 test("home and watch learning routes stay behind authentication", () => {
   assert.match(
@@ -31,17 +35,22 @@ test("home and watch learning routes stay behind authentication", () => {
 
 test("learning home starts with URL registration and has an honest empty state", () => {
   assert.equal(existsSync(learningPagePath), true);
+  assert.equal(existsSync(learningIntakePath), true);
   const source = readFileSync(learningPagePath, "utf8");
+  const intake = readFileSync(learningIntakePath, "utf8");
 
-  assert.match(source, /YouTube 영상 주소/);
-  assert.match(source, /바로 시작/);
-  assert.match(source, /아직 학습한 영상이 없습니다/);
-  assert.match(source, /새 영상 등록/);
-  assert.doesNotMatch(source, />[^\n<]*(?:Agent|MCP|RAG|AI)[^\n<]*</);
+  assert.match(intake, /YouTube 영상 주소/);
+  assert.match(intake, /영상 열기/);
+  assert.match(source, /learning-first-guide/);
+  assert.doesNotMatch(source, /아직 학습한 영상이 없습니다/);
+  assert.doesNotMatch(
+    `${source}\n${intake}`,
+    />[^\n<]*(?:Agent|MCP|RAG|AI)[^\n<]*</,
+  );
 });
 
 test("learning intake runs only from the authenticated page submit action", () => {
-  const source = readFileSync(learningPagePath, "utf8");
+  const source = readFileSync(learningIntakePath, "utf8");
 
   assert.match(source, /startLearningIntake/);
   assert.match(source, /onSubmit=\{handleSubmit\}/);
@@ -49,7 +58,7 @@ test("learning intake runs only from the authenticated page submit action", () =
 });
 
 test("new learning intake keeps the public video title and introduction", () => {
-  const source = readFileSync(learningPagePath, "utf8");
+  const source = readFileSync(learningIntakePath, "utf8");
 
   assert.match(source, /askMcp\(\{ url: normalizedUrl, limit: 1 \}\)/);
   assert.match(source, /metadata\?\.title/);

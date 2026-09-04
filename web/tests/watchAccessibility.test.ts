@@ -18,8 +18,9 @@ test("learning player owns loading and failure fallbacks", () => {
 });
 
 test("empty learning state guides the first registration", () => {
-  assert.match(workspaceSource, /아직 학습할 영상이 없습니다/);
-  assert.match(workspaceSource, /첫 영상 등록하기/);
+  assert.match(workspaceSource, /보고 싶은 영상을 넣어보세요/);
+  assert.match(workspaceSource, /<LearningIntakeForm/);
+  assert.match(workspaceSource, /주제로 영상 찾기/);
 });
 
 test("prepared captions render over the video without blocking controls", () => {

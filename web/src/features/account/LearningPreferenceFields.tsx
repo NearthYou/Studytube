@@ -36,20 +36,20 @@ export function LearningPreferenceFields({
   return (
     <div className="learning-preference-fields">
       <label>
-        <span>배우고 싶은 분야</span>
-        <small>이 내용과 가까운 영상을 먼저 찾아요.</small>
+        <span>무엇을 배우고 싶나요?</span>
+        <small>예: React 기초, 여행 영어</small>
         <input
           disabled={disabled}
           onChange={(event) =>
             onChange({ ...draft, interests: event.target.value })
           }
-          placeholder="예: React, 영어 회화"
+          placeholder="배우고 싶은 내용을 적어 주세요"
           value={draft.interests}
         />
       </label>
       <label>
-        <span>한 번에 볼 시간</span>
-        <small>이 시간 안팎의 영상을 먼저 보여줘요.</small>
+        <span>영상 한 편에 쓸 시간</span>
+        <small>비슷한 길이의 영상을 먼저 찾아요.</small>
         <div className="learning-time-control">
           <input
             aria-label="한 번에 볼 시간"
@@ -75,12 +75,12 @@ export function LearningPreferenceFields({
         )}
       </label>
       <label>
-        <span>어떻게 배우고 싶나요?</span>
-        <small>입문, 실습, 복습 중 어떤 영상을 먼저 고를지 참고해요.</small>
+        <span>어떤 영상이 편한가요?</span>
+        <small>기초 설명, 따라 하기, 빠른 복습처럼 적어 주세요.</small>
         <textarea
           disabled={disabled}
           onChange={(event) => onChange({ ...draft, goal: event.target.value })}
-          placeholder="예: 기초부터 따라 하며 작은 프로젝트 완성"
+          placeholder="예: 기초부터 차근차근 따라 하기"
           value={draft.goal}
         />
       </label>

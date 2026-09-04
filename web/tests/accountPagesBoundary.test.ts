@@ -85,14 +85,14 @@ test("recommendation settings have a direct password-free edit route", () => {
   assert.match(preferences, /clearCourseRecommendation\(\)/);
   assert.match(preferences, /paceForPreferenceSave/);
   assert.doesNotMatch(preferences, /currentPassword|ProfileVerificationForm/);
-  assert.match(fields, /배우고 싶은 분야/);
-  assert.match(fields, /한 번에 볼 시간/);
+  assert.match(fields, /무엇을 배우고 싶나요/);
+  assert.match(fields, /영상 한 편에 쓸 시간/);
   assert.match(fields, /type="number"/);
   assert.match(fields, /min=\{LEARNING_TIME_LIMITS\.min\}/);
   assert.match(fields, /max=\{LEARNING_TIME_LIMITS\.max\}/);
   assert.match(fields, /step=\{LEARNING_TIME_LIMITS\.step\}/);
   assert.match(fields, /required=\{!legacyTime\}/);
-  assert.match(fields, /어떻게 배우고 싶나요/);
+  assert.match(fields, /어떤 영상이 편한가요/);
   assert.doesNotMatch(fields, /하루 학습 시간|원하는 학습 결과|학습 속도/);
   assert.doesNotMatch(
     accountEdit,

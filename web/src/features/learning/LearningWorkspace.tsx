@@ -37,6 +37,7 @@ import { useAdaptiveQuiz } from "./useAdaptiveQuiz.ts";
 import { useNextLearningProposal } from "./useNextLearningProposal.ts";
 import { useLiveCaptionCapture } from "./useLiveCaptionCapture.ts";
 import { CurrentSentencePanel } from "./CurrentSentencePanel.tsx";
+import { LearningIntakeForm } from "./LearningIntakeForm.tsx";
 import { LearningOverviewPanel } from "./LearningOverviewPanel.tsx";
 import { TranscriptDrawer } from "./TranscriptDrawer.tsx";
 import { LearningNotesPanel } from "./LearningNotesPanel.tsx";
@@ -61,7 +62,7 @@ const REQUESTED_AUDIO_SECONDS = 600;
 export function LearningWorkspace({ session }: { session: Session }) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const [queue] = useState(() => readWatchQueue());
+  const [queue, setQueue] = useState(() => readWatchQueue());
   const requestedVideoId = searchParams.get("videoId") ?? "";
   const requestedVideo = requestedVideoId
     ? (queue.find((video) => video.videoId === requestedVideoId) ??
@@ -69,7 +70,9 @@ export function LearningWorkspace({ session }: { session: Session }) {
     : null;
   const currentVideo = requestedVideo ?? queue[0] ?? null;
 
-  if (!currentVideo) return <EmptyWorkspace />;
+  if (!currentVideo) {
+    return <EmptyWorkspace session={session} onQueued={setQueue} />;
+  }
   return (
     <ActiveLearningWorkspace
       key={`${session.user.id}:${currentVideo.videoId}`}
@@ -83,17 +86,27 @@ export function LearningWorkspace({ session }: { session: Session }) {
   );
 }
 
-function EmptyWorkspace() {
+function EmptyWorkspace({
+  onQueued,
+  session,
+}: {
+  onQueued: (queue: QueueVideo[]) => void;
+  session: Session;
+}) {
   return (
     <main className="page-shell learning-workspace-empty">
       <section>
-        <p className="eyebrow">학습</p>
-        <h1>아직 학습할 영상이 없습니다</h1>
-        <p>
-          영상 주소를 등록하면 이곳에서 자막, 메모와 퀴즈를 함께 볼 수 있습니다.
-        </p>
-        <Link className="primary-link" to="/">
-          첫 영상 등록하기
+        <div className="learning-empty-copy">
+          <h1>보고 싶은 영상을 넣어보세요</h1>
+          <p>주소를 넣으면 영상과 자막 준비를 바로 시작해요.</p>
+        </div>
+        <LearningIntakeForm
+          inputId="empty-learning-video-url"
+          onQueued={onQueued}
+          session={session}
+        />
+        <Link className="quiet-link" to="/courses/new">
+          주제로 영상 찾기
         </Link>
       </section>
     </main>

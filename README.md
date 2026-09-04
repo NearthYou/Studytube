@@ -6,7 +6,7 @@ YouTube 영상을 보며 자막, 메모, 내용 정리와 퀴즈를 한 화면�
 
 `React 19` `TypeScript` `NestJS` `FastAPI` `Python` `LangGraph` `PostgreSQL` `pgvector` `Valkey` `BullMQ` `AWS`
 
-![YouTube 영상과 자막, 학습 도구를 함께 사용하는 StudyTube](docs/demo/studytube-learning-current.png)
+![영어 원문과 한국어 번역, 학습 도구를 함께 사용하는 StudyTube](docs/demo/studytube-learning-current.png)
 
 영상 아래에서 자막 표시 여부, 크기와 배경 진하기를 조절합니다. 오른쪽에서는 현재 문장, 내용 정리, 메모와 퀴즈를 바꿔 가며 학습합니다.
 
@@ -15,6 +15,10 @@ YouTube 영상을 보며 자막, 메모, 내용 정리와 퀴즈를 한 화면�
 외국어 영상을 공부할 때는 재생 화면과 번역, 메모, 복습 자료가 서로 떨어져 있습니다. 며칠 뒤 다시 열면 어디까지 봤는지, 다음에는 무엇을 볼지부터 다시 찾아야 합니다.
 
 StudyTube는 재생 위치를 기준으로 자막과 메모를 묶고 한 영상의 학습 결과를 다음 영상까지 이어 주기 위해 만들었습니다. 코스 추천은 먼저 초안으로 보여 주며, 코스 저장과 다음 영상 반영은 사용자가 직접 결정합니다.
+
+## 제품 방향
+
+![StudyTube가 흩어진 영상 학습을 하나의 흐름으로 묶는 제품 방향](docs/diagrams/studytube-product-direction.svg)
 
 ## 사용 흐름
 
@@ -65,24 +69,19 @@ DB 저장 뒤 별도로 작업 큐에 넣으면 두 단계 사이에서 프로�
 
 남은 후보는 자막 제공 여부, 최근 학습과의 연결, 난이도, 영상 길이와 실습 여부를 함께 점수화합니다. 조건을 통과한 영상이 하나뿐이면 억지로 코스를 만들지 않고 그 영상만 보여 줍니다.
 
-## 구조
+## 아키텍처
 
-```mermaid
-flowchart LR
-  Browser[React Web] -->|HTTPS| Caddy
-  Caddy --> API[NestJS API]
-  API --> DB[(PostgreSQL + pgvector)]
-  API -->|outbox| DB
-  Relay[OutboxRelayService] --> DB
-  Relay --> Queue[Valkey + BullMQ]
-  Queue --> Worker[Background Worker]
-  Worker --> AI[FastAPI + LangGraph]
-  Worker --> DB
-```
+![StudyTube의 Web, API, Worker, AI, 데이터 저장소와 배포 경로](docs/diagrams/studytube-system-architecture.svg)
 
 Web은 재생 화면과 입력 상태를 맡고 API는 사용자 권한과 코스, 메모, 퀴즈 데이터를 관리합니다. 오래 걸리는 자막, 번역, 임베딩과 퀴즈 생성은 Worker로 분리했습니다.
 
 클래스 관계와 요청 흐름은 [아키텍처 문서](docs/architecture.md)에서 볼 수 있습니다.
+
+## 데이터 모델
+
+![사용자별 학습 맥락을 중심으로 코스, 자막, 메모와 퀴즈를 연결한 StudyTube 데이터 모델](docs/diagrams/studytube-data-model.svg)
+
+같은 영상이라도 단독 학습과 코스 안의 학습을 구분합니다. 메모, 시청 범위와 퀴즈는 `study_contexts`를 중심으로 연결하고 자막은 영상별 세대를 따로 저장합니다.
 
 ## AI를 붙인 위치
 
@@ -98,16 +97,6 @@ Web은 재생 화면과 입력 상태를 맡고 API는 사용자 권한과 코�
 구체적인 구현 범위와 코드 위치는 [팀 작업과 개인 구현](docs/contributions.md)에 정리했습니다.
 
 ## CI/CD
-
-```mermaid
-flowchart LR
-  Main[main] --> Checks[Security, Web, API, AI, Integration]
-  Checks --> Artifact[고정된 Release]
-  Artifact --> OIDC[GitHub OIDC]
-  OIDC --> S3[S3 Object Lock]
-  S3 --> SSM[AWS SSM]
-  SSM --> EC2[EC2]
-```
 
 CI가 통과한 커밋만 release로 만들고 AWS 장기 키나 SSH 없이 OIDC와 SSM으로 배포합니다. 최신 main에서는 Web 313개, API 843개, AI 184개 테스트와 운영 계약 57개 항목을 통과했습니다.
 

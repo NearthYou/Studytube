@@ -28,6 +28,14 @@ Web과 API의 production dependency audit은 취약점 0건으로 끝났습니�
 | 코스 만들기 | 학습 목표 입력과 추천 기준 안내 | [studytube-course-builder-current.png](demo/studytube-course-builder-current.png) |
 | 코스 보관함 | 검색, 영상 개수 필터, 정렬, 영상 미리보기와 삭제 | [studytube-course-library-current.png](demo/studytube-course-library-current.png) |
 
+## 시각 자료
+
+| 자료 | 확인 기준 | 파일 |
+| --- | --- | --- |
+| 제품 방향 | 시작 문제, 학습 흐름과 사용자 승인 경계 | [studytube-product-direction.svg](diagrams/studytube-product-direction.svg) |
+| 시스템 아키텍처 | 공개 진입점, 내부 서비스, 데이터 저장소와 배포 경로 | [studytube-system-architecture.svg](diagrams/studytube-system-architecture.svg) |
+| 데이터 모델 | 핵심 학습 엔티티와 관계 | [studytube-data-model.svg](diagrams/studytube-data-model.svg) |
+
 ## 로컬 검증 명령
 
 ### Web
@@ -79,6 +87,6 @@ PostgreSQL과 Valkey를 사용하는 통합 테스트는 GitHub Actions의 `Back
 
 - README와 docs의 상대 링크
 - README가 가리키는 이미지 파일과 해상도
-- Mermaid 블록의 문법
+- SVG 문법, 글자 잘림과 연결선
 - 오래된 테스트 수치와 코드에 없는 기능 설명
 - `git diff --check`

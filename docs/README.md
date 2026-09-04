@@ -16,6 +16,7 @@ API endpoint와 코스 요청 형식은 [API README](../api/README.md), 화면 �
 ## 화면과 실행 자료
 
 - `docs/demo`: 실제 서비스 화면과 동작 영상
+- `docs/diagrams`: 제품 방향, 시스템 아키텍처와 핵심 데이터 모델
 - `docs/evidence/architecture`: 인증, 코스, outbox와 검색 구조
 - `docs/evidence/auth`: 세션과 인증 확인 자료
 - `docs/evidence/operations`: 백업, 복구, 부하와 경보 실행 자료

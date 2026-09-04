@@ -1,26 +1,34 @@
-# StudyTube 검증 범위
+# StudyTube 검증 기록
 
-## GitHub Actions 기준
+기준일은 2026년 9월 4일입니다. 수치와 화면은 같은 날의 `main` CI와 배포 서비스에서 가져왔습니다.
 
-`c065bda9466a14bd941351e3bfc8a877e4df2422`의 run 32585076904에서 Security, Web, API, Backend Integration과 AI job은 성공했다.
+## main CI와 배포
 
-Deploy immutable release with SSM job은 Configure short-lived AWS credentials 단계에서 실패했다. release artifact build까지는 성공했지만 upload와 SSM deployment는 실행되지 않았다. 이 run은 live 배포 성공 근거가 아니다.
+[2026년 9월 4일 main CI](https://github.com/NearthYou/Studytube/actions/runs/33853188161)에서 다음 작업이 모두 성공했습니다.
 
-## 로컬 명령
+| 작업 | 결과 |
+| --- | --- |
+| Security | Git 전체 이력과 작업 파일 secret 검사 통과 |
+| Web | 313개 테스트, lint, production build 통과 |
+| API | 98개 suite, 843개 테스트, lint, OpenAPI와 production build 통과 |
+| AI | 184개 테스트 통과, 6개 건너뜀, 의존성 검사 통과 |
+| Backend Integration | PostgreSQL, pgvector, Valkey, migration과 코스 동시 수정 검사 통과 |
+| Operations | 57개 운영 계약과 실제 k6 progress-write smoke 통과 |
+| Deploy | OIDC, S3와 SSM을 거쳐 EC2 배포 완료 |
 
-2026년 8월 23일 `docs/portfolio-visual-refresh-20260823`에서 확인한 결과다.
+Web과 API의 production dependency audit은 취약점 0건으로 끝났습니다.
 
-| 검사 | 결과 |
-| --- | ---: |
-| Web Node test | 216 passed |
-| Web lint와 production build | exit 0 |
-| API Jest | 720 passed, 1 skipped |
-| API lint와 production build | exit 0 |
-| AI unittest | 126 passed, 6 skipped |
-| Operations contract | 57 assertions passed |
-| Web production dependency audit | 0 vulnerabilities |
-| API production dependency audit | 0 vulnerabilities |
-| portfolio fact contract | exit 1, expired fact 10개 |
+## 실제 서비스 화면
+
+같은 날 `https://studytube.page/api/health/live`가 HTTP 200을 반환했고, 실제 서비스에서 다음 화면을 열었습니다.
+
+| 화면 | 확인 내용 | 파일 |
+| --- | --- | --- |
+| 학습 | YouTube 플레이어, 코스 순서, 자막 설정, 현재 문장과 학습 도구 | [studytube-learning-current.png](demo/studytube-learning-current.png) |
+| 코스 만들기 | 학습 목표 입력과 추천 기준 안내 | [studytube-course-builder-current.png](demo/studytube-course-builder-current.png) |
+| 코스 보관함 | 검색, 영상 개수 필터, 정렬, 영상 미리보기와 삭제 | [studytube-course-library-current.png](demo/studytube-course-library-current.png) |
+
+## 로컬 검증 명령
 
 ### Web
 
@@ -40,34 +48,37 @@ npm --prefix api ci
 npm --prefix api run lint
 npm --prefix api test -- --runInBand
 npm --prefix api run build
+npm --prefix api run openapi:export
+npm --prefix api run openapi:verify
 ```
 
 ### AI
 
-```powershell
-python -m venv ai/.venv
-ai/.venv/Scripts/python.exe -m pip install --require-hashes -r ai/requirements.txt
-Push-Location ai
-.venv/Scripts/python.exe -m unittest discover -s .
-Pop-Location
+AI의 고정 의존성과 테스트는 CI와 같은 Linux 또는 WSL 환경에서 실행합니다.
+
+```bash
+python3 -m venv ai/.venv
+ai/.venv/bin/python -m pip install --require-hashes -r ai/requirements.txt
+(
+  cd ai
+  .venv/bin/python -m unittest discover -s .
+)
 ```
 
-Linux CI는 hash-locked `requirements.txt` 설치를 통과했다. Windows local install은 `uvloop==0.22.1`이 Windows를 지원하지 않아 같은 command로 완료되지 않았다. repository 파일은 바꾸지 않고 `requirements.in`의 direct dependency로 Windows venv를 만든 뒤 test를 실행했다.
+### 운영 계약
 
-### PostgreSQL과 Valkey integration
+```powershell
+pwsh ./operations/tests/Invoke-OperationsContractTests.ps1
+```
 
-integration suite는 migration, fixture와 queue를 변경한다. 공유 database가 아니라 격리된 PostgreSQL과 Valkey에서 CI의 `Backend Integration` 순서를 따라야 한다.
+PostgreSQL과 Valkey를 사용하는 통합 테스트는 GitHub Actions의 `Backend Integration` 작업처럼 격리된 database와 queue에서 실행합니다.
 
-## 문서 작업에서 확인한 화면
+## 문서 확인
 
-현재 main의 Web을 `127.0.0.1`에서 실행해 `/login`과 `/signup`을 새로 캡처했다. 입력과 form submit은 수행하지 않았다.
+문서를 바꾼 뒤에는 다음 항목을 함께 확인합니다.
 
-인증 이후 learning workspace는 API, PostgreSQL과 test account가 필요하다. 이번 문서 작업에서는 이전 demo를 current main E2E처럼 재사용하지 않는다.
-
-## evidence contract의 한계
-
-`docs/evidence/portfolio/facts.json`의 10개 fact는 2026-08-06에 만료됐고 status가 pending이다. 따라서 `npm run portfolio:verify`는 현재 exit 1이다. 이 파일을 2026-08-17 또는 현재 배포 근거로 사용하지 않는다.
-
-## 결과 기록 규칙
-
-실행한 command의 exit code와 실제 count만 기록한다. environment가 없어 실행하지 못한 integration, 배포와 browser E2E는 통과로 표시하지 않는다.
+- README와 docs의 상대 링크
+- README가 가리키는 이미지 파일과 해상도
+- Mermaid 블록의 문법
+- 오래된 테스트 수치와 코드에 없는 기능 설명
+- `git diff --check`

@@ -4,7 +4,7 @@
 | --- | --- |
 | 서비스가 해결하는 문제와 주요 기능 | [프로젝트 README](../README.md) |
 | Web, API, Worker와 AI의 연결 구조 | [아키텍처](architecture.md) |
-| 팀 작업과 이시원의 구현 범위 | [기여 범위](contributions.md) |
+| 기능별 구현 내용과 관련 코드 | [구현 내용](implementation.md) |
 | 최신 CI, 배포와 화면 확인 결과 | [검증 기록](verification.md) |
 | 로컬에서 실행하는 방법 | [개발 환경](environment-setup.md) |
 | AWS 배포와 복구 절차 | [CI/CD](ci-cd.md) |

@@ -1,0 +1,111 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="720" viewBox="0 0 1600 720" role="img" aria-labelledby="title desc">
+  <title id="title">StudyTube 시스템 아키텍처</title>
+  <desc id="desc">사용자 요청은 Web, API와 PostgreSQL로 흐르고 오래 걸리는 작업은 Queue, Worker와 AI 서비스가 처리한다.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#F8FAFF"/><stop offset="1" stop-color="#EEF4FF"/></linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="7" stdDeviation="10" flood-color="#1E3A8A" flood-opacity="0.08"/></filter>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#64748B"/></marker>
+    <style>
+      text { font-family: Pretendard, "Noto Sans KR", "Segoe UI", sans-serif; fill:#0F172A; }
+      .eyebrow { font-size:16px; font-weight:800; letter-spacing:2px; fill:#2563EB; }
+      .title { font-size:40px; font-weight:850; letter-spacing:-1px; }
+      .subtitle { font-size:18px; font-weight:500; fill:#64748B; }
+      .rail { font-size:17px; font-weight:750; fill:#334155; }
+      .boundary { font-size:19px; font-weight:800; fill:#334155; }
+      .node { font-size:23px; font-weight:850; }
+      .tech { font-size:17px; font-weight:650; fill:#64748B; }
+      .edge { font-size:14px; font-weight:800; fill:#475569; }
+      .note { font-size:17px; font-weight:700; fill:#475569; }
+    </style>
+  </defs>
+  <rect width="1600" height="720" fill="#F8FAFF"/>
+  <rect width="1600" height="720" rx="24" fill="url(#bg)"/>
+  <text x="60" y="60" class="eyebrow">STUDYTUBE / SYSTEM ARCHITECTURE</text>
+  <text x="60" y="108" class="title">화면 요청과 백그라운드 작업을 분리한 구조</text>
+  <text x="60" y="142" class="subtitle">사용자는 빠르게 화면을 받고, 자막과 퀴즈 같은 작업은 별도 Worker가 처리합니다.</text>
+
+  <g filter="url(#shadow)">
+    <rect x="60" y="175" width="1480" height="58" rx="16" fill="#FFFFFF" stroke="#DCE5F3"/>
+  </g>
+  <text x="90" y="211" class="rail">GitHub Actions</text>
+  <path d="M225 204 H275" stroke="#64748B" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <text x="295" y="211" class="rail">OIDC</text>
+  <path d="M355 204 H405" stroke="#64748B" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <text x="425" y="211" class="rail">S3 Object Lock</text>
+  <path d="M570 204 H620" stroke="#64748B" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <text x="640" y="211" class="rail">SSM</text>
+  <path d="M695 204 H745" stroke="#64748B" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <text x="765" y="211" class="rail">검증한 커밋만 EC2 release로 전환</text>
+
+  <rect x="225" y="270" width="1315" height="360" rx="24" fill="#FFFFFF" stroke="#9CB0CC" stroke-width="2"/>
+  <text x="255" y="305" class="boundary">AWS EC2</text>
+  <rect x="1390" y="285" width="118" height="25" rx="12" fill="#0F172A"/>
+  <text x="1449" y="302" text-anchor="middle" font-size="12" font-weight="800" style="fill:#FFFFFF">80, 443 only</text>
+
+  <g>
+    <circle cx="88" cy="410" r="42" fill="#0F172A"/>
+    <circle cx="88" cy="397" r="11" fill="#FFFFFF"/>
+    <path d="M66 435 C70 414 106 414 110 435" fill="#FFFFFF"/>
+    <text x="88" y="472" text-anchor="middle" class="node">사용자</text>
+  </g>
+  <path d="M140 410 H255" stroke="#2563EB" stroke-width="3.5" marker-end="url(#arrow)"/>
+  <text x="175" y="398" class="edge">HTTPS</text>
+
+  <g filter="url(#shadow)">
+    <rect x="275" y="345" width="240" height="130" rx="20" fill="#FFFFFF" stroke="#BFDBFE"/>
+    <rect x="275" y="345" width="12" height="130" rx="6" fill="#2563EB"/>
+    <text x="310" y="390" class="node">Web</text>
+    <text x="310" y="421" class="tech">Caddy + React 19</text>
+    <text x="310" y="449" class="tech">화면, 재생 상태와 입력</text>
+  </g>
+  <path d="M525 410 H590" stroke="#2563EB" stroke-width="3" marker-end="url(#arrow)"/>
+  <text x="543" y="398" class="edge">/api</text>
+
+  <g filter="url(#shadow)">
+    <rect x="610" y="345" width="240" height="130" rx="20" fill="#FFFFFF" stroke="#BAE6FD"/>
+    <rect x="610" y="345" width="12" height="130" rx="6" fill="#0284C7"/>
+    <text x="645" y="390" class="node">NestJS API</text>
+    <text x="645" y="421" class="tech">권한, 코스와 학습 상태</text>
+    <text x="645" y="449" class="tech">transaction + outbox</text>
+  </g>
+  <path d="M860 410 H925" stroke="#16A34A" stroke-width="3" marker-end="url(#arrow)"/>
+  <text x="860" y="390" class="edge">data + outbox</text>
+
+  <g filter="url(#shadow)">
+    <rect x="945" y="345" width="240" height="130" rx="20" fill="#FFFFFF" stroke="#BBF7D0"/>
+    <rect x="945" y="345" width="12" height="130" rx="6" fill="#16A34A"/>
+    <text x="980" y="390" class="node">PostgreSQL</text>
+    <text x="980" y="421" class="tech">pgvector</text>
+    <text x="980" y="449" class="tech">데이터와 작업 상태의 기준</text>
+  </g>
+
+  <path d="M1065 485 V520 H815" fill="none" stroke="#64748B" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <text x="830" y="515" class="edge">outbox relay</text>
+
+  <g filter="url(#shadow)">
+    <rect x="610" y="530" width="205" height="78" rx="18" fill="#FFF7ED" stroke="#FED7AA"/>
+    <text x="640" y="565" class="node">Queue</text>
+    <text x="640" y="590" class="tech">Valkey + BullMQ</text>
+  </g>
+  <path d="M825 569 H880" stroke="#64748B" stroke-width="2.5" marker-end="url(#arrow)"/>
+
+  <g filter="url(#shadow)">
+    <rect x="900" y="530" width="205" height="78" rx="18" fill="#F5F3FF" stroke="#DDD6FE"/>
+    <text x="930" y="565" class="node">Worker</text>
+    <text x="930" y="590" class="tech">재시도와 완료 결과</text>
+  </g>
+  <path d="M1115 569 H1170" stroke="#64748B" stroke-width="2.5" marker-end="url(#arrow)"/>
+
+  <g filter="url(#shadow)">
+    <rect x="1190" y="530" width="285" height="78" rx="18" fill="#F5F3FF" stroke="#C4B5FD"/>
+    <text x="1220" y="565" class="node">FastAPI AI</text>
+    <text x="1220" y="590" class="tech">Python + LangGraph</text>
+  </g>
+  <path d="M1000 520 V485" stroke="#16A34A" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <text x="1015" y="492" class="edge">result</text>
+
+  <rect x="225" y="654" width="1315" height="42" rx="13" fill="#0F172A"/>
+  <text x="255" y="681" class="note" style="fill:#E2E8F0">외부 공개: Caddy만</text>
+  <text x="575" y="681" class="note" style="fill:#E2E8F0">내부 통신: Unix socket과 loopback</text>
+  <text x="1110" y="681" class="note" style="fill:#E2E8F0">장기 작업: Queue -> Worker -> AI</text>
+</svg>

@@ -1,72 +1,76 @@
 # 개발 환경 설정
 
-StudyTube는 React Web, NestJS API, FastAPI AI service, PostgreSQL과 Valkey worker를 함께 실행하는 monorepo다.
+StudyTube는 React Web, NestJS API, FastAPI AI, PostgreSQL, Valkey와 Background Worker를 함께 실행합니다.
 
-## 요구 버전
+## 필요한 도구
 
 - Node.js 24.8 이상
-- npm lockfile을 지원하는 npm
 - Python 3.12
 - Docker와 Docker Compose v2
-- Windows에서는 PowerShell 7 권장
+- Linux 또는 WSL 권장
 
-CI는 Node.js 24와 Python 3.12를 사용한다. 로컬 version이 다르면 dependency와 type 결과가 달라질 수 있다.
+CI도 Node.js 24와 Python 3.12를 사용합니다.
 
 ## 설치
 
-root 환경 파일을 만든다. 실제 secret은 commit하지 않는다.
-
-```powershell
-Copy-Item .env.example .env
+```bash
+cp .env.example .env
+cp api/.env.example api/.env
 npm --prefix api ci
 npm --prefix web ci
-python -m venv ai/.venv
-ai/.venv/Scripts/python.exe -m pip install --require-hashes -r ai/requirements.txt
+python3 -m venv ai/.venv
+ai/.venv/bin/python -m pip install --require-hashes -r ai/requirements.txt
 ```
+
+마이그레이션과 Worker는 `api/.env`를 읽으므로 두 환경 파일을 모두 준비합니다. 실제 비밀번호와 외부 API key는 로컬 환경 파일에만 넣고 저장소에는 올리지 않습니다. 외부 AI와 YouTube API가 필요한 기능은 해당 key가 없으면 실행되지 않습니다.
 
 ## PostgreSQL과 Valkey
 
-```powershell
+```bash
 npm run db:up
 npm run db:migrate:up
+docker compose ps
 ```
 
-`docker compose ps`에서 PostgreSQL과 Valkey가 ready인지 확인한다. migration은 공유 database가 아닌 로컬 development database에서 실행한다.
+`postgres`와 `valkey`가 준비된 뒤 애플리케이션을 시작합니다.
 
-## 서비스 시작 순서
+## 서비스 실행
 
-```powershell
-npm run dev:ai
-npm run dev:api
-npm run dev:web
+```bash
+npm run all
 ```
 
-세 command는 별도 terminal에서 실행한다. root의 `npm run all`은 local helper로 같은 service를 함께 시작한다.
+이 명령은 PostgreSQL을 확인한 뒤 Web, API와 AI를 함께 실행합니다.
 
-| service | address |
+| 서비스 | 주소 |
 | --- | --- |
 | Web | `http://127.0.0.1:5173` |
 | API | `http://127.0.0.1:3000` |
 | AI | `http://127.0.0.1:8000` |
 
-Background worker는 API build 뒤 별도 process로 실행한다.
+자막, 임베딩과 퀴즈 같은 백그라운드 작업까지 확인하려면 별도 터미널에서 Worker를 실행합니다.
 
-```powershell
+```bash
 npm --prefix api run build
 npm --prefix api run start:worker
 ```
 
-## 확인 순서
+## 로컬 로그인
 
-1. API와 AI health endpoint를 확인한다.
-2. migration status를 확인한다.
-3. Web에서 login 또는 signup page가 render되는지 확인한다.
-4. test account와 격리 database가 있을 때만 authenticated learning flow를 실행한다.
+개발 환경에서 `AUTH_MODE`를 설정하지 않으면 기존 이메일 인증 흐름을 사용합니다. Google 로그인을 시험할 때는 `AUTH_MODE=google_only`와 Google OAuth client 정보를 `api/.env`에 넣습니다.
 
-## 자주 막히는 부분
+운영 redirect URI와 로컬 redirect URI는 서로 다르므로 같은 값을 그대로 복사하지 않습니다. 로컬 기본 callback은 `http://localhost:3000/auth/google/callback`입니다.
 
-PowerShell execution policy가 `npm.ps1`을 막으면 `npm.cmd`를 직접 실행한다. 가상환경 activation이 막히면 `ai/.venv/Scripts/python.exe`를 직접 사용한다.
+## Windows에서 확인할 때
 
-PostgreSQL port를 바꿨다면 `.env`의 `DATABASE_URL`도 같은 host port로 바꾼다. 원격 Docker context와 production database를 local drill 대상으로 사용하지 않는다.
+Web과 API는 PowerShell에서도 실행됩니다. `npm.ps1`이 실행 정책에 막히면 `npm.cmd`를 사용합니다.
 
-`OPENAI_API_KEY`가 없으면 외부 model이 필요한 기능은 실행되지 않는다. STT production path는 key만으로 활성화되지 않으며 별도 비용 승인과 deployment gate가 필요하다.
+AI의 고정 의존성에는 Linux용 `uvloop`가 포함돼 있으므로 전체 AI 설치와 테스트는 WSL 또는 Linux에서 실행합니다.
+
+## 종료
+
+애플리케이션을 종료한 뒤 PostgreSQL과 Valkey도 내리려면 다음 명령을 실행합니다.
+
+```bash
+npm run db:down
+```

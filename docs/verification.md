@@ -33,8 +33,10 @@ Web과 API의 production dependency audit은 취약점 0건으로 끝났습니�
 | 자료 | 확인 기준 | 파일 |
 | --- | --- | --- |
 | 제품 방향 | 영상 시점과 공부 기록이 끊기는 문제, 이를 다시 연결하는 방식 | [studytube-product-direction.svg](diagrams/studytube-product-direction.svg) |
-| 시스템 아키텍처 | 공개 진입점, 내부 서비스, 데이터 저장소와 배포 경로 | [studytube-system-architecture.svg](diagrams/studytube-system-architecture.svg) |
+| 운영 아키텍처 | EC2 내부 서비스와 S3 및 Systems Manager 배포 경로 | [studytube-infrastructure-architecture.png](diagrams/studytube-infrastructure-architecture.png) |
 | 데이터 모델 | 핵심 학습 엔티티와 관계 | [studytube-data-model.svg](diagrams/studytube-data-model.svg) |
+
+운영 아키텍처 그림은 2026년 10월 15일 포트폴리오 도식으로 교체했습니다. 학습 데이터와 [퀴즈 데이터 모델](diagrams/studytube-quiz-data-model.svg)은 같은 날 저장소의 마이그레이션과 대조해 수정했습니다. 위 9월 4일 CI 결과는 이 문서 수정의 실행 결과가 아닙니다.
 
 ## 로컬 검증 명령
 

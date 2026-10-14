@@ -1,4 +1,10 @@
-# StudyTube backend architecture evidence
+# 구조별 구현과 검증
+
+현재 서비스 구성은 [아키텍처](../../architecture.md), 테이블 관계는 [데이터 모델](../../architecture.md#데이터-모델)에 정리했습니다. 운영 환경은 Google 로그인을 사용합니다. 아래 이메일 가입 도식은 저장소에 남아 있는 `legacy` 인증 구현을 설명합니다.
+
+운영 인프라는 [EC2 구성도](../../diagrams/studytube-infrastructure-architecture.png)를 기준으로 봅니다. Outbox Relay는 API 프로세스 안에서 실행되며 Worker는 별도 프로세스입니다.
+
+아래 도식은 각 기능의 구현과 테스트 위치를 연결합니다. 실행 당시 결과와 현재 배포 상태는 [날짜별 검증 기록](../../verification.md)에서 확인합니다.
 
 This directory supplies the code-to-test evidence requested by [GitHub issue #5](https://github.com/NearthYou/studytube/issues/5). Each diagram has an editable Mermaid source and a rendered SVG with the same basename.
 
@@ -8,7 +14,7 @@ These are structural design artifacts, not production measurement results. They 
 
 The learning thresholds shown below are product rules, not observed service metrics.
 
-## Evidence index
+## 도식 목록
 
 | Concern | Mermaid source | Rendered artifact |
 | --- | --- | --- |
@@ -20,7 +26,7 @@ The learning thresholds shown below are product rules, not observed service metr
 | Course writer concurrency | [course-concurrency-lock-timeline.mmd](./course-concurrency-lock-timeline.mmd) | [course-concurrency-lock-timeline.svg](./course-concurrency-lock-timeline.svg) |
 | Relay and worker recovery after process loss | [worker-kill-duplicate-recovery-timeline.mmd](./worker-kill-duplicate-recovery-timeline.mmd) | [worker-kill-duplicate-recovery-timeline.svg](./worker-kill-duplicate-recovery-timeline.svg) |
 
-## 1. Authentication, enrollment, and verification email
+## 1. 기존 이메일 가입과 세션 인증
 
 ![Authentication, enrollment, and verification email sequence](./auth-session-email-verification-sequence.svg)
 
@@ -43,7 +49,7 @@ A duplicate contains the same expiring, single-use verification token, so delive
 | SES and local capture providers preserve the frozen message contract | [verification email renderer](../../../api/src/auth/verification-email.ts), [verification email sender](../../../api/src/auth/verification-email-sender.ts) | [renderer spec](../../../api/src/auth/verification-email.spec.ts), [sender spec](../../../api/src/auth/verification-email-sender.spec.ts) |
 | Verification, enrollment completion, and authenticated session use separate digest-backed tokens | [`AuthController`](../../../api/src/auth/auth.controller.ts), [`AuthService`](../../../api/src/auth/auth.service.ts), [token codec](../../../api/src/auth/auth-token.ts), [cookie policy](../../../api/src/auth/auth-cookie.ts) | [`auth-http.spec.ts`](../../../api/src/auth/auth-http.spec.ts), [`auth-token.spec.ts`](../../../api/src/auth/auth-token.spec.ts), [`auth-cookie.spec.ts`](../../../api/src/auth/auth-cookie.spec.ts), [`auth.e2e-spec.ts`](../../../api/test/auth.e2e-spec.ts) |
 
-## 2. Course aggregate expand-contract cutover
+## 2. 코스 데이터 전환
 
 ![Course aggregate expand-contract cutover](./course-expand-contract-cutover.svg)
 
@@ -65,7 +71,7 @@ After activation, recovery is freeze and roll forward so stale legacy data canno
 | Backfill is resumable and fingerprint checked | [backfill script](../../../api/scripts/backfill-courses.ts), [shared migration helpers](../../../api/scripts/course-migration.shared.ts), [shadow verifier](../../../api/scripts/verify-course-backfill.ts) | [`course-migration.e2e-spec.ts`](../../../api/test/course-migration.e2e-spec.ts) |
 | Cutover modes and writer admission are explicit | [cutover policy](../../../api/src/course/course-cutover.policy.ts), [`DatabaseService`](../../../api/src/database.service.ts), [deployment script](../../../scripts/deploy-ec2.sh) | [cutover policy spec](../../../api/src/course/course-cutover.policy.spec.ts), [`course-cutover.e2e-spec.ts`](../../../api/test/course-cutover.e2e-spec.ts), [`deploy-script.spec.ts`](../../../api/src/deploy-script.spec.ts) |
 
-## 3. PostgreSQL outbox to BullMQ
+## 3. Outbox와 BullMQ
 
 ![PostgreSQL outbox to BullMQ state transition](./outbox-bullmq-state-transition.svg)
 
@@ -85,7 +91,7 @@ The result table and retained job identity do not provide exactly-once guarantee
 | Queue identity is deterministic and completed jobs are retained | [`OutboxRelayService`](../../../api/src/work/outbox-relay.service.ts), [`BullMqWorkQueue`](../../../api/src/work/bullmq-work.queue.ts), [work queue contracts](../../../api/src/work/work.queue.ts) | [relay spec](../../../api/src/work/outbox-relay.service.spec.ts), [BullMQ queue spec](../../../api/src/work/bullmq-work.queue.spec.ts), [`work-queue.e2e-spec.ts`](../../../api/test/work-queue.e2e-spec.ts) |
 | Versioned handlers converge on a unique durable result | [durable router](../../../api/src/work/durable-work.router.ts), [video asset worker](../../../api/src/work/video-asset.worker.ts), [BullMQ worker adapter](../../../api/src/work/bullmq-video-asset.worker.ts) | [router spec](../../../api/src/work/durable-work.router.spec.ts), [worker spec](../../../api/src/work/video-asset.worker.spec.ts), [adapter spec](../../../api/src/work/bullmq-video-asset.worker.spec.ts) |
 
-## 4. Hybrid retrieval, RRF, and visibility
+## 4. 검색 순위와 공개 범위
 
 ![Hybrid retrieval, RRF, and visibility](./hybrid-retrieval-rrf-visibility.svg)
 
@@ -109,7 +115,7 @@ Returned citations identify the matched chunk, source URL, and source timestamp.
 
 No retrieval quality score or latency claim is inferred from this diagram. Those require a versioned evaluation run or an observed runtime artifact.
 
-## 5. AgentRun, approval, progress, quiz, and lifetime budgets
+## 5. 추천 실행과 승인 및 사용량 제한
 
 ![AgentRun and learning state machine](./agent-learning-state-machine.svg)
 
@@ -134,7 +140,7 @@ Attempts are serialized per user and quiz, answers remain private, and the best 
 | Approval and materialization use the Course and durable-work boundaries | [`PostgresLearningRepository`](../../../api/src/learning/postgres-learning.repository.ts), [quiz worker](../../../api/src/learning/quiz-generation.worker.ts), [durable router](../../../api/src/work/durable-work.router.ts) | [quiz worker spec](../../../api/src/learning/quiz-generation.worker.spec.ts), [durable router spec](../../../api/src/work/durable-work.router.spec.ts), [`learning-http.e2e-spec.ts`](../../../api/test/learning-http.e2e-spec.ts) |
 | Progress and quiz transitions are idempotent, serialized, and server derived | [`PostgresLearningRepository`](../../../api/src/learning/postgres-learning.repository.ts), [learning domain rules](../../../api/src/learning/learning.domain.ts), [`LearningService`](../../../api/src/learning/learning.service.ts) | [domain spec](../../../api/src/learning/learning.domain.spec.ts), [`learning-concurrency.e2e-spec.ts`](../../../api/test/learning-concurrency.e2e-spec.ts), [`learning-http.e2e-spec.ts`](../../../api/test/learning-http.e2e-spec.ts) |
 
-## 6. Course writer concurrency
+## 6. 코스 동시 수정
 
 ![Course writer concurrency lock timeline](./course-concurrency-lock-timeline.svg)
 
@@ -151,7 +157,7 @@ The winner is intentionally nondeterministic; the invariant is one version incre
 | Mutations serialize on the Course root and enforce expected version | [`PostgresCourseRepository`](../../../api/src/course/postgres-course.repository.ts), [Course service](../../../api/src/course/course.service.ts) | [`course-concurrency.e2e-spec.ts`](../../../api/test/course-concurrency.e2e-spec.ts), [Course service spec](../../../api/src/course/course.service.spec.ts) |
 | Publish versus last-step removal and archive versus feedback share the lock boundary | [`PostgresCourseRepository`](../../../api/src/course/postgres-course.repository.ts) | [`course-concurrency.e2e-spec.ts`](../../../api/test/course-concurrency.e2e-spec.ts) |
 
-## 7. Relay and worker recovery after process loss
+## 7. Relay와 Worker 재시작
 
 ![Relay and worker recovery timeline](./worker-kill-duplicate-recovery-timeline.svg)
 
@@ -174,7 +180,7 @@ The separately polled verification-email outbox does not use BullMQ, but has an 
 | A process-kill drill defines restart and uniqueness checks | [service failure drill](../../../operations/resilience/Invoke-ServiceFailureDrill.ps1), [systemd worker unit](../../../infra/systemd/studytube-worker.service.in) | The drill script is an executable verification procedure. No recovery-time result is claimed here because this repository does not yet contain a matching measured result artifact. |
 | Verification email retries preserve token semantics without claiming SES idempotency | [email worker](../../../api/src/auth/verification-email-outbox.worker.ts), [SES sender](../../../api/src/auth/verification-email-sender.ts), [email outbox repository](../../../api/src/auth/verification-email-outbox.repository.ts) | [worker spec](../../../api/src/auth/verification-email-outbox.worker.spec.ts), [sender spec](../../../api/src/auth/verification-email-sender.spec.ts), [repository spec](../../../api/src/auth/verification-email-outbox.repository.spec.ts) |
 
-## Reproduce and verify the rendered artifacts
+## 도식 생성과 검증
 
 The rendering script pins `@mermaid-js/mermaid-cli` to `11.16.0`; the repository does not depend on whichever Mermaid CLI happens to be installed globally.
 

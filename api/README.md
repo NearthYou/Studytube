@@ -1,55 +1,66 @@
 # StudyTube API
 
-StudyTube의 NestJS 백엔드다. PostgreSQL을 authoritative store로 사용하고 학습 자료, 자막과 메모, quiz, proposal, Course와 durable work의 생명주기를 application과 database 경계에서 함께 보장한다.
+학습 데이터와 코스를 관리하는 NestJS 서버입니다. 로그인과 권한을 확인하고 자막 처리, 퀴즈 생성, 다음 영상 추천을 요청합니다. 사용자 데이터와 작업 기록은 PostgreSQL에 저장합니다.
 
-[전체 아키텍처](../docs/architecture.md) | [검증 범위](../docs/verification.md) | [migration 운영](../docs/database-migrations.md)
+[아키텍처](../docs/architecture.md) | [검증 기록](../docs/verification.md) | [DB 마이그레이션](../docs/database-migrations.md)
 
-## guided learning surface
+## 주요 기능
 
-| 범위 | 대표 endpoint |
+| 기능 | 담당 코드 |
 | --- | --- |
-| YouTube 학습 자료와 비용 예약 | `POST /learning/items/intake` |
-| 자막과 시점 메모 | `GET /learning/contexts/:id/captions`, note create, update, delete |
-| bounded Agent run | `POST /learning/agent-runs`, status, cancel, retry, approve |
-| 학습 진도 | course step progress read와 write |
-| adaptive quiz | quiz loop create, read와 submit |
-| 다음 학습 제안 | proposal create, read, dismiss와 approve |
+| 영상 등록과 자막 조회 | `LearningItemService` |
+| 메모와 진도, 퀴즈, 다음 영상 추천 | `LearningService` |
+| 코스 저장과 순서 변경 | `CourseService` |
+| 저장된 작업의 큐 전달 | `OutboxRelayService` |
+| 백그라운드 작업 실행 | `DurableJobExecutor` |
+| Google 로그인 | `GoogleAuthService` |
 
-`LearningItemService`가 URL, ownership과 provider budget을 확인한다. `LearningService`는 Agent, quiz와 proposal lifecycle을 맡고 repository interface 뒤의 PostgreSQL 구현과 retrieval snapshot을 사용한다.
+대표 경로는 `POST /learning/items/intake`, `GET /learning/contexts/:id/captions`, `POST /learning/agent-runs`입니다. 전체 요청과 응답 형식은 [OpenAPI 명세](openapi/current.json)에 있습니다.
 
-## 핵심 설계
+`LearningItemService`는 영상 URL과 소유권, 외부 API 사용 예산을 확인합니다. `LearningService`는 추천 실행과 퀴즈, 추천안 승인을 처리합니다.
 
-- cookie-only 인증: 브라우저는 HttpOnly session cookie만 사용하며 bearer token을 저장하지 않는다.
-- Course aggregate: root, ordered step snapshot, owner learning state, feedback를 하나의 일관성 경계로 다룬다.
-- optimistic concurrency: metadata, step 교체, publish, archive는 `expectedVersion`을 요구하며 오래된 쓰기는 409로 거부한다.
-- idempotent create: owner와 `Idempotency-Key` 조합을 PostgreSQL unique constraint로 중재한다. 같은 payload 재시도는 같은 Course로 수렴한다.
-- snapshot 보존: 원본 post 삭제는 `source_post_id`만 null로 만들고 제목, 영상 URL, 썸네일, 채널 snapshot은 유지한다.
-- privacy-safe projection: owner route와 public route가 별도 SQL projection을 사용한다. public 결과에는 owner learning state, author ID, email이 포함되지 않는다.
-- additive migration: legacy playlist 테이블을 유지하면서 Course를 backfill하고 source와 target fingerprint를 exact verify한다.
-- writer cutover: `legacy`, `freeze`, `course` 모드와 공용 advisory lock으로 두 writer 계열이 동시에 활성화되지 않게 한다.
+## 데이터 저장과 작업 처리
 
-## Course HTTP surface
+API는 학습 데이터 변경과 보낼 작업을 같은 PostgreSQL 트랜잭션에 저장합니다. API 프로세스 안의 Outbox Relay가 작업 기록을 읽어 Valkey의 BullMQ 큐로 보냅니다. 별도 Worker가 작업을 가져가 자막과 퀴즈 등을 처리합니다.
 
-owner route는 인증된 cookie principal에서 owner ID를 가져온다.
+[학습 데이터 모델](../docs/architecture.md#데이터-모델)은 사용자별 영상 등록과 코스 학습, 메모와 진도의 관계를 설명합니다. 퀴즈는 `adaptive_quiz_loops`를 기준으로 근거와 문제, 제출 기록을 저장합니다.
 
-| Method  | Path                    | 용도                              |
-| ------- | ----------------------- | --------------------------------- |
-| `POST`  | `/courses`              | idempotent private draft 생성     |
-| `GET`   | `/courses`              | owner Course cursor 목록          |
-| `GET`   | `/courses/:id`          | owner detail 조회                 |
-| `PATCH` | `/courses/:id`          | versioned metadata 수정           |
-| `PUT`   | `/courses/:id/steps`    | versioned step 전체 교체와 재정렬 |
-| `POST`  | `/courses/:id/publish`  | draft publish                     |
-| `POST`  | `/courses/:id/archive`  | soft archive                      |
-| `POST`  | `/courses/:id/feedback` | published Course feedback 추가    |
-| `GET`   | `/explore/courses`      | anonymous published 목록          |
-| `GET`   | `/explore/courses/:id`  | anonymous published detail        |
+## 인증
 
-다른 사용자의 Course를 owner route로 조회하거나 수정하면 존재 여부를 숨기기 위해 404를 반환한다. validation은 400, stale version과 idempotency payload 충돌은 409, feedback rate limit은 429와 `Retry-After`로 매핑된다. 예상하지 못한 PostgreSQL 오류 원문은 외부로 노출하지 않는다.
+운영 환경은 Google 로그인을 사용합니다. 로그인 뒤에는 HttpOnly 세션 쿠키로 요청을 인증합니다. 브라우저에 Bearer 토큰을 저장하지 않습니다.
 
-## 실행
+개발 및 테스트 환경에서 `AUTH_MODE`가 비어 있으면 기존 이메일 인증을 사용합니다. Google 로그인을 확인할 때는 `AUTH_MODE=google_only`를 설정합니다. 운영 환경에서는 인증 모드를 반드시 지정해야 합니다.
 
-Node.js 24.8 이상과 PostgreSQL 16이 필요하다.
+## 코스 저장 규칙
+
+- 코스와 영상 순서, 소유자의 학습 설정, 피드백을 함께 관리합니다.
+- 정보 수정과 영상 순서 변경, 공개와 보관 요청은 `expectedVersion`을 받습니다. 저장된 버전과 다르면 409를 반환합니다.
+- 코스 생성은 사용자와 `Idempotency-Key` 조합으로 중복을 막습니다. 같은 내용의 재요청에는 기존 코스를 반환합니다.
+- 원본 게시물이 삭제돼도 코스에 저장한 제목과 영상 URL, 썸네일, 채널 정보는 유지합니다. `source_post_id`만 null로 바뀝니다.
+- 공개 코스 조회에서는 소유자의 학습 상태와 작성자 ID, 이메일을 반환하지 않습니다.
+
+## 코스 API
+
+소유자 전용 API는 세션에서 사용자 ID를 가져옵니다.
+
+| Method | Path | 용도 |
+| --- | --- | --- |
+| `POST` | `/courses` | 비공개 코스 초안 생성 |
+| `GET` | `/courses` | 내 코스 목록 조회 |
+| `GET` | `/courses/:id` | 내 코스 상세 조회 |
+| `PATCH` | `/courses/:id` | 코스 정보 수정 |
+| `PUT` | `/courses/:id/steps` | 영상 목록 교체와 순서 변경 |
+| `POST` | `/courses/:id/publish` | 코스 공개 |
+| `POST` | `/courses/:id/archive` | 코스 보관 |
+| `POST` | `/courses/:id/feedback` | 공개 코스 피드백 등록 |
+| `GET` | `/explore/courses` | 공개 코스 목록 조회 |
+| `GET` | `/explore/courses/:id` | 공개 코스 상세 조회 |
+
+다른 사용자의 코스를 소유자 전용 API로 조회하거나 수정하면 404를 반환합니다. 잘못된 입력은 400으로 응답합니다. 버전이 오래됐거나 같은 멱등 키로 다른 내용을 보내면 409를 반환합니다. 피드백 요청 제한을 넘으면 429와 `Retry-After`를 반환합니다. PostgreSQL 오류 원문은 응답에 포함하지 않습니다.
+
+## 로컬 실행
+
+저장소 루트에서 실행합니다. Node.js 24.8 이상과 PostgreSQL 16이 필요합니다.
 
 ```powershell
 Copy-Item api\.env.example api\.env
@@ -59,7 +70,7 @@ npm --prefix api run db:migrate:up
 npm --prefix api run start:dev
 ```
 
-로컬과 test 환경에서 `COURSE_CUTOVER_MODE`가 비어 있으면 legacy로 동작한다. production에서는 `legacy`, `freeze`, `course` 중 하나를 반드시 명시해야 한다.
+Worker는 [개발 환경 문서](../docs/environment-setup.md#서비스-실행)의 별도 명령으로 실행합니다.
 
 ## 검증
 
@@ -70,7 +81,7 @@ npm --prefix api run test:e2e -- --runInBand
 npm --prefix api run build
 ```
 
-집중 검증은 다음 경계를 각각 실행한다.
+코스 관련 통합 테스트는 다음과 같이 나눠 실행할 수 있습니다.
 
 ```powershell
 npm --prefix api run test:e2e -- --runInBand course-schema.e2e-spec.ts
@@ -80,20 +91,11 @@ npm --prefix api run test:e2e -- --runInBand course-concurrency.e2e-spec.ts
 npm --prefix api run test:e2e -- --runInBand course-cutover.e2e-spec.ts
 ```
 
-테스트는 실제 PostgreSQL에서 다음 실패 시나리오를 검증한다.
+이 테스트들은 실제 PostgreSQL에서 동시 수정과 중복 생성, 원본 삭제 후 코스 정보 보존을 확인합니다. 공개 코스 응답에 비공개 필드가 없는지와 데이터 전환 중 쓰기가 차단되는지도 검사합니다.
 
-- 같은 version의 경쟁 쓰기에서 한 요청만 성공하는지
-- publish와 마지막 step 삭제가 경쟁해도 빈 published Course가 남지 않는지
-- 같은 idempotency key의 동시 create가 한 root로 수렴하는지
-- archive와 feedback 경쟁이 생명주기 경계를 넘지 않는지
-- post 삭제 후에도 snapshot과 순서가 보존되는지
-- backfill 중단 후 재개와 delta 재실행이 안전한지
-- public projection에 private 필드가 조회되지 않는지
-- freeze parity 전에는 Course writer가 열리지 않는지
+## 기존 데이터 전환
 
-## migration 운영
-
-초기 backfill과 exact verifier는 명시적 guard 아래 실행한다.
+기존 playlist 테이블을 유지한 상태에서 코스 데이터를 채우고 원본과 변환 결과를 비교합니다. `legacy`, `freeze`, `course` 모드와 advisory lock으로 기존 쓰기와 새 코스 쓰기가 동시에 실행되지 않게 합니다.
 
 ```powershell
 $env:COURSE_CUTOVER_MODE='legacy'
@@ -102,10 +104,6 @@ npm --prefix api run db:course:backfill
 npm --prefix api run db:course:verify
 ```
 
-freeze에서 같은 명령을 실행하면 backfill이 exclusive advisory lock을 얻는 동안 이미 허용된 mutation이 drain된다. `course` 모드에서는 mutating backfill이 시작 전에 거부된다.
+`freeze`에서는 진행 중인 쓰기가 끝난 뒤 배타적 advisory lock을 얻어 전환합니다. `course` 모드에서는 데이터를 바꾸는 backfill을 거부합니다. 개발 및 테스트 환경에서 모드를 생략하면 `legacy`를 사용합니다. 운영 환경에서는 반드시 모드를 지정해야 합니다.
 
-전체 freeze-to-course 배포 순서와 rollback 경계는 [데이터베이스 마이그레이션 운영 가이드](../docs/database-migrations.md)에 있다.
-
-## 범위
-
-이 API는 백엔드 동작의 핵심 검증 근거에 집중한다. Terraform, Kubernetes, cloud provisioning은 포함하지 않는다. 인프라 역량은 PostgreSQL migration, CI의 실제 데이터베이스 검증, SHA 고정 배포, readiness gate, 안전한 cutover runbook으로 보여 준다.
+전환 순서와 복구 조건은 [DB 마이그레이션](../docs/database-migrations.md)에 있습니다.

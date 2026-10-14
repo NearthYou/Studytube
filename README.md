@@ -4,7 +4,7 @@
 
 [서비스 바로가기](https://studytube.page) | [CI/CD](https://github.com/NearthYou/Studytube/actions/workflows/ci-cd.yml) | [API 계약](api/openapi/current.json)
 
-`React 19` `TypeScript` `NestJS` `FastAPI` `Python` `LangGraph` `MCP` `RAG` `PostgreSQL` `pgvector` `Valkey` `BullMQ` `AWS`
+`TypeScript` `React` `NestJS` `Python / FastAPI` `PostgreSQL` `AWS EC2`
 
 ![영어 원문과 한국어 번역, 학습 도구를 함께 사용하는 StudyTube](docs/demo/studytube-learning-current.png)
 
@@ -34,6 +34,8 @@ YouTube에는 재생 위치가 남지만 모르는 문장과 메모, 틀린 문�
 
 ## 주요 기능
 
+화면과 API는 TypeScript로 작성했습니다. 자막 처리와 AI 기능은 Python의 FastAPI 서버에서 실행합니다.
+
 | 영역 | 구현 내용 |
 | --- | --- |
 | 영상 학습 | 현재 문장, 전체 자막, 내용 정리, 시점 메모, 퀴즈 |
@@ -42,6 +44,19 @@ YouTube에는 재생 위치가 남지만 모르는 문장과 메모, 틀린 문�
 | 계정 | Google 로그인, 학습 설정, 본인 확인을 거친 계정 삭제 |
 | 작업 처리 | PostgreSQL outbox, Valkey와 BullMQ, lease와 heartbeat, 실패 작업 재시도 |
 | 운영 | GitHub Actions, OIDC, S3 Object Lock, SSM 기반 EC2 배포 |
+
+## 기술 스택
+
+| 용도 | 기술 |
+| --- | --- |
+| 학습 화면 | React 19, TypeScript, Vite |
+| API와 Worker | NestJS, TypeScript |
+| AI 처리 | Python, FastAPI, LangGraph, OpenAI API |
+| 데이터와 검색 | PostgreSQL, pgvector, pg_trgm |
+| 작업 대기열 | Valkey, BullMQ |
+| 서버와 배포 | AWS EC2, Caddy, Docker, GitHub Actions, S3, Systems Manager |
+
+MCP는 Worker가 AI 도구를 호출할 때 사용하는 프로토콜입니다. RAG는 저장된 학습 자료를 검색해 추천에 사용하는 방식입니다. 적용 위치는 [AI 처리 구조](#ai-처리-구조)에 정리했습니다.
 
 ## 주요 개선
 
@@ -88,7 +103,9 @@ DB에 저장한 뒤 큐에 작업을 넣기 전에 API가 꺼지면 작업이 �
 
 ![사용자별 학습 맥락을 중심으로 코스, 자막, 메모와 퀴즈를 연결한 StudyTube 데이터 모델](docs/diagrams/studytube-data-model.svg)
 
-같은 영상이라도 단독으로 볼 때와 코스에서 볼 때의 학습 기록을 구분합니다. 메모와 시청 범위, 퀴즈는 `study_contexts`에 연결합니다. 자막은 영상별로 처리 세대를 나눠 저장합니다.
+영상은 `video_sources`에 저장하고 사용자별 등록은 `learning_items`로 구분합니다. `study_contexts`는 같은 영상의 단독 학습과 코스 학습을 나눕니다. 메모와 퀴즈는 학습 기록에 연결하며 코스 진도는 사용자와 코스 단계 조합으로 저장합니다.
+
+자막은 `caption_artifacts`에 종류와 생성 회차별로 보관합니다. 퀴즈는 실제 테이블인 `adaptive_quiz_loops`를 기준으로 문제와 근거, 제출 답안을 나눠 저장합니다. [상세 데이터 모델](docs/architecture.md#데이터-모델)에서 관계와 제약을 확인할 수 있습니다.
 
 ## AI 처리 구조
 

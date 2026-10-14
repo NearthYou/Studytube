@@ -1,10 +1,12 @@
 # StudyTube 운영 검증
 
-이 디렉터리는 운영 환경의 데이터를 노출하지 않고 복구 가능성과 핵심 API 성능을 재현하는 도구를 제공합니다. 모든 PowerShell 드릴은 먼저 계획 모드로 대상과 복구 순서를 확인할 수 있습니다.
+백업 복원과 서비스 장애 복구, API 부하, 경보 규칙을 확인하는 스크립트 모음입니다. PowerShell 스크립트는 계획 모드에서 대상과 실행 순서를 먼저 확인할 수 있습니다.
 
-학습 metric은 caption stage, 비용 reservation, retrieval/MCP 결과, stale quiz, Course approval conflict의 허용된 code와 count만 사용하며 자막 원문, 검색 query, 메모, URL, provider error를 기록하지 않습니다.
+학습 지표에는 자막 처리 단계와 비용 예약, 검색과 MCP 호출 결과, 오래된 퀴즈, 코스 승인 충돌의 허용된 코드와 횟수만 기록합니다. 자막 원문과 검색어, 메모, URL, 외부 API 오류 원문은 기록하지 않습니다.
 
-STT를 켠 production 배포는 `STT_COST_APPROVAL_RECORD`, 고정 model, production 환경, 최대 금액, 만료 시각과 승인 ID가 모두 있어야 합니다. 하나라도 없거나 만료되면 runtime 설치가 중단되며 기존 YouTube 자막 경로는 유지합니다.
+운영 환경에서 STT를 켜려면 `STT_COST_APPROVAL_RECORD`에 모델과 환경, 최대 금액, 만료 시각, 승인 ID가 있어야 합니다. 필수 값이 없거나 승인이 만료되면 실행 환경 설치를 중단합니다. 기존 YouTube 자막 처리 경로는 유지합니다.
+
+서버와 배포 구성은 [운영 아키텍처](../docs/architecture.md#실행-구조)에 있습니다.
 
 ## 사전 조건
 
@@ -16,7 +18,7 @@ STT를 켠 production 배포는 `STT_COST_APPROVAL_RECORD`, 고정 model, produc
 
 PowerShell 스크립트는 원격 Docker 컨텍스트를 거부합니다. 허용 컨텍스트는 `default`와 `desktop-linux`이며 `DOCKER_HOST`가 TCP 주소를 가리키면 중단합니다. 실패 주입 스크립트는 API와 AI URL이 `127.0.0.1`, `localhost`, IPv6 loopback 중 하나인지도 확인합니다.
 
-## PostgreSQL 백업 및 복원
+## PostgreSQL 백업과 복원
 
 계획만 확인합니다.
 
@@ -51,7 +53,7 @@ pwsh ./operations/backup/Invoke-PostgresRestoreDrill.ps1 `
 7. 성공 여부와 관계없이 임시 데이터베이스와 덤프를 제거합니다.
 8. 행 데이터와 자격 증명이 없는 JSON 증거를 기록합니다.
 
-원본 데이터에 쓰기가 계속되는 동안에는 덤프 스냅샷과 사전 행 수 사이에 차이가 날 수 있습니다. 정확한 행 수 비교가 필요한 실행은 쓰기가 없는 검증 창에서 수행합니다. 이 드릴은 시점 복구를 제공하지 않으며 `observedRpoUpperBoundSeconds`는 덤프가 완료될 때 스냅샷이 가질 수 있는 보수적인 최대 연령으로 기록합니다.
+원본 데이터에 쓰기가 계속되는 동안에는 덤프 스냅샷과 사전 행 수 사이에 차이가 날 수 있습니다. 정확한 행 수 비교가 필요한 실행은 쓰기가 없는 검증 창에서 실행합니다. 이 드릴은 시점 복구를 제공하지 않으며 `observedRpoUpperBoundSeconds`는 덤프가 완료될 때 스냅샷이 가질 수 있는 보수적인 최대 연령으로 기록합니다.
 
 `observedRtoSeconds`는 임시 복원 시작부터 무결성 검증 완료까지입니다.
 
@@ -100,7 +102,7 @@ sudo scripts/user-data-reset-purge-backup.sh --run-id "$RESET_RUN_ID"
 
 prefix나 bucket 전체를 삭제하지 않습니다. 폐기 증거에는 object key 원문 대신 SHA-256만 남깁니다.
 
-## 서비스 실패 및 복구
+## 서비스 장애와 복구
 
 계획만 확인합니다.
 

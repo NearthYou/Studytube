@@ -61,7 +61,7 @@ npm --prefix api run start:worker
 
 운영 redirect URI와 로컬 redirect URI는 서로 다르므로 같은 값을 그대로 복사하지 않습니다. 로컬 기본 callback은 `http://localhost:3000/auth/google/callback`입니다.
 
-## Windows에서 확인할 때
+## Windows 실행
 
 Web과 API는 PowerShell에서도 실행됩니다. `npm.ps1`이 실행 정책에 막히면 `npm.cmd`를 사용합니다.
 

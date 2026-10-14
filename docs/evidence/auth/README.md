@@ -1,6 +1,24 @@
+# 인증 구현과 검증
+
+운영 환경은 `AUTH_MODE=google_only`로 Google 로그인을 사용합니다. Google 인증이 끝나면 API가 HttpOnly 세션 쿠키를 발급합니다. 계정 삭제에는 같은 Google 계정으로 최근에 본인 확인을 마친 기록이 필요합니다.
+
+| 항목 | 구현 | 테스트 |
+| --- | --- | --- |
+| Google 로그인과 세션 발급 | [GoogleAuthService](../../../api/src/auth/google/google-auth.service.ts) | [서비스 테스트](../../../api/src/auth/google/google-auth.service.spec.ts) |
+| OAuth 시도 값 암호화 | [GoogleAttemptCrypto](../../../api/src/auth/google/google-attempt.crypto.ts) | [암호화 테스트](../../../api/src/auth/google/google-attempt.crypto.spec.ts) |
+| 인증 모드 선택 | [auth-mode.ts](../../../api/src/auth/auth-mode.ts) | [모드 테스트](../../../api/src/auth/auth-mode.spec.ts) |
+| 계정 삭제 | [AccountErasureService](../../../api/src/account/account-erasure.service.ts) | [삭제 테스트](../../../api/src/account/account-erasure.service.spec.ts) |
+
+개발 및 테스트 환경에서 `AUTH_MODE`가 비어 있으면 `legacy` 모드를 사용합니다. 이 모드의 이메일 가입과 비밀번호 인증 구현은 저장소에 남아 있습니다. 운영 인증 방식과 구분해서 확인해야 합니다.
+
+날짜가 있는 CI 결과는 [검증 기록](../../verification.md)에 있습니다. 아래 표는 초기 이메일 인증을 구현하던 시점의 기록입니다.
+
+<details>
+<summary>초기 이메일 인증 구현과 검증 기록</summary>
+
 # 인증 경계 근거
 
-기준은 `codex/issue-7-auth 최종 변경`의 검증 시점이다. 이 문서는 현재 코드, 단위 테스트, 정적 검사, benchmark가 직접 보여 주는 사실과 PostgreSQL CI에서 아직 확인해야 할 사실을 구분한다.
+기준은 `codex/issue-7-auth 최종 변경`의 검증 시점이다. 이 기록은 당시 코드, 단위 테스트, 정적 검사, benchmark가 직접 보여 주는 사실과 PostgreSQL CI에서 아직 확인해야 할 사실을 구분한다.
 
 ## Cookie-only HTTP 아키텍처
 
@@ -59,7 +77,7 @@ sequenceDiagram
 | Authorization 또는 Bearer 입력은 인증 수단이 아니다 | `auth-http.spec.ts`의 Bearer-only 401, production TypeScript 36개 정적 검사 | 단위와 정적 검사 통과 |
 | 원문 session token SQL이 production source에 없다 | auth boundary source scan의 `sessions.token`과 raw token SQL 검사 | 정적 검사 통과 |
 | 세션 조회는 revoke, idle, absolute expiry를 검사하고 touch를 absolute expiry로 제한한다 | `auth.service.spec.ts`, `database.service.spec.ts` | 단위 테스트 통과 |
-| legacy SHA-256 성공은 Argon2id 승격과 session 삽입을 같은 CAS 트랜잭션에서 수행한다 | `auth.service.spec.ts`의 stale retry, `database.service.spec.ts`의 query order와 CAS predicate | 단위 테스트 통과 |
+| legacy SHA-256 성공은 Argon2id 승격과 session 삽입을 같은 CAS 트랜잭션에서 실행한다 | `auth.service.spec.ts`의 stale retry, `database.service.spec.ts`의 query order와 CAS predicate | 단위 테스트 통과 |
 | 미등록 사용자, disabled 사용자, 잘못된 비밀번호는 generic invalid를 반환한다 | `auth.service.spec.ts`의 dummy Argon2와 validation error 테스트 | 단위 테스트 통과 |
 | Origin, DTO whitelist, request ID, sanitized error mapping이 HTTP 경계에 설치된다 | `auth-http.spec.ts`, `origin.guard.spec.ts`, `configureApplication()` | 단위 경계 테스트 통과 |
 | Argon2 작업 제한이 192MiB 예산과 overload 거부를 지킨다 | short benchmark median 133.67ms, peak RSS 129.14MiB, overload rejected | benchmark 통과 |
@@ -97,3 +115,5 @@ PostgreSQL 검증에는 테스트 데이터베이스, `DATABASE_URL`, 적용된 
 ## 보류 범위
 
 Resend 프로덕션 전송과 재시도 운영, React 클라이언트의 cookie-only 전환, 실제 HTTPS와 reverse proxy 환경의 Secure 쿠키 브라우저 검증은 후속 작업이다. Terraform은 사용하지 않는다.
+
+</details>

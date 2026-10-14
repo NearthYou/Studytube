@@ -1,8 +1,14 @@
-# StudyTube CI/CD runbook
+# StudyTube 배포와 복구
 
 StudyTube는 GitHub Actions, GitHub OIDC, S3 Object Lock, AWS Systems Manager Run Command를 사용해 `https://studytube.page`에 배포한다. SSH, EC2 개인키, 고정 host 주소는 배포 경로에 포함하지 않는다.
 
-## 배포 경계
+## 운영 구성
+
+![EC2 내부 서비스와 S3 및 Systems Manager 배포 경로](diagrams/studytube-infrastructure-architecture.png)
+
+Caddy가 HTTPS와 React 정적 파일을 처리하고 API 요청을 NestJS로 전달합니다. API와 Worker, FastAPI, PostgreSQL과 Valkey는 같은 EC2에서 실행합니다. Outbox Relay는 API 내부 서비스입니다. 자세한 실행 단위는 [아키텍처](architecture.md#실행-구조)에 있습니다.
+
+## 배포 흐름
 
 ```mermaid
 flowchart LR
@@ -25,7 +31,7 @@ flowchart LR
 - Application activation: [`scripts/deploy-ec2.sh`](../scripts/deploy-ec2.sh)
 - Contract test: [`scripts/tests/immutable-deploy-contract.sh`](../scripts/tests/immutable-deploy-contract.sh)
 
-## Workflow trigger와 required checks
+## 실행 조건과 필수 검사
 
 `CI/CD` workflow는 다음 이벤트에서 실행한다.
 
@@ -71,7 +77,7 @@ Release bucket은 versioning, SSE-S3, 모든 public access 차단, Object Lock�
 
 CloudWatch log group `/studytube/deploy`는 Standard log class, 30일 retention, deletion protection을 사용한다. SSM output은 같은 실행의 S3 diagnostics와 함께 추적한다.
 
-EC2 security group은 80과 443만 public inbound로 허용한다. 22번 포트와 애플리케이션 포트는 열지 않는다. 인스턴스 관리는 `StudyTubeEc2RuntimeRole`과 Systems Manager로 수행한다.
+EC2 security group은 80과 443만 public inbound로 허용한다. 22번 포트와 애플리케이션 포트는 열지 않는다. 인스턴스 관리는 `StudyTubeEc2RuntimeRole`과 Systems Manager로 실행한다.
 
 ### GitHub OIDC trust
 

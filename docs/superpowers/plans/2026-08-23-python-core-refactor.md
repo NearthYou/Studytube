@@ -2,13 +2,13 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Move embeddings, study generation, YouTube lookup, and FastAPI composition out of `ai/main.py` while preserving all HTTP and import compatibility contracts.
+Goal: Move embeddings, study generation, YouTube lookup, and FastAPI composition out of `ai/main.py` while preserving all HTTP and import compatibility contracts.
 
-**Architecture:** Each feature module owns its provider client, cache, validation, and response assembly. `main.py` re-exports public compatibility names but does not own feature implementation; `app_factory.py` owns FastAPI and MCP HTTP composition.
+Architecture: Each feature module owns its provider client, cache, validation, and response assembly. `main.py` re-exports public compatibility names but does not own feature implementation; `app_factory.py` owns FastAPI and MCP HTTP composition.
 
-**Tech Stack:** Python 3.14, FastAPI, OpenAI SDK, httpx, psycopg, unittest
+Tech Stack: Python 3.14, FastAPI, OpenAI SDK, httpx, psycopg, unittest
 
-**Spec:** `docs/superpowers/specs/2026-08-23-large-module-refactor-design.md`
+Spec: `docs/superpowers/specs/2026-08-23-large-module-refactor-design.md`
 
 ## Global Constraints
 
@@ -23,13 +23,13 @@
 
 ### Task 1: Extract embeddings
 
-**Files:**
+Files:
 - Create: `ai/embeddings.py`
 - Modify: `ai/main.py`
 - Modify: `ai/test_main.py`
 - Test: `ai/tests/test_embeddings_boundary.py`
 
-**Interfaces:**
+Interfaces:
 - Produces: `create_embedding_response(payload)`, `EmbeddingProviderUnavailable`, cache constants, and cache helpers.
 - Consumes: only environment variables and the OpenAI SDK.
 
@@ -42,13 +42,13 @@
 
 ### Task 2: Extract study-plan Agent generation
 
-**Files:**
+Files:
 - Create: `ai/study_generation.py`
 - Modify: `ai/main.py`
 - Modify: `ai/test_main.py`
 - Test: `ai/tests/test_study_generation_boundary.py`
 
-**Interfaces:**
+Interfaces:
 - Produces: `build_study_plan(payload)`, `choose_agent_tool`, playlist recommendation helpers, and `AGENT_TOOLS`.
 - Consumes: a callable YouTube lookup seam supplied by `build_study_plan` instead of importing `main`.
 
@@ -61,13 +61,13 @@
 
 ### Task 3: Extract YouTube lookup
 
-**Files:**
+Files:
 - Create: `ai/youtube_search.py`
 - Modify: `ai/main.py`
 - Modify: `ai/test_main.py`
 - Test: `ai/tests/test_youtube_search_boundary.py`
 
-**Interfaces:**
+Interfaces:
 - Produces: `lookup_youtube(params)` plus oEmbed, Data API, page fallback, metadata normalization, and text extraction helpers.
 - Consumes: httpx and environment variables only.
 
@@ -79,13 +79,13 @@
 
 ### Task 4: Extract FastAPI composition
 
-**Files:**
+Files:
 - Create: `ai/app_factory.py`
 - Modify: `ai/main.py`
 - Modify: `ai/test_main.py`
 - Test: `ai/tests/test_app_boundary.py`
 
-**Interfaces:**
+Interfaces:
 - Produces: `create_application()` returning `app`, `mcp_server`, `mcp_application`, and telemetry runtime handles.
 - Consumes: feature callables imported from their owning modules and later caption and summary modules.
 

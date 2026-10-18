@@ -126,7 +126,7 @@ function buildSearch(
       'pg_trgm.similarity_threshold',
       ${parameters.lexicalThreshold}::text,
       true
-    ) AS lexical_threshold`;
+    ) IS NOT NULL AS applied`;
   } else if (mode === 'vector') {
     parameters = {
       owner: '$1',
@@ -150,7 +150,7 @@ function buildSearch(
       'hnsw.iterative_scan',
       'strict_order',
       true
-    ) AS vector_scan`;
+    ) IS NOT NULL AS applied`;
   } else {
     parameters = {
       owner: '$1',
@@ -181,8 +181,9 @@ function buildSearch(
         'pg_trgm.similarity_threshold',
         ${parameters.lexicalThreshold}::text,
         true
-      ) AS lexical_threshold,
-      set_config('hnsw.iterative_scan', 'strict_order', true) AS vector_scan`;
+      ) IS NOT NULL
+      AND set_config('hnsw.iterative_scan', 'strict_order', true) IS NOT NULL
+        AS applied`;
   }
 
   const modalityCtes: string[] = [];
@@ -276,17 +277,17 @@ function modalityCandidates(
       const prefix = `${modality}_${audience}`;
       return `
         ${prefix}_pool AS MATERIALIZED (
-          SELECT * FROM (
+          SELECT post_candidates.* FROM settings CROSS JOIN LATERAL (
             ${candidateBranch(modality, audience, 'post', parameters)}
           ) AS post_candidates
           UNION ALL
-          SELECT * FROM (
+          SELECT course_step_candidates.* FROM settings CROSS JOIN LATERAL (
             ${candidateBranch(modality, audience, 'course_step', parameters)}
           ) AS course_step_candidates
           ${
             audience === 'private' && parameters.contextSnapshot
               ? `UNION ALL
-          SELECT * FROM (
+          SELECT learning_context_candidates.* FROM settings CROSS JOIN LATERAL (
             ${learningContextCandidateBranch(modality, parameters)}
           ) AS learning_context_candidates`
               : ''
@@ -358,8 +359,8 @@ function candidateBranch(
         ON post.id = retrieval.source_id
        AND post.author_id = retrieval.owner_id
        AND post.retrieval_version = retrieval.source_version
-      CROSS JOIN settings
-      WHERE retrieval.source_kind = 'post'
+      WHERE settings.applied
+        AND retrieval.source_kind = 'post'
         AND retrieval.model = ${parameters.model}
         AND ${audienceFilter}
         AND ${filter}
@@ -396,8 +397,8 @@ function candidateBranch(
       ON course.id = step.course_id
      AND course.owner_id = retrieval.owner_id
      AND course.version = retrieval.source_version
-    CROSS JOIN settings
-    WHERE retrieval.source_kind = 'course_step'
+    WHERE settings.applied
+      AND retrieval.source_kind = 'course_step'
       AND retrieval.model = ${parameters.model}
       AND ${audienceFilter}
       AND ${courseAccess}
@@ -451,8 +452,8 @@ function learningContextCandidateBranch(
      AND item.user_id = snapshot.owner_id
      AND item.video_source_id = snapshot.video_source_id
     JOIN video_sources AS source ON source.id = item.video_source_id
-    CROSS JOIN settings
-    WHERE retrieval.source_kind = 'learning_context'
+    WHERE settings.applied
+      AND retrieval.source_kind = 'learning_context'
       AND retrieval.visibility = 'private'
       AND retrieval.owner_id = ${parameters.owner}
       AND retrieval.model = ${parameters.model}

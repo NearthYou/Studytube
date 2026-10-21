@@ -1,0 +1,438 @@
+{
+  "schemaVersion": 1,
+  "datasetHash": "4bc40fecce716c0bf7da15013d79b527d2ea68937ab14b749f547992ba151c43",
+  "model": "text-embedding-3-small",
+  "tuning": {
+    "lexicalMinSimilarity": 0.05,
+    "vectorMaxDistance": 0.45,
+    "rrfK": 60,
+    "candidateLimit": 50
+  },
+  "queryCount": 10,
+  "quality": {
+    "lexical": {
+      "recallAt3": 0,
+      "mrr": 0,
+      "ndcgAt5": 0,
+      "citationCoverage": 0,
+      "retrievalP95Ms": 40.927
+    },
+    "vector": {
+      "recallAt3": 0,
+      "mrr": 0,
+      "ndcgAt5": 0,
+      "citationCoverage": 0,
+      "retrievalP95Ms": 8.577
+    },
+    "hybrid": {
+      "recallAt3": 0,
+      "mrr": 0,
+      "ndcgAt5": 0,
+      "citationCoverage": 0,
+      "retrievalP95Ms": 15.646
+    }
+  },
+  "embedding": {
+    "probeCount": 20,
+    "cacheHitRate": 0.5,
+    "inputTokens": 178,
+    "estimatedCostUsd": 0.00000356,
+    "p95Ms": 250.342
+  },
+  "baselineImproved": false,
+  "generatedAt": "2026-10-18T10:44:34.682Z",
+  "gitSha": "1e89b57a94ac9f81e74499c4f62f36a956326700",
+  "datasetPath": "evaluation/retrieval-judgments.ko.json",
+  "queries": [
+    {
+      "id": "react-hooks",
+      "relevant": [
+        {
+          "sourceKey": "post:1",
+          "minTimestampSeconds": 0,
+          "maxTimestampSeconds": 14400
+        }
+      ],
+      "embeddingProbes": [
+        {
+          "latencyMs": 234.10169999999994,
+          "cacheHit": false,
+          "inputTokens": 14,
+          "costUsd": 2.8e-7
+        },
+        {
+          "latencyMs": 5.068199999999933,
+          "cacheHit": true,
+          "inputTokens": 14,
+          "costUsd": 0
+        }
+      ],
+      "modes": {
+        "lexical": {
+          "latencyMs": 40.927200000000084,
+          "hits": []
+        },
+        "vector": {
+          "latencyMs": 8.57719999999972,
+          "hits": []
+        },
+        "hybrid": {
+          "latencyMs": 15.646299999999883,
+          "hits": []
+        }
+      }
+    },
+    {
+      "id": "server-state",
+      "relevant": [
+        {
+          "sourceKey": "post:2",
+          "minTimestampSeconds": 0,
+          "maxTimestampSeconds": 14400
+        }
+      ],
+      "embeddingProbes": [
+        {
+          "latencyMs": 232.30650000000014,
+          "cacheHit": false,
+          "inputTokens": 13,
+          "costUsd": 2.6e-7
+        },
+        {
+          "latencyMs": 4.445600000000013,
+          "cacheHit": true,
+          "inputTokens": 13,
+          "costUsd": 0
+        }
+      ],
+      "modes": {
+        "lexical": {
+          "latencyMs": 7.003200000000106,
+          "hits": []
+        },
+        "vector": {
+          "latencyMs": 5.6457000000000335,
+          "hits": []
+        },
+        "hybrid": {
+          "latencyMs": 10.695000000000164,
+          "hits": []
+        }
+      }
+    },
+    {
+      "id": "fastapi",
+      "relevant": [
+        {
+          "sourceKey": "post:3",
+          "minTimestampSeconds": 0,
+          "maxTimestampSeconds": 28800
+        }
+      ],
+      "embeddingProbes": [
+        {
+          "latencyMs": 230.54440000000022,
+          "cacheHit": false,
+          "inputTokens": 20,
+          "costUsd": 4e-7
+        },
+        {
+          "latencyMs": 4.0275000000001455,
+          "cacheHit": true,
+          "inputTokens": 20,
+          "costUsd": 0
+        }
+      ],
+      "modes": {
+        "lexical": {
+          "latencyMs": 5.571899999999914,
+          "hits": []
+        },
+        "vector": {
+          "latencyMs": 5.14009999999962,
+          "hits": []
+        },
+        "hybrid": {
+          "latencyMs": 9.720499999999902,
+          "hits": []
+        }
+      }
+    },
+    {
+      "id": "postgres",
+      "relevant": [
+        {
+          "sourceKey": "post:4",
+          "minTimestampSeconds": 0,
+          "maxTimestampSeconds": 28800
+        },
+        {
+          "sourceKey": "post:203",
+          "minTimestampSeconds": 0,
+          "maxTimestampSeconds": 28800
+        }
+      ],
+      "embeddingProbes": [
+        {
+          "latencyMs": 232.11370000000034,
+          "cacheHit": false,
+          "inputTokens": 18,
+          "costUsd": 3.6e-7
+        },
+        {
+          "latencyMs": 3.246900000000096,
+          "cacheHit": true,
+          "inputTokens": 18,
+          "costUsd": 0
+        }
+      ],
+      "modes": {
+        "lexical": {
+          "latencyMs": 6.453599999999824,
+          "hits": []
+        },
+        "vector": {
+          "latencyMs": 5.661800000000312,
+          "hits": []
+        },
+        "hybrid": {
+          "latencyMs": 11.230000000000018,
+          "hits": []
+        }
+      }
+    },
+    {
+      "id": "practice",
+      "relevant": [
+        {
+          "sourceKey": "post:102",
+          "minTimestampSeconds": 0,
+          "maxTimestampSeconds": 7200
+        }
+      ],
+      "embeddingProbes": [
+        {
+          "latencyMs": 238.53610000000026,
+          "cacheHit": false,
+          "inputTokens": 17,
+          "costUsd": 3.4e-7
+        },
+        {
+          "latencyMs": 4.9845000000000255,
+          "cacheHit": true,
+          "inputTokens": 17,
+          "costUsd": 0
+        }
+      ],
+      "modes": {
+        "lexical": {
+          "latencyMs": 6.7979999999997744,
+          "hits": []
+        },
+        "vector": {
+          "latencyMs": 5.676899999999932,
+          "hits": []
+        },
+        "hybrid": {
+          "latencyMs": 10.372699999999895,
+          "hits": []
+        }
+      }
+    },
+    {
+      "id": "python",
+      "relevant": [
+        {
+          "sourceKey": "post:103",
+          "minTimestampSeconds": 0,
+          "maxTimestampSeconds": 28800
+        }
+      ],
+      "embeddingProbes": [
+        {
+          "latencyMs": 245.73719999999958,
+          "cacheHit": false,
+          "inputTokens": 15,
+          "costUsd": 3e-7
+        },
+        {
+          "latencyMs": 3.113199999999779,
+          "cacheHit": true,
+          "inputTokens": 15,
+          "costUsd": 0
+        }
+      ],
+      "modes": {
+        "lexical": {
+          "latencyMs": 6.751600000000053,
+          "hits": []
+        },
+        "vector": {
+          "latencyMs": 5.576199999999972,
+          "hits": []
+        },
+        "hybrid": {
+          "latencyMs": 10.512099999999919,
+          "hits": []
+        }
+      }
+    },
+    {
+      "id": "docker",
+      "relevant": [
+        {
+          "sourceKey": "post:201",
+          "minTimestampSeconds": 0,
+          "maxTimestampSeconds": 28800
+        }
+      ],
+      "embeddingProbes": [
+        {
+          "latencyMs": 250.34180000000015,
+          "cacheHit": false,
+          "inputTokens": 19,
+          "costUsd": 3.8e-7
+        },
+        {
+          "latencyMs": 3.8321999999998297,
+          "cacheHit": true,
+          "inputTokens": 19,
+          "costUsd": 0
+        }
+      ],
+      "modes": {
+        "lexical": {
+          "latencyMs": 7.298200000000179,
+          "hits": []
+        },
+        "vector": {
+          "latencyMs": 6.059799999999996,
+          "hits": []
+        },
+        "hybrid": {
+          "latencyMs": 11.784700000000157,
+          "hits": []
+        }
+      }
+    },
+    {
+      "id": "leadership",
+      "relevant": [
+        {
+          "sourceKey": "post:107",
+          "minTimestampSeconds": 0,
+          "maxTimestampSeconds": 7200
+        }
+      ],
+      "embeddingProbes": [
+        {
+          "latencyMs": 266.53679999999986,
+          "cacheHit": false,
+          "inputTokens": 16,
+          "costUsd": 3.2e-7
+        },
+        {
+          "latencyMs": 4.319599999999809,
+          "cacheHit": true,
+          "inputTokens": 16,
+          "costUsd": 0
+        }
+      ],
+      "modes": {
+        "lexical": {
+          "latencyMs": 7.70430000000033,
+          "hits": []
+        },
+        "vector": {
+          "latencyMs": 5.731800000000021,
+          "hits": []
+        },
+        "hybrid": {
+          "latencyMs": 11.471199999999953,
+          "hits": []
+        }
+      }
+    },
+    {
+      "id": "language",
+      "relevant": [
+        {
+          "sourceKey": "post:206",
+          "minTimestampSeconds": 0,
+          "maxTimestampSeconds": 7200
+        },
+        {
+          "sourceKey": "post:207",
+          "minTimestampSeconds": 0,
+          "maxTimestampSeconds": 7200
+        }
+      ],
+      "embeddingProbes": [
+        {
+          "latencyMs": 241.51179999999977,
+          "cacheHit": false,
+          "inputTokens": 20,
+          "costUsd": 4e-7
+        },
+        {
+          "latencyMs": 4.201500000000124,
+          "cacheHit": true,
+          "inputTokens": 20,
+          "costUsd": 0
+        }
+      ],
+      "modes": {
+        "lexical": {
+          "latencyMs": 6.996900000000096,
+          "hits": []
+        },
+        "vector": {
+          "latencyMs": 5.158900000000358,
+          "hits": []
+        },
+        "hybrid": {
+          "latencyMs": 10.479699999999866,
+          "hits": []
+        }
+      }
+    },
+    {
+      "id": "sleep",
+      "relevant": [
+        {
+          "sourceKey": "post:215",
+          "minTimestampSeconds": 0,
+          "maxTimestampSeconds": 7200
+        }
+      ],
+      "embeddingProbes": [
+        {
+          "latencyMs": 236.54640000000018,
+          "cacheHit": false,
+          "inputTokens": 26,
+          "costUsd": 5.2e-7
+        },
+        {
+          "latencyMs": 3.912999999999556,
+          "cacheHit": true,
+          "inputTokens": 26,
+          "costUsd": 0
+        }
+      ],
+      "modes": {
+        "lexical": {
+          "latencyMs": 6.657200000000557,
+          "hits": []
+        },
+        "vector": {
+          "latencyMs": 6.726200000000063,
+          "hits": []
+        },
+        "hybrid": {
+          "latencyMs": 12.020900000000438,
+          "hits": []
+        }
+      }
+    }
+  ]
+}

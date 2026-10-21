@@ -1,0 +1,975 @@
+{
+  "schemaVersion": 1,
+  "datasetHash": "4bc40fecce716c0bf7da15013d79b527d2ea68937ab14b749f547992ba151c43",
+  "model": "text-embedding-3-small",
+  "tuning": {
+    "lexicalMinSimilarity": 0.05,
+    "vectorMaxDistance": 0.75,
+    "rrfK": 60,
+    "candidateLimit": 50
+  },
+  "queryCount": 10,
+  "quality": {
+    "lexical": {
+      "recallAt3": 0.7,
+      "mrr": 0.7,
+      "ndcgAt5": 0.7,
+      "citationCoverage": 0,
+      "retrievalP95Ms": 44.04
+    },
+    "vector": {
+      "recallAt3": 0.9,
+      "mrr": 0.85,
+      "ndcgAt5": 0.863093,
+      "citationCoverage": 0,
+      "retrievalP95Ms": 10.318
+    },
+    "hybrid": {
+      "recallAt3": 0.9,
+      "mrr": 0.9,
+      "ndcgAt5": 0.9,
+      "citationCoverage": 0,
+      "retrievalP95Ms": 13.947
+    }
+  },
+  "embedding": {
+    "probeCount": 20,
+    "cacheHitRate": 0.5,
+    "inputTokens": 178,
+    "estimatedCostUsd": 0.00000356,
+    "p95Ms": 251.85
+  },
+  "baselineImproved": true,
+  "generatedAt": "2026-10-18T11:04:28.346Z",
+  "gitSha": "1e89b57a94ac9f81e74499c4f62f36a956326700",
+  "datasetPath": "evaluation/retrieval-judgments.ko.json",
+  "queries": [
+    {
+      "id": "react-hooks",
+      "relevant": [
+        {
+          "sourceKey": "post:1",
+          "minTimestampSeconds": 0,
+          "maxTimestampSeconds": 14400
+        }
+      ],
+      "embeddingProbes": [
+        {
+          "latencyMs": 279.8826999999999,
+          "cacheHit": false,
+          "inputTokens": 14,
+          "costUsd": 2.8e-7
+        },
+        {
+          "latencyMs": 6.373199999999997,
+          "cacheHit": true,
+          "inputTokens": 14,
+          "costUsd": 0
+        }
+      ],
+      "modes": {
+        "lexical": {
+          "latencyMs": 44.03969999999981,
+          "hits": []
+        },
+        "vector": {
+          "latencyMs": 10.318299999999908,
+          "hits": []
+        },
+        "hybrid": {
+          "latencyMs": 13.946699999999964,
+          "hits": []
+        }
+      }
+    },
+    {
+      "id": "server-state",
+      "relevant": [
+        {
+          "sourceKey": "post:2",
+          "minTimestampSeconds": 0,
+          "maxTimestampSeconds": 14400
+        }
+      ],
+      "embeddingProbes": [
+        {
+          "latencyMs": 251.84960000000024,
+          "cacheHit": false,
+          "inputTokens": 13,
+          "costUsd": 2.6e-7
+        },
+        {
+          "latencyMs": 4.99559999999974,
+          "cacheHit": true,
+          "inputTokens": 13,
+          "costUsd": 0
+        }
+      ],
+      "modes": {
+        "lexical": {
+          "latencyMs": 8.022599999999784,
+          "hits": [
+            {
+              "sourceKey": "post:2",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=novnyCaa7To",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            }
+          ]
+        },
+        "vector": {
+          "latencyMs": 8.017899999999827,
+          "hits": [
+            {
+              "sourceKey": "post:2",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=novnyCaa7To",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            }
+          ]
+        },
+        "hybrid": {
+          "latencyMs": 12.835900000000038,
+          "hits": [
+            {
+              "sourceKey": "post:2",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=novnyCaa7To",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "fastapi",
+      "relevant": [
+        {
+          "sourceKey": "post:3",
+          "minTimestampSeconds": 0,
+          "maxTimestampSeconds": 28800
+        }
+      ],
+      "embeddingProbes": [
+        {
+          "latencyMs": 247.14060000000018,
+          "cacheHit": false,
+          "inputTokens": 20,
+          "costUsd": 4e-7
+        },
+        {
+          "latencyMs": 4.201300000000174,
+          "cacheHit": true,
+          "inputTokens": 20,
+          "costUsd": 0
+        }
+      ],
+      "modes": {
+        "lexical": {
+          "latencyMs": 6.138500000000022,
+          "hits": [
+            {
+              "sourceKey": "post:3",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=7t2alSnE2-I",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            }
+          ]
+        },
+        "vector": {
+          "latencyMs": 6.966600000000199,
+          "hits": [
+            {
+              "sourceKey": "post:3",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=7t2alSnE2-I",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            }
+          ]
+        },
+        "hybrid": {
+          "latencyMs": 11.307800000000043,
+          "hits": [
+            {
+              "sourceKey": "post:3",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=7t2alSnE2-I",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "postgres",
+      "relevant": [
+        {
+          "sourceKey": "post:4",
+          "minTimestampSeconds": 0,
+          "maxTimestampSeconds": 28800
+        },
+        {
+          "sourceKey": "post:203",
+          "minTimestampSeconds": 0,
+          "maxTimestampSeconds": 28800
+        }
+      ],
+      "embeddingProbes": [
+        {
+          "latencyMs": 206.24059999999963,
+          "cacheHit": false,
+          "inputTokens": 18,
+          "costUsd": 3.6e-7
+        },
+        {
+          "latencyMs": 4.006800000000112,
+          "cacheHit": true,
+          "inputTokens": 18,
+          "costUsd": 0
+        }
+      ],
+      "modes": {
+        "lexical": {
+          "latencyMs": 6.552899999999681,
+          "hits": [
+            {
+              "sourceKey": "post:4",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=qw--VYLpxG4",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            },
+            {
+              "sourceKey": "post:203",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=HXV3zeQKqGY",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            },
+            {
+              "sourceKey": "post:3",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=7t2alSnE2-I",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            }
+          ]
+        },
+        "vector": {
+          "latencyMs": 6.883499999999913,
+          "hits": [
+            {
+              "sourceKey": "post:4",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=qw--VYLpxG4",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            },
+            {
+              "sourceKey": "post:203",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=HXV3zeQKqGY",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            },
+            {
+              "sourceKey": "post:205",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=5Zg-C8AAIGg",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            },
+            {
+              "sourceKey": "post:216",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=xxpc-HPKN28",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            }
+          ]
+        },
+        "hybrid": {
+          "latencyMs": 10.768000000000029,
+          "hits": [
+            {
+              "sourceKey": "post:4",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=qw--VYLpxG4",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            },
+            {
+              "sourceKey": "post:203",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=HXV3zeQKqGY",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            },
+            {
+              "sourceKey": "post:205",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=5Zg-C8AAIGg",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            },
+            {
+              "sourceKey": "post:3",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=7t2alSnE2-I",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            },
+            {
+              "sourceKey": "post:216",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=xxpc-HPKN28",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "practice",
+      "relevant": [
+        {
+          "sourceKey": "post:102",
+          "minTimestampSeconds": 0,
+          "maxTimestampSeconds": 7200
+        }
+      ],
+      "embeddingProbes": [
+        {
+          "latencyMs": 207.6890000000003,
+          "cacheHit": false,
+          "inputTokens": 17,
+          "costUsd": 3.4e-7
+        },
+        {
+          "latencyMs": 4.430899999999838,
+          "cacheHit": true,
+          "inputTokens": 17,
+          "costUsd": 0
+        }
+      ],
+      "modes": {
+        "lexical": {
+          "latencyMs": 5.916699999999764,
+          "hits": []
+        },
+        "vector": {
+          "latencyMs": 7.336700000000292,
+          "hits": [
+            {
+              "sourceKey": "post:102",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=f2O6mQkFiiw",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            },
+            {
+              "sourceKey": "post:101",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=v7AYKMP6rOE",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            },
+            {
+              "sourceKey": "post:201",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=fqMOX6JJhGo",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            },
+            {
+              "sourceKey": "post:211",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=X48VuDVv0do",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            }
+          ]
+        },
+        "hybrid": {
+          "latencyMs": 11.315900000000056,
+          "hits": [
+            {
+              "sourceKey": "post:102",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=f2O6mQkFiiw",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            },
+            {
+              "sourceKey": "post:101",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=v7AYKMP6rOE",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            },
+            {
+              "sourceKey": "post:201",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=fqMOX6JJhGo",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            },
+            {
+              "sourceKey": "post:211",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=X48VuDVv0do",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "python",
+      "relevant": [
+        {
+          "sourceKey": "post:103",
+          "minTimestampSeconds": 0,
+          "maxTimestampSeconds": 28800
+        }
+      ],
+      "embeddingProbes": [
+        {
+          "latencyMs": 194.85809999999992,
+          "cacheHit": false,
+          "inputTokens": 15,
+          "costUsd": 3e-7
+        },
+        {
+          "latencyMs": 3.814600000000155,
+          "cacheHit": true,
+          "inputTokens": 15,
+          "costUsd": 0
+        }
+      ],
+      "modes": {
+        "lexical": {
+          "latencyMs": 6.593200000000252,
+          "hits": [
+            {
+              "sourceKey": "post:103",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=rfscVS0vtbw",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            }
+          ]
+        },
+        "vector": {
+          "latencyMs": 7.016100000000279,
+          "hits": [
+            {
+              "sourceKey": "post:103",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=rfscVS0vtbw",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            }
+          ]
+        },
+        "hybrid": {
+          "latencyMs": 11.113700000000335,
+          "hits": [
+            {
+              "sourceKey": "post:103",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=rfscVS0vtbw",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "docker",
+      "relevant": [
+        {
+          "sourceKey": "post:201",
+          "minTimestampSeconds": 0,
+          "maxTimestampSeconds": 28800
+        }
+      ],
+      "embeddingProbes": [
+        {
+          "latencyMs": 221.3801999999996,
+          "cacheHit": false,
+          "inputTokens": 19,
+          "costUsd": 3.8e-7
+        },
+        {
+          "latencyMs": 3.746399999999994,
+          "cacheHit": true,
+          "inputTokens": 19,
+          "costUsd": 0
+        }
+      ],
+      "modes": {
+        "lexical": {
+          "latencyMs": 6.042499999999563,
+          "hits": [
+            {
+              "sourceKey": "post:201",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=fqMOX6JJhGo",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            }
+          ]
+        },
+        "vector": {
+          "latencyMs": 7.287499999999909,
+          "hits": [
+            {
+              "sourceKey": "post:201",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=fqMOX6JJhGo",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            }
+          ]
+        },
+        "hybrid": {
+          "latencyMs": 10.804200000000037,
+          "hits": [
+            {
+              "sourceKey": "post:201",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=fqMOX6JJhGo",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "leadership",
+      "relevant": [
+        {
+          "sourceKey": "post:107",
+          "minTimestampSeconds": 0,
+          "maxTimestampSeconds": 7200
+        }
+      ],
+      "embeddingProbes": [
+        {
+          "latencyMs": 214.35249999999996,
+          "cacheHit": false,
+          "inputTokens": 16,
+          "costUsd": 3.2e-7
+        },
+        {
+          "latencyMs": 3.2576999999996588,
+          "cacheHit": true,
+          "inputTokens": 16,
+          "costUsd": 0
+        }
+      ],
+      "modes": {
+        "lexical": {
+          "latencyMs": 6.531200000000354,
+          "hits": [
+            {
+              "sourceKey": "post:107",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=qp0HIF3SfI4",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            }
+          ]
+        },
+        "vector": {
+          "latencyMs": 6.135399999999663,
+          "hits": [
+            {
+              "sourceKey": "post:2",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=novnyCaa7To",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            },
+            {
+              "sourceKey": "post:107",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=qp0HIF3SfI4",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            },
+            {
+              "sourceKey": "post:1",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=LlvBzyy-558",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            },
+            {
+              "sourceKey": "post:201",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=fqMOX6JJhGo",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            },
+            {
+              "sourceKey": "post:202",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=RGOj5yH7evk",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            }
+          ]
+        },
+        "hybrid": {
+          "latencyMs": 9.1867000000002,
+          "hits": [
+            {
+              "sourceKey": "post:107",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=qp0HIF3SfI4",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            },
+            {
+              "sourceKey": "post:2",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=novnyCaa7To",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            },
+            {
+              "sourceKey": "post:1",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=LlvBzyy-558",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            },
+            {
+              "sourceKey": "post:201",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=fqMOX6JJhGo",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            },
+            {
+              "sourceKey": "post:202",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=RGOj5yH7evk",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "language",
+      "relevant": [
+        {
+          "sourceKey": "post:206",
+          "minTimestampSeconds": 0,
+          "maxTimestampSeconds": 7200
+        },
+        {
+          "sourceKey": "post:207",
+          "minTimestampSeconds": 0,
+          "maxTimestampSeconds": 7200
+        }
+      ],
+      "embeddingProbes": [
+        {
+          "latencyMs": 201.00520000000006,
+          "cacheHit": false,
+          "inputTokens": 20,
+          "costUsd": 4e-7
+        },
+        {
+          "latencyMs": 3.821100000000115,
+          "cacheHit": true,
+          "inputTokens": 20,
+          "costUsd": 0
+        }
+      ],
+      "modes": {
+        "lexical": {
+          "latencyMs": 5.599799999999959,
+          "hits": []
+        },
+        "vector": {
+          "latencyMs": 4.924399999999878,
+          "hits": [
+            {
+              "sourceKey": "post:206",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=d0yGdNEWdn0",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            },
+            {
+              "sourceKey": "post:207",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=o_XVt5rdpFY",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            },
+            {
+              "sourceKey": "post:102",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=f2O6mQkFiiw",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            },
+            {
+              "sourceKey": "post:103",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=rfscVS0vtbw",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            },
+            {
+              "sourceKey": "post:210",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=eIho2S0ZahI",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            }
+          ]
+        },
+        "hybrid": {
+          "latencyMs": 8.206700000000183,
+          "hits": [
+            {
+              "sourceKey": "post:206",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=d0yGdNEWdn0",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            },
+            {
+              "sourceKey": "post:207",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=o_XVt5rdpFY",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            },
+            {
+              "sourceKey": "post:102",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=f2O6mQkFiiw",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            },
+            {
+              "sourceKey": "post:103",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=rfscVS0vtbw",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            },
+            {
+              "sourceKey": "post:210",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=eIho2S0ZahI",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "sleep",
+      "relevant": [
+        {
+          "sourceKey": "post:215",
+          "minTimestampSeconds": 0,
+          "maxTimestampSeconds": 7200
+        }
+      ],
+      "embeddingProbes": [
+        {
+          "latencyMs": 195.05359999999973,
+          "cacheHit": false,
+          "inputTokens": 26,
+          "costUsd": 5.2e-7
+        },
+        {
+          "latencyMs": 3.472399999999652,
+          "cacheHit": true,
+          "inputTokens": 26,
+          "costUsd": 0
+        }
+      ],
+      "modes": {
+        "lexical": {
+          "latencyMs": 5.866700000000492,
+          "hits": [
+            {
+              "sourceKey": "post:215",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=gedoSfZvBgE",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            }
+          ]
+        },
+        "vector": {
+          "latencyMs": 4.5843000000004395,
+          "hits": [
+            {
+              "sourceKey": "post:215",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=gedoSfZvBgE",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            },
+            {
+              "sourceKey": "post:102",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=f2O6mQkFiiw",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            },
+            {
+              "sourceKey": "post:209",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=fLJsdqxnZb0",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            },
+            {
+              "sourceKey": "post:106",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=Ks-_Mh1QhMc",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            },
+            {
+              "sourceKey": "post:207",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=o_XVt5rdpFY",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            }
+          ]
+        },
+        "hybrid": {
+          "latencyMs": 8.04489999999987,
+          "hits": [
+            {
+              "sourceKey": "post:215",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=gedoSfZvBgE",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            },
+            {
+              "sourceKey": "post:102",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=f2O6mQkFiiw",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            },
+            {
+              "sourceKey": "post:209",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=fLJsdqxnZb0",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            },
+            {
+              "sourceKey": "post:106",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=Ks-_Mh1QhMc",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            },
+            {
+              "sourceKey": "post:207",
+              "citation": {
+                "sourceUrl": "https://www.youtube.com/watch?v=o_XVt5rdpFY",
+                "timestampSeconds": null,
+                "endSeconds": null
+              }
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

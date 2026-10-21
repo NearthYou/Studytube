@@ -63,6 +63,7 @@ uploads/
 .playwright-cli/
 .studytube-deploy-state/
 .ci-artifacts/
+.eval.zip
 tmp/
 output/
 

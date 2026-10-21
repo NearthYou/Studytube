@@ -187,7 +187,10 @@ jobs:
         run: bash ../scripts/tests/npm-audit-ci-contract.sh
 
       - name: Verify immutable deployment contract
-        run: bash ../scripts/tests/immutable-deploy-contract.sh
+        run: |
+          bash ../scripts/tests/immutable-deploy-contract.sh
+          env -u NODE_ENV -u COURSE_CUTOVER_MODE -u CI_TEST_SEED \
+            bash ../scripts/tests/immutable-deploy-contract.sh
 
       - name: Verify guarded operations contracts
         shell: pwsh

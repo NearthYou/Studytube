@@ -522,7 +522,9 @@ getent() {
 docker() { printf 'docker <%s>\\n' "\$*" >>"\$DEPLOY_COMMAND_LOG"; return 0; }
 psql() {
   case "\$*" in
+    *'--file=-'*) cat >/dev/null; printf 't\\n' ;;
     *to_regclass*) printf 'pgmigrations\\n' ;;
+    *'SUM(grouped.row_count - 1)'*) printf '0\\n' ;;
     *) printf 't\\n' ;;
   esac
 }
@@ -654,7 +656,9 @@ getent() {
 docker() { printf 'docker <%s>\\n' "\$*" >>"\$DEPLOY_COMMAND_LOG"; return 0; }
 psql() {
   case "\$*" in
+    *'--file=-'*) cat >/dev/null; printf 't\\n' ;;
     *to_regclass*) printf 'pgmigrations\\n' ;;
+    *'SUM(grouped.row_count - 1)'*) printf '0\\n' ;;
     *) printf 't\\n' ;;
   esac
 }
@@ -808,7 +812,9 @@ docker() {
 }
 psql() {
   case "\$*" in
+    *'--file=-'*) cat >/dev/null; printf 't\\n' ;;
     *to_regclass*) printf 'pgmigrations\\n' ;;
+    *'SUM(grouped.row_count - 1)'*) printf '0\\n' ;;
     *) printf 't\\n' ;;
   esac
 }

@@ -30,7 +30,7 @@ YouTube에는 재생 위치가 남지만 모르는 문장과 메모, 틀린 문�
 
 | 용도 | 기술 |
 | --- | --- |
-| 학습 화면 | React 19, TypeScript, Vite |
+| 학습 화면 | React, TypeScript, Vite |
 | API와 Worker | NestJS, TypeScript |
 | AI 처리 | Python, FastAPI, LangGraph, OpenAI API |
 | 데이터와 검색 | PostgreSQL, pgvector, pg_trgm |

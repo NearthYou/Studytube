@@ -1,0 +1,15 @@
+{
+  "videos": 27,
+  "evaluated": 27,
+  "skipped": 0,
+  "firstAttemptPassed": 23,
+  "firstAttemptFormatFailed": 0,
+  "firstAttemptGroundingFailed": 4,
+  "firstAttemptQuestionsChecked": 135,
+  "firstAttemptQuestionsUngrounded": 7,
+  "retried": 4,
+  "savedAfterRetry": 1,
+  "saved": 24,
+  "rejected": 3,
+  "formatErrors": []
+}

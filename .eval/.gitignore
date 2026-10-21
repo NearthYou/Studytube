@@ -1,0 +1,11 @@
+*
+!.gitignore
+!README.md
+!quiz_eval.py
+!embedding_server.py
+!publish_results.py
+!test_results.py
+!quiz-eval-summary.json
+!quiz-results.public.json
+!retrieval-evaluation.json
+!retrieval-evaluation.before.json

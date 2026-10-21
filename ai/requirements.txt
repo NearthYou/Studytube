@@ -312,9 +312,7 @@ defusedxml==0.7.1 \
 distro==1.9.0 \
     --hash=sha256:2fa77c6fd8940f116ee1d6b94a2f90b13b5ea8d019b98bc8bafdcabcdd9bdbed \
     --hash=sha256:7bffd925d65168f85027d8da9af6bddab658135b840670a223589bc0c8ef02b2
-    # via
-    #   langsmith
-    #   openai
+    # via langsmith
 fastapi==0.143.5 \
     --hash=sha256:09cc38ed8c6a95f407783ef4d98ceeb350e192fe8fbb8ed711070bcd5208fdfa \
     --hash=sha256:0b5c8e52d243cd2f015376b41e78db5bee585578782481abd145e1ab5a62a3ba
@@ -398,11 +396,12 @@ httpx==0.28.1 \
     #   langchain-core
     #   langgraph-sdk
     #   langsmith
-    #   openai
 httpx2==2.16.0 \
     --hash=sha256:0d54c98128e8f2ff7fbbde0fca8c359e5f032edeaaaac443cdb7f31f685bcd7f \
     --hash=sha256:fd2c5d7909e8d86fe92d53020c310ca0e4e431b838c207c5754b9bbf0308d49a
-    # via mcp
+    # via
+    #   mcp
+    #   openai
 idna==3.18 \
     --hash=sha256:7f952cbe720b688055e3f87de14f5c3e5fdaa8bc3928985c4077ca689de849a2 \
     --hash=sha256:ffb385a7e039654cef1ab9ef32c6fafe283c0c0467bba1d9029738ce4a14a848
@@ -587,9 +586,9 @@ mcp-types==2.3.0 \
     --hash=sha256:968efdbdaedfab06adae40d378a34395f1090c5921d4be3c9cde283aaf76d91d \
     --hash=sha256:d1e46549edb35ee19a94940fcee6d1addd7e589ab7ea92dda83f5d84781fc362
     # via mcp
-openai==2.50.0 \
-    --hash=sha256:5128f7caf4a6b01aefd6e7e93efe170a2c3427b8de286b9af5cdff3aa47e02c8 \
-    --hash=sha256:90bdddcc5a2fa529b350fac9c5780d87e5c361dcc6090ab57b0d470b0d7af7fa
+openai==3.35.1 \
+    --hash=sha256:264fd0fafc889021f526b7c1e5a2df5ca3e8dea874738ecd31da666434f25967 \
+    --hash=sha256:b33e6561b90586e450def8a388e7d364755325da6884fc71348be5542e043bd0
     # via -r requirements.in
 opentelemetry-api==1.44.0 \
     --hash=sha256:67647e5e9566edcf421166fdf022b3537f818635daa852b289e34604dc6fb33a \
@@ -791,7 +790,7 @@ protobuf==7.35.1 \
     # via
     #   googleapis-common-protos
     #   opentelemetry-proto
-psycopg==3.3.6 \
+psycopg[binary]==3.3.6 \
     --hash=sha256:a1db9f7148b06a28606767efaca51fa6f9398c5c0a3810519be69d7000bdb631 \
     --hash=sha256:c081f2250df751a943036e42db6df4571c66cd0aabe8291a7a506512b12007d2
     # via -r requirements.in
@@ -1018,7 +1017,7 @@ pydantic-core==2.50.1 \
     --hash=sha256:f77ac30b19221cd9bd3fcfa3d4614eff93140d0572ab730cded17b64adca05f3 \
     --hash=sha256:fe90228920fd8ff2be62622b6bb8a2b11acd65046d50c6b130614b5879605a20
     # via pydantic
-pyjwt==2.15.1 \
+pyjwt[crypto]==2.15.1 \
     --hash=sha256:42d59d631f7768a1028a64c7ff581a9bf7519804daf91fc5b6c56e30eec5e193 \
     --hash=sha256:4f259e80cdfb6b3fc18a7de51fd1ef9ec79652f25019bae68975ca2468a34df8
     # via mcp
@@ -1268,10 +1267,6 @@ tenacity==9.1.4 \
     --hash=sha256:6095a360c919085f28c6527de529e76a06ad89b23659fa881ae0649b867a9d55 \
     --hash=sha256:adb31d4c263f2bd041081ab33b498309a57c77f9acf2db65aadf0898179cf93a
     # via langchain-core
-tqdm==4.70.0 \
-    --hash=sha256:55b0b0dbd97462d06ebee91e4dac24ed4d4702be82b24f07e6c1d27e08cea220 \
-    --hash=sha256:7f585706bfddbdebf89daac705b2dfcc16890130727d3197ca62c732b4310953
-    # via openai
 truststore==0.10.4 \
     --hash=sha256:9d91bd436463ad5e4ee4aba766628dd6cd7010cf3e2461756b3303710eebc301 \
     --hash=sha256:adaeaecf1cbb5f4de3b1959b42d41f6fab57b2b1666adb59e89cb0b53361d981
@@ -1410,7 +1405,7 @@ uuid-utils==0.17.0 \
     # via
     #   langchain-core
     #   langsmith
-uvicorn==0.54.0 \
+uvicorn[standard]==0.54.0 \
     --hash=sha256:505bdb0f318731d45f1f712071fc781a8981f6847a31c902c9f5e652d4f67faf \
     --hash=sha256:a2e33cbfaa0306f8e6b0c13e0cb89d7d7a2da3e62b90c66e18c33d9807b28620
     # via

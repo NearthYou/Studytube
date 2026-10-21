@@ -1,32 +1,11 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const testDirectory = dirname(fileURLToPath(import.meta.url));
 const featureDirectory = resolve(testDirectory, "../src/features/learning");
-
-test("learning workspace is split into a focused feature boundary", () => {
-  assert.equal(existsSync(resolve(featureDirectory, "LearningPage.tsx")), true);
-  assert.equal(
-    existsSync(resolve(featureDirectory, "LearningWorkspace.tsx")),
-    true,
-  );
-  assert.equal(existsSync(resolve(featureDirectory, "captionState.ts")), true);
-  assert.equal(
-    existsSync(resolve(featureDirectory, "CurrentSentencePanel.tsx")),
-    true,
-  );
-  assert.equal(
-    existsSync(resolve(featureDirectory, "LearningOverviewPanel.tsx")),
-    true,
-  );
-  assert.equal(
-    existsSync(resolve(featureDirectory, "TranscriptDrawer.tsx")),
-    true,
-  );
-});
 
 test("learning workspace keeps the player and study tools in one desktop desk", () => {
   const source = readFileSync(

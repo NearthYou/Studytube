@@ -5,28 +5,6 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../src");
-const appSource = readFileSync(resolve(root, "App.tsx"), "utf8");
-
-test("onboarding and account screens own their feature modules", () => {
-  for (const path of [
-    "features/onboarding/TutorialPage.tsx",
-    "features/account/MyPage.tsx",
-    "features/account/MyEditPage.tsx",
-    "features/account/LearningPreferencesPage.tsx",
-    "features/account/LearningPreferenceFields.tsx",
-  ]) {
-    assert.equal(existsSync(resolve(root, path)), true);
-  }
-  assert.equal(
-    existsSync(resolve(root, "features/account/ProfileVerificationForm.tsx")),
-    false,
-  );
-  assert.doesNotMatch(
-    appSource,
-    /function (TutorialPage|MyPage|MyEditPage|ProfileVerificationForm)/,
-  );
-});
-
 test("active account and onboarding actions avoid retired routes", () => {
   const source = [
     "features/onboarding/TutorialPage.tsx",

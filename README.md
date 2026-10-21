@@ -6,9 +6,7 @@
 
 `TypeScript` `React` `NestJS` `Python / FastAPI` `PostgreSQL` `AWS EC2`
 
-![운영 서비스의 코스 보관함, 2026년 10월 21일](docs/demo/studytube-course-library-live-20261021.png)
-
-저장한 코스를 검색하고 포함된 영상으로 학습을 이어갈 수 있습니다. 2026년 10월 21일 운영 서비스의 코스 보관함입니다.
+![영상과 원문 및 번역 자막을 함께 보는 학습 화면](docs/demo/studytube-learning-current.png)
 
 ## 개발 배경
 
@@ -24,7 +22,9 @@ YouTube에는 재생 위치가 남지만 모르는 문장과 메모, 틀린 문�
 4. 영상 전체 자막이 준비되면 내용을 확인하는 퀴즈를 풉니다.
 5. 추천 영상을 코스로 저장하고 다음 학습을 이어 갑니다.
 
-학습 목표를 입력하는 화면은 [운영 서비스 캡처](docs/demo/studytube-course-builder-live-20261021.png)에서 확인할 수 있습니다.
+![영상 내용을 확인하는 퀴즈](docs/demo/studytube-quiz.jpg)
+
+[코스 만들기](docs/demo/studytube-course-builder-live-20261021.png) | [코스 보관함](docs/demo/studytube-course-library-live-20261021.png)
 
 ## 기술 스택
 
@@ -83,7 +83,7 @@ DB에 저장한 뒤 큐에 작업을 넣기 전에 API가 꺼지면 작업이 �
 
 ![StudyTube의 EC2 단일 서버 내부 서비스와 S3 및 Systems Manager 배포 경로](docs/diagrams/studytube-infrastructure-architecture.png)
 
-- 사용자 요청은 Route 53을 거쳐 Caddy로 들어옵니다. Caddy는 HTTPS와 React 정적 파일을 제공하고 `/api` 요청을 NestJS API로 전달합니다.
+- Route 53이 도메인을 EC2 주소에 연결합니다. Caddy는 HTTPS와 React 정적 파일을 제공하고 `/api` 요청을 NestJS API로 전달합니다.
 - NestJS API는 학습 데이터와 작업 기록을 PostgreSQL에 저장합니다. API 안의 Outbox Relay가 Valkey의 BullMQ 대기열로 작업을 전달합니다.
 - Worker가 자막과 퀴즈처럼 오래 걸리는 작업을 맡고 Python AI 서버를 호출합니다. 검색에 쓸 벡터도 PostgreSQL에 저장합니다.
 - 외부 요청은 Caddy만 받습니다. API와 AI, DB와 큐는 서버 내부에서 통신합니다. DB와 큐의 포트는 외부에 열지 않습니다.

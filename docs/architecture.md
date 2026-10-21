@@ -105,15 +105,15 @@ Controller는 요청 형식과 로그인 상태를 확인하고 Service는 소�
 
 | 단계 | 클래스 | 책임 |
 | ---: | --- | --- |
-| 1 | `OutboxRelayService` | PostgreSQL에서 아직 보내지 않은 event를 가져옵니다. |
+| 1 | `OutboxRelayService` | PostgreSQL에서 아직 보내지 않은 작업 기록을 가져옵니다. |
 | 2 | `WorkQueuePublisher` | 같은 event ID로 BullMQ 작업을 발행합니다. |
 | 3 | `BullMqVideoAssetWorker` | 대기열의 작업을 `DurableWorkRouter`에 넘깁니다. |
-| 4 | `DurableWorkRouter` | 자막, 임베딩, 퀴즈와 내용 정리 handler를 고릅니다. |
-| 5 | `DurableJobExecutor` | lease, heartbeat와 완료 결과를 `JobExecutionStore`에서 관리합니다. |
+| 4 | `DurableWorkRouter` | 자막, 임베딩, 퀴즈와 내용 정리에 맞는 처리 함수를 고릅니다. |
+| 5 | `DurableJobExecutor` | 작업 점유권과 진행 신호, 완료 결과를 `JobExecutionStore`에서 관리합니다. |
 
-API는 데이터 변경과 outbox event를 같은 PostgreSQL transaction에 기록합니다. `OutboxRelayService`가 아직 보내지 않은 event를 가져가 BullMQ에 넣으므로 DB 저장 뒤 프로세스가 멈춰도 작업이 남습니다.
+API는 데이터 변경과 보낼 작업을 같은 PostgreSQL 트랜잭션에 기록합니다. `OutboxRelayService`가 아직 보내지 않은 기록을 읽어 BullMQ에 넣으므로 DB 저장 뒤 프로세스가 멈춰도 작업이 남습니다.
 
-`DurableJobExecutor`는 작업마다 lease를 얻고 실행 중 heartbeat를 갱신합니다. lease를 잃으면 현재 작업을 중단하고, 완료 상태가 저장된 작업이 다시 들어오면 기존 결과를 돌려줍니다.
+`DurableJobExecutor`는 일정 시간 동안 작업을 맡을 권한을 얻고 실행 중에는 진행 신호를 갱신합니다. 이 권한을 잃으면 현재 작업을 중단합니다. 완료한 작업이 다시 들어오면 저장된 결과를 돌려줍니다.
 
 ## 퀴즈 생성과 검증
 
@@ -147,19 +147,19 @@ API는 전체 자막을 시간순 다섯 구간으로 나눠 문제에 쓸 문�
 
 운영 환경은 Google 로그인을 사용합니다. 인증 자격 증명은 HttpOnly 세션 쿠키에만 두고 Web은 화면 표시용 사용자 정보와 학습 설정을 localStorage에 저장합니다. API는 Origin과 요청 형식을 다시 확인합니다.
 
-계정을 삭제할 때는 같은 Google 계정으로 다시 본인 확인을 거칩니다. API는 최근 본인 확인이 남아 있는지 검사하고 사용자와 학습 데이터를 하나의 PostgreSQL transaction에서 지운 뒤 세션 쿠키를 만료합니다.
+계정을 삭제할 때는 같은 Google 계정으로 다시 본인 확인을 거칩니다. API는 최근 본인 확인이 남아 있는지 검사하고 사용자와 학습 데이터를 하나의 PostgreSQL 트랜잭션에서 지운 뒤 세션 쿠키를 만료합니다.
 
 ## 배포
 
 | 단계 | 배포 경계 |
 | ---: | --- |
 | 1 | `main`의 Security, Web, API, AI와 Integration 검사를 모두 통과합니다. |
-| 2 | 같은 커밋으로 release bundle과 SHA-256을 만듭니다. |
+| 2 | 같은 커밋으로 배포 파일과 SHA-256 체크섬을 만듭니다. |
 | 3 | GitHub OIDC 임시 권한으로 S3 Object Lock에 올립니다. |
-| 4 | SSM이 EC2에서 checksum과 root-owned 설정을 다시 확인합니다. |
-| 5 | API, AI, Worker, PostgreSQL, Valkey와 공개 Web이 모두 준비된 뒤 release를 전환합니다. |
+| 4 | SSM이 EC2에서 체크섬과 관리자 소유 설정을 다시 확인합니다. |
+| 5 | API, AI, Worker, PostgreSQL, Valkey와 공개 Web이 모두 준비된 뒤 배포를 전환합니다. |
 
-CI가 확인한 커밋만 고정된 release로 만듭니다. GitHub Actions는 OIDC 임시 권한으로 S3에 올리고 SSM이 EC2에서 checksum과 구성 파일을 다시 확인한 뒤 서비스를 전환합니다.
+CI가 확인한 커밋만 배포 파일로 만듭니다. GitHub Actions는 OIDC 임시 권한으로 S3에 올리고 SSM이 EC2에서 체크섬과 구성 파일을 다시 확인한 뒤 서비스를 전환합니다.
 
 자세한 배포와 복구 순서는 [CI/CD 문서](ci-cd.md), 운영 점검은 [Operations README](../operations/README.md)에 있습니다.
 

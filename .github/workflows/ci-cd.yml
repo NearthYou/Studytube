@@ -540,6 +540,11 @@ jobs:
       - name: Test
         run: python -m unittest discover -s .
 
+      - name: Verify published evaluation records
+        run: |
+          python ../.eval/publish_results.py --check
+          python -m unittest discover -s ../.eval -p test_results.py
+
   deploy:
     name: Deploy immutable release with SSM
     runs-on: ubuntu-latest

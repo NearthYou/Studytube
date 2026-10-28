@@ -315,9 +315,9 @@ distro==1.9.0 \
     # via
     #   langsmith
     #   openai
-fastapi==0.143.5 \
-    --hash=sha256:09cc38ed8c6a95f407783ef4d98ceeb350e192fe8fbb8ed711070bcd5208fdfa \
-    --hash=sha256:0b5c8e52d243cd2f015376b41e78db5bee585578782481abd145e1ab5a62a3ba
+fastapi==0.162.0 \
+    --hash=sha256:3785963de305dd09912426cb81f2d230fce98ab3521cdfe97265c8d14983128c \
+    --hash=sha256:6a22c1e2e6e32e0633ee7e170f00009a29b8228b16feb219ee42f32fd8d88a8f
     # via -r requirements.in
 googleapis-common-protos==1.75.0 \
     --hash=sha256:53a062ff3c32552fbd62c11fe23768b78e4ddf0494d5e5fd97d3f4689c75fbbd \
@@ -557,9 +557,9 @@ langchain-protocol==0.0.18 \
     # via
     #   langchain-core
     #   langgraph-sdk
-langgraph==1.2.16 \
-    --hash=sha256:aeceb1bc49488409f12b02f1e51881099391d9e85bcfd78e1dbead71831c41b5 \
-    --hash=sha256:e4dd63480bfd3ee14a6ab80ecf1311698780519693d8e3b67a28f3486e69e1f7
+langgraph==1.2.17 \
+    --hash=sha256:311516e313abd5424596d6c5250507c89be2e1973cbe813061696728803b0e10 \
+    --hash=sha256:e022a9fea64631fed946557a23f3fa5ac2ff38c72dcb999f426fc77d55ccde60
     # via -r requirements.in
 langgraph-checkpoint==4.3.0 \
     --hash=sha256:bedfafe2f997ded60e4fa593e79f56f436a6e45586392dc382aa810d0c751c64 \
@@ -791,7 +791,7 @@ protobuf==7.35.1 \
     # via
     #   googleapis-common-protos
     #   opentelemetry-proto
-psycopg==3.3.6 \
+psycopg[binary]==3.3.6 \
     --hash=sha256:a1db9f7148b06a28606767efaca51fa6f9398c5c0a3810519be69d7000bdb631 \
     --hash=sha256:c081f2250df751a943036e42db6df4571c66cd0aabe8291a7a506512b12007d2
     # via -r requirements.in
@@ -1018,7 +1018,7 @@ pydantic-core==2.50.1 \
     --hash=sha256:f77ac30b19221cd9bd3fcfa3d4614eff93140d0572ab730cded17b64adca05f3 \
     --hash=sha256:fe90228920fd8ff2be62622b6bb8a2b11acd65046d50c6b130614b5879605a20
     # via pydantic
-pyjwt==2.15.1 \
+pyjwt[crypto]==2.15.1 \
     --hash=sha256:42d59d631f7768a1028a64c7ff581a9bf7519804daf91fc5b6c56e30eec5e193 \
     --hash=sha256:4f259e80cdfb6b3fc18a7de51fd1ef9ec79652f25019bae68975ca2468a34df8
     # via mcp
@@ -1410,7 +1410,7 @@ uuid-utils==0.17.0 \
     # via
     #   langchain-core
     #   langsmith
-uvicorn==0.54.0 \
+uvicorn[standard]==0.54.0 \
     --hash=sha256:505bdb0f318731d45f1f712071fc781a8981f6847a31c902c9f5e652d4f67faf \
     --hash=sha256:a2e33cbfaa0306f8e6b0c13e0cb89d7d7a2da3e62b90c66e18c33d9807b28620
     # via
@@ -2004,9 +2004,9 @@ youtube-transcript-api==1.2.4 \
     --hash=sha256:03878759356da5caf5edac77431780b91448fb3d8c21d4496015bdc8a7bc43ff \
     --hash=sha256:b72d0e96a335df599d67cee51d49e143cff4f45b84bcafc202ff51291603ddcd
     # via -r requirements.in
-yt-dlp==2026.8.19 \
-    --hash=sha256:1d57897e94c6665a0a6f9bc54b34e584284e32c034ffab3a7df25d8f7b24eedf \
-    --hash=sha256:9e213e48cea35c66b378e4447903f118f6392a5fa380a2b6d7070ec86f4e0af1
+yt-dlp==2026.10.21 \
+    --hash=sha256:94a3a3e2c423129d0bbd2f1be000c4171fa1226c29e251c84aff868f2851c247 \
+    --hash=sha256:cbf748d7d17cd37647c4b9f07b6c25f24384bfd4361407ee5ec519e753d22539
     # via -r requirements.in
 yt-dlp-ejs==0.8.0 \
     --hash=sha256:79300e5fca7f937a1eeede11f0456862c1b41107ce1d726871e0207424f4bdb4 \
